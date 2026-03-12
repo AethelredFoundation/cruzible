@@ -95,7 +95,7 @@ const VALIDATOR_NAMES = [
 
 const TX_TYPES = ['Transfer', 'Stake', 'Unstake', 'DeployContract', 'SubmitAIJob', 'Vote', 'ClaimRewards'] as const;
 
-const AI_MODELS = ['GPT-4 Turbo', 'Llama 3 70B', 'Gemini Ultra', 'Mistral Large', 'Command R+'] as const;
+const AI_MODELS = ['GPT-4 Turbo', 'Claude 4.5 Opus', 'Llama 3 70B', 'Gemini Ultra', 'Mistral Large'] as const;
 
 const JOB_STATUSES = ['Verified', 'Processing', 'Failed'] as const;
 
