@@ -1,0 +1,50 @@
+#!/bin/sh
+# Pre-commit hook for Cruzible
+# Runs linting and tests before allowing commits
+
+echo "🔍 Running pre-commit checks..."
+
+# Stash unstaged changes
+git stash -q --keep-index
+
+# Run linting
+echo "📋 Running ESLint..."
+npm run lint
+if [ $? -ne 0 ]; then
+    echo "❌ ESLint failed. Fix errors before committing."
+    git stash pop -q
+    exit 1
+fi
+
+# Run formatting check
+echo "🎨 Checking formatting..."
+npm run format:check
+if [ $? -ne 0 ]; then
+    echo "❌ Formatting check failed. Run 'npm run format' to fix."
+    git stash pop -q
+    exit 1
+fi
+
+# Run type checking
+echo "🔎 Running TypeScript check..."
+npm run type-check
+if [ $? -ne 0 ]; then
+    echo "❌ TypeScript check failed. Fix type errors before committing."
+    git stash pop -q
+    exit 1
+fi
+
+# Run unit tests (only affected files)
+echo "🧪 Running unit tests..."
+npm run test:changed
+if [ $? -ne 0 ]; then
+    echo "❌ Unit tests failed. Fix tests before committing."
+    git stash pop -q
+    exit 1
+fi
+
+# Restore unstaged changes
+git stash pop -q
+
+echo "✅ All pre-commit checks passed!"
+exit 0

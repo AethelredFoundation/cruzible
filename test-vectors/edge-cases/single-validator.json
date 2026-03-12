@@ -1,0 +1,40 @@
+{
+  "name": "single-validator",
+  "description": "Edge case: single validator in the active set (minimum viable committee)",
+  "input": {
+    "epoch": 1,
+    "validators": [
+      {
+        "address": "0x1111111111111111111111111111111111111111",
+        "stake": "32000000000000000000",
+        "performance_score": 9500,
+        "decentralization_score": 8000,
+        "reputation_score": 9200,
+        "composite_score": 8900,
+        "tee_public_key": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commission_bps": 500,
+        "rank": 1
+      }
+    ],
+    "config": {
+      "performance_weight": 0.4,
+      "decentralization_weight": 0.3,
+      "reputation_weight": 0.3,
+      "min_uptime_pct": 95.0,
+      "max_commission_bps": 1000,
+      "max_per_region": 0,
+      "max_per_operator": 3,
+      "min_stake": "32000000000000000000"
+    },
+    "eligible_addresses": [
+      "0x1111111111111111111111111111111111111111"
+    ]
+  },
+  "expected": {
+    "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes",
+    "validator_set_hash": null,
+    "policy_hash": null,
+    "universe_hash": null,
+    "payload_hex": null
+  }
+}

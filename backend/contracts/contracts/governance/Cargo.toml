@@ -1,0 +1,24 @@
+[package]
+name = "governance"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+library = []
+
+[dependencies]
+cosmwasm-std = { workspace = true, features = ["staking"] }
+cosmwasm-storage = { workspace = true }
+cosmwasm-schema = { workspace = true }
+cw-storage-plus = { workspace = true }
+cw2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+thiserror = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+cosmwasm-schema = { workspace = true }

@@ -1,0 +1,35 @@
+{
+  "name": "empty-tee-key",
+  "description": "Edge case: validator with empty TEE public key (should hash as 32 zero bytes)",
+  "input": {
+    "epoch": 5,
+    "validators": [
+      {
+        "address": "0x1111111111111111111111111111111111111111",
+        "stake": "32000000000000000000",
+        "performance_score": 9500,
+        "decentralization_score": 8000,
+        "reputation_score": 9200,
+        "composite_score": 8900,
+        "tee_public_key": "",
+        "commission_bps": 500,
+        "rank": 1
+      },
+      {
+        "address": "0x2222222222222222222222222222222222222222",
+        "stake": "64000000000000000000",
+        "performance_score": 8600,
+        "decentralization_score": 7600,
+        "reputation_score": 9000,
+        "composite_score": 8450,
+        "tee_public_key": "0x00",
+        "commission_bps": 450,
+        "rank": 2
+      }
+    ]
+  },
+  "expected": {
+    "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes",
+    "validator_set_hash": null
+  }
+}

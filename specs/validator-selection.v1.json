@@ -1,0 +1,29 @@
+{
+  "version": "v1",
+  "name": "validator-selection-attestation",
+  "domain": "CruzibleValidatorSet-v1",
+  "payload_encoding": "abi.encodePacked(bytes32 canonicalHash, bytes32 policyHash, bytes32 universeHash)",
+  "payload_size_bytes": 96,
+  "hashes": {
+    "canonical_hash": "sha256",
+    "policy_hash": "sha256",
+    "universe_hash": "sha256"
+  },
+  "fields": [
+    {
+      "name": "canonical_hash",
+      "type": "bytes32",
+      "description": "SHA-256 over the selected validator set using the canonical field order defined by the Rust/Go/Solidity implementations."
+    },
+    {
+      "name": "policy_hash",
+      "type": "bytes32",
+      "description": "SHA-256 over the selection policy weights and thresholds."
+    },
+    {
+      "name": "universe_hash",
+      "type": "bytes32",
+      "description": "SHA-256 over the sorted eligible validator address universe with null separators."
+    }
+  ]
+}

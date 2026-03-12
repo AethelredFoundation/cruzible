@@ -1,0 +1,51 @@
+{
+  "name": "default-validator-selection",
+  "input": {
+    "epoch": 7,
+    "validators": [
+      {
+        "address": "0x1111111111111111111111111111111111111111",
+        "stake": "32000000000000000000",
+        "performance_score": 9100,
+        "decentralization_score": 7300,
+        "reputation_score": 8800,
+        "composite_score": 8430,
+        "tee_public_key": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commission_bps": 300,
+        "rank": 1
+      },
+      {
+        "address": "0x2222222222222222222222222222222222222222",
+        "stake": "64000000000000000000",
+        "performance_score": 8600,
+        "decentralization_score": 7600,
+        "reputation_score": 9000,
+        "composite_score": 8450,
+        "tee_public_key": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "commission_bps": 450,
+        "rank": 2
+      }
+    ],
+    "config": {
+      "performance_weight": 0.4,
+      "decentralization_weight": 0.3,
+      "reputation_weight": 0.3,
+      "min_uptime_pct": 95.0,
+      "max_commission_bps": 1000,
+      "max_per_region": 0,
+      "max_per_operator": 3,
+      "min_stake": "32000000000000000000"
+    },
+    "eligible_addresses": [
+      "0x2222222222222222222222222222222222222222",
+      "0x1111111111111111111111111111111111111111",
+      "0x3333333333333333333333333333333333333333"
+    ]
+  },
+  "expected": {
+    "validator_set_hash": "0x220f008a9d4a4a2462d06190b451e07e8794d4959eec27ca2ab1ecd58bf8016e",
+    "policy_hash": "0x3e9774a05f0c468ae446625968e7962aa283f2c952a51e2d57e7dea42511fc42",
+    "universe_hash": "0x943404e37eb0d797c384a8dc956736e0a946cc33d06b324e3f233953365774e7",
+    "payload_hex": "0x220f008a9d4a4a2462d06190b451e07e8794d4959eec27ca2ab1ecd58bf8016e3e9774a05f0c468ae446625968e7962aa283f2c952a51e2d57e7dea42511fc42943404e37eb0d797c384a8dc956736e0a946cc33d06b324e3f233953365774e7"
+  }
+}

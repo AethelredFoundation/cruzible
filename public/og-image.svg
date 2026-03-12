@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0F172A"/>
+  <rect x="0" y="0" width="1200" height="4" fill="#1e1b5e"/>
+  <!-- Background glow -->
+  <circle cx="600" cy="280" r="200" fill="#1e1b5e" opacity="0.1"/>
+  <circle cx="600" cy="280" r="120" fill="#1e1b5e" opacity="0.15"/>
+  <!-- Logo squircle -->
+  <rect x="560" y="180" width="80" height="80" rx="18" ry="18" fill="#1e1b5e"/>
+  <!-- White C inside logo -->
+  <g transform="translate(568,188) scale(0.64)">
+    <path d="M 62 83 L 25 79 L 25 21 L 68 21 L 46 48" stroke="white" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+  <!-- App name -->
+  <text x="600" y="310" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="52" font-weight="800" fill="white" letter-spacing="8">CRUZIBLE</text>
+  <!-- Subtitle -->
+  <text x="600" y="355" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="20" fill="#94A3B8">Liquid Staking Protocol for the Aethelred Blockchain</text>
+  <!-- Stats bar -->
+  <rect x="250" y="410" width="700" height="1" fill="#334155"/>
+  <text x="350" y="460" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#64748B">TVL</text>
+  <text x="350" y="490" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="white">142.57M</text>
+  <text x="600" y="460" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#64748B">APY</text>
+  <text x="600" y="490" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#10B981">8.42%</text>
+  <text x="850" y="460" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#64748B">VALIDATORS</text>
+  <text x="850" y="490" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="white">156</text>
+  <!-- Bottom bar -->
+  <rect x="0" y="626" width="1200" height="4" fill="#1e1b5e"/>
+</svg>

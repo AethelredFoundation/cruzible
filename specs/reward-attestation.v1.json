@@ -1,0 +1,45 @@
+{
+  "version": "v1",
+  "name": "reward-attestation",
+  "domain": "CruzibleStakeSnapshot-v1",
+  "payload_encoding": "abi.encode(uint256 epoch, uint256 totalRewards, bytes32 merkleRoot, uint256 protocolFee, bytes32 stakeSnapshotHash, bytes32 validatorSetHash, bytes32 stakerRegistryRoot, bytes32 delegationRegistryRoot)",
+  "payload_size_bytes": 256,
+  "hashes": {
+    "stake_snapshot_hash": "sha256",
+    "validator_set_hash": "sha256"
+  },
+  "fields": [
+    {
+      "name": "epoch",
+      "type": "uint256"
+    },
+    {
+      "name": "total_rewards",
+      "type": "uint256"
+    },
+    {
+      "name": "merkle_root",
+      "type": "bytes32"
+    },
+    {
+      "name": "protocol_fee",
+      "type": "uint256"
+    },
+    {
+      "name": "stake_snapshot_hash",
+      "type": "bytes32"
+    },
+    {
+      "name": "validator_set_hash",
+      "type": "bytes32"
+    },
+    {
+      "name": "staker_registry_root",
+      "type": "bytes32"
+    },
+    {
+      "name": "delegation_registry_root",
+      "type": "bytes32"
+    }
+  ]
+}

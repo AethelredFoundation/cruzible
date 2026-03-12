@@ -1,0 +1,55 @@
+{
+  "name": "special-addresses",
+  "description": "Edge case: addresses with leading zeros, all-zero address, address 0x01, to test padding logic",
+  "input": {
+    "epoch": 10,
+    "staker_stakes": [
+      {
+        "address": "0x0000000000000000000000000000000000000000",
+        "shares": "1000",
+        "delegated_to": "0x1111111111111111111111111111111111111111"
+      },
+      {
+        "address": "0x0000000000000000000000000000000000000001",
+        "shares": "2000",
+        "delegated_to": "0x2222222222222222222222222222222222222222"
+      },
+      {
+        "address": "0x00000000000000000000000000000000deadbeef",
+        "shares": "3000",
+        "delegated_to": "0x0000000000000000000000000000000000000000"
+      }
+    ],
+    "validators": [
+      {
+        "address": "0x0000000000000000000000000000000000000000",
+        "stake": "32000000000000000000",
+        "performance_score": 9000,
+        "decentralization_score": 7500,
+        "reputation_score": 8500,
+        "composite_score": 8350,
+        "tee_public_key": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "commission_bps": 200,
+        "rank": 1
+      },
+      {
+        "address": "0x0000000000000000000000000000000000000001",
+        "stake": "50000000000000000000",
+        "performance_score": 8800,
+        "decentralization_score": 7200,
+        "reputation_score": 9100,
+        "composite_score": 8370,
+        "tee_public_key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "commission_bps": 350,
+        "rank": 2
+      }
+    ]
+  },
+  "expected": {
+    "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes",
+    "validator_set_hash": null,
+    "stake_snapshot_hash": null,
+    "staker_registry_root": null,
+    "delegation_registry_root": null
+  }
+}

@@ -1,0 +1,384 @@
+# Aethelred Cruzible - Comprehensive CI/CD Pipeline
+# Fixes: CI/CD missing issue (High Priority)
+
+name: Cruzible CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '20'
+  RUST_VERSION: '1.75'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # =============================================================================
+  # SECURITY SCANNING
+  # =============================================================================
+  security-scan:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node.js security scan
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+      # Rust security scan
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Audit Rust dependencies
+        working-directory: ./backend/contracts
+        run: cargo audit
+        continue-on-error: true
+
+      # CodeQL Analysis
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, typescript, rust
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # =============================================================================
+  # LINT & FORMAT
+  # =============================================================================
+  lint-format:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node.js setup
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ESLint
+      - name: Run ESLint
+        run: npm run lint
+
+      # Prettier
+      - name: Check formatting
+        run: npm run format:check
+
+      # Rust setup
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      # Rustfmt
+      - name: Check Rust formatting
+        working-directory: ./backend/contracts
+        run: cargo fmt -- --check
+
+      # Clippy
+      - name: Run Clippy
+        working-directory: ./backend/contracts
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # =============================================================================
+  # UNIT TESTS
+  # =============================================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-type: [frontend, backend, contracts]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Frontend Tests
+      - name: Setup Node.js (Frontend)
+        if: matrix.test-type == 'frontend'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies (Frontend)
+        if: matrix.test-type == 'frontend'
+        run: npm ci
+
+      - name: Run Frontend Tests with Coverage
+        if: matrix.test-type == 'frontend'
+        run: npm run test:ci
+
+      - name: Upload Frontend Coverage
+        if: matrix.test-type == 'frontend'
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+
+      # Backend Tests
+      - name: Setup Node.js (Backend)
+        if: matrix.test-type == 'backend'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies (Backend)
+        if: matrix.test-type == 'backend'
+        working-directory: ./backend/api
+        run: npm ci
+
+      - name: Run Backend Tests with Coverage
+        if: matrix.test-type == 'backend'
+        working-directory: ./backend/api
+        run: npm run test:ci
+
+      - name: Upload Backend Coverage
+        if: matrix.test-type == 'backend'
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./backend/api/coverage/lcov.info
+          flags: backend
+          name: backend-coverage
+
+      # Smart Contract Tests
+      - name: Install Rust (Contracts)
+        if: matrix.test-type == 'contracts'
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Run Contract Tests
+        if: matrix.test-type == 'contracts'
+        working-directory: ./backend/contracts
+        run: cargo test --all --verbose
+
+      - name: Generate Contract Coverage
+        if: matrix.test-type == 'contracts'
+        working-directory: ./backend/contracts
+        run: |
+          cargo install cargo-tarpaulin
+          cargo tarpaulin --all --out Xml
+
+      - name: Upload Contract Coverage
+        if: matrix.test-type == 'contracts'
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./backend/contracts/cobertura.xml
+          flags: contracts
+          name: contract-coverage
+
+  # =============================================================================
+  # INTEGRATION TESTS
+  # =============================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: aethelred_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run API Integration Tests
+        working-directory: ./backend/api
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/aethelred_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+        run: npm run test:integration
+
+  # =============================================================================
+  # E2E TESTS
+  # =============================================================================
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+
+      - name: Upload E2E results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+  # =============================================================================
+  # BUILD & PUSH
+  # =============================================================================
+  build-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: [security-scan, lint-format, unit-tests, integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build and push frontend
+      - name: Build Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build and push API
+      - name: Build API
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/api
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build and push contracts
+      - name: Build Contracts
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/contracts
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/contracts:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/contracts:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # =============================================================================
+  # DEPLOY STAGING
+  # =============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-push, e2e-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://staging.aethelred.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Staging
+        run: |
+          echo "Deploying to staging environment..."
+          # Add actual deployment commands here
+          # kubectl apply -f k8s/staging/
+
+  # =============================================================================
+  # DEPLOY PRODUCTION
+  # =============================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://aethelred.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Production
+        run: |
+          echo "Deploying to production environment..."
+          # Add actual deployment commands here
+          # kubectl apply -f k8s/production/
+
+      - name: Notify on Success
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ Production deployment successful!"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

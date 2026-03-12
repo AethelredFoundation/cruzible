@@ -1,0 +1,14 @@
+{
+  "name": "max-validators",
+  "description": "Edge case: maximum committee size of 200 validators to test hash chain scalability",
+  "input": {
+    "epoch": 42,
+    "validator_count": 200,
+    "_generator": "Validators are deterministically generated: address=0x{i:040x}, stake=32e18+i*1e18, scores=9000+(i%1000)/7000+(i%3000)/8000+(i%2000)/8000+(i%2000), tee_key=0x{i:064x}, commission=100+(i%900), rank=i+1",
+    "validators": "_GENERATE_WITH_SCRIPT"
+  },
+  "expected": {
+    "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes and validator array",
+    "validator_set_hash": null
+  }
+}

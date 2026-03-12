@@ -1,0 +1,25 @@
+{
+  "name": "zero-stake",
+  "description": "Edge case: staker with 0 shares should be excluded from registry root XOR accumulation",
+  "input": {
+    "epoch": 3,
+    "staker_stakes": [
+      {
+        "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "shares": "0",
+        "delegated_to": "0x1111111111111111111111111111111111111111"
+      },
+      {
+        "address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "shares": "5000",
+        "delegated_to": "0x2222222222222222222222222222222222222222"
+      }
+    ]
+  },
+  "expected": {
+    "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes",
+    "stake_snapshot_hash": null,
+    "staker_registry_root": null,
+    "delegation_registry_root": null
+  }
+}

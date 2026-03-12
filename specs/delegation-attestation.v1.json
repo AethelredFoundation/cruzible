@@ -1,0 +1,20 @@
+{
+  "version": "v1",
+  "name": "delegation-attestation",
+  "payload_encoding": "abi.encode(uint256 epoch, bytes32 delegationRoot, bytes32 stakerRegistryRoot)",
+  "payload_size_bytes": 96,
+  "fields": [
+    {
+      "name": "epoch",
+      "type": "uint256"
+    },
+    {
+      "name": "delegation_root",
+      "type": "bytes32"
+    },
+    {
+      "name": "staker_registry_root",
+      "type": "bytes32"
+    }
+  ]
+}

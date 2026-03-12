@@ -1,0 +1,785 @@
+// Aethelred API Database Schema
+// High-performance indexing database for blockchain data
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ BLOCKS ============
+
+model Block {
+  id              String   @id @default(uuid())
+  height          BigInt   @unique
+  hash            String   @unique @db.VarChar(66)
+  parentHash      String   @db.VarChar(66)
+  timestamp       DateTime
+  proposer        String   @db.VarChar(50)
+  txCount         Int      @default(0)
+  gasUsed         BigInt   @default(0)
+  gasLimit        BigInt   @default(0)
+  size            Int
+  appHash         String   @db.VarChar(66)
+  stateRoot       String?  @db.VarChar(66)
+  txRoot          String?  @db.VarChar(66)
+  evidenceRoot    String?  @db.VarChar(66)
+  validatorsHash  String?  @db.VarChar(66)
+
+  transactions    Transaction[]
+  events          Event[]
+
+  createdAt       DateTime @default(now())
+
+  @@index([height])
+  @@index([timestamp])
+  @@index([proposer])
+}
+
+// ============ TRANSACTIONS ============
+
+model Transaction {
+  id            String   @id @default(uuid())
+  hash          String   @unique @db.VarChar(66)
+  height        BigInt
+  blockIndex    Int
+  status        TxStatus @default(PENDING)
+  gasUsed       BigInt   @default(0)
+  gasWanted     BigInt   @default(0)
+  gasPrice      String?  // Stored as string for precision
+  fee           String?  // Stored as string for precision
+  memo          String?
+  code          Int      @default(0)
+  log           String?
+  fromAddress   String?  @db.VarChar(50) // EVM sender
+  toAddress     String?  @db.VarChar(50) // EVM recipient
+
+  // Relations
+  block         Block    @relation(fields: [blockHeight], references: [height])
+  blockHeight   BigInt
+
+  messages      Message[]
+  events        Event[]
+
+  // Signers
+  signers       String[] // Array of addresses
+
+  createdAt     DateTime @default(now())
+
+  @@index([hash])
+  @@index([height])
+  @@index([status])
+  @@index([signers])
+  @@index([createdAt])
+  @@index([fromAddress])
+  @@index([toAddress])
+}
+
+enum TxStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model Message {
+  id              String   @id @default(uuid())
+  typeUrl         String   @db.VarChar(200)
+  
+  transaction     Transaction @relation(fields: [transactionId], references: [id])
+  transactionId   String
+  
+  // JSON payload
+  payload         Json
+  
+  // Message-specific fields (indexed)
+  sender          String?  @db.VarChar(50)
+  recipient       String?  @db.VarChar(50)
+  amount          String?  // For transfer messages
+  validator       String?  @db.VarChar(50) // For staking messages
+  
+  @@index([typeUrl])
+  @@index([sender])
+  @@index([recipient])
+  @@index([validator])
+}
+
+// ============ ACCOUNTS ============
+
+model Account {
+  id              String   @id @default(uuid())
+  address         String   @unique @db.VarChar(50)
+  
+  // Balances
+  balances        Balance[]
+  
+  // Staking
+  delegations     Delegation[]
+  unbondingDelegations UnbondingDelegation[]
+  
+  // AI Jobs
+  jobsCreated     AIJob[]  @relation("JobCreator")
+  jobsValidated   AIJob[]  @relation("JobValidator")
+  
+  // Activity
+  sequence        BigInt   @default(0)
+  txCount         BigInt   @default(0)
+  
+  firstSeenAt     DateTime
+  lastSeenAt      DateTime
+  
+  @@index([address])
+  @@index([lastSeenAt])
+}
+
+model Balance {
+  id          String   @id @default(uuid())
+  account     Account  @relation(fields: [accountId], references: [id])
+  accountId   String
+  denom       String   @db.VarChar(50)
+  amount      String   // Stored as string for precision
+  
+  @@unique([accountId, denom])
+  @@index([denom])
+}
+
+// ============ VALIDATORS ============
+
+model Validator {
+  id                  String   @id @default(uuid())
+  operatorAddress     String   @unique @db.VarChar(50)
+  consensusAddress    String?  @unique @db.VarChar(50)
+  
+  // Description
+  moniker             String   @db.VarChar(100)
+  identity            String?  @db.VarChar(50)
+  website             String?  @db.VarChar(100)
+  securityContact     String?  @db.VarChar(100)
+  details             String?
+  
+  // Staking
+  tokens              String   // Total stake
+  delegatorShares     String   
+  selfDelegation      String?
+  
+  // Commission
+  commissionRate      String
+  commissionMaxRate   String
+  commissionMaxChangeRate String
+  
+  // Status
+  status              ValidatorStatus @default(UNBONDED)
+  jailed              Boolean @default(false)
+  
+  // TEE
+  teeAttested         Boolean @default(false)
+  teeType             TEEType?
+  teeMeasurement      String?  @db.VarChar(64)
+  
+  // Performance
+  missedBlocks        BigInt   @default(0)
+  blocksProduced      BigInt   @default(0)
+  aiJobsCompleted     BigInt   @default(0)
+  aiJobsFailed        BigInt   @default(0)
+  uptime              Float    @default(0) // Percentage
+  
+  // Unbonding
+  unbondingHeight     BigInt?
+  unbondingTime       DateTime?
+  
+  // Relations
+  delegations         Delegation[]
+  commissions         Commission[]
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([status])
+  @@index([teeAttested])
+  @@index([tokens])
+}
+
+enum ValidatorStatus {
+  UNSPECIFIED
+  UNBONDED
+  UNBONDING
+  BONDED
+}
+
+model Delegation {
+  id              String    @id @default(uuid())
+  delegator       Account   @relation(fields: [delegatorId], references: [id])
+  delegatorId     String
+  validator       Validator @relation(fields: [validatorId], references: [id])
+  validatorId     String
+  shares          String
+  
+  @@unique([delegatorId, validatorId])
+}
+
+model UnbondingDelegation {
+  id              String   @id @default(uuid())
+  delegator       Account  @relation(fields: [delegatorId], references: [id])
+  delegatorId     String
+  validator       String   @db.VarChar(50)
+  amount          String
+  completionTime  DateTime
+  
+  @@index([delegatorId])
+  @@index([completionTime])
+}
+
+model Commission {
+  id          String   @id @default(uuid())
+  validator   Validator @relation(fields: [validatorId], references: [id])
+  validatorId String
+  amount      String
+  denom       String
+  timestamp   DateTime
+}
+
+// ============ AI JOBS ============
+
+model AIJob {
+  id                  String   @id @default(uuid())
+  status              JobStatus @default(PENDING)
+  
+  // Model & Input
+  modelHash           String   @db.VarChar(64)
+  inputHash           String   @db.VarChar(64)
+  outputHash          String?  @db.VarChar(64)
+  
+  // Participants
+  creator             Account  @relation("JobCreator", fields: [creatorId], references: [id])
+  creatorId           String
+  validator           Account? @relation("JobValidator", fields: [validatorId], references: [id])
+  validatorId         String?
+  
+  // Configuration
+  proofType           ProofType
+  priority            Int      @default(0)
+  maxCost             String
+  actualCost          String?
+  timeout             BigInt
+  
+  // Timing
+  createdAtBlock      BigInt
+  completedAtBlock    BigInt?
+  createdAt           DateTime @default(now())
+  completedAt         DateTime?
+  
+  // Results
+  verificationScore   Int?     // 0-10000 (represents 0.00-100.00%)
+  
+  // Relations
+  teeAttestation      TEEAttestation?
+  verificationProof   VerificationProof?
+  computeMetrics      ComputeMetrics?
+  
+  @@index([status])
+  @@index([modelHash])
+  @@index([creatorId])
+  @@index([validatorId])
+  @@index([createdAt])
+  @@index([priority])
+}
+
+enum JobStatus {
+  PENDING
+  ASSIGNED
+  COMPUTING
+  COMPLETED
+  VERIFIED
+  FAILED
+  EXPIRED
+  CANCELLED
+}
+
+enum ProofType {
+  TEE_ATTESTATION
+  ZK_PROOF
+  MPC_PROOF
+  OPTIMISTIC
+}
+
+model TEEAttestation {
+  id              String   @id @default(uuid())
+  job             AIJob    @relation(fields: [jobId], references: [id])
+  jobId           String   @unique
+  
+  teeType         TEEType
+  quoteVersion    Int
+  quote           Bytes
+  reportData      Bytes
+  measurement     String   @db.VarChar(64)
+  timestamp       DateTime
+  enclaveKey      Bytes
+}
+
+enum TEEType {
+  INTEL_SGX
+  INTEL_TDX
+  AMD_SEV_SNP
+  AWS_NITRO
+  AZURE_SEV_SNP
+}
+
+model VerificationProof {
+  id                  String   @id @default(uuid())
+  job                 AIJob    @relation(fields: [jobId], references: [id])
+  jobId               String   @unique
+  
+  proofType           ProofType
+  zkProof             Bytes?
+  mpcCommitment       String?  @db.VarChar(64)
+  challengeStart      BigInt?
+  merkleRoot          String?  @db.VarChar(64)
+  merklePath          String[]
+  merkleIndex         BigInt?
+  
+  validatorSignatures ValidatorSignature[]
+}
+
+model ValidatorSignature {
+  id              String            @id @default(uuid())
+  proof           VerificationProof @relation(fields: [proofId], references: [id])
+  proofId         String
+  validatorAddress String           @db.VarChar(50)
+  signature       Bytes
+  timestamp       DateTime
+}
+
+model ComputeMetrics {
+  id              String   @id @default(uuid())
+  job             AIJob    @relation(fields: [jobId], references: [id])
+  jobId           String   @unique
+  
+  cpuCycles       BigInt
+  memoryUsed      BigInt   // MB
+  computeTimeMs   BigInt
+  energyMj        BigInt   // millijoules
+}
+
+// ============ MODELS ============
+
+model Model {
+  id              String   @id @default(uuid())
+  modelHash       String   @unique @db.VarChar(64)
+  name            String   @db.VarChar(200)
+  owner           String   @db.VarChar(50)
+  
+  // Model info
+  architecture    String   @db.VarChar(50)
+  version         String   @db.VarChar(20)
+  category        ModelCategory
+  
+  // Schemas
+  inputSchema     String
+  outputSchema    String
+  
+  // Storage
+  storageUri      String
+  sizeBytes       BigInt?
+  
+  // Status
+  verified        Boolean  @default(false)
+  totalJobs       BigInt   @default(0)
+  
+  registeredAt    DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([category])
+  @@index([verified])
+  @@index([owner])
+}
+
+enum ModelCategory {
+  GENERAL
+  MEDICAL
+  SCIENTIFIC
+  FINANCIAL
+  LEGAL
+  EDUCATIONAL
+  ENVIRONMENTAL
+}
+
+// ============ SEALS ============
+
+model Seal {
+  id                  String      @id @default(uuid())
+  status              SealStatus  @default(ACTIVE)
+  
+  // Commitments
+  jobId               String      @db.VarChar(64)
+  modelCommitment     String      @db.VarChar(64)
+  inputCommitment     String      @db.VarChar(64)
+  outputCommitment    String      @db.VarChar(64)
+  
+  // Participants
+  requester           String      @db.VarChar(50)
+  validators          String[]    // Array of validator addresses
+  
+  // Timing
+  createdAt           DateTime    @default(now())
+  expiresAt           DateTime?
+  revokedAt           DateTime?
+  
+  // Revocation
+  revokedBy           String?     @db.VarChar(50)
+  revocationReason    String?
+  
+  @@index([status])
+  @@index([jobId])
+  @@index([requester])
+  @@index([expiresAt])
+}
+
+enum SealStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+  SUPERSEDED
+}
+
+// ============ GOVERNANCE ============
+
+model Proposal {
+  id                  String          @id @default(uuid())
+  proposalId          BigInt          @unique
+  title               String          @db.VarChar(500)
+  description         String
+  status              ProposalStatus
+  category            ProposalCategory
+  
+  // Proposer
+  proposer            String          @db.VarChar(50)
+  proposerAddress     String          @db.VarChar(50)
+  
+  // Voting
+  votesFor            String          // Amount
+  votesAgainst        String
+  votesAbstain        String
+  turnout             Float           // Percentage
+  quorumPct           Float           // Percentage
+  
+  // Timing
+  submitTime          DateTime
+  depositEndTime      DateTime
+  votingStartTime     DateTime?
+  votingEndTime       DateTime?
+  
+  // Deposit
+  totalDeposit        String
+  
+  // Relations
+  votes               Vote[]
+  deposits            ProposalDeposit[]
+  
+  @@index([status])
+  @@index([category])
+  @@index([submitTime])
+}
+
+enum ProposalStatus {
+  UNSPECIFIED
+  DEPOSIT_PERIOD
+  VOTING_PERIOD
+  PASSED
+  REJECTED
+  FAILED
+}
+
+enum ProposalCategory {
+  PARAMETER_CHANGE
+  COMMUNITY_SPEND
+  TEXT_PROPOSAL
+  SOFTWARE_UPGRADE
+}
+
+model Vote {
+  id            String   @id @default(uuid())
+  proposal      Proposal @relation(fields: [proposalId], references: [id])
+  proposalId    String
+  voter         String   @db.VarChar(50)
+  option        VoteOption
+  weight        Float    @default(1.0)
+  metadata      String?
+  timestamp     DateTime @default(now())
+  
+  @@unique([proposalId, voter])
+}
+
+enum VoteOption {
+  UNSPECIFIED
+  YES
+  ABSTAIN
+  NO
+  NO_WITH_VETO
+}
+
+model ProposalDeposit {
+  id            String   @id @default(uuid())
+  proposal      Proposal @relation(fields: [proposalId], references: [id])
+  proposalId    String
+  depositor     String   @db.VarChar(50)
+  amount        String
+  timestamp     DateTime @default(now())
+}
+
+// ============ VAULT (LIQUID STAKING) ============
+
+model VaultState {
+  id                  String   @id @default(uuid())
+  totalStaked         String   // Total AETHEL staked
+  totalShares         String   // Total stAETHEL shares
+  exchangeRate        String   // AETHEL per stAETHEL
+  currentApy          Float
+  totalStakers        BigInt   @default(0)
+  validatorsBacking   Int
+  unbondingPeriod     Int      // days
+
+  updatedAt           DateTime @updatedAt
+}
+
+model VaultStake {
+  id              String   @id @default(uuid())
+  delegator       String   @db.VarChar(50)
+  amount          String   // AETHEL amount
+  shares          String   // stAETHEL shares received
+  timestamp       DateTime @default(now())
+  txHash          String   @unique @db.VarChar(66)
+  blockNumber     BigInt?
+  logIndex        Int?
+
+  @@index([delegator])
+  @@index([blockNumber])
+  @@index([timestamp])
+}
+
+model VaultUnstake {
+  id                  String          @id @default(uuid())
+  withdrawalId        BigInt          @unique  // on-chain withdrawal identity
+  delegator           String          @db.VarChar(50)
+  shares              String          // stAETHEL shares burned
+  amount              String          // AETHEL to receive
+  startTime           DateTime        @default(now())
+  completionTime      DateTime
+  status              UnstakeStatus   @default(PENDING)
+  txHash              String          @db.VarChar(66)
+  claimTxHash         String?         @db.VarChar(66)
+  claimedAt           DateTime?
+  blockNumber         BigInt?
+  logIndex            Int?
+
+  @@index([delegator])
+  @@index([status])
+  @@index([blockNumber])
+  @@index([completionTime])
+  @@index([txHash])
+}
+
+enum UnstakeStatus {
+  PENDING
+  READY
+  CLAIMED
+}
+
+model VaultReward {
+  id              String   @id @default(uuid())
+  delegator       String   @db.VarChar(50)
+  amount          String
+  epoch           BigInt
+  timestamp       DateTime @default(now())
+  claimed         Boolean  @default(false)
+  claimedAt       DateTime?
+  txHash          String?  @db.VarChar(66)
+  blockNumber     BigInt?
+  logIndex        Int?
+
+  @@unique([delegator, epoch])
+  @@index([delegator])
+  @@index([blockNumber])
+  @@index([claimed])
+}
+
+// ============ VAULT WITHDRAWAL ============
+
+model VaultWithdrawal {
+  id              String   @id @default(uuid())
+  withdrawalId    BigInt   @unique  // on-chain withdrawal identity
+  delegator       String   @db.VarChar(50)
+  amount          String   // AETHEL amount withdrawn
+  timestamp       DateTime @default(now())
+  txHash          String   @db.VarChar(66)
+  blockNumber     BigInt?
+  logIndex        Int?
+
+  @@index([delegator])
+  @@index([blockNumber])
+  @@index([txHash])
+}
+
+// ============ StAETHEL TRANSFERS ============
+
+model StAethelTransfer {
+  id              String   @id @default(uuid())
+  from            String   @db.VarChar(50)
+  to              String   @db.VarChar(50)
+  amount          String
+  txHash          String   @db.VarChar(66)
+  blockNumber     BigInt
+  logIndex        Int
+  timestamp       DateTime
+
+  @@unique([txHash, logIndex])
+  @@index([from])
+  @@index([to])
+  @@index([blockNumber])
+  @@index([timestamp])
+}
+
+// ============ StAETHEL BALANCES ============
+
+model StAethelBalance {
+  id              String   @id @default(uuid())
+  holder          String   @unique @db.VarChar(50)
+  balance         String   // Current balance as string for precision
+  lastUpdatedAt   DateTime @updatedAt
+  lastTxHash      String?  @db.VarChar(66)
+  lastBlockNumber BigInt?
+
+  @@index([balance])
+}
+
+// ============ INDEXER CURSOR ============
+
+model IndexerCursor {
+  id              String   @id @default(uuid())
+  cursorKey       String   @unique @db.VarChar(100)
+  blockNumber     BigInt
+  blockHash       String   @db.VarChar(66)
+  timestamp       DateTime
+  updatedAt       DateTime @updatedAt
+
+  @@index([cursorKey])
+}
+
+// ============ REORG LOG ============
+
+model ReorgEvent {
+  id              String   @id @default(uuid())
+  detectedAt      DateTime @default(now())
+  fromBlock       BigInt
+  toBlock         BigInt
+  expectedHash    String   @db.VarChar(66)
+  actualHash      String   @db.VarChar(66)
+  depth           Int      // How many blocks were reorged
+  resolvedAt      DateTime?
+
+  @@index([detectedAt])
+  @@index([fromBlock])
+}
+
+// ============ EVENTS ============
+
+model Event {
+  id              String   @id @default(uuid())
+  type            String   @db.VarChar(100)
+  
+  // Source
+  block           Block?   @relation(fields: [blockHeight], references: [height])
+  blockHeight     BigInt?
+  transaction     Transaction? @relation(fields: [transactionId], references: [id])
+  transactionId   String?
+  
+  // Attributes
+  attributes      Json
+  
+  // Indexed attributes (common)
+  sender          String?  @db.VarChar(50)
+  recipient       String?  @db.VarChar(50)
+  amount          String?
+  
+  timestamp       DateTime
+  
+  @@index([type])
+  @@index([blockHeight])
+  @@index([transactionId])
+  @@index([sender])
+  @@index([recipient])
+  @@index([timestamp])
+}
+
+// ============ STABLECOIN BRIDGE ============
+
+model StablecoinConfig {
+  id                    String    @id @default(uuid())
+  assetId               String    @unique @db.VarChar(66) // bytes32 hex
+  symbol                String    @db.VarChar(20)
+  tokenAddress          String    @db.VarChar(42)
+  routingType           Int       // 0=Unsupported, 1=CCTP_V2, 2=TEE_ISSUER_MINT
+  cctpDomain            Int?
+  maxBridgeAmount       String    // BigInt stored as string for precision
+  dailyLimit            String
+  dailyUsed             String    @default("0")
+  lastResetTimestamp    DateTime?
+  circuitBreakerTripped Boolean   @default(false)
+  active                Boolean   @default(true)
+  blockNumber           BigInt    // Block at which config was last updated
+
+  updatedAt             DateTime  @updatedAt
+
+  @@index([assetId])
+  @@index([active])
+}
+
+model StablecoinBridgeEvent {
+  id            String    @id @default(uuid())
+  assetId       String    @db.VarChar(66)  // bytes32 hex
+  eventType     String    @db.VarChar(50)  // CCTPBurnInitiated, MintExecuted, etc.
+  sender        String    @db.VarChar(42)  // EVM address
+  amount        String                      // BigInt stored as string
+  destDomain    Int?                        // CCTP destination domain (nullable for non-CCTP events)
+  txHash        String    @db.VarChar(66)
+  blockNumber   BigInt
+  logIndex      Int
+  timestamp     DateTime
+  metadata      Json?                       // Event-specific extra fields
+
+  @@unique([txHash, logIndex])
+  @@index([assetId])
+  @@index([eventType])
+  @@index([sender])
+  @@index([blockNumber])
+  @@index([timestamp])
+}
+
+// ============ SYNC STATE ============
+
+model SyncState {
+  id              String   @id @default(uuid())
+  chainId         String   @unique
+  lastBlockHeight BigInt
+  lastBlockTime   DateTime
+  isSyncing       Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+}
+
+// ============ API KEYS & RATE LIMITING ============
+
+model ApiKey {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  name            String
+  owner           String   @db.VarChar(50)
+  permissions     String[] // Array of permission strings
+  
+  rateLimit       Int      @default(1000) // requests per minute
+  
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+}

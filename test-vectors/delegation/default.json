@@ -1,0 +1,11 @@
+{
+  "name": "default-delegation-payload",
+  "input": {
+    "epoch": 7,
+    "delegation_root": "0x6f458aa7de95452bfa9532412cfb20a8df4b454527fbb1eab6c051c0e25d163a",
+    "staker_registry_root": "0xed70b32f5b9136d0dc0df5851b2cab3b69c9f6c5be313c2a45e467311e58b9cc"
+  },
+  "expected": {
+    "payload_hex": "0x00000000000000000000000000000000000000000000000000000000000000076f458aa7de95452bfa9532412cfb20a8df4b454527fbb1eab6c051c0e25d163aed70b32f5b9136d0dc0df5851b2cab3b69c9f6c5be313c2a45e467311e58b9cc"
+  }
+}

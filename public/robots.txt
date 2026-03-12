@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vault.aethelred.org/sitemap.xml
