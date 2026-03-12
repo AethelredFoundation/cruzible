@@ -132,7 +132,7 @@ export default function DeveloperToolsDashboard() {
   }, [data]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-[#050810] text-slate-100">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -191,7 +191,7 @@ export default function DeveloperToolsDashboard() {
               {(data?.checks ?? []).map((check) => (
                 <div
                   key={check.name}
-                  className="rounded-xl border border-slate-800 bg-slate-950/70 p-4"
+                  className="rounded-xl border border-slate-800 bg-[#050810]/70 p-4"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
@@ -317,7 +317,7 @@ function Panel({
       </div>
       <ul className="space-y-2 text-sm text-slate-300">
         {items.map((item) => (
-          <li key={item} className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
+          <li key={item} className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-2">
             {item}
           </li>
         ))}
@@ -343,7 +343,7 @@ function ProtocolPanel({ preview }: { preview: ReturnType<typeof buildProtocolPr
       </div>
       <ul className="space-y-2 text-sm text-slate-300">
         {checks.map((item) => (
-          <li key={item} className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2 font-mono text-xs">
+          <li key={item} className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-2 font-mono text-xs">
             {item}
           </li>
         ))}
@@ -384,7 +384,7 @@ function LiveReconciliationPanel({
         </div>
         <button
           onClick={onRefresh}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs hover:border-cyan-400"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-[#050810] px-3 py-2 text-xs hover:border-cyan-400"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
           Refresh
@@ -392,7 +392,7 @@ function LiveReconciliationPanel({
       </div>
 
       {isLoading && !document ? (
-        <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-3 text-sm text-slate-300">
+        <div className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-3 text-sm text-slate-300">
           Loading live reconciliation snapshot...
         </div>
       ) : null}
@@ -418,7 +418,7 @@ function LiveReconciliationPanel({
             />
           </div>
 
-          <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-3">
+          <div className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-3">
             <div className="text-xs uppercase tracking-wide text-slate-400">Captured At</div>
             <div className="mt-1 font-mono text-xs text-slate-200">{document.captured_at}</div>
           </div>
@@ -431,7 +431,7 @@ function LiveReconciliationPanel({
           </div>
 
           {stakeMeta ? (
-            <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-3">
+            <div className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-3">
               <div className="mb-2 text-xs uppercase tracking-wide text-slate-400">
                 Stake Snapshot Status
               </div>
@@ -463,7 +463,7 @@ function LiveReconciliationPanel({
               </div>
               <ul className="space-y-2 text-xs text-amber-100">
                 {document.warnings?.map((warning) => (
-                  <li key={warning} className="rounded-md border border-amber-900/70 bg-slate-950/40 px-2 py-2">
+                  <li key={warning} className="rounded-md border border-amber-900/70 bg-[#050810]/40 px-2 py-2">
                     {warning}
                   </li>
                 ))}
@@ -482,7 +482,7 @@ function LiveReconciliationPanel({
 
 function MetricChip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-3">
+    <div className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-3">
       <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
       <div className="mt-1 text-sm font-semibold text-slate-100">{value}</div>
     </div>
@@ -491,7 +491,7 @@ function MetricChip({ label, value }: { label: string; value: string }) {
 
 function HashRow({ label, value }: { label: string; value?: string }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-3">
+    <div className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-3">
       <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
       <div className="mt-1 break-all font-mono text-[11px] text-slate-200">
         {value ?? 'n/a'}

@@ -26,7 +26,7 @@ function ErrorPage({ statusCode }: ErrorProps) {
       <Head>
         <title>{title} | Cruzible</title>
       </Head>
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-[#050810] flex items-center justify-center px-4">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-red-600/5 rounded-full blur-3xl" />
         </div>
