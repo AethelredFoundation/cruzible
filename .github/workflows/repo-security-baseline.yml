@@ -1,0 +1,82 @@
+name: Repo Security Baseline
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  repo-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print manifest and test inventory
+        run: |
+          set -euo pipefail
+          echo 'Go modules:'
+          find . -name go.mod -not -path '*/vendor/*' | sort || true
+          echo 'Cargo manifests:'
+          find . -name Cargo.toml -not -path '*/target/*' | sort || true
+          echo 'Node package manifests:'
+          find . -name package.json -not -path '*/node_modules/*' | sort || true
+          echo 'Python project manifests:'
+          find . \( -name pyproject.toml -o -name requirements.txt \) | sort || true
+          echo 'Test files (sample):'
+          find . \( -name '*_test.go' -o -name '*.test.ts' -o -name '*.spec.ts' -o -name 'test_*.py' \) | head -200 || true
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SBOM (CycloneDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.event.repository.name }}
+          path: sbom.cdx.json
+
+  quick-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.6'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.75.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run opportunistic test smoke checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Go (root module only)
+          if [[ -f go.mod ]]; then
+            go test ./... || true
+          fi
+          # Rust (root crate only)
+          if [[ -f Cargo.toml ]]; then
+            cargo test --lib || true
+          fi
+          # Node (root package only)
+          if [[ -f package.json ]]; then
+            npm install --no-fund --no-audit || true
+            npm test --if-present || true
+          fi
+          # Python (root project only)
+          if [[ -f pyproject.toml ]]; then
+            python -m pip install --upgrade pip || true
+            python -m pip install pytest || true
+            pytest -q || true
+          fi

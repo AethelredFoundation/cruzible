@@ -1,0 +1,20 @@
+name: Docs Hygiene
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  docs-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check docs for local workstation paths
+        run: |
+          set -euo pipefail
+          disallowed='(/Users/|C:\\Users\\|/home/[^/]+/)'
+          if rg -n "$disallowed" -g '*.md' .; then
+            echo 'Found local workstation path references in docs.' >&2
+            exit 1
+          fi

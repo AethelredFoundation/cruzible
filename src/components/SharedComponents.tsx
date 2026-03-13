@@ -1,9 +1,8 @@
 /**
- * SharedComponents — Premium UI primitives for Cruzible.
+ * SharedComponents — Shared UI primitives for the Aethelred Dashboard.
  *
- * Every component uses the premium dark + brand design language with
- * glass-morphism, gradient borders, CSS-only animations, and is fully
- * SSR-safe (no window access outside useEffect).
+ * Every component uses the dark-slate + brand-red design language, CSS-only
+ * animations, and is fully SSR-safe (no window access outside useEffect).
  */
 
 import React, {
@@ -14,7 +13,6 @@ import React, {
   useState,
 } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { WalletButton } from '@/components/WalletButton';
 import {
@@ -34,14 +32,6 @@ import {
   ArrowRight,
   Github,
   Twitter,
-  Globe,
-  MessageCircle,
-  Send,
-  Shield,
-  BookOpen,
-  Code,
-  Zap,
-  Menu,
 } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
 
@@ -59,69 +49,24 @@ function truncateAddress(addr: string, start = 10, end = 4): string {
 }
 
 // ============================================================================
-// CruzibleLogo — Reusable logo component using the actual logo image
-// ============================================================================
-
-interface CruzibleLogoProps {
-  size?: number;
-  showText?: boolean;
-  textSize?: string;
-}
-
-export function CruzibleLogo({ size = 36, showText = true, textSize = 'text-base' }: CruzibleLogoProps) {
-  return (
-    <div className="flex items-center gap-3">
-      <div
-        className="relative flex-shrink-0 rounded-xl overflow-hidden"
-        style={{ width: size, height: size }}
-      >
-        <Image
-          src="/cruzible-logo.png"
-          alt="Cruzible"
-          width={size}
-          height={size}
-          className="object-cover"
-          priority
-        />
-        {/* Subtle glow behind logo */}
-        <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-white/10" />
-      </div>
-      {showText && (
-        <span className={`${textSize} font-display font-bold tracking-[0.2em] text-white`}>
-          CRUZIBLE
-        </span>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
 // LiveDot
 // ============================================================================
 
 export interface LiveDotProps {
-  color?: 'green' | 'red' | 'yellow' | 'emerald';
+  color?: 'green' | 'red' | 'yellow';
   size?: 'sm' | 'md';
 }
 
 export function LiveDot({ color = 'green', size = 'sm' }: LiveDotProps) {
-  const colorMap: Record<string, string> = {
+  const colorMap = {
     green: 'bg-emerald-500',
-    emerald: 'bg-emerald-500',
     red: 'bg-red-500',
     yellow: 'bg-yellow-500',
   };
-  const ringMap: Record<string, string> = {
+  const ringMap = {
     green: 'bg-emerald-500/40',
-    emerald: 'bg-emerald-500/40',
     red: 'bg-red-500/40',
     yellow: 'bg-yellow-500/40',
-  };
-  const glowMap: Record<string, string> = {
-    green: 'shadow-[0_0_6px_rgba(16,185,129,0.4)]',
-    emerald: 'shadow-[0_0_6px_rgba(16,185,129,0.4)]',
-    red: 'shadow-[0_0_6px_rgba(239,68,68,0.4)]',
-    yellow: 'shadow-[0_0_6px_rgba(234,179,8,0.4)]',
   };
   const px = size === 'sm' ? 'h-2 w-2' : 'h-3 w-3';
   const ringPx = size === 'sm' ? 'h-4 w-4' : 'h-5 w-5';
@@ -132,7 +77,7 @@ export function LiveDot({ color = 'green', size = 'sm' }: LiveDotProps) {
         className={`absolute inline-flex rounded-full ${ringMap[color]} ${ringPx}`}
         style={{ animation: 'live-dot 2s ease-in-out infinite' }}
       />
-      <span className={`relative inline-flex rounded-full ${colorMap[color]} ${px} ${glowMap[color]}`} />
+      <span className={`relative inline-flex rounded-full ${colorMap[color]} ${px}`} />
     </span>
   );
 }
@@ -201,7 +146,7 @@ export function ProgressRing({
         r={radius}
         strokeWidth={strokeWidth}
         stroke="currentColor"
-        className="text-slate-800"
+        className="text-slate-700"
         fill="none"
       />
       <circle
@@ -214,7 +159,7 @@ export function ProgressRing({
         strokeLinecap="round"
         strokeDasharray={circumference}
         strokeDashoffset={offset}
-        style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.16,1,0.3,1)', filter: `drop-shadow(0 0 4px ${color}40)` }}
+        style={{ transition: 'stroke-dashoffset 0.8s ease-in-out' }}
       />
     </svg>
   );
@@ -256,6 +201,7 @@ export function AnimatedNumber({
     function tick(now: number) {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
+      // Ease-out cubic
       const eased = 1 - Math.pow(1 - progress, 3);
       setDisplayValue(startVal + (value - startVal) * eased);
 
@@ -286,7 +232,7 @@ export function AnimatedNumber({
 }
 
 // ============================================================================
-// Tabs (Premium)
+// Tabs
 // ============================================================================
 
 export interface TabItem {
@@ -303,15 +249,15 @@ export interface TabsProps {
 
 export function Tabs({ tabs, activeTab, onChange }: TabsProps) {
   return (
-    <div className="flex gap-1 rounded-xl bg-slate-900/60 backdrop-blur-sm border border-slate-800/50 p-1">
+    <div className="flex gap-1 rounded-lg bg-slate-800/50 p-1">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}
-          className={`relative flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-300 ${
+          className={`relative flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === tab.id
-              ? 'bg-slate-800/80 text-white shadow-sm shadow-black/20'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/30'
+              ? 'bg-slate-700 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white'
           }`}
         >
           {tab.label}
@@ -320,7 +266,7 @@ export function Tabs({ tabs, activeTab, onChange }: TabsProps) {
               className={`rounded-full px-1.5 py-0.5 text-xs ${
                 activeTab === tab.id
                   ? 'bg-brand-600/20 text-brand-400'
-                  : 'bg-slate-800 text-slate-500'
+                  : 'bg-slate-700 text-slate-500'
               }`}
             >
               {tab.count}
@@ -333,7 +279,7 @@ export function Tabs({ tabs, activeTab, onChange }: TabsProps) {
 }
 
 // ============================================================================
-// Modal (Premium)
+// Modal
 // ============================================================================
 
 export interface ModalProps {
@@ -368,6 +314,7 @@ export function Modal({
     }, 200);
   }, [onClose]);
 
+  // Escape key
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
@@ -377,6 +324,7 @@ export function Modal({
     return () => window.removeEventListener('keydown', handler);
   }, [isOpen, handleClose]);
 
+  // Prevent body scroll
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -390,8 +338,9 @@ export function Modal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      {/* Overlay */}
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-md"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         style={{
           animation: closing
             ? 'modal-overlay-out 0.2s ease-in forwards'
@@ -400,26 +349,29 @@ export function Modal({
         onClick={handleClose}
       />
 
+      {/* Content */}
       <div
         role="dialog"
         aria-modal="true"
-        className={`relative w-full ${MODAL_SIZES[size]} rounded-2xl border border-slate-700/30 bg-slate-900/95 backdrop-blur-xl shadow-premium-lg`}
+        className={`relative w-full ${MODAL_SIZES[size]} rounded-2xl border border-slate-700/50 bg-slate-900 shadow-2xl`}
         style={{
           animation: closing
             ? 'modal-content-out 0.2s ease-in forwards'
             : 'modal-content-in 0.25s ease-out forwards',
         }}
       >
-        <div className="flex items-center justify-between border-b border-slate-700/30 px-6 py-4">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-700/50 px-6 py-4">
           <h2 className="text-lg font-semibold text-white">{title}</h2>
           <button
             onClick={handleClose}
-            className="rounded-lg p-1.5 text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-white"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
           >
             <X size={18} />
           </button>
         </div>
 
+        {/* Body */}
         <div className="max-h-[70vh] overflow-y-auto px-6 py-4">{children}</div>
       </div>
     </div>
@@ -463,16 +415,16 @@ export function ConfirmDialog({
         <div className="flex justify-end gap-3 pt-2">
           <button
             onClick={onCancel}
-            className="btn-secondary"
+            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition-all duration-300 ${
+            className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
               variant === 'danger'
-                ? 'bg-red-600 hover:bg-red-700 shadow-[0_2px_8px_-2px_rgba(239,68,68,0.3)]'
-                : 'btn-primary'
+                ? 'bg-red-600 hover:bg-red-700'
+                : 'bg-brand-600 hover:bg-brand-700'
             }`}
           >
             {confirmText}
@@ -484,7 +436,7 @@ export function ConfirmDialog({
 }
 
 // ============================================================================
-// Drawer (Premium)
+// Drawer
 // ============================================================================
 
 export interface DrawerProps {
@@ -532,8 +484,9 @@ export function Drawer({
 
   return (
     <div role="dialog" aria-modal="true" className="fixed inset-0 z-[60] flex justify-end">
+      {/* Overlay */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-md"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         style={{
           animation: closing
             ? 'modal-overlay-out 0.25s ease-in forwards'
@@ -542,24 +495,27 @@ export function Drawer({
         onClick={handleClose}
       />
 
+      {/* Panel */}
       <div
-        className={`relative ${width} w-full border-l border-slate-700/30 bg-slate-900/98 backdrop-blur-xl`}
+        className={`relative ${width} w-full border-l border-slate-700/50 bg-slate-900`}
         style={{
           animation: closing
             ? 'drawer-out 0.25s ease-in forwards'
             : 'drawer-in 0.25s ease-out forwards',
         }}
       >
-        <div className="flex items-center justify-between border-b border-slate-700/30 px-6 py-4">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-700/50 px-6 py-4">
           <h2 className="text-lg font-semibold text-white">{title}</h2>
           <button
             onClick={handleClose}
-            className="rounded-lg p-1.5 text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-white"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
           >
             <X size={18} />
           </button>
         </div>
 
+        {/* Body */}
         <div className="h-[calc(100%-65px)] overflow-y-auto px-6 py-4">
           {children}
         </div>
@@ -569,7 +525,7 @@ export function Drawer({
 }
 
 // ============================================================================
-// ToastContainer (Premium)
+// ToastContainer
 // ============================================================================
 
 const TOAST_ICON: Record<string, React.ReactNode> = {
@@ -586,13 +542,6 @@ const TOAST_BORDER: Record<string, string> = {
   info: 'border-l-blue-500',
 };
 
-const TOAST_GLOW: Record<string, string> = {
-  success: 'shadow-[0_0_20px_-4px_rgba(16,185,129,0.15)]',
-  error: 'shadow-[0_0_20px_-4px_rgba(239,68,68,0.15)]',
-  warning: 'shadow-[0_0_20px_-4px_rgba(234,179,8,0.15)]',
-  info: 'shadow-[0_0_20px_-4px_rgba(59,130,246,0.15)]',
-};
-
 export function ToastContainer() {
   const { notifications, removeNotification } = useApp();
 
@@ -603,8 +552,8 @@ export function ToastContainer() {
       {notifications.map((n) => (
         <div
           key={n.id}
-          className={`w-80 rounded-xl border border-slate-700/30 border-l-4 ${TOAST_BORDER[n.type]} bg-slate-900/95 backdrop-blur-xl p-4 ${TOAST_GLOW[n.type]}`}
-          style={{ animation: 'toast-in 0.3s cubic-bezier(0.16,1,0.3,1) forwards' }}
+          className={`w-80 rounded-lg border border-slate-700/50 border-l-4 ${TOAST_BORDER[n.type]} bg-slate-900/95 p-4 shadow-xl backdrop-blur-sm`}
+          style={{ animation: 'toast-in 0.3s ease-out forwards' }}
         >
           <div className="flex items-start gap-3">
             <div className="mt-0.5 shrink-0">{TOAST_ICON[n.type]}</div>
@@ -626,10 +575,10 @@ export function ToastContainer() {
 }
 
 // ============================================================================
-// SearchOverlay (Premium)
+// SearchOverlay
 // ============================================================================
 
-interface SearchResultGroup {
+interface SearchResult {
   category: string;
   icon: React.ReactNode;
   items: { label: string; href: string }[];
@@ -646,11 +595,12 @@ const MOCK_VALIDATORS = [
   'Everstake',
 ];
 
-function buildSearchResults(query: string): SearchResultGroup[] {
+function buildSearchResults(query: string): SearchResult[] {
   if (!query.trim()) return [];
   const q = query.toLowerCase();
-  const results: SearchResultGroup[] = [];
+  const results: SearchResult[] = [];
 
+  // Blocks
   if (/^\d+$/.test(q) || q.startsWith('block') || q.startsWith('#')) {
     const blockNum = q.replace(/\D/g, '') || '2847391';
     results.push({
@@ -658,49 +608,72 @@ function buildSearchResults(query: string): SearchResultGroup[] {
       icon: <Blocks size={14} className="text-slate-500" />,
       items: [
         { label: `Block #${Number(blockNum).toLocaleString()}`, href: '/' },
-        { label: `Block #${(Number(blockNum) + 1).toLocaleString()}`, href: '/' },
+        {
+          label: `Block #${(Number(blockNum) + 1).toLocaleString()}`,
+          href: '/',
+        },
       ],
     });
   }
 
+  // Transactions
   if (q.startsWith('0x') || q.includes('tx')) {
     const hash = q.startsWith('0x') ? q : '0x' + q.replace(/\s/g, '');
     results.push({
       category: 'Transactions',
       icon: <ArrowRight size={14} className="text-slate-500" />,
       items: [
-        { label: `${hash.slice(0, 10)}...${hash.slice(-6).padEnd(6, '0')}`, href: '/' },
+        {
+          label: `${hash.slice(0, 10)}...${hash.slice(-6).padEnd(6, '0')}`,
+          href: '/',
+        },
       ],
     });
   }
 
-  const matchedValidators = MOCK_VALIDATORS.filter((v) => v.toLowerCase().includes(q));
+  // Validators
+  const matchedValidators = MOCK_VALIDATORS.filter((v) =>
+    v.toLowerCase().includes(q),
+  );
   if (matchedValidators.length > 0) {
     results.push({
       category: 'Validators',
       icon: <UserCheck size={14} className="text-slate-500" />,
-      items: matchedValidators.slice(0, 4).map((v) => ({ label: v, href: '/validators' })),
+      items: matchedValidators.slice(0, 4).map((v) => ({
+        label: v,
+        href: '/validators',
+      })),
     });
   }
 
+  // Addresses
   if (q.startsWith('aeth') || q.length > 8) {
     const addr = q.startsWith('aeth') ? q : `aeth1${q}`;
     results.push({
       category: 'Addresses',
       icon: <Wallet size={14} className="text-slate-500" />,
       items: [
-        { label: `${addr.slice(0, 12)}...${addr.slice(-6).padEnd(6, '0')}`, href: '/' },
+        {
+          label: `${addr.slice(0, 12)}...${addr.slice(-6).padEnd(6, '0')}`,
+          href: '/',
+        },
       ],
     });
   }
 
+  // Fallback: search everywhere
   if (results.length === 0) {
-    const matched = MOCK_VALIDATORS.filter((v) => v.toLowerCase().includes(q));
+    const matched = MOCK_VALIDATORS.filter((v) =>
+      v.toLowerCase().includes(q),
+    );
     if (matched.length > 0) {
       results.push({
         category: 'Validators',
         icon: <UserCheck size={14} className="text-slate-500" />,
-        items: matched.slice(0, 4).map((v) => ({ label: v, href: '/validators' })),
+        items: matched.slice(0, 4).map((v) => ({
+          label: v,
+          href: '/validators',
+        })),
       });
     }
   }
@@ -721,8 +694,13 @@ export function SearchOverlay() {
   ]);
 
   const results = useMemo(() => buildSearchResults(query), [query]);
-  const flatItems = useMemo(() => results.flatMap((r) => r.items), [results]);
 
+  // Flatten results for keyboard nav
+  const flatItems = useMemo(() => {
+    return results.flatMap((r) => r.items);
+  }, [results]);
+
+  // Focus input on open
   useEffect(() => {
     if (searchOpen) {
       setQuery('');
@@ -731,6 +709,7 @@ export function SearchOverlay() {
     }
   }, [searchOpen]);
 
+  // Keyboard nav
   useEffect(() => {
     if (!searchOpen) return;
     const handler = (e: KeyboardEvent) => {
@@ -751,9 +730,12 @@ export function SearchOverlay() {
     return () => window.removeEventListener('keydown', handler);
   }, [searchOpen, setSearchOpen, flatItems, activeIndex, router]);
 
+  // Prevent body scroll
   useEffect(() => {
     if (searchOpen) document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      document.body.style.overflow = '';
+    };
   }, [searchOpen]);
 
   if (!searchOpen) return null;
@@ -762,31 +744,38 @@ export function SearchOverlay() {
 
   return (
     <div role="search" aria-label="Site search" className="fixed inset-0 z-[80] flex items-start justify-center pt-[10vh]">
+      {/* Overlay */}
       <div
-        className="absolute inset-0 bg-black/75 backdrop-blur-md"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         style={{ animation: 'modal-overlay-in 0.15s ease-out forwards' }}
         onClick={() => setSearchOpen(false)}
       />
 
+      {/* Search panel */}
       <div
-        className="relative w-full max-w-2xl rounded-2xl border border-slate-700/30 bg-slate-900/95 backdrop-blur-xl shadow-premium-lg"
+        className="relative w-full max-w-2xl rounded-2xl border border-slate-700/50 bg-slate-900 shadow-2xl"
         style={{ animation: 'modal-content-in 0.2s ease-out forwards' }}
       >
-        <div className="flex items-center gap-3 border-b border-slate-700/30 px-5 py-4">
+        {/* Input */}
+        <div className="flex items-center gap-3 border-b border-slate-700/50 px-5 py-4">
           <Search size={20} className="text-slate-400" />
           <input
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setActiveIndex(0); }}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActiveIndex(0);
+            }}
             placeholder="Search blocks, transactions, validators, addresses..."
             className="flex-1 bg-transparent text-sm text-white placeholder-slate-500 outline-none"
           />
-          <kbd className="hidden rounded-md border border-slate-700/50 bg-slate-800/50 px-2 py-0.5 text-xs text-slate-500 sm:inline-block">
+          <kbd className="hidden rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs text-slate-500 sm:inline-block">
             ESC
           </kbd>
         </div>
 
+        {/* Results */}
         <div className="max-h-[60vh] overflow-y-auto p-2">
           {query.trim() && results.length > 0 ? (
             results.map((group) => (
@@ -801,15 +790,22 @@ export function SearchOverlay() {
                   return (
                     <button
                       key={`${group.category}-${item.label}`}
-                      onClick={() => { setSearchOpen(false); router.push(item.href); }}
-                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200 ${
+                      onClick={() => {
+                        setSearchOpen(false);
+                        router.push(item.href);
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
                         idx === activeIndex
-                          ? 'bg-slate-800/80 text-white'
-                          : 'text-slate-300 hover:bg-slate-800/40'
+                          ? 'bg-slate-800 text-white'
+                          : 'text-slate-300 hover:bg-slate-800/50'
                       }`}
                     >
-                      <span className="flex-1 truncate text-left font-mono text-sm">{item.label}</span>
-                      {idx === activeIndex && <ArrowRight size={14} className="text-slate-500" />}
+                      <span className="flex-1 truncate text-left font-mono text-sm">
+                        {item.label}
+                      </span>
+                      {idx === activeIndex && (
+                        <ArrowRight size={14} className="text-slate-500" />
+                      )}
                     </button>
                   );
                 })}
@@ -828,7 +824,7 @@ export function SearchOverlay() {
                 <button
                   key={s}
                   onClick={() => setQuery(s)}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-400 transition-all duration-200 hover:bg-slate-800/40 hover:text-white"
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-slate-800/50 hover:text-white"
                 >
                   <Clock size={14} className="text-slate-600" />
                   <span className="truncate">{s}</span>
@@ -838,19 +834,34 @@ export function SearchOverlay() {
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-700/30 px-5 py-3">
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-slate-700/50 px-5 py-3">
           <div className="flex gap-4 text-xs text-slate-600">
             <span>
-              <kbd className="mr-1 rounded-md border border-slate-700/50 bg-slate-800/50 px-1.5 py-0.5 text-slate-500">&uarr;&darr;</kbd>
+              <kbd className="mr-1 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-slate-500">
+                &uarr;&darr;
+              </kbd>
               Navigate
             </span>
             <span>
-              <kbd className="mr-1 rounded-md border border-slate-700/50 bg-slate-800/50 px-1.5 py-0.5 text-slate-500">&crarr;</kbd>
+              <kbd className="mr-1 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-slate-500">
+                &crarr;
+              </kbd>
               Select
+            </span>
+            <span>
+              <kbd className="mr-1 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-slate-500">
+                ESC
+              </kbd>
+              Close
             </span>
           </div>
           <p className="text-xs text-slate-600">
-            <kbd className="rounded-md border border-slate-700/50 bg-slate-800/50 px-1.5 py-0.5 text-slate-500">&#8984;K</kbd>
+            Press{' '}
+            <kbd className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-slate-500">
+              &#8984;K
+            </kbd>{' '}
+            to search
           </p>
         </div>
       </div>
@@ -859,7 +870,7 @@ export function SearchOverlay() {
 }
 
 // ============================================================================
-// TopNav (Premium with Cruzible Logo)
+// TopNav
 // ============================================================================
 
 export interface TopNavProps {
@@ -867,129 +878,125 @@ export interface TopNavProps {
 }
 
 const NAV_LINKS: { id: TopNavProps['activePage']; label: string; href: string }[] = [
-  { id: 'explorer', label: 'Explorer', href: '/' },
-  { id: 'vault', label: 'Vault', href: '/vault' },
-  { id: 'stablecoins', label: 'Stablecoins', href: '/stablecoins' },
-  { id: 'validators', label: 'Validators', href: '/validators' },
-  { id: 'governance', label: 'Governance', href: '/governance' },
+  { id: 'explorer', label: 'EXPLORER', href: '/' },
+  { id: 'vault', label: 'VAULT', href: '/vault' },
+  { id: 'stablecoins', label: 'STABLECOINS', href: '/stablecoins' },
+  { id: 'validators', label: 'VALIDATORS', href: '/validators' },
+  { id: 'governance', label: 'GOVERNANCE', href: '/governance' },
+  { id: 'reconciliation', label: 'RECONCILIATION', href: '/reconciliation' },
 ];
 
 export function TopNav({ activePage }: TopNavProps) {
   const { realTime, setSearchOpen } = useApp();
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <nav aria-label="Main navigation" className="sticky top-0 z-50 border-b border-slate-800/30 bg-[#050810]/90 backdrop-blur-2xl">
-      {/* Subtle top accent line */}
-      <div className="h-[1px] bg-gradient-to-r from-transparent via-brand-600/30 to-transparent" />
-
+    <nav aria-label="Main navigation" className="sticky top-0 z-50 border-b border-slate-800/50 bg-slate-950/95 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Left - Logo */}
-        <Link href="/" className="flex items-center gap-3 group">
-          <CruzibleLogo size={34} showText={true} textSize="text-sm" />
+        {/* Left — Logo */}
+        <Link href="/" className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1e1b5e] shadow-lg shadow-indigo-900/25 p-1.5">
+            <svg viewBox="0 0 100 100" className="w-full h-full">
+              <path d="M 62 83 L 25 79 L 25 21 L 68 21 L 46 48" stroke="white" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          </div>
+          <span className="hidden text-base font-bold tracking-[0.25em] text-white sm:inline-block">
+            CRUZIBLE
+          </span>
         </Link>
 
-        {/* Center - Nav links (desktop) */}
-        <div className="hidden items-center gap-0.5 md:flex">
+        {/* Center — Nav links */}
+        <div className="hidden items-center gap-1 md:flex">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.id}
               href={link.href}
-              className={`nav-link ${
+              className={`relative px-4 py-2 text-sm font-medium tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
                 activePage === link.id
-                  ? 'nav-link-active text-white'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'text-white'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               {link.label}
+              {activePage === link.id && (
+                <span className="absolute bottom-0 left-4 right-4 h-0.5 rounded-full bg-brand-600" />
+              )}
             </Link>
           ))}
         </div>
 
-        {/* Right - Status + Search + Wallet */}
-        <div className="flex items-center gap-2.5">
-          {/* Block height indicator */}
-          <div className="hidden items-center gap-2 rounded-xl border border-slate-800/50 bg-slate-900/30 px-3 py-1.5 lg:flex">
+        {/* Right — Status + Search + Wallet */}
+        <div className="flex items-center gap-3">
+          {/* Block height */}
+          <div className="hidden items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-1.5 lg:flex">
             <LiveDot color="green" size="sm" />
             <span className="text-xs font-medium tabular-nums text-slate-300">
-              #{formatNumber(realTime.blockHeight)}
+              Block #{formatNumber(realTime.blockHeight)}
             </span>
           </div>
 
-          {/* Search trigger */}
+          {/* Search */}
           <button
             onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-2 rounded-xl border border-slate-800/50 bg-slate-900/30 px-3 py-1.5 text-slate-400 transition-all duration-300 hover:border-slate-700/50 hover:text-white"
+            className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-1.5 text-slate-400 transition-colors hover:border-slate-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
           >
             <Search size={15} />
             <span className="hidden text-xs sm:inline-block">Search</span>
-            <kbd className="hidden rounded-md border border-slate-700/50 bg-slate-800/40 px-1.5 py-0.5 text-[10px] text-slate-500 sm:inline-block">
+            <kbd className="hidden rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500 sm:inline-block">
               &#8984;K
             </kbd>
           </button>
 
-          {/* Wallet */}
+          {/* Wallet — uses WalletButton for full wallet UX */}
           <WalletButton />
-
-          {/* Mobile menu toggle */}
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="rounded-lg p-2 text-slate-400 hover:text-white md:hidden"
-          >
-            <Menu size={20} />
-          </button>
         </div>
       </div>
 
       {/* Mobile nav */}
-      {mobileOpen && (
-        <div className="border-t border-slate-800/30 bg-[#050810]/98 backdrop-blur-xl md:hidden">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.id}
-              href={link.href}
-              onClick={() => setMobileOpen(false)}
-              className={`block px-6 py-3.5 text-sm font-medium transition-colors ${
-                activePage === link.id
-                  ? 'text-white bg-slate-800/30'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/20'
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </div>
-      )}
+      <div className="flex border-t border-slate-800/50 md:hidden">
+        {NAV_LINKS.map((link) => (
+          <Link
+            key={link.id}
+            href={link.href}
+            className={`flex-1 py-3 text-center text-xs font-medium tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
+              activePage === link.id
+                ? 'border-b-2 border-brand-600 text-white'
+                : 'text-slate-500'
+            }`}
+          >
+            {link.label}
+          </Link>
+        ))}
+      </div>
     </nav>
   );
 }
 
 // ============================================================================
-// Footer (Premium with Cruzible Logo)
+// Footer
 // ============================================================================
 
 const FOOTER_LINKS = {
-  Protocol: [
-    { label: 'Documentation', href: '#', icon: BookOpen },
-    { label: 'Whitepaper', href: '#', icon: Shield },
-    { label: 'GitHub', href: '#', icon: Code },
-    { label: 'Block Explorer', href: '#', icon: Globe },
+  Resources: [
+    { label: 'Documentation', href: '#' },
+    { label: 'Whitepaper', href: '#' },
+    { label: 'GitHub', href: '#' },
+    { label: 'Block Explorer', href: '#' },
   ],
   Developers: [
-    { label: 'API Reference', href: '#', icon: Zap },
-    { label: 'SDK', href: '#', icon: Code },
-    { label: 'Smart Contracts', href: '#', icon: Shield },
-    { label: 'Faucet', href: '#', icon: Zap },
+    { label: 'API Reference', href: '#' },
+    { label: 'SDK', href: '#' },
+    { label: 'Smart Contracts', href: '#' },
+    { label: 'Faucet', href: '#' },
   ],
   Community: [
-    { label: 'Discord', href: '#', icon: MessageCircle },
-    { label: 'Twitter', href: '#', icon: Twitter },
-    { label: 'Telegram', href: '#', icon: Send },
-    { label: 'Forum', href: '#', icon: Globe },
+    { label: 'Discord', href: '#' },
+    { label: 'Twitter', href: '#' },
+    { label: 'Telegram', href: '#' },
+    { label: 'Forum', href: '#' },
   ],
   Legal: [
-    { label: 'Terms of Service', href: '#' },
-    { label: 'Privacy Policy', href: '#' },
+    { label: 'Terms', href: '#' },
+    { label: 'Privacy', href: '#' },
     { label: 'Security', href: '#' },
     { label: 'Bug Bounty', href: '#' },
   ],
@@ -997,55 +1004,22 @@ const FOOTER_LINKS = {
 
 export function Footer() {
   return (
-    <footer aria-label="Site footer" className="relative border-t border-slate-800/30 bg-[#050810]">
-      {/* Top accent */}
-      <div className="h-[1px] bg-gradient-to-r from-transparent via-brand-600/20 to-transparent" />
-
-      {/* Ambient background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="ambient-orb ambient-orb-navy w-96 h-96 -bottom-48 -left-48 opacity-10 animate-orb-drift" />
-        <div className="ambient-orb ambient-orb-red w-64 h-64 -bottom-32 right-0 opacity-10 animate-orb-drift-2" />
-      </div>
-
-      <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-        {/* Top section - Logo + tagline */}
-        <div className="mb-12 flex flex-col items-start gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <CruzibleLogo size={40} showText={true} textSize="text-lg" />
-            <p className="mt-3 max-w-md text-sm text-slate-500 leading-relaxed">
-              The sovereign liquid staking protocol for the Aethelred AI verification network.
-              TEE-verified, trustless, and built for scale.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <a href="#" className="btn-secondary flex items-center gap-2 text-xs">
-              <BookOpen size={14} />
-              Read Docs
-            </a>
-            <a href="#" className="btn-primary flex items-center gap-2 text-xs">
-              Launch App
-              <ArrowRight size={14} />
-            </a>
-          </div>
-        </div>
-
-        {/* Link columns */}
+    <footer aria-label="Site footer" className="border-t border-slate-800/50 bg-slate-950">
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        {/* Columns */}
         <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
           {Object.entries(FOOTER_LINKS).map(([heading, links]) => (
             <div key={heading}>
-              <h3 className="mb-4 text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">
+              <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-white">
                 {heading}
               </h3>
-              <ul className="space-y-3">
+              <ul className="space-y-2.5">
                 {links.map((link) => (
                   <li key={link.label}>
                     <a
                       href={link.href}
-                      className="group flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-white"
+                      className="text-sm text-slate-400 transition-colors hover:text-white"
                     >
-                      {'icon' in link && link.icon && (
-                        <link.icon size={13} className="text-slate-600 transition-colors group-hover:text-slate-400" />
-                      )}
                       {link.label}
                     </a>
                   </li>
@@ -1055,31 +1029,41 @@ export function Footer() {
           ))}
         </div>
 
-        {/* Bottom bar */}
-        <div className="mt-16 flex flex-col items-center justify-between gap-4 border-t border-slate-800/30 pt-8 sm:flex-row">
+        {/* Bottom */}
+        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-slate-800/50 pt-8 sm:flex-row">
           <div className="flex items-center gap-3">
-            <CruzibleLogo size={24} showText={false} />
-            <p className="text-xs text-slate-600">
-              &copy; {new Date().getFullYear()} Cruzible. Built by the Aethelred Foundation.
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#1e1b5e] p-1.5">
+              <svg viewBox="0 0 100 100" className="w-full h-full">
+                <path d="M 62 83 L 25 79 L 25 21 L 68 21 L 46 48" stroke="white" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </svg>
+            </div>
+            <p className="text-sm text-slate-500">
+              &copy; 2026 CRUZIBLE. All rights reserved.
             </p>
           </div>
 
           <div className="flex items-center gap-4">
-            {[
-              { icon: Github, label: 'GitHub', href: '#' },
-              { icon: Twitter, label: 'Twitter', href: '#' },
-              { icon: MessageCircle, label: 'Discord', href: '#' },
-              { icon: Send, label: 'Telegram', href: '#' },
-            ].map(({ icon: Icon, label, href }) => (
-              <a
-                key={label}
-                href={href}
-                className="rounded-lg p-2 text-slate-600 transition-all duration-300 hover:bg-slate-800/30 hover:text-white"
-                aria-label={label}
-              >
-                <Icon size={16} />
-              </a>
-            ))}
+            <a
+              href="#"
+              className="text-slate-500 transition-colors hover:text-white"
+              aria-label="GitHub"
+            >
+              <Github size={18} />
+            </a>
+            <a
+              href="#"
+              className="text-slate-500 transition-colors hover:text-white"
+              aria-label="Twitter"
+            >
+              <Twitter size={18} />
+            </a>
+            <a
+              href="#"
+              className="text-slate-500 transition-colors hover:text-white"
+              aria-label="External link"
+            >
+              <ExternalLink size={18} />
+            </a>
           </div>
         </div>
       </div>
