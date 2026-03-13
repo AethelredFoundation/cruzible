@@ -61,7 +61,7 @@ function PhaseBadge({ phase }: { phase: StablecoinPhase }) {
       );
     case StablecoinPhase.COMING_SOON:
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-500/20 text-slate-400 border border-slate-500/30">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-500/20 text-gray-400 border border-gray-500/30">
           Coming Soon
         </span>
       );
@@ -126,7 +126,7 @@ function BridgeTab() {
 
           {/* Token Selector */}
           <div>
-            <label className="block text-sm text-slate-400 mb-1.5">Token</label>
+            <label className="block text-sm text-gray-400 mb-1.5">Token</label>
             <div className="relative">
               <select
                 value={selectedSymbol}
@@ -134,19 +134,19 @@ function BridgeTab() {
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white appearance-none cursor-pointer focus:border-red-500/50 focus:outline-none"
               >
                 {enabledAssets.map((a) => (
-                  <option key={a.symbol} value={a.symbol} className="bg-slate-900">
+                  <option key={a.symbol} value={a.symbol} className="bg-gray-900">
                     {a.symbol} — {a.name}
                   </option>
                 ))}
               </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
           </div>
 
           {/* Amount Input */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
-              <label className="text-sm text-slate-400">Amount</label>
+              <label className="text-sm text-gray-400">Amount</label>
               <button
                 onClick={handleMaxClick}
                 className="text-xs text-red-400 hover:text-red-300 transition-colors"
@@ -161,13 +161,13 @@ function BridgeTab() {
               placeholder="0.00"
               min="0"
               step="0.01"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:border-red-500/50 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-red-500/50 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
           </div>
 
           {/* Destination Domain */}
           <div>
-            <label className="block text-sm text-slate-400 mb-1.5">Destination Chain</label>
+            <label className="block text-sm text-gray-400 mb-1.5">Destination Chain</label>
             <div className="relative">
               <select
                 value={destDomain}
@@ -175,17 +175,17 @@ function BridgeTab() {
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white appearance-none cursor-pointer focus:border-red-500/50 focus:outline-none"
               >
                 {(Object.keys(CCTP_DOMAINS) as CCTPDomainName[]).map((name) => (
-                  <option key={name} value={name} className="bg-slate-900">
+                  <option key={name} value={name} className="bg-gray-900">
                     {name.charAt(0) + name.slice(1).toLowerCase()} (Domain {CCTP_DOMAINS[name]})
                   </option>
                 ))}
               </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
           </div>
 
           {/* Info Row */}
-          <div className="flex justify-between text-sm text-slate-400 pt-2">
+          <div className="flex justify-between text-sm text-gray-400 pt-2">
             <span>Decimals</span>
             <span>{asset?.decimals ?? '—'}</span>
           </div>
@@ -196,7 +196,7 @@ function BridgeTab() {
             disabled={isDisabled}
             className={`w-full py-3.5 rounded-lg font-semibold text-sm transition-all ${
               isDisabled
-                ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-gradient-to-r from-red-600 to-red-500 text-white hover:from-red-500 hover:to-red-400 shadow-lg shadow-red-500/20'
             }`}
           >
@@ -229,10 +229,10 @@ function BalancesTab() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th className="text-left py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">Asset</th>
-                  <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">Balance</th>
-                  <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">Decimals</th>
-                  <th className="text-center py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">Status</th>
+                  <th className="text-left py-3 px-4 text-xs uppercase tracking-wider text-gray-500 font-medium">Asset</th>
+                  <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-gray-500 font-medium">Balance</th>
+                  <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-gray-500 font-medium">Decimals</th>
+                  <th className="text-center py-3 px-4 text-xs uppercase tracking-wider text-gray-500 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -247,14 +247,14 @@ function BalancesTab() {
                           </div>
                           <div>
                             <div className="text-white font-medium">{asset.symbol}</div>
-                            <div className="text-xs text-slate-500">{asset.name}</div>
+                            <div className="text-xs text-gray-500">{asset.name}</div>
                           </div>
                         </div>
                       </td>
                       <td className="py-4 px-4 text-right font-mono text-white">
                         {wallet.connected ? bal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : '—'}
                       </td>
-                      <td className="py-4 px-4 text-right text-slate-400 text-sm">{asset.decimals}</td>
+                      <td className="py-4 px-4 text-right text-gray-400 text-sm">{asset.decimals}</td>
                       <td className="py-4 px-4 text-center">
                         <PhaseBadge phase={asset.phase} />
                       </td>
@@ -266,7 +266,7 @@ function BalancesTab() {
           </div>
 
           {!wallet.connected && (
-            <div className="text-center py-6 text-slate-500 text-sm">
+            <div className="text-center py-6 text-gray-500 text-sm">
               Connect your wallet to see balances.
             </div>
           )}
@@ -291,10 +291,10 @@ function HistoryTab() {
             Bridge History
           </h3>
 
-          <div className="text-center py-12 text-slate-500">
-            <Activity className="w-10 h-10 mx-auto mb-3 text-slate-600" />
+          <div className="text-center py-12 text-gray-500">
+            <Activity className="w-10 h-10 mx-auto mb-3 text-gray-600" />
             <p className="text-sm">Bridge event history will appear here once events are indexed.</p>
-            <p className="text-xs text-slate-600 mt-1">Events are synced from the InstitutionalStablecoinBridge contract.</p>
+            <p className="text-xs text-gray-600 mt-1">Events are synced from the InstitutionalStablecoinBridge contract.</p>
           </div>
         </div>
       </GlassCard>
@@ -322,7 +322,7 @@ export default function StablecoinsPage() {
         description="Bridge stablecoins via CCTP. View balances and bridge history."
       />
 
-      <div className="min-h-screen bg-[#050810] text-white">
+      <div className="min-h-screen bg-gray-950 text-white">
         <TopNav activePage="stablecoins" />
 
         <main className="max-w-5xl mx-auto px-4 pt-24 pb-16">
@@ -334,7 +334,7 @@ export default function StablecoinsPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold">Stablecoins</h1>
-                <p className="text-sm text-slate-400">Bridge stablecoins via CCTP</p>
+                <p className="text-sm text-gray-400">Bridge stablecoins via CCTP</p>
               </div>
             </div>
           </div>
@@ -348,7 +348,7 @@ export default function StablecoinsPage() {
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                   activeTab === tab.id
                     ? 'bg-red-600 text-white shadow-lg shadow-red-500/20'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
                 }`}
               >
                 {tab.label}

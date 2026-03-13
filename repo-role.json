@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "repo": "AethelredFoundation/cruzible",
+  "role": "application-frontend",
+  "status": "active",
+  "canonical_public_source": "AethelredFoundation/aethelred",
+  "monorepo_source_path": "dApps/cruzible",
+  "exported_from_monorepo": true,
+  "release_authority": true,
+  "default_community_files_repo": "AethelredFoundation/.github",
+  "updated_at": "2026-03-13"
+}
