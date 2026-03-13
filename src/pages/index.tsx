@@ -95,7 +95,7 @@ const VALIDATOR_NAMES = [
 
 const TX_TYPES = ['Transfer', 'Stake', 'Unstake', 'DeployContract', 'SubmitAIJob', 'Vote', 'ClaimRewards'] as const;
 
-const AI_MODELS = ['GPT-4 Turbo', 'Claude 4.5 Opus', 'Llama 3 70B', 'Gemini Ultra', 'Mistral Large'] as const;
+const AI_MODELS = ['GPT-4 Turbo', 'Claude 3 Opus', 'Llama 3 70B', 'Gemini Ultra', 'Mistral Large'] as const;
 
 const JOB_STATUSES = ['Verified', 'Processing', 'Failed'] as const;
 
@@ -537,13 +537,15 @@ function HeroSection({ onBlockClick, onTxClick }: { onBlockClick: (block: MockBl
   return (
     <div className="relative overflow-hidden">
       {/* Background */}
-      <div className="absolute inset-0 bg-[#050810]" />
-      <div className="absolute inset-0 ambient-mesh" />
-      <div className="ambient-orb ambient-orb-red w-[600px] h-[600px] top-[-200px] right-[-100px] animate-orb-drift" />
-      <div className="ambient-orb ambient-orb-navy w-[500px] h-[500px] bottom-[-150px] left-[-100px] animate-orb-drift-2" />
-      <div className="absolute inset-0 grid-pattern" />
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-950 to-red-950/30" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(220,38,38,0.12)_0%,_transparent_60%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(220,38,38,0.06)_0%,_transparent_50%)]" />
+      <div className="absolute inset-0 opacity-[0.02]" style={{
+        backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)',
+        backgroundSize: '64px 64px',
+      }} />
 
-      <div className="relative max-w-7xl mx-auto px-6 pt-16 pb-20">
+      <div className="relative max-w-[1440px] mx-auto px-6 pt-16 pb-20">
         {/* Title area */}
         <div className="text-center mb-10">
           <div className="flex items-center justify-center gap-2 mb-5">
@@ -592,9 +594,9 @@ function HeroSection({ onBlockClick, onTxClick }: { onBlockClick: (block: MockBl
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => searchResults.length > 0 && setShowResults(true)}
               placeholder="Search by block number, transaction hash (0x...), or address (aeth1...)..."
-              className="w-full input-premium pl-12 pr-28 py-4 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500/40 transition-all"
+              className="w-full pl-12 pr-28 py-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500/40 transition-all"
             />
-            <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2.5 btn-primary rounded-xl text-sm font-medium transition-colors">
+            <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition-colors">
               Search
             </button>
           </form>
@@ -636,7 +638,7 @@ function HeroSection({ onBlockClick, onTxClick }: { onBlockClick: (block: MockBl
             { label: 'ACTIVE VALIDATORS', value: '156', icon: <Users className="w-4 h-4" /> },
             { label: 'AVERAGE TPS', value: realTime.tps.toLocaleString(), icon: <Zap className="w-4 h-4" />, live: true },
           ].map((stat) => (
-            <div key={stat.label} className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-slate-800/40 shadow-premium p-5 animate-fade-in-up">
+            <div key={stat.label} className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-5 animate-fade-in-up">
               <div className="flex items-center gap-2 mb-3">
                 <div className="text-red-400">{stat.icon}</div>
                 <span className="text-[10px] text-slate-500 uppercase tracking-widest font-medium">{stat.label}</span>
@@ -2045,7 +2047,7 @@ export default function ExplorerPage() {
         path="/"
       />
 
-      <div className="min-h-screen bg-[#050810] text-white">
+      <div className="min-h-screen bg-slate-950 text-white">
         {/* 1. TopNav */}
         <TopNav activePage="explorer" />
 
