@@ -9,7 +9,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License"></a>
   </p>
   <p>
-    <a href="https://aethelred.io">App</a> &middot;
+    <a href="https://cruzible.aethelred.io">App</a> &middot;
     <a href="https://docs.aethelred.io">Docs</a> &middot;
     <a href="https://api.aethelred.io/docs">API Reference</a> &middot;
     <a href="https://discord.gg/aethelred">Discord</a> &middot;
