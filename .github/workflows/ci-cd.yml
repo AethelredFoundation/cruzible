@@ -24,10 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node.js security scan
+      # Node.js security scan — merge-blocking
       - name: Run npm audit
         run: npm audit --audit-level=moderate
-        continue-on-error: true
 
       # Rust security scan
       - name: Install Rust
@@ -38,10 +37,10 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit
 
+      # Rust security scan — merge-blocking
       - name: Audit Rust dependencies
         working-directory: ./backend/contracts
         run: cargo audit
-        continue-on-error: true
 
       # CodeQL Analysis
       - name: Initialize CodeQL
@@ -151,7 +150,7 @@ jobs:
       - name: Run Backend Tests with Coverage
         if: matrix.test-type == 'backend'
         working-directory: ./backend/api
-        run: npm run test:ci
+        run: npm run test -- --coverage
 
       - name: Upload Backend Coverage
         if: matrix.test-type == 'backend'
