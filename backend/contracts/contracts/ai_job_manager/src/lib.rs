@@ -1,21 +1,20 @@
 /**
  * AI Job Manager Contract
- * 
+ *
  * Manages verifiable AI inference jobs on the Aethelred blockchain.
  * Handles job submission, validator assignment, TEE attestation verification,
  * and reward distribution.
  */
-
 use cosmwasm_std::{
-    entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
-    Uint128, Addr, Timestamp, CosmosMsg, BankMsg, Coin, Event,
+    entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, Event,
+    MessageInfo, Response, StdResult, Timestamp, Uint128,
 };
 use cw2::set_contract_version;
-use cw_storage_plus::{Item, Map, IndexedMap, Index, IndexList, MultiIndex};
-use serde::{Deserialize, Serialize};
+use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
 use schemars::JsonSchema;
-use thiserror::Error;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:ai-job-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -26,37 +25,37 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub enum ContractError {
     #[error("{0}")]
     Std(#[from] cosmwasm_std::StdError),
-    
+
     #[error("Unauthorized")]
     Unauthorized {},
-    
+
     #[error("Job not found")]
     JobNotFound {},
-    
+
     #[error("Invalid job status: {current}")]
     InvalidStatus { current: String },
-    
+
     #[error("Job expired")]
     JobExpired {},
-    
+
     #[error("Invalid TEE attestation")]
     InvalidAttestation {},
-    
+
     #[error("Invalid proof")]
     InvalidProof {},
-    
+
     #[error("Not assigned validator")]
     NotAssignedValidator {},
-    
+
     #[error("Insufficient payment")]
     InsufficientPayment {},
-    
+
     #[error("Invalid model")]
     InvalidModel {},
-    
+
     #[error("Timeout too short")]
     TimeoutTooShort {},
-    
+
     #[error("Already claimed")]
     AlreadyClaimed {},
 }
@@ -259,13 +258,13 @@ pub enum ExecuteMsg {
         priority: u32,
         timeout: u64,
     },
-    
+
     /// Assign job to validator (called by validator)
     AssignJob { job_id: String },
-    
+
     /// Start computing (validator only)
     StartComputing { job_id: String },
-    
+
     /// Submit job result with TEE attestation
     CompleteJob {
         job_id: String,
@@ -273,26 +272,26 @@ pub enum ExecuteMsg {
         tee_attestation: TEEAttestation,
         compute_metrics: ComputeMetrics,
     },
-    
+
     /// Verify and finalize job (platform or delegator)
     VerifyJob { job_id: String },
-    
+
     /// Mark job as failed
     FailJob { job_id: String, reason: String },
-    
+
     /// Cancel pending job (creator only)
     CancelJob { job_id: String },
-    
+
     /// Claim payment for verified job (validator)
     ClaimPayment { job_id: String },
-    
+
     /// Update config (admin)
     UpdateConfig {
         min_payment: Option<Uint128>,
         platform_fee_bps: Option<u64>,
         required_tee_type: Option<u8>,
     },
-    
+
     /// Cleanup expired jobs (anyone)
     CleanupExpired { limit: Option<u32> },
 }
@@ -302,10 +301,10 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     /// Get contract config
     Config {},
-    
+
     /// Get job by ID
     Job { job_id: String },
-    
+
     /// List jobs with filters
     ListJobs {
         status: Option<String>,
@@ -314,16 +313,16 @@ pub enum QueryMsg {
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    
+
     /// Get pending job queue
     PendingQueue { limit: Option<u32> },
-    
+
     /// Get validator stats
     ValidatorStats { validator: String },
-    
+
     /// Get platform stats
     PlatformStats {},
-    
+
     /// Get job pricing estimate
     EstimatePrice {
         model_hash: String,
@@ -342,7 +341,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    
+
     let config = Config {
         admin: info.sender,
         payment_denom: msg.payment_denom,
@@ -354,7 +353,7 @@ pub fn instantiate(
         required_tee_type: msg.required_tee_type,
         model_registry: deps.api.addr_validate(&msg.model_registry)?,
     };
-    
+
     CONFIG.save(deps.storage, &config)?;
     JOB_COUNT.save(deps.storage, &0)?;
     PENDING_COUNT.save(deps.storage, &0)?;
@@ -379,21 +378,40 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::SubmitJob { model_hash, input_hash, proof_type, priority, timeout } => {
-            execute_submit_job(deps, env, info, model_hash, input_hash, proof_type, priority, timeout)
-        }
+        ExecuteMsg::SubmitJob {
+            model_hash,
+            input_hash,
+            proof_type,
+            priority,
+            timeout,
+        } => execute_submit_job(
+            deps, env, info, model_hash, input_hash, proof_type, priority, timeout,
+        ),
         ExecuteMsg::AssignJob { job_id } => execute_assign_job(deps, env, info, job_id),
         ExecuteMsg::StartComputing { job_id } => execute_start_computing(deps, env, info, job_id),
-        ExecuteMsg::CompleteJob { job_id, output_hash, tee_attestation, compute_metrics } => {
-            execute_complete_job(deps, env, info, job_id, output_hash, tee_attestation, compute_metrics)
-        }
+        ExecuteMsg::CompleteJob {
+            job_id,
+            output_hash,
+            tee_attestation,
+            compute_metrics,
+        } => execute_complete_job(
+            deps,
+            env,
+            info,
+            job_id,
+            output_hash,
+            tee_attestation,
+            compute_metrics,
+        ),
         ExecuteMsg::VerifyJob { job_id } => execute_verify_job(deps, env, info, job_id),
         ExecuteMsg::FailJob { job_id, reason } => execute_fail_job(deps, env, info, job_id, reason),
         ExecuteMsg::CancelJob { job_id } => execute_cancel_job(deps, env, info, job_id),
         ExecuteMsg::ClaimPayment { job_id } => execute_claim_payment(deps, env, info, job_id),
-        ExecuteMsg::UpdateConfig { min_payment, platform_fee_bps, required_tee_type } => {
-            execute_update_config(deps, info, min_payment, platform_fee_bps, required_tee_type)
-        }
+        ExecuteMsg::UpdateConfig {
+            min_payment,
+            platform_fee_bps,
+            required_tee_type,
+        } => execute_update_config(deps, info, min_payment, platform_fee_bps, required_tee_type),
         ExecuteMsg::CleanupExpired { limit } => execute_cleanup_expired(deps, env, limit),
     }
 }
@@ -409,7 +427,7 @@ fn execute_submit_job(
     timeout: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    
+
     // Validate timeout
     if timeout < config.min_timeout {
         return Err(ContractError::TimeoutTooShort {});
@@ -417,7 +435,7 @@ fn execute_submit_job(
     if timeout > config.max_timeout {
         return Err(ContractError::TimeoutTooShort {});
     }
-    
+
     // Validate payment
     let payment = info
         .funds
@@ -425,15 +443,15 @@ fn execute_submit_job(
         .find(|c| c.denom == config.payment_denom)
         .map(|c| c.amount)
         .unwrap_or_default();
-    
+
     if payment < config.min_payment {
         return Err(ContractError::InsufficientPayment {});
     }
-    
+
     // Generate job ID
     let count = JOB_COUNT.load(deps.storage)?;
     let job_id = generate_job_id(&model_hash, &input_hash, &info.sender, count);
-    
+
     let job = Job {
         id: job_id.clone(),
         creator: info.sender.clone(),
@@ -453,16 +471,16 @@ fn execute_submit_job(
         compute_metrics: None,
         verification_score: None,
     };
-    
+
     // Save job
     jobs().save(deps.storage, job_id.clone(), &job)?;
     JOB_COUNT.save(deps.storage, &(count + 1))?;
-    
+
     // Add to pending queue
     let pending_count = PENDING_COUNT.load(deps.storage)?;
     PENDING_JOBS.save(deps.storage, pending_count, &job_id)?;
     PENDING_COUNT.save(deps.storage, &(pending_count + 1))?;
-    
+
     Ok(Response::new()
         .add_attribute("action", "submit_job")
         .add_attribute("job_id", job_id)
@@ -479,23 +497,23 @@ fn execute_assign_job(
     job_id: String,
 ) -> Result<Response, ContractError> {
     let mut job = jobs().load(deps.storage, job_id.clone())?;
-    
+
     // Check job is pending
     if job.status != JobStatus::Pending {
         return Err(ContractError::InvalidStatus {
             current: job.status.as_str().to_string(),
         });
     }
-    
+
     // Check not expired
     if env.block.height > job.created_at + job.timeout {
         return Err(ContractError::JobExpired {});
     }
-    
+
     // Assign validator
     job.validator = Some(info.sender.clone());
     job.status = JobStatus::Assigned;
-    
+
     jobs().save(deps.storage, job_id.clone(), &job)?;
 
     // Remove from pending queue
@@ -521,22 +539,22 @@ fn execute_start_computing(
     job_id: String,
 ) -> Result<Response, ContractError> {
     let mut job = jobs().load(deps.storage, job_id.clone())?;
-    
+
     // Check validator
     if job.validator != Some(info.sender.clone()) {
         return Err(ContractError::NotAssignedValidator {});
     }
-    
+
     // Check status
     if job.status != JobStatus::Assigned {
         return Err(ContractError::InvalidStatus {
             current: job.status.as_str().to_string(),
         });
     }
-    
+
     job.status = JobStatus::Computing;
     jobs().save(deps.storage, job_id.clone(), &job)?;
-    
+
     Ok(Response::new()
         .add_attribute("action", "start_computing")
         .add_attribute("job_id", job_id))
@@ -553,19 +571,19 @@ fn execute_complete_job(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut job = jobs().load(deps.storage, job_id.clone())?;
-    
+
     // Check validator
     if job.validator != Some(info.sender.clone()) {
         return Err(ContractError::NotAssignedValidator {});
     }
-    
+
     // Check status
     if job.status != JobStatus::Computing {
         return Err(ContractError::InvalidStatus {
             current: job.status.as_str().to_string(),
         });
     }
-    
+
     // Verify TEE attestation
     if config.required_tee_type != 0 {
         let tee_type = match tee_attestation.tee_type {
@@ -595,7 +613,10 @@ fn execute_complete_job(
     }
     // Validate measurement looks like a hex hash (at least 32 hex chars)
     if tee_attestation.measurement.len() < 32
-        || !tee_attestation.measurement.chars().all(|c| c.is_ascii_hexdigit())
+        || !tee_attestation
+            .measurement
+            .chars()
+            .all(|c| c.is_ascii_hexdigit())
     {
         return Err(ContractError::InvalidAttestation {});
     }
@@ -604,21 +625,24 @@ fn execute_complete_job(
         return Err(ContractError::InvalidAttestation {});
     }
     let max_attestation_age = 86400u64; // 24 hours
-    if env.block.time.seconds().saturating_sub(tee_attestation.timestamp.seconds()) > max_attestation_age {
+    if env
+        .block
+        .time
+        .seconds()
+        .saturating_sub(tee_attestation.timestamp.seconds())
+        > max_attestation_age
+    {
         return Err(ContractError::InvalidAttestation {});
     }
-    
+
     // Calculate payment based on compute metrics
     let base_cost = compute_metrics.cpu_cycles as u128 / 1_000_000; // Simplified
     let memory_cost = compute_metrics.memory_used as u128 * 100;
-    let total_cost = std::cmp::min(
-        Uint128::from(base_cost + memory_cost),
-        job.max_payment,
-    );
-    
+    let total_cost = std::cmp::min(Uint128::from(base_cost + memory_cost), job.max_payment);
+
     // Calculate verification score
     let score = calculate_verification_score(&tee_attestation, &compute_metrics);
-    
+
     job.output_hash = Some(output_hash);
     job.tee_attestation = Some(tee_attestation);
     job.compute_metrics = Some(compute_metrics);
@@ -626,9 +650,9 @@ fn execute_complete_job(
     job.verification_score = Some(score);
     job.completed_at = Some(env.block.height);
     job.status = JobStatus::Completed;
-    
+
     jobs().save(deps.storage, job_id.clone(), &job)?;
-    
+
     Ok(Response::new()
         .add_attribute("action", "complete_job")
         .add_attribute("job_id", job_id)
@@ -644,21 +668,21 @@ fn execute_verify_job(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut job = jobs().load(deps.storage, job_id.clone())?;
-    
+
     // Can be verified by creator or admin
     if job.creator != info.sender && config.admin != info.sender {
         return Err(ContractError::Unauthorized {});
     }
-    
+
     if job.status != JobStatus::Completed {
         return Err(ContractError::InvalidStatus {
             current: job.status.as_str().to_string(),
         });
     }
-    
+
     job.status = JobStatus::Verified;
     jobs().save(deps.storage, job_id.clone(), &job)?;
-    
+
     // Update validator stats
     if let Some(validator) = &job.validator {
         VALIDATOR_STATS.update(deps.storage, validator, |stats| -> StdResult<_> {
@@ -677,8 +701,14 @@ fn execute_verify_job(
     let verify_event = Event::new("job_verified")
         .add_attribute("job_id", &job_id)
         .add_attribute("creator", job.creator.as_str())
-        .add_attribute("validator", job.validator.as_ref().map(|v| v.as_str()).unwrap_or("none"))
-        .add_attribute("payment", job.actual_payment.unwrap_or_default().to_string());
+        .add_attribute(
+            "validator",
+            job.validator.as_ref().map(|v| v.as_str()).unwrap_or("none"),
+        )
+        .add_attribute(
+            "payment",
+            job.actual_payment.unwrap_or_default().to_string(),
+        );
 
     Ok(Response::new()
         .add_event(verify_event)
@@ -695,24 +725,24 @@ fn execute_fail_job(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut job = jobs().load(deps.storage, job_id.clone())?;
-    
+
     // Can be failed by assigned validator or admin
     let is_validator = job.validator == Some(info.sender.clone());
     let is_admin = config.admin == info.sender;
-    
+
     if !is_validator && !is_admin {
         return Err(ContractError::Unauthorized {});
     }
-    
+
     if job.status != JobStatus::Computing && job.status != JobStatus::Assigned {
         return Err(ContractError::InvalidStatus {
             current: job.status.as_str().to_string(),
         });
     }
-    
+
     job.status = JobStatus::Failed;
     jobs().save(deps.storage, job_id.clone(), &job)?;
-    
+
     // Update validator stats
     if let Some(validator) = &job.validator {
         VALIDATOR_STATS.update(deps.storage, validator, |stats| -> StdResult<_> {
@@ -730,7 +760,10 @@ fn execute_fail_job(
     let fail_event = Event::new("job_failed")
         .add_attribute("job_id", &job_id)
         .add_attribute("reason", &reason)
-        .add_attribute("validator", job.validator.as_ref().map(|v| v.as_str()).unwrap_or("none"));
+        .add_attribute(
+            "validator",
+            job.validator.as_ref().map(|v| v.as_str()).unwrap_or("none"),
+        );
 
     Ok(Response::new()
         .add_event(fail_event)
@@ -747,25 +780,25 @@ fn execute_cancel_job(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut job = jobs().load(deps.storage, job_id.clone())?;
-    
+
     // Only creator can cancel
     if job.creator != info.sender {
         return Err(ContractError::Unauthorized {});
     }
-    
+
     // Can only cancel pending jobs
     if job.status != JobStatus::Pending {
         return Err(ContractError::InvalidStatus {
             current: job.status.as_str().to_string(),
         });
     }
-    
+
     job.status = JobStatus::Cancelled;
     jobs().save(deps.storage, job_id.clone(), &job)?;
-    
+
     // Remove from pending queue
     remove_from_pending(deps.storage, &job_id)?;
-    
+
     // Refund payment
     let refund_msg = CosmosMsg::Bank(BankMsg::Send {
         to_address: job.creator.to_string(),
@@ -774,7 +807,7 @@ fn execute_cancel_job(
             amount: job.max_payment,
         }],
     });
-    
+
     Ok(Response::new()
         .add_message(refund_msg)
         .add_attribute("action", "cancel_job")
@@ -816,7 +849,9 @@ fn execute_claim_payment(
     jobs().save(deps.storage, job_id.clone(), &job)?;
 
     // L-03 FIX: Update platform-level total payments counter
-    let total_payments = PLATFORM_TOTAL_PAYMENTS.load(deps.storage).unwrap_or_default();
+    let total_payments = PLATFORM_TOTAL_PAYMENTS
+        .load(deps.storage)
+        .unwrap_or_default();
     PLATFORM_TOTAL_PAYMENTS.save(deps.storage, &(total_payments + payment))?;
 
     // Send payment to validator
@@ -863,11 +898,11 @@ fn execute_update_config(
     required_tee_type: Option<u8>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
-    
+
     if info.sender != config.admin {
         return Err(ContractError::Unauthorized {});
     }
-    
+
     if let Some(mp) = min_payment {
         config.min_payment = mp;
     }
@@ -875,7 +910,7 @@ fn execute_update_config(
         // LOW: Cap platform fee at 20% to prevent admin abuse
         if fee > 2000 {
             return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                "Platform fee cannot exceed 2000 basis points (20%)"
+                "Platform fee cannot exceed 2000 basis points (20%)",
             )));
         }
         config.platform_fee_bps = fee;
@@ -883,9 +918,9 @@ fn execute_update_config(
     if let Some(tee) = required_tee_type {
         config.required_tee_type = tee;
     }
-    
+
     CONFIG.save(deps.storage, &config)?;
-    
+
     Ok(Response::new().add_attribute("action", "update_config"))
 }
 
@@ -913,7 +948,8 @@ fn execute_cleanup_expired(
         if let Ok(job) = jobs().load(deps.storage, job_id.clone()) {
             if env.block.height > job.created_at + job.timeout {
                 // HIGH-7: Check status BEFORE overwriting — refund for Pending/Assigned jobs
-                let should_refund = job.status == JobStatus::Pending || job.status == JobStatus::Assigned;
+                let should_refund =
+                    job.status == JobStatus::Pending || job.status == JobStatus::Assigned;
                 let refund_amount = job.max_payment;
                 let refund_to = job.creator.clone();
 
@@ -960,19 +996,37 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let job = jobs().load(deps.storage, job_id)?;
             to_json_binary(&job)
         }
-        QueryMsg::ListJobs { status, creator, validator, start_after, limit } => {
-            to_json_binary(&query_list_jobs(deps, status, creator, validator, start_after, limit)?)
-        }
+        QueryMsg::ListJobs {
+            status,
+            creator,
+            validator,
+            start_after,
+            limit,
+        } => to_json_binary(&query_list_jobs(
+            deps,
+            status,
+            creator,
+            validator,
+            start_after,
+            limit,
+        )?),
         QueryMsg::PendingQueue { limit } => to_json_binary(&query_pending_queue(deps, limit)?),
         QueryMsg::ValidatorStats { validator } => {
             let addr = deps.api.addr_validate(&validator)?;
-            let stats = VALIDATOR_STATS.load(deps.storage, &addr).unwrap_or_default();
+            let stats = VALIDATOR_STATS
+                .load(deps.storage, &addr)
+                .unwrap_or_default();
             to_json_binary(&stats)
         }
         QueryMsg::PlatformStats {} => to_json_binary(&query_platform_stats(deps)?),
-        QueryMsg::EstimatePrice { model_hash: _, estimated_cpu_cycles, estimated_memory_mb } => {
-            to_json_binary(&query_estimate_price(estimated_cpu_cycles, estimated_memory_mb))
-        }
+        QueryMsg::EstimatePrice {
+            model_hash: _,
+            estimated_cpu_cycles,
+            estimated_memory_mb,
+        } => to_json_binary(&query_estimate_price(
+            estimated_cpu_cycles,
+            estimated_memory_mb,
+        )),
     }
 }
 
@@ -985,7 +1039,7 @@ fn query_list_jobs(
     limit: Option<u32>,
 ) -> StdResult<Vec<Job>> {
     let limit = limit.unwrap_or(50) as usize;
-    
+
     let jobs: Vec<Job> = if let Some(s) = status {
         jobs()
             .idx
@@ -1022,7 +1076,7 @@ fn query_list_jobs(
             .take(limit)
             .collect()
     };
-    
+
     Ok(jobs)
 }
 
@@ -1049,7 +1103,9 @@ fn query_platform_stats(deps: Deps) -> StdResult<PlatformStats> {
     let pending_jobs = PENDING_COUNT.load(deps.storage).unwrap_or(0);
     let completed_jobs = PLATFORM_COMPLETED_JOBS.load(deps.storage).unwrap_or(0);
     let failed_jobs = PLATFORM_FAILED_JOBS.load(deps.storage).unwrap_or(0);
-    let total_payments = PLATFORM_TOTAL_PAYMENTS.load(deps.storage).unwrap_or_default();
+    let total_payments = PLATFORM_TOTAL_PAYMENTS
+        .load(deps.storage)
+        .unwrap_or_default();
 
     Ok(PlatformStats {
         total_jobs,
@@ -1074,7 +1130,7 @@ fn query_estimate_price(estimated_cpu_cycles: u64, estimated_memory_mb: u64) -> 
     let base_cost = estimated_cpu_cycles as u128 / 1_000_000;
     let memory_cost = estimated_memory_mb as u128 * 100;
     let total = base_cost + memory_cost;
-    
+
     PriceEstimate {
         estimated_cost: Uint128::from(total),
         currency: "aeth".to_string(),
@@ -1133,7 +1189,7 @@ fn remove_from_pending(storage: &mut dyn cosmwasm_std::Storage, job_id: &str) ->
 
 fn calculate_verification_score(attestation: &TEEAttestation, metrics: &ComputeMetrics) -> u16 {
     let mut score = 8500u16; // Base score 85.00%
-    
+
     // Bonus for newer TEE types
     match attestation.tee_type {
         TeeType::IntelTdx => score += 500,
@@ -1141,12 +1197,12 @@ fn calculate_verification_score(attestation: &TEEAttestation, metrics: &ComputeM
         TeeType::AmdSevSnp => score += 400,
         TeeType::AwsNitro => score += 200,
     }
-    
+
     // Penalty for slow compute
     if metrics.compute_time_ms > 60000 {
         score = score.saturating_sub(200);
     }
-    
+
     score.min(10000)
 }
 
@@ -1159,7 +1215,9 @@ pub struct MigrateMsg {}
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
     let version = cw2::get_contract_version(deps.storage)?;
     if version.contract != CONTRACT_NAME {
-        return Err(cosmwasm_std::StdError::generic_err("Cannot migrate from a different contract"));
+        return Err(cosmwasm_std::StdError::generic_err(
+            "Cannot migrate from a different contract",
+        ));
     }
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     Ok(Response::new()
