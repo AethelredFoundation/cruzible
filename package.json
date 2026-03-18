@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint . --ext .ts,.tsx,.js,.jsx",
+    "lint": "next lint",
     "lint:fix": "next lint --fix",
     "type-check": "tsc --noEmit",
     "format": "prettier --write .",
@@ -59,8 +59,8 @@
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "cross-env": "^7.0.3",
-    "eslint": "^9.0.0",
-    "eslint-config-next": "^16.2.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.29",
     "eslint-plugin-jest-dom": "^5.1.0",
     "eslint-plugin-testing-library": "^6.2.0",
     "husky": "^8.0.3",
@@ -84,5 +84,8 @@
   "engines": {
     "node": ">=20.0.0",
     "npm": ">=10.0.0"
+  },
+  "overrides": {
+    "glob": ">=10.4.0"
   }
 }
