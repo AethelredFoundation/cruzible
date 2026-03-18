@@ -863,7 +863,7 @@ export function SearchOverlay() {
 // ============================================================================
 
 export interface TopNavProps {
-  activePage: 'explorer' | 'vault' | 'stablecoins' | 'validators' | 'governance' | 'reconciliation';
+  activePage: 'explorer' | 'vault' | 'stablecoins' | 'validators' | 'governance' | 'reconciliation' | 'jobs' | 'models' | 'seals';
 }
 
 const NAV_LINKS: { id: TopNavProps['activePage']; label: string; href: string }[] = [
@@ -872,6 +872,9 @@ const NAV_LINKS: { id: TopNavProps['activePage']; label: string; href: string }[
   { id: 'stablecoins', label: 'Stablecoins', href: '/stablecoins' },
   { id: 'validators', label: 'Validators', href: '/validators' },
   { id: 'governance', label: 'Governance', href: '/governance' },
+  { id: 'jobs', label: 'Jobs', href: '/jobs' },
+  { id: 'models', label: 'Models', href: '/models' },
+  { id: 'seals', label: 'Seals', href: '/seals' },
 ];
 
 export function TopNav({ activePage }: TopNavProps) {
