@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="Cruzible Logo.png" alt="Cruzible" width="200" />
+  <img src="README-logo.png" alt="Cruzible" width="200" />
   <h1>Cruzible</h1>
   <p><strong>TEE-verified liquid staking vault for the Aethelred sovereign L1</strong></p>
   <p>
