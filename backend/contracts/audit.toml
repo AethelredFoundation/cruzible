@@ -1,0 +1,12 @@
+# Cargo Audit Configuration
+# https://rustsec.org/
+
+[advisories]
+# curve25519-dalek v3 has timing variability (RUSTSEC-2024-0344).
+# This is a CosmWasm transitive dependency — upgrading requires
+# a CosmWasm major version bump which is out of scope.
+# Risk: Low in our context (smart contract execution, not key generation).
+ignore = ["RUSTSEC-2024-0344"]
+
+# derivative is unmaintained (RUSTSEC-2024-0388) — informational only.
+# Also a CosmWasm transitive dependency.

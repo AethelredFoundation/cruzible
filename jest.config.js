@@ -65,9 +65,7 @@ const customJestConfig = {
   //   'jest-watch-typeahead/testname',
   // ],
   reporters: ["default"],
-  transformIgnorePatterns: [
-    "node_modules/(?!(until-async|msw|@mswjs)/)",
-  ],
+  transformIgnorePatterns: ["node_modules/(?!(until-async|msw|@mswjs)/)"],
 };
 
 const baseConfig = createJestConfig(customJestConfig);

@@ -7,8 +7,11 @@
  */
 
 const { TextEncoder, TextDecoder } = require("util");
-const { ReadableStream, WritableStream, TransformStream } =
-  require("node:stream/web");
+const {
+  ReadableStream,
+  WritableStream,
+  TransformStream,
+} = require("node:stream/web");
 
 // Streams must be on globalThis before undici loads
 Object.defineProperties(globalThis, {
