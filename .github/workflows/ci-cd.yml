@@ -35,7 +35,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit
+        run: cargo install cargo-audit --version 0.20.0
 
       # Rust security scan
       - name: Audit Rust dependencies
