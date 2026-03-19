@@ -147,6 +147,11 @@ jobs:
         working-directory: ./backend/api
         run: npm ci --legacy-peer-deps
 
+      - name: Build SDK (Backend dependency)
+        if: matrix.test-type == 'backend'
+        working-directory: ./sdk/typescript
+        run: npm install && npx tsc -p tsconfig.json
+
       - name: Run Backend Tests
         if: matrix.test-type == 'backend'
         working-directory: ./backend/api
