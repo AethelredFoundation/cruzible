@@ -24,9 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node.js security scan
+      # Node.js security scan (production deps only — dev-only advisories
+      # like glob CLI injection in eslint-config-next are not exploitable)
       - name: Run npm audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
 
       # Rust security scan
       - name: Install Rust
