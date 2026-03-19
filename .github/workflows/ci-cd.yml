@@ -177,7 +177,7 @@ jobs:
         working-directory: ./backend/contracts
         run: |
           cargo install cargo-tarpaulin --locked
-          cargo tarpaulin --all --out Xml
+          cargo tarpaulin --all --out xml --output-dir . --lib -- --test-threads=1
 
       - name: Upload Contract Coverage
         if: matrix.test-type == 'contracts'

@@ -91,3 +91,77 @@ export function truncateAddress(
 export function copyToClipboard(text: string): Promise<void> {
   return navigator.clipboard.writeText(text).catch(() => {});
 }
+
+/**
+ * Format a date value (string, Date, or timestamp) into a locale-aware string.
+ */
+export function formatDate(
+  date: string | Date | number,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  const d = typeof date === "number" || typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    ...options,
+  });
+}
+
+/**
+ * Format a duration in seconds into a human-readable string.
+ * e.g. 90061 -> "1 day 1 hour 1 minute 1 second"
+ */
+export function formatDuration(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days} ${days === 1 ? "day" : "days"}`);
+  if (hours > 0) parts.push(`${hours} ${hours === 1 ? "hour" : "hours"}`);
+  if (minutes > 0) parts.push(`${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
+  if (secs > 0) parts.push(`${secs} ${secs === 1 ? "second" : "seconds"}`);
+
+  return parts.length > 0 ? parts.join(" ") : "0 seconds";
+}
+
+/**
+ * Calculate a percentage value.
+ * Returns 0 if total is 0 to avoid division by zero.
+ */
+export function calculatePercentage(value: number, total: number): number {
+  if (total === 0) return 0;
+  return (value / total) * 100;
+}
+
+/**
+ * Shorten a hash string for display.
+ * e.g. "0xaaaa...aaaa" (shows first 6 and last 4 characters)
+ */
+export function shortenHash(
+  hash: string,
+  startLen = 6,
+  endLen = 4,
+): string {
+  if (hash.length <= startLen + endLen + 3) return hash;
+  return `${hash.slice(0, startLen)}...${hash.slice(-endLen)}`;
+}
+
+/**
+ * Parse a string or number amount into a number.
+ */
+export function parseAmount(amount: string | number): number {
+  if (typeof amount === "number") return amount;
+  return Number(amount);
+}
+
+/**
+ * Format an on-chain integer amount with given decimals.
+ * e.g. formatAmount(1000000, 6) -> "1.000000"
+ */
+export function formatAmount(amount: number, decimals: number): string {
+  const divisor = Math.pow(10, decimals);
+  return (amount / divisor).toFixed(decimals);
+}

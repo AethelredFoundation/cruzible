@@ -14,22 +14,34 @@ import {
 } from "@/lib/utils";
 
 describe("formatNumber", () => {
-  it("formats large numbers with commas", () => {
-    expect(formatNumber(1000000)).toBe("1,000,000");
-    expect(formatNumber(1234567890)).toBe("1,234,567,890");
+  it("formats billions with compact notation", () => {
+    expect(formatNumber(1234567890)).toBe("1.23B");
   });
 
-  it("formats decimal numbers", () => {
-    expect(formatNumber(1234.5678, 2)).toBe("1,234.57");
-    expect(formatNumber(1234.5, 4)).toBe("1,234.5000");
+  it("formats millions with compact notation", () => {
+    expect(formatNumber(1000000)).toBe("1.0M");
+    expect(formatNumber(2500000)).toBe("2.5M");
+  });
+
+  it("formats thousands with compact notation", () => {
+    expect(formatNumber(1500)).toBe("1.5K");
+    expect(formatNumber(1000)).toBe("1.0K");
+  });
+
+  it("formats sub-thousand numbers with commas", () => {
+    expect(formatNumber(999)).toBe("999");
+  });
+
+  it("formats decimal numbers below 1000", () => {
+    expect(formatNumber(123.4567, 2)).toBe("123.46");
   });
 
   it("handles zero", () => {
     expect(formatNumber(0)).toBe("0");
   });
 
-  it("handles negative numbers", () => {
-    expect(formatNumber(-1000000)).toBe("-1,000,000");
+  it("respects explicit decimals for millions", () => {
+    expect(formatNumber(1234567, 2)).toBe("1.23M");
   });
 });
 

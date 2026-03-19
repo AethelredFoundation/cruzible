@@ -9,10 +9,11 @@ import { copyToClipboard, formatFullNumber } from "@/lib/utils";
 // GlassCard — Premium glass-morphism card container
 // ============================================================
 
-interface GlassCardProps {
+interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
   className?: string;
   hover?: boolean;
+  active?: boolean;
   onClick?: () => void;
   variant?: "default" | "gradient" | "elevated";
 }
@@ -21,8 +22,10 @@ export function GlassCard({
   children,
   className = "",
   hover = true,
+  active = false,
   onClick,
   variant = "default",
+  ...rest
 }: GlassCardProps) {
   const baseStyles = {
     default: "bg-slate-900/50 backdrop-blur-xl border border-slate-800/40",
@@ -32,13 +35,16 @@ export function GlassCard({
   };
 
   const hoverStyles = hover
-    ? "hover:border-slate-700/50 hover:bg-slate-900/70 hover:shadow-premium transition-all duration-400"
+    ? "hover:border-red-500/30 hover:bg-slate-900/70 hover:shadow-premium transition-all duration-400"
     : "";
+
+  const activeStyles = active ? "border-red-500/50" : "";
 
   return (
     <div
       onClick={onClick}
-      className={`rounded-2xl ${baseStyles[variant]} ${hoverStyles} ${onClick ? "cursor-pointer" : ""} ${className}`}
+      className={`rounded-2xl ${baseStyles[variant]} ${hoverStyles} ${activeStyles} ${onClick ? "cursor-pointer" : ""} ${className}`}
+      {...rest}
     >
       {children}
     </div>
