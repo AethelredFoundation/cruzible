@@ -99,7 +99,10 @@ export function formatDate(
   date: string | Date | number,
   options?: Intl.DateTimeFormatOptions,
 ): string {
-  const d = typeof date === "number" || typeof date === "string" ? new Date(date) : date;
+  const d =
+    typeof date === "number" || typeof date === "string"
+      ? new Date(date)
+      : date;
   return d.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -121,7 +124,8 @@ export function formatDuration(seconds: number): string {
   const parts: string[] = [];
   if (days > 0) parts.push(`${days} ${days === 1 ? "day" : "days"}`);
   if (hours > 0) parts.push(`${hours} ${hours === 1 ? "hour" : "hours"}`);
-  if (minutes > 0) parts.push(`${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
+  if (minutes > 0)
+    parts.push(`${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
   if (secs > 0) parts.push(`${secs} ${secs === 1 ? "second" : "seconds"}`);
 
   return parts.length > 0 ? parts.join(" ") : "0 seconds";
@@ -140,11 +144,7 @@ export function calculatePercentage(value: number, total: number): number {
  * Shorten a hash string for display.
  * e.g. "0xaaaa...aaaa" (shows first 6 and last 4 characters)
  */
-export function shortenHash(
-  hash: string,
-  startLen = 6,
-  endLen = 4,
-): string {
+export function shortenHash(hash: string, startLen = 6, endLen = 4): string {
   if (hash.length <= startLen + endLen + 3) return hash;
   return `${hash.slice(0, startLen)}...${hash.slice(-endLen)}`;
 }
