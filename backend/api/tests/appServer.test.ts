@@ -106,12 +106,10 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     container.registerInstance(StablecoinBridgeService, {
       getConfigs: vi.fn().mockResolvedValue([]),
       getConfig: vi.fn().mockResolvedValue(null),
-      getBridgeHistory: vi
-        .fn()
-        .mockResolvedValue({
-          data: [],
-          pagination: { total: 0, limit: 50, offset: 0 },
-        }),
+      getBridgeHistory: vi.fn().mockResolvedValue({
+        data: [],
+        pagination: { total: 0, limit: 50, offset: 0 },
+      }),
       getStatus: vi.fn().mockResolvedValue(null),
     } as any);
   }
