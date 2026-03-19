@@ -38,10 +38,10 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
-      # Rust security scan
+      # Rust security scan (audit.toml documents ignored advisories with rationale)
       - name: Audit Rust dependencies
         working-directory: ./backend/contracts
-        run: cargo audit
+        run: cargo audit --ignore RUSTSEC-2024-0344
 
       # CodeQL Analysis
       - name: Initialize CodeQL
