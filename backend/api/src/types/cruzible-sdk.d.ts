@@ -1,4 +1,4 @@
-declare module '../../../../sdk/typescript/dist/src' {
+declare module "../../../../sdk/typescript/dist/src" {
   export function bytesToHex(value: Uint8Array): string;
   export function computeEligibleUniverseHash(addresses: string[]): Uint8Array;
   export function computeStakeSnapshotHash(
@@ -7,21 +7,21 @@ declare module '../../../../sdk/typescript/dist/src' {
       address: string;
       shares: bigint | number | string;
       delegated_to: string;
-    }>
+    }>,
   ): Uint8Array;
   export function computeStakerRegistryRoot(
     stakers: ReadonlyArray<{
       address: string;
       shares: bigint | number | string;
       delegated_to: string;
-    }>
+    }>,
   ): Uint8Array;
   export function computeDelegationRegistryRoot(
     stakers: ReadonlyArray<{
       address: string;
       shares: bigint | number | string;
       delegated_to: string;
-    }>
+    }>,
   ): Uint8Array;
   export function computeCanonicalDelegationPayload(input: {
     epoch: bigint | number | string;

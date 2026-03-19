@@ -1,14 +1,17 @@
-import React from 'react';
-import Head from 'next/head';
-import Link from 'next/link';
-import { Home, ArrowLeft, Search } from 'lucide-react';
+import React from "react";
+import Head from "next/head";
+import Link from "next/link";
+import { Home, ArrowLeft, Search } from "lucide-react";
 
 export default function Custom404() {
   return (
     <>
       <Head>
         <title>404 — Page Not Found | Cruzible</title>
-        <meta name="description" content="The page you're looking for doesn't exist." />
+        <meta
+          name="description"
+          content="The page you're looking for doesn't exist."
+        />
       </Head>
       <div className="min-h-screen bg-[#050810] flex items-center justify-center px-4">
         {/* Background glow */}
@@ -21,19 +24,28 @@ export default function Custom404() {
           <div className="flex justify-center mb-8">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#1e1b5e] shadow-lg shadow-indigo-900/25 p-2">
               <svg viewBox="0 0 100 100" className="w-full h-full">
-                <path d="M 62 83 L 25 79 L 25 21 L 68 21 L 46 48" stroke="white" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <path
+                  d="M 62 83 L 25 79 L 25 21 L 68 21 L 46 48"
+                  stroke="white"
+                  strokeWidth="14"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
               </svg>
             </div>
           </div>
 
           {/* 404 Number */}
-          <div className="text-8xl font-bold text-slate-800 mb-2 tracking-tighter">404</div>
+          <div className="text-8xl font-bold text-slate-800 mb-2 tracking-tighter">
+            404
+          </div>
 
           {/* Message */}
           <h1 className="text-2xl font-bold text-white mb-3">Page Not Found</h1>
           <p className="text-slate-400 mb-8 leading-relaxed">
-            The page you&apos;re looking for doesn&apos;t exist on the Aethelred network.
-            It may have been moved or the URL might be incorrect.
+            The page you&apos;re looking for doesn&apos;t exist on the Aethelred
+            network. It may have been moved or the URL might be incorrect.
           </p>
 
           {/* Actions */}

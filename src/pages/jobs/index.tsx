@@ -4,15 +4,24 @@
  * Premium dark-themed page for browsing AI verification jobs.
  */
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Search, Filter, RefreshCw, Cpu, Clock, CheckCircle, XCircle } from 'lucide-react';
-import Link from 'next/link';
-import { SEOHead } from '@/components/SEOHead';
-import { TopNav, Footer } from '@/components/SharedComponents';
-import { GlassCard } from '@/components/PagePrimitives';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Search,
+  Filter,
+  RefreshCw,
+  Cpu,
+  Clock,
+  CheckCircle,
+  XCircle,
+} from "lucide-react";
+import Link from "next/link";
+import { SEOHead } from "@/components/SEOHead";
+import { TopNav, Footer } from "@/components/SharedComponents";
+import { GlassCard } from "@/components/PagePrimitives";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.mainnet.aethelred.org';
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
 
 interface Job {
   id: string;
@@ -28,32 +37,56 @@ interface Job {
   validatorAddress: string | null;
 }
 
-async function fetchJobs(page: number, status?: string): Promise<{ jobs: Job[]; total: number }> {
+async function fetchJobs(
+  page: number,
+  status?: string,
+): Promise<{ jobs: Job[]; total: number }> {
   const params = new URLSearchParams({
-    limit: '20',
+    limit: "20",
     offset: String((page - 1) * 20),
-    sort: 'created_at:desc',
+    sort: "created_at:desc",
   });
-  if (status) params.set('status', status);
+  if (status) params.set("status", status);
 
   const response = await fetch(`${API_URL}/v1/jobs?${params}`);
-  if (!response.ok) throw new Error('Failed to fetch jobs');
+  if (!response.ok) throw new Error("Failed to fetch jobs");
   return response.json();
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const statusConfig: Record<string, { classes: string; icon: React.ReactNode }> = {
-    completed: { classes: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30', icon: <CheckCircle className="w-3 h-3" /> },
-    pending: { classes: 'bg-amber-500/15 text-amber-400 border border-amber-500/30', icon: <Clock className="w-3 h-3" /> },
-    computing: { classes: 'bg-blue-500/15 text-blue-400 border border-blue-500/30', icon: <Cpu className="w-3 h-3" /> },
-    failed: { classes: 'bg-red-500/15 text-red-400 border border-red-500/30', icon: <XCircle className="w-3 h-3" /> },
+  const statusConfig: Record<
+    string,
+    { classes: string; icon: React.ReactNode }
+  > = {
+    completed: {
+      classes:
+        "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
+      icon: <CheckCircle className="w-3 h-3" />,
+    },
+    pending: {
+      classes: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+      icon: <Clock className="w-3 h-3" />,
+    },
+    computing: {
+      classes: "bg-blue-500/15 text-blue-400 border border-blue-500/30",
+      icon: <Cpu className="w-3 h-3" />,
+    },
+    failed: {
+      classes: "bg-red-500/15 text-red-400 border border-red-500/30",
+      icon: <XCircle className="w-3 h-3" />,
+    },
   };
 
-  const normalizedStatus = status.toLowerCase().replace('job_status_', '');
-  const config = statusConfig[normalizedStatus] || { classes: 'bg-slate-500/15 text-slate-400 border border-slate-500/30', icon: null };
+  const normalizedStatus = status.toLowerCase().replace("job_status_", "");
+  const config = statusConfig[normalizedStatus] || {
+    classes: "bg-slate-500/15 text-slate-400 border border-slate-500/30",
+    icon: null,
+  };
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${config.classes}`}>
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${config.classes}`}
+    >
       {config.icon}
       {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
     </span>
@@ -62,16 +95,16 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function JobsPage() {
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['jobs', page, statusFilter],
+    queryKey: ["jobs", page, statusFilter],
     queryFn: () => fetchJobs(page, statusFilter),
   });
 
   const truncateHash = (hash: string) => {
-    if (!hash || hash.length <= 16) return hash || '-';
+    if (!hash || hash.length <= 16) return hash || "-";
     return `${hash.slice(0, 8)}...${hash.slice(-8)}`;
   };
 
@@ -79,11 +112,13 @@ export default function JobsPage() {
     return new Date(dateString).toLocaleString();
   };
 
-  const filteredJobs = data?.jobs?.filter(job =>
-    !searchQuery ||
-    job.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    job.creator.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
+  const filteredJobs =
+    data?.jobs?.filter(
+      (job) =>
+        !searchQuery ||
+        job.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        job.creator.toLowerCase().includes(searchQuery.toLowerCase()),
+    ) || [];
 
   return (
     <>
@@ -103,8 +138,12 @@ export default function JobsPage() {
                 <Cpu className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold font-display">Jobs Explorer</h1>
-                <p className="text-sm text-slate-400">AI verification job tracker</p>
+                <h1 className="text-2xl font-bold font-display">
+                  Jobs Explorer
+                </h1>
+                <p className="text-sm text-slate-400">
+                  AI verification job tracker
+                </p>
               </div>
             </div>
             <button
@@ -178,13 +217,19 @@ export default function JobsPage() {
                 <tbody className="divide-y divide-slate-800/30">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                      <td
+                        colSpan={6}
+                        className="px-6 py-12 text-center text-slate-500"
+                      >
                         Loading jobs...
                       </td>
                     </tr>
                   ) : filteredJobs.length > 0 ? (
                     filteredJobs.map((job) => (
-                      <tr key={job.id} className="hover:bg-white/[0.02] transition-colors">
+                      <tr
+                        key={job.id}
+                        className="hover:bg-white/[0.02] transition-colors"
+                      >
                         <td className="px-6 py-4 whitespace-nowrap">
                           <Link
                             href={`/jobs/${job.id}`}
@@ -197,7 +242,7 @@ export default function JobsPage() {
                           <StatusBadge status={job.status} />
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
-                          {job.proofType.replace('PROOF_TYPE_', '')}
+                          {job.proofType.replace("PROOF_TYPE_", "")}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <Link
@@ -217,7 +262,10 @@ export default function JobsPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                      <td
+                        colSpan={6}
+                        className="px-6 py-12 text-center text-slate-500"
+                      >
                         No jobs found
                       </td>
                     </tr>
@@ -233,15 +281,17 @@ export default function JobsPage() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
                   className="px-4 py-2 border border-slate-700/50 rounded-lg text-sm text-slate-300 disabled:opacity-40 hover:bg-slate-800/50 transition-colors"
                 >
                   Previous
                 </button>
-                <span className="px-4 py-2 text-sm text-slate-400">Page {page}</span>
+                <span className="px-4 py-2 text-sm text-slate-400">
+                  Page {page}
+                </span>
                 <button
-                  onClick={() => setPage(p => p + 1)}
+                  onClick={() => setPage((p) => p + 1)}
                   disabled={!data?.jobs || data.jobs.length < 20}
                   className="px-4 py-2 border border-slate-700/50 rounded-lg text-sm text-slate-300 disabled:opacity-40 hover:bg-slate-800/50 transition-colors"
                 >

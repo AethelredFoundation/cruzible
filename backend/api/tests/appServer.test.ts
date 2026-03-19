@@ -1,19 +1,19 @@
-import 'reflect-metadata';
-import { container } from 'tsyringe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import "reflect-metadata";
+import { container } from "tsyringe";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks — hoisted by vitest before any imports
 // ---------------------------------------------------------------------------
 
-vi.mock('@prisma/client', () => ({
+vi.mock("@prisma/client", () => ({
   PrismaClient: vi.fn().mockImplementation(() => ({
     $queryRaw: vi.fn().mockResolvedValue([1]),
     vaultState: { findFirst: vi.fn().mockResolvedValue(null) },
   })),
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock("../src/utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
@@ -21,7 +21,7 @@ vi.mock('../src/utils/logger', () => ({
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('ApiGateway lifecycle (server.ts)', () => {
+describe("ApiGateway lifecycle (server.ts)", () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -42,24 +42,20 @@ describe('ApiGateway lifecycle (server.ts)', () => {
    */
   async function registerMockServices() {
     // Core services used by start() / shutdown()
-    const { BlockchainService } = await import(
-      '../src/services/BlockchainService'
-    );
-    const { CacheService } = await import('../src/services/CacheService');
-    const { ReconciliationScheduler } = await import(
-      '../src/services/ReconciliationScheduler'
-    );
-    const { IndexerService } = await import('../src/services/IndexerService');
+    const { BlockchainService } =
+      await import("../src/services/BlockchainService");
+    const { CacheService } = await import("../src/services/CacheService");
+    const { ReconciliationScheduler } =
+      await import("../src/services/ReconciliationScheduler");
+    const { IndexerService } = await import("../src/services/IndexerService");
 
     // Route-level services resolved at module scope in v1 routes
-    const { JobsService } = await import('../src/services/JobsService');
-    const { ReconciliationService } = await import(
-      '../src/services/ReconciliationService'
-    );
-    const { AlertService } = await import('../src/services/AlertService');
-    const { StablecoinBridgeService } = await import(
-      '../src/services/StablecoinBridgeService'
-    );
+    const { JobsService } = await import("../src/services/JobsService");
+    const { ReconciliationService } =
+      await import("../src/services/ReconciliationService");
+    const { AlertService } = await import("../src/services/AlertService");
+    const { StablecoinBridgeService } =
+      await import("../src/services/StablecoinBridgeService");
 
     container.registerInstance(BlockchainService, {
       initialize: vi.fn().mockResolvedValue(undefined),
@@ -110,7 +106,12 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     container.registerInstance(StablecoinBridgeService, {
       getConfigs: vi.fn().mockResolvedValue([]),
       getConfig: vi.fn().mockResolvedValue(null),
-      getBridgeHistory: vi.fn().mockResolvedValue({ data: [], pagination: { total: 0, limit: 50, offset: 0 } }),
+      getBridgeHistory: vi
+        .fn()
+        .mockResolvedValue({
+          data: [],
+          pagination: { total: 0, limit: 50, offset: 0 },
+        }),
       getStatus: vi.fn().mockResolvedValue(null),
     } as any);
   }
@@ -119,9 +120,9 @@ describe('ApiGateway lifecycle (server.ts)', () => {
   // Startup
   // -----------------------------------------------------------------------
 
-  it('createAppServer() returns an ApiGateway without side effects', async () => {
+  it("createAppServer() returns an ApiGateway without side effects", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
+    const { createAppServer } = await import("../src/server");
 
     const api = createAppServer();
 
@@ -132,14 +133,14 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     expect(api.httpServer.listening).toBe(false);
   });
 
-  it('start() binds to a port, wires up the scheduler, and health responds', async () => {
+  it("start() binds to a port, wires up the scheduler, and health responds", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
+    const { createAppServer } = await import("../src/server");
 
     const api = createAppServer();
 
     // Override config.port to 0 so the OS picks a random free port
-    const { config } = await import('../src/config');
+    const { config } = await import("../src/config");
     const originalPort = config.port;
     (config as any).port = 0;
 
@@ -152,13 +153,12 @@ describe('ApiGateway lifecycle (server.ts)', () => {
       expect(address).not.toBeNull();
 
       const port =
-        typeof address === 'object' && address !== null ? address.port : 0;
+        typeof address === "object" && address !== null ? address.port : 0;
       expect(port).toBeGreaterThan(0);
 
       // Verify that start() wired up the reconciliation scheduler
-      const { ReconciliationScheduler } = await import(
-        '../src/services/ReconciliationScheduler'
-      );
+      const { ReconciliationScheduler } =
+        await import("../src/services/ReconciliationScheduler");
       const scheduler = container.resolve(ReconciliationScheduler);
       expect(scheduler.start).toHaveBeenCalledTimes(1);
 
@@ -175,10 +175,10 @@ describe('ApiGateway lifecycle (server.ts)', () => {
   // Shutdown
   // -----------------------------------------------------------------------
 
-  it('shutdown() closes the HTTP server and stops services', async () => {
+  it("shutdown() closes the HTTP server and stops services", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
-    const { config } = await import('../src/config');
+    const { createAppServer } = await import("../src/server");
+    const { config } = await import("../src/config");
     const originalPort = config.port;
     (config as any).port = 0;
 
@@ -190,19 +190,18 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     expect(api.httpServer.listening).toBe(false);
 
     // Services should have been torn down
-    const { ReconciliationScheduler } = await import(
-      '../src/services/ReconciliationScheduler'
-    );
+    const { ReconciliationScheduler } =
+      await import("../src/services/ReconciliationScheduler");
     const scheduler = container.resolve(ReconciliationScheduler);
     expect(scheduler.stop).toHaveBeenCalled();
 
     (config as any).port = originalPort;
   });
 
-  it('shutdown() is idempotent — calling twice is a no-op', async () => {
+  it("shutdown() is idempotent — calling twice is a no-op", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
-    const { config } = await import('../src/config');
+    const { createAppServer } = await import("../src/server");
+    const { config } = await import("../src/config");
     const originalPort = config.port;
     (config as any).port = 0;
 

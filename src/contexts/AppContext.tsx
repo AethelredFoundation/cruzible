@@ -18,7 +18,7 @@ import React, {
   useMemo,
   useRef,
   useState,
-} from 'react';
+} from "react";
 
 import {
   useAccount,
@@ -28,12 +28,15 @@ import {
   useDisconnect,
   useSwitchChain,
   useBlockNumber,
-} from 'wagmi';
+} from "wagmi";
 
-import { formatUnits } from 'viem';
-import { activeChain } from '@/config/wagmi';
-import { CONTRACT_ADDRESSES, STABLECOIN_TOKEN_ADDRESS_KEYS } from '@/config/chains';
-import { getAllStablecoins } from '@/lib/constants';
+import { formatUnits } from "viem";
+import { activeChain } from "@/config/wagmi";
+import {
+  CONTRACT_ADDRESSES,
+  STABLECOIN_TOKEN_ADDRESS_KEYS,
+} from "@/config/chains";
+import { getAllStablecoins } from "@/lib/constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,7 +73,7 @@ export interface RealTimeState {
 
 export interface Notification {
   id: string;
-  type: 'success' | 'error' | 'warning' | 'info';
+  type: "success" | "error" | "warning" | "info";
   title: string;
   message: string;
   timestamp: number;
@@ -89,7 +92,7 @@ export interface AppContextValue {
   // Notifications
   notifications: Notification[];
   addNotification: (
-    type: Notification['type'],
+    type: Notification["type"],
     title: string,
     message: string,
   ) => void;
@@ -116,7 +119,7 @@ function nextNotifId(): string {
 
 const DEFAULT_WALLET: WalletState = {
   connected: false,
-  address: '',
+  address: "",
   balance: 0,
   stBalance: 0,
   stablecoinBalances: {},
@@ -252,7 +255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Connect: use the first available connector (MetaMask/injected preferred)
   const connectWallet = useCallback(() => {
     const injectedConnector = connectors.find(
-      (c) => c.id === 'injected' || c.id === 'metaMask',
+      (c) => c.id === "injected" || c.id === "metaMask",
     );
     const connector = injectedConnector || connectors[0];
     if (connector) {
@@ -275,8 +278,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isWrongNetwork && !prevWrongNetwork.current) {
       addNotificationRef.current?.(
-        'warning',
-        'Wrong Network',
+        "warning",
+        "Wrong Network",
         `Please switch to ${activeChain.name} to use Cruzible.`,
       );
     }
@@ -316,7 +319,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addNotification = useCallback(
-    (type: Notification['type'], title: string, message: string) => {
+    (type: Notification["type"], title: string, message: string) => {
       const id = nextNotifId();
       const notif: Notification = {
         id,
@@ -388,7 +391,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 export function useApp(): AppContextValue {
   const ctx = useContext(AppContext);
   if (!ctx) {
-    throw new Error('useApp must be used within an <AppProvider>');
+    throw new Error("useApp must be used within an <AppProvider>");
   }
   return ctx;
 }

@@ -4,15 +4,25 @@
  * Premium dark-themed page for browsing TEE verification seals.
  */
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Search, Filter, RefreshCw, Shield, CheckCircle, XCircle, Clock, ChevronLeft } from 'lucide-react';
-import Link from 'next/link';
-import { SEOHead } from '@/components/SEOHead';
-import { TopNav, Footer } from '@/components/SharedComponents';
-import { GlassCard, SectionHeader } from '@/components/PagePrimitives';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Search,
+  Filter,
+  RefreshCw,
+  Shield,
+  CheckCircle,
+  XCircle,
+  Clock,
+  ChevronLeft,
+} from "lucide-react";
+import Link from "next/link";
+import { SEOHead } from "@/components/SEOHead";
+import { TopNav, Footer } from "@/components/SharedComponents";
+import { GlassCard, SectionHeader } from "@/components/PagePrimitives";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.mainnet.aethelred.org';
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
 
 interface Seal {
   id: string;
@@ -27,32 +37,56 @@ interface Seal {
   expiresAt: string | null;
 }
 
-async function fetchSeals(page: number, status?: string): Promise<{ seals: Seal[]; total: number }> {
+async function fetchSeals(
+  page: number,
+  status?: string,
+): Promise<{ seals: Seal[]; total: number }> {
   const params = new URLSearchParams({
-    limit: '20',
+    limit: "20",
     offset: String((page - 1) * 20),
-    sort: 'created_at:desc',
+    sort: "created_at:desc",
   });
-  if (status) params.set('status', status);
+  if (status) params.set("status", status);
 
   const response = await fetch(`${API_URL}/v1/seals?${params}`);
-  if (!response.ok) throw new Error('Failed to fetch seals');
+  if (!response.ok) throw new Error("Failed to fetch seals");
   return response.json();
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const statusConfig: Record<string, { classes: string; icon: React.ReactNode }> = {
-    active: { classes: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30', icon: <CheckCircle className="w-3 h-3" /> },
-    revoked: { classes: 'bg-red-500/15 text-red-400 border border-red-500/30', icon: <XCircle className="w-3 h-3" /> },
-    expired: { classes: 'bg-slate-500/15 text-slate-400 border border-slate-500/30', icon: <Clock className="w-3 h-3" /> },
-    superseded: { classes: 'bg-amber-500/15 text-amber-400 border border-amber-500/30', icon: <Shield className="w-3 h-3" /> },
+  const statusConfig: Record<
+    string,
+    { classes: string; icon: React.ReactNode }
+  > = {
+    active: {
+      classes:
+        "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
+      icon: <CheckCircle className="w-3 h-3" />,
+    },
+    revoked: {
+      classes: "bg-red-500/15 text-red-400 border border-red-500/30",
+      icon: <XCircle className="w-3 h-3" />,
+    },
+    expired: {
+      classes: "bg-slate-500/15 text-slate-400 border border-slate-500/30",
+      icon: <Clock className="w-3 h-3" />,
+    },
+    superseded: {
+      classes: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+      icon: <Shield className="w-3 h-3" />,
+    },
   };
 
-  const normalizedStatus = status.toLowerCase().replace('seal_status_', '');
-  const config = statusConfig[normalizedStatus] || { classes: 'bg-slate-500/15 text-slate-400 border border-slate-500/30', icon: null };
+  const normalizedStatus = status.toLowerCase().replace("seal_status_", "");
+  const config = statusConfig[normalizedStatus] || {
+    classes: "bg-slate-500/15 text-slate-400 border border-slate-500/30",
+    icon: null,
+  };
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${config.classes}`}>
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${config.classes}`}
+    >
       {config.icon}
       {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
     </span>
@@ -61,24 +95,26 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function SealsPage() {
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['seals', page, statusFilter],
+    queryKey: ["seals", page, statusFilter],
     queryFn: () => fetchSeals(page, statusFilter),
   });
 
   const truncateHash = (hash: string) => {
-    if (!hash || hash.length <= 16) return hash || '-';
+    if (!hash || hash.length <= 16) return hash || "-";
     return `${hash.slice(0, 8)}...${hash.slice(-8)}`;
   };
 
-  const filteredSeals = data?.seals?.filter(seal =>
-    !searchQuery ||
-    seal.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    seal.jobId.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
+  const filteredSeals =
+    data?.seals?.filter(
+      (seal) =>
+        !searchQuery ||
+        seal.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        seal.jobId.toLowerCase().includes(searchQuery.toLowerCase()),
+    ) || [];
 
   return (
     <>
@@ -98,8 +134,12 @@ export default function SealsPage() {
                 <Shield className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold font-display">Digital Seals</h1>
-                <p className="text-sm text-slate-400">TEE verification seals explorer</p>
+                <h1 className="text-2xl font-bold font-display">
+                  Digital Seals
+                </h1>
+                <p className="text-sm text-slate-400">
+                  TEE verification seals explorer
+                </p>
               </div>
             </div>
             <button
@@ -169,21 +209,29 @@ export default function SealsPage() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-slate-500">Job:</span>
-                      <span className="font-mono text-slate-300">{truncateHash(seal.jobId)}</span>
+                      <span className="font-mono text-slate-300">
+                        {truncateHash(seal.jobId)}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Validators:</span>
-                      <span className="text-slate-300">{seal.validatorCount}</span>
+                      <span className="text-slate-300">
+                        {seal.validatorCount}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Created:</span>
-                      <span className="text-slate-300">{new Date(seal.createdAt).toLocaleDateString()}</span>
+                      <span className="text-slate-300">
+                        {new Date(seal.createdAt).toLocaleDateString()}
+                      </span>
                     </div>
                   </div>
 
                   <div className="mt-4 pt-4 border-t border-slate-800/50">
                     <div className="text-xs text-slate-500">
-                      <div className="mb-1">Model: {truncateHash(seal.modelCommitment)}</div>
+                      <div className="mb-1">
+                        Model: {truncateHash(seal.modelCommitment)}
+                      </div>
                       <div>Output: {truncateHash(seal.outputCommitment)}</div>
                     </div>
                   </div>
@@ -203,15 +251,17 @@ export default function SealsPage() {
             </div>
             <div className="flex gap-2">
               <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
                 className="px-4 py-2 border border-slate-700/50 rounded-lg text-sm text-slate-300 disabled:opacity-40 hover:bg-slate-800/50 transition-colors"
               >
                 Previous
               </button>
-              <span className="px-4 py-2 text-sm text-slate-400">Page {page}</span>
+              <span className="px-4 py-2 text-sm text-slate-400">
+                Page {page}
+              </span>
               <button
-                onClick={() => setPage(p => p + 1)}
+                onClick={() => setPage((p) => p + 1)}
                 disabled={!data?.seals || data.seals.length < 20}
                 className="px-4 py-2 border border-slate-700/50 rounded-lg text-sm text-slate-300 disabled:opacity-40 hover:bg-slate-800/50 transition-colors"
               >

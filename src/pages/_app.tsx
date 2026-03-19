@@ -8,28 +8,28 @@
  *   4. Toast notifications and Cmd+K search overlay
  */
 
-import type { AppProps } from 'next/app';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
-import { WagmiProvider } from 'wagmi';
-import { wagmiConfig } from '@/config/wagmi';
-import { AppProvider, useApp } from '@/contexts/AppContext';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { ToastContainer, SearchOverlay } from '@/components/SharedComponents';
-import '../styles/globals.css';
+import type { AppProps } from "next/app";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { WagmiProvider } from "wagmi";
+import { wagmiConfig } from "@/config/wagmi";
+import { AppProvider, useApp } from "@/contexts/AppContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ToastContainer, SearchOverlay } from "@/components/SharedComponents";
+import "../styles/globals.css";
 
 function AppInner({ Component, pageProps }: AppProps) {
   const { setSearchOpen } = useApp();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setSearchOpen(true);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [setSearchOpen]);
 
   return (

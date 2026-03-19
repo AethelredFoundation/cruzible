@@ -30,8 +30,8 @@ export function seededInt(seed: number, min: number, max: number): number {
  * Generate a hexadecimal string of given length from a seed.
  */
 export function seededHex(seed: number, length: number): string {
-  const chars = '0123456789abcdef';
-  let result = '';
+  const chars = "0123456789abcdef";
+  let result = "";
   for (let i = 0; i < length; i++) {
     result += chars[Math.floor(seededRandom(seed + i * 7 + 3) * chars.length)];
   }
@@ -42,8 +42,8 @@ export function seededHex(seed: number, length: number): string {
  * Generate an Aethelred-style address from a seed.
  */
 export function seededAddress(seed: number): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let addr = 'aeth1';
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let addr = "aeth1";
   for (let i = 0; i < 38; i++) {
     addr += chars[Math.floor(seededRandom(seed + i + 1) * chars.length)];
   }
@@ -57,16 +57,17 @@ export function seededAddress(seed: number): string {
  */
 export function formatNumber(n: number, decimals = 0): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(decimals > 0 ? decimals : 1)}M`;
+  if (n >= 1_000_000)
+    return `${(n / 1_000_000).toFixed(decimals > 0 ? decimals : 1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(decimals > 0 ? decimals : 1)}K`;
-  return n.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return n.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 /**
  * Format a number using locale-aware full formatting (e.g., 1,234,567).
  */
 export function formatFullNumber(n: number): string {
-  return n.toLocaleString('en-US');
+  return n.toLocaleString("en-US");
 }
 
 /**
@@ -75,7 +76,11 @@ export function formatFullNumber(n: number): string {
  * @param startLen - Characters to show at the start (default: 10)
  * @param endLen - Characters to show at the end (default: 6)
  */
-export function truncateAddress(addr: string, startLen = 10, endLen = 6): string {
+export function truncateAddress(
+  addr: string,
+  startLen = 10,
+  endLen = 6,
+): string {
   if (addr.length <= startLen + endLen + 3) return addr;
   return `${addr.slice(0, startLen)}...${addr.slice(-endLen)}`;
 }

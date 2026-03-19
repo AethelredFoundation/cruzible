@@ -3,34 +3,34 @@
  * Comprehensive testing setup with 80%+ coverage target
  */
 
-const nextJest = require('next/jest');
+const nextJest = require("next/jest");
 
 const createJestConfig = nextJest({
-  dir: './',
+  dir: "./",
 });
 
 const customJestConfig = {
-  setupFiles: ['<rootDir>/jest.polyfills.js'],
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  testEnvironment: 'jest-environment-jsdom',
+  setupFiles: ["<rootDir>/jest.polyfills.js"],
+  setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
+  testEnvironment: "jest-environment-jsdom",
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
-    '^@/components/(.*)$': '<rootDir>/src/components/$1',
-    '^@/lib/(.*)$': '<rootDir>/src/lib/$1',
-    '^@/contexts/(.*)$': '<rootDir>/src/contexts/$1',
-    '^@/hooks/(.*)$': '<rootDir>/src/hooks/$1',
+    "^@/(.*)$": "<rootDir>/src/$1",
+    "^@/components/(.*)$": "<rootDir>/src/components/$1",
+    "^@/lib/(.*)$": "<rootDir>/src/lib/$1",
+    "^@/contexts/(.*)$": "<rootDir>/src/contexts/$1",
+    "^@/hooks/(.*)$": "<rootDir>/src/hooks/$1",
   },
   testMatch: [
-    '<rootDir>/src/**/__tests__/**/*.(test|spec).(ts|tsx)',
-    '<rootDir>/src/**/?(*.)+(test|spec).(ts|tsx)',
+    "<rootDir>/src/**/__tests__/**/*.(test|spec).(ts|tsx)",
+    "<rootDir>/src/**/?(*.)+(test|spec).(ts|tsx)",
   ],
   collectCoverageFrom: [
-    'src/**/*.(ts|tsx)',
-    '!src/**/*.d.ts',
-    '!src/**/*.stories.(ts|tsx)',
-    '!src/types/**/*',
-    '!src/mocks/**/*',
-    '!src/**/index.ts',
+    "src/**/*.(ts|tsx)",
+    "!src/**/*.d.ts",
+    "!src/**/*.stories.(ts|tsx)",
+    "!src/types/**/*",
+    "!src/mocks/**/*",
+    "!src/**/index.ts",
   ],
   coverageThreshold: {
     global: {
@@ -40,18 +40,21 @@ const customJestConfig = {
       statements: 80,
     },
   },
-  coverageReporters: ['text', 'text-summary', 'lcov', 'html'],
-  coverageDirectory: '<rootDir>/coverage',
+  coverageReporters: ["text", "text-summary", "lcov", "html"],
+  coverageDirectory: "<rootDir>/coverage",
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', {
-      tsconfig: '<rootDir>/tsconfig.json',
-    }],
+    "^.+\\.(ts|tsx)$": [
+      "ts-jest",
+      {
+        tsconfig: "<rootDir>/tsconfig.json",
+      },
+    ],
   },
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
   testPathIgnorePatterns: [
-    '<rootDir>/node_modules/',
-    '<rootDir>/.next/',
-    '<rootDir>/e2e/',
+    "<rootDir>/node_modules/",
+    "<rootDir>/.next/",
+    "<rootDir>/e2e/",
   ],
   // watchPlugins require jest-watch-typeahead; uncomment when installed
   // watchPlugins: [
@@ -59,12 +62,12 @@ const customJestConfig = {
   //   'jest-watch-typeahead/testname',
   // ],
   reporters: [
-    'default',
+    "default",
     [
-      'jest-junit',
+      "jest-junit",
       {
-        outputDirectory: '<rootDir>/reports',
-        outputName: 'junit.xml',
+        outputDirectory: "<rootDir>/reports",
+        outputName: "junit.xml",
       },
     ],
   ],

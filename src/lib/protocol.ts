@@ -35,27 +35,36 @@ export type ProtocolPreview = {
 
 export function buildProtocolPreview(): ProtocolPreview {
   const validatorSetHash = bytesToHex(
-    computeValidatorSetHash(validatorVector.input.epoch, validatorVector.input.validators)
+    computeValidatorSetHash(
+      validatorVector.input.epoch,
+      validatorVector.input.validators,
+    ),
   );
-  const policyHash = bytesToHex(computeSelectionPolicyHash(validatorVector.input.config));
+  const policyHash = bytesToHex(
+    computeSelectionPolicyHash(validatorVector.input.config),
+  );
   const universeHash = bytesToHex(
-    computeEligibleUniverseHash(validatorVector.input.eligible_addresses)
+    computeEligibleUniverseHash(validatorVector.input.eligible_addresses),
   );
   const validatorPayloadHex = bytesToHex(
     computeCanonicalValidatorPayload(
       validatorVector.input.epoch,
       validatorVector.input.validators,
       validatorVector.input.config,
-      validatorVector.input.eligible_addresses
-    )
+      validatorVector.input.eligible_addresses,
+    ),
   );
 
   const stakerStakes = rewardVector.input.staker_stakes;
   const stakeSnapshotHash = bytesToHex(
-    computeStakeSnapshotHash(rewardVector.input.epoch, stakerStakes)
+    computeStakeSnapshotHash(rewardVector.input.epoch, stakerStakes),
   );
-  const stakerRegistryRoot = bytesToHex(computeStakerRegistryRoot(stakerStakes));
-  const delegationRegistryRoot = bytesToHex(computeDelegationRegistryRoot(stakerStakes));
+  const stakerRegistryRoot = bytesToHex(
+    computeStakerRegistryRoot(stakerStakes),
+  );
+  const delegationRegistryRoot = bytesToHex(
+    computeDelegationRegistryRoot(stakerStakes),
+  );
   const rewardPayloadHex = bytesToHex(
     computeCanonicalRewardPayload({
       epoch: rewardVector.input.epoch,
@@ -66,7 +75,7 @@ export function buildProtocolPreview(): ProtocolPreview {
       validator_set_hash: rewardVector.input.validator_set_hash,
       staker_registry_root: stakerRegistryRoot,
       delegation_registry_root: delegationRegistryRoot,
-    })
+    }),
   );
 
   const delegationPayloadHex = bytesToHex(
@@ -74,7 +83,7 @@ export function buildProtocolPreview(): ProtocolPreview {
       epoch: delegationVector.input.epoch,
       delegation_root: delegationRegistryRoot,
       staker_registry_root: stakerRegistryRoot,
-    })
+    }),
   );
 
   return {
@@ -88,10 +97,13 @@ export function buildProtocolPreview(): ProtocolPreview {
     rewardPayloadHex,
     delegationPayloadHex,
     vectorMatches: {
-      validatorPayload: validatorPayloadHex === validatorVector.expected.payload_hex,
+      validatorPayload:
+        validatorPayloadHex === validatorVector.expected.payload_hex,
       rewardPayload: rewardPayloadHex === rewardVector.expected.payload_hex,
-      delegationPayload: delegationPayloadHex === delegationVector.expected.payload_hex,
-      stakerRegistryRoot: stakerRegistryRoot === rewardVector.input.staker_registry_root,
+      delegationPayload:
+        delegationPayloadHex === delegationVector.expected.payload_hex,
+      stakerRegistryRoot:
+        stakerRegistryRoot === rewardVector.input.staker_registry_root,
       delegationRegistryRoot:
         delegationRegistryRoot === rewardVector.input.delegation_registry_root,
     },

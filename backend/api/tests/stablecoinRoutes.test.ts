@@ -6,21 +6,21 @@
  * mount the router on a real Express app, and test with HTTP.
  */
 
-import 'reflect-metadata';
-import express from 'express';
-import { container } from 'tsyringe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { withHttpServer } from './helpers/http';
+import "reflect-metadata";
+import express from "express";
+import { container } from "tsyringe";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withHttpServer } from "./helpers/http";
 
 // ---------------------------------------------------------------------------
 // Mocks — hoisted before imports
 // ---------------------------------------------------------------------------
 
-vi.mock('@prisma/client', () => ({
+vi.mock("@prisma/client", () => ({
   PrismaClient: vi.fn().mockImplementation(() => ({})),
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock("../src/utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
@@ -28,47 +28,50 @@ vi.mock('../src/utils/logger', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function registerTestInstance<T>(token: new (...args: never[]) => T, instance: T) {
+function registerTestInstance<T>(
+  token: new (...args: never[]) => T,
+  instance: T,
+) {
   container.registerInstance(token, instance);
 }
 
 const VALID_ASSET_ID =
-  '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+  "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
 
 const MOCK_CONFIG = {
   assetId: VALID_ASSET_ID,
-  symbol: 'USDC',
-  tokenAddress: '0x1234567890123456789012345678901234567890',
+  symbol: "USDC",
+  tokenAddress: "0x1234567890123456789012345678901234567890",
   routingType: 1,
   cctpDomain: 0,
-  maxBridgeAmount: '1000000000000',
-  dailyLimit: '500000000000',
-  dailyUsed: '100000000000',
+  maxBridgeAmount: "1000000000000",
+  dailyLimit: "500000000000",
+  dailyUsed: "100000000000",
   circuitBreakerTripped: false,
   active: true,
-  lastResetTimestamp: '2026-03-12T00:00:00.000Z',
-  blockNumber: '1000',
+  lastResetTimestamp: "2026-03-12T00:00:00.000Z",
+  blockNumber: "1000",
 };
 
 const MOCK_EVENT = {
-  id: 'evt-1',
+  id: "evt-1",
   assetId: VALID_ASSET_ID,
-  eventType: 'CCTPBurnInitiated',
-  sender: '0xsender',
-  amount: '1000000',
+  eventType: "CCTPBurnInitiated",
+  sender: "0xsender",
+  amount: "1000000",
   destDomain: 0,
-  txHash: '0xtxhash',
-  blockNumber: '100',
+  txHash: "0xtxhash",
+  blockNumber: "100",
   logIndex: 0,
-  timestamp: '2026-03-11T12:00:00.000Z',
-  metadata: { cctpNonce: '42' },
+  timestamp: "2026-03-11T12:00:00.000Z",
+  metadata: { cctpNonce: "42" },
 };
 
 const MOCK_STATUS = {
   assetId: VALID_ASSET_ID,
   circuitBreakerTripped: false,
-  dailyLimit: '500000000000',
-  dailyUsed: '100000000000',
+  dailyLimit: "500000000000",
+  dailyUsed: "100000000000",
   dailyUsagePercent: 20,
   active: true,
 };
@@ -77,7 +80,7 @@ const MOCK_STATUS = {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('stablecoin routes', () => {
+describe("stablecoin routes", () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -90,10 +93,9 @@ describe('stablecoin routes', () => {
   });
 
   async function mountRouter() {
-    const { CacheService } = await import('../src/services/CacheService');
-    const { StablecoinBridgeService } = await import(
-      '../src/services/StablecoinBridgeService'
-    );
+    const { CacheService } = await import("../src/services/CacheService");
+    const { StablecoinBridgeService } =
+      await import("../src/services/StablecoinBridgeService");
 
     const mockCache = {
       get: vi.fn().mockReturnValue(null), // No cache hits by default
@@ -115,19 +117,17 @@ describe('stablecoin routes', () => {
     registerTestInstance(CacheService, mockCache as any);
     registerTestInstance(StablecoinBridgeService, mockService as any);
 
-    const { stablecoinsRouter } = await import(
-      '../src/routes/v1/stablecoins'
-    );
+    const { stablecoinsRouter } = await import("../src/routes/v1/stablecoins");
 
     const app = express();
     app.use(express.json());
-    app.use('/v1/stablecoins', stablecoinsRouter);
+    app.use("/v1/stablecoins", stablecoinsRouter);
 
     // Error handler for ApiError
     app.use((err: any, _req: any, res: any, _next: any) => {
       const status = err.statusCode || err.status || 500;
       res.status(status).json({
-        error: err.message || 'Internal Server Error',
+        error: err.message || "Internal Server Error",
         details: err.details || undefined,
       });
     });
@@ -139,7 +139,7 @@ describe('stablecoin routes', () => {
   // GET /v1/stablecoins
   // -----------------------------------------------------------------------
 
-  it('GET /v1/stablecoins returns configs list', async () => {
+  it("GET /v1/stablecoins returns configs list", async () => {
     const { app } = await mountRouter();
 
     await withHttpServer(app, async (baseUrl) => {
@@ -148,7 +148,7 @@ describe('stablecoin routes', () => {
 
       expect(res.status).toBe(200);
       expect(body.data).toHaveLength(1);
-      expect(body.data[0].symbol).toBe('USDC');
+      expect(body.data[0].symbol).toBe("USDC");
       expect(body.data[0].routingType).toBe(1);
     });
   });
@@ -157,7 +157,7 @@ describe('stablecoin routes', () => {
   // GET /v1/stablecoins/:assetId
   // -----------------------------------------------------------------------
 
-  it('GET /v1/stablecoins/:assetId returns a single config', async () => {
+  it("GET /v1/stablecoins/:assetId returns a single config", async () => {
     const { app } = await mountRouter();
 
     await withHttpServer(app, async (baseUrl) => {
@@ -166,11 +166,11 @@ describe('stablecoin routes', () => {
 
       expect(res.status).toBe(200);
       expect(body.data.assetId).toBe(VALID_ASSET_ID);
-      expect(body.data.symbol).toBe('USDC');
+      expect(body.data.symbol).toBe("USDC");
     });
   });
 
-  it('GET /v1/stablecoins/:assetId rejects invalid assetId format', async () => {
+  it("GET /v1/stablecoins/:assetId rejects invalid assetId format", async () => {
     const { app } = await mountRouter();
 
     await withHttpServer(app, async (baseUrl) => {
@@ -180,7 +180,7 @@ describe('stablecoin routes', () => {
     });
   });
 
-  it('GET /v1/stablecoins/:assetId returns 404 when not found', async () => {
+  it("GET /v1/stablecoins/:assetId returns 404 when not found", async () => {
     const { app, mockService } = await mountRouter();
     mockService.getConfig.mockResolvedValue(null);
 
@@ -195,7 +195,7 @@ describe('stablecoin routes', () => {
   // GET /v1/stablecoins/:assetId/history
   // -----------------------------------------------------------------------
 
-  it('GET /v1/stablecoins/:assetId/history returns paginated events', async () => {
+  it("GET /v1/stablecoins/:assetId/history returns paginated events", async () => {
     const { app } = await mountRouter();
 
     await withHttpServer(app, async (baseUrl) => {
@@ -206,12 +206,12 @@ describe('stablecoin routes', () => {
 
       expect(res.status).toBe(200);
       expect(body.data).toHaveLength(1);
-      expect(body.data[0].eventType).toBe('CCTPBurnInitiated');
+      expect(body.data[0].eventType).toBe("CCTPBurnInitiated");
       expect(body.pagination).toBeDefined();
     });
   });
 
-  it('GET /v1/stablecoins/:assetId/history accepts event_type filter', async () => {
+  it("GET /v1/stablecoins/:assetId/history accepts event_type filter", async () => {
     const { app, mockService } = await mountRouter();
 
     await withHttpServer(app, async (baseUrl) => {
@@ -222,12 +222,12 @@ describe('stablecoin routes', () => {
       expect(res.status).toBe(200);
       expect(mockService.getBridgeHistory).toHaveBeenCalledWith(
         VALID_ASSET_ID,
-        expect.objectContaining({ eventType: 'CCTPBurnInitiated' }),
+        expect.objectContaining({ eventType: "CCTPBurnInitiated" }),
       );
     });
   });
 
-  it('GET /v1/stablecoins/:assetId/history rejects invalid event_type', async () => {
+  it("GET /v1/stablecoins/:assetId/history rejects invalid event_type", async () => {
     const { app } = await mountRouter();
 
     await withHttpServer(app, async (baseUrl) => {
@@ -243,7 +243,7 @@ describe('stablecoin routes', () => {
   // GET /v1/stablecoins/:assetId/status
   // -----------------------------------------------------------------------
 
-  it('GET /v1/stablecoins/:assetId/status returns status data', async () => {
+  it("GET /v1/stablecoins/:assetId/status returns status data", async () => {
     const { app } = await mountRouter();
 
     await withHttpServer(app, async (baseUrl) => {
@@ -259,7 +259,7 @@ describe('stablecoin routes', () => {
     });
   });
 
-  it('GET /v1/stablecoins/:assetId/status returns 404 when not found', async () => {
+  it("GET /v1/stablecoins/:assetId/status returns 404 when not found", async () => {
     const { app, mockService } = await mountRouter();
     mockService.getStatus.mockResolvedValue(null);
 
@@ -276,7 +276,7 @@ describe('stablecoin routes', () => {
   // Caching
   // -----------------------------------------------------------------------
 
-  it('serves cached response when available', async () => {
+  it("serves cached response when available", async () => {
     const { app, mockService, mockCache } = await mountRouter();
 
     // Simulate cache hit

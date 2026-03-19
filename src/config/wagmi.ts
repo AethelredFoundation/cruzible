@@ -5,21 +5,21 @@
  * for the Cruzible dApp frontend.
  */
 
-import { http, createConfig, createStorage } from 'wagmi';
-import { injected, walletConnect, coinbaseWallet } from 'wagmi/connectors';
+import { http, createConfig, createStorage } from "wagmi";
+import { injected, walletConnect, coinbaseWallet } from "wagmi/connectors";
 import {
   aethelredMainnet,
   aethelredTestnet,
   aethelredDevnet,
   activeChain,
-} from './chains';
+} from "./chains";
 
 // ---------------------------------------------------------------------------
 // WalletConnect Project ID
 // ---------------------------------------------------------------------------
 
 const WALLETCONNECT_PROJECT_ID =
-  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '';
+  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
 
 // ---------------------------------------------------------------------------
 // Connectors
@@ -34,18 +34,18 @@ const connectors = [
         walletConnect({
           projectId: WALLETCONNECT_PROJECT_ID,
           metadata: {
-            name: 'Cruzible by Aethelred',
-            description: 'TEE-verified liquid staking protocol',
-            url: 'https://cruzible.aethelred.network',
-            icons: ['https://cruzible.aethelred.network/icon.png'],
+            name: "Cruzible by Aethelred",
+            description: "TEE-verified liquid staking protocol",
+            url: "https://cruzible.aethelred.network",
+            icons: ["https://cruzible.aethelred.network/icon.png"],
           },
           showQrModal: true,
         }),
       ]
     : []),
   coinbaseWallet({
-    appName: 'Cruzible by Aethelred',
-    appLogoUrl: 'https://cruzible.aethelred.network/icon.png',
+    appName: "Cruzible by Aethelred",
+    appLogoUrl: "https://cruzible.aethelred.network/icon.png",
   }),
 ];
 
@@ -70,14 +70,14 @@ export const wagmiConfig = createConfig({
   // Use noopStorage on server to avoid hydration mismatches
   storage: createStorage({
     storage:
-      typeof window !== 'undefined'
+      typeof window !== "undefined"
         ? window.localStorage
         : {
             getItem: () => null,
             setItem: () => {},
             removeItem: () => {},
           },
-    key: 'cruzible-wallet',
+    key: "cruzible-wallet",
   }),
   // Disable auto-connect on SSR
   ssr: true,

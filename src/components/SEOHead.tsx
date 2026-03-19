@@ -1,4 +1,4 @@
-import Head from 'next/head';
+import Head from "next/head";
 
 interface SEOHeadProps {
   title: string;
@@ -10,9 +10,9 @@ interface SEOHeadProps {
  * Consistent SEO head component for all AethelVault pages.
  * Generates title, OG tags, Twitter card, and canonical URL.
  */
-export function SEOHead({ title, description, path = '' }: SEOHeadProps) {
+export function SEOHead({ title, description, path = "" }: SEOHeadProps) {
   const fullTitle = `${title} | Cruzible`;
-  const baseUrl = 'https://cruzible.aethelred.org';
+  const baseUrl = "https://cruzible.aethelred.org";
   const ogImage = `${baseUrl}/og-image.svg`;
 
   return (

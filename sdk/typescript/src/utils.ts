@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import type { IntegerLike } from "./types";
 
 export function stripHexPrefix(value: string): string {
-  return value.startsWith("0x") || value.startsWith("0X") ? value.slice(2) : value;
+  return value.startsWith("0x") || value.startsWith("0X")
+    ? value.slice(2)
+    : value;
 }
 
 export function bytesToHex(bytes: Uint8Array): string {

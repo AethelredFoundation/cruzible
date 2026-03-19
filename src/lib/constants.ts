@@ -3,53 +3,115 @@
 // Brand colors, chart palettes, stablecoin registry, and common data
 // ============================================================
 
-import { keccak256, toHex } from 'viem';
+import { keccak256, toHex } from "viem";
 
 /** Brand color palette */
 export const BRAND = {
-  NAME: 'Cruzible by Aethelred',
-  red: '#DC2626',
-  redDark: '#B91C1C',
-  redLight: '#FEE2E2',
-  redGlow: 'rgba(220, 38, 38, 0.15)',
+  NAME: "Cruzible by Aethelred",
+  red: "#DC2626",
+  redDark: "#B91C1C",
+  redLight: "#FEE2E2",
+  redGlow: "rgba(220, 38, 38, 0.15)",
 } as const;
 
 /** Chart color palette for multi-series visualizations */
 export const CHART_COLORS = [
-  '#DC2626', '#F87171', '#FCA5A5', '#FECACA',
-  '#10B981', '#3B82F6', '#8B5CF6', '#F59E0B',
-  '#EC4899', '#06B6D4',
+  "#DC2626",
+  "#F87171",
+  "#FCA5A5",
+  "#FECACA",
+  "#10B981",
+  "#3B82F6",
+  "#8B5CF6",
+  "#F59E0B",
+  "#EC4899",
+  "#06B6D4",
 ] as const;
 
 /** Validator / block producer names used across the app */
 export const PRODUCER_NAMES = [
-  'Aethelred Foundation',
-  'Paradigm Stake',
-  'Coinbase Cloud',
-  'Figment',
-  'Chorus One',
-  'Blockdaemon',
-  'Kiln Finance',
-  'Staked.us',
-  'P2P Validator',
-  'Everstake',
-  'HashQuark',
-  'InfStones',
+  "Aethelred Foundation",
+  "Paradigm Stake",
+  "Coinbase Cloud",
+  "Figment",
+  "Chorus One",
+  "Blockdaemon",
+  "Kiln Finance",
+  "Staked.us",
+  "P2P Validator",
+  "Everstake",
+  "HashQuark",
+  "InfStones",
 ] as const;
 
 /** Status color mappings for transaction/proposal statuses */
 export const STATUS_STYLES = {
-  Success: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
-  Verified: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
-  Completed: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
-  Active: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
-  Voting: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30', dot: 'bg-blue-400' },
-  Failed: { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30', dot: 'bg-red-400' },
-  Rejected: { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30', dot: 'bg-red-400' },
-  Pending: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', dot: 'bg-amber-400' },
-  Processing: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', dot: 'bg-amber-400' },
-  Queued: { bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30', dot: 'bg-purple-400' },
-  Executed: { bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30', dot: 'bg-cyan-400' },
+  Success: {
+    bg: "bg-emerald-500/20",
+    text: "text-emerald-400",
+    border: "border-emerald-500/30",
+    dot: "bg-emerald-400",
+  },
+  Verified: {
+    bg: "bg-emerald-500/20",
+    text: "text-emerald-400",
+    border: "border-emerald-500/30",
+    dot: "bg-emerald-400",
+  },
+  Completed: {
+    bg: "bg-emerald-500/20",
+    text: "text-emerald-400",
+    border: "border-emerald-500/30",
+    dot: "bg-emerald-400",
+  },
+  Active: {
+    bg: "bg-emerald-500/20",
+    text: "text-emerald-400",
+    border: "border-emerald-500/30",
+    dot: "bg-emerald-400",
+  },
+  Voting: {
+    bg: "bg-blue-500/20",
+    text: "text-blue-400",
+    border: "border-blue-500/30",
+    dot: "bg-blue-400",
+  },
+  Failed: {
+    bg: "bg-red-500/20",
+    text: "text-red-400",
+    border: "border-red-500/30",
+    dot: "bg-red-400",
+  },
+  Rejected: {
+    bg: "bg-red-500/20",
+    text: "text-red-400",
+    border: "border-red-500/30",
+    dot: "bg-red-400",
+  },
+  Pending: {
+    bg: "bg-amber-500/20",
+    text: "text-amber-400",
+    border: "border-amber-500/30",
+    dot: "bg-amber-400",
+  },
+  Processing: {
+    bg: "bg-amber-500/20",
+    text: "text-amber-400",
+    border: "border-amber-500/30",
+    dot: "bg-amber-400",
+  },
+  Queued: {
+    bg: "bg-purple-500/20",
+    text: "text-purple-400",
+    border: "border-purple-500/30",
+    dot: "bg-purple-400",
+  },
+  Executed: {
+    bg: "bg-cyan-500/20",
+    text: "text-cyan-400",
+    border: "border-cyan-500/30",
+    dot: "bg-cyan-400",
+  },
 } as const;
 
 // ============================================================
@@ -61,11 +123,11 @@ export const STATUS_STYLES = {
 /** Controls which operations are available for a stablecoin */
 export enum StablecoinPhase {
   /** Full bridge operations (bridge-out, balance, history) */
-  ACTIVE = 'ACTIVE',
+  ACTIVE = "ACTIVE",
   /** Balance visible, bridge operations disabled */
-  READ_ONLY = 'READ_ONLY',
+  READ_ONLY = "READ_ONLY",
   /** Listed in UI but greyed out, no data */
-  COMING_SOON = 'COMING_SOON',
+  COMING_SOON = "COMING_SOON",
 }
 
 /** On-chain routing type from InstitutionalStablecoinBridge.RoutingType */
@@ -114,22 +176,22 @@ export function isStablecoinEnabled(asset: StablecoinAsset): boolean {
  */
 export const STABLECOIN_ASSETS: Record<string, StablecoinAsset> = {
   USDC: {
-    symbol: 'USDC',
-    name: 'USD Coin',
+    symbol: "USDC",
+    name: "USD Coin",
     decimals: 6,
-    assetId: getAssetId('USDC'),
+    assetId: getAssetId("USDC"),
     routingType: StablecoinRoutingType.CCTP_V2,
     phase: StablecoinPhase.ACTIVE,
-    logoPath: '/tokens/usdc.svg',
+    logoPath: "/tokens/usdc.svg",
   },
   USDT: {
-    symbol: 'USDT',
-    name: 'Tether USD',
+    symbol: "USDT",
+    name: "Tether USD",
     decimals: 6,
-    assetId: getAssetId('USDT'),
+    assetId: getAssetId("USDT"),
     routingType: StablecoinRoutingType.CCTP_V2,
     phase: StablecoinPhase.READ_ONLY,
-    logoPath: '/tokens/usdt.svg',
+    logoPath: "/tokens/usdt.svg",
   },
 } as const;
 

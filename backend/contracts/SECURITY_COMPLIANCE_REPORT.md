@@ -4,13 +4,13 @@
 
 This report documents the security remediation efforts for the Aethelred Cruzible smart contracts against the 120 attack scenarios defined in the Attack Playbook.
 
-| Metric | Before | After |
-|--------|--------|-------|
-| Critical Vulnerabilities | 12 | 0 |
-| High Priority Issues | 18 | 3 |
-| Medium Priority Issues | 24 | 12 |
-| Test Coverage | 45% | 92% |
-| **Status** | ⚠️ NOT READY | ✅ PRODUCTION READY |
+| Metric                   | Before       | After               |
+| ------------------------ | ------------ | ------------------- |
+| Critical Vulnerabilities | 12           | 0                   |
+| High Priority Issues     | 18           | 3                   |
+| Medium Priority Issues   | 24           | 12                  |
+| Test Coverage            | 45%          | 92%                 |
+| **Status**               | ⚠️ NOT READY | ✅ PRODUCTION READY |
 
 ---
 
@@ -23,6 +23,7 @@ This report documents the security remediation efforts for the Aethelred Cruzibl
 **Issue:** Withdrawal queue allowed double claiming because claim status was not tracked.
 
 **Fix:**
+
 ```rust
 pub struct UnbondingRequest {
     pub amount: Uint128,
@@ -33,6 +34,7 @@ pub struct UnbondingRequest {
 ```
 
 **Verification:**
+
 - Test `test_attack_16_double_claim_blocked` passes
 - State updated BEFORE external call (checks-effects-interactions)
 
@@ -41,6 +43,7 @@ pub struct UnbondingRequest {
 **Issue:** Direct token donations inflated share price without minting shares.
 
 **Fix:**
+
 ```rust
 pub struct State {
     pub total_staked: Uint128,        // Accounted deposits only
@@ -54,6 +57,7 @@ fn execute_sweep_donations(...) {
 ```
 
 **Verification:**
+
 - Test `test_attack_4_donation_does_not_inflate_shares` passes
 - Donations can be swept by admin to treasury
 
@@ -62,6 +66,7 @@ fn execute_sweep_donations(...) {
 **Issue:** Rounding favored users extracting value through micro-transactions.
 
 **Fix:**
+
 ```rust
 // Round DOWN on mint (user gets fewer shares)
 fn calculate_shares_to_mint(...) -> Uint128 {
@@ -76,6 +81,7 @@ fn calculate_shares_to_burn(...) -> Uint128 {
 ```
 
 **Verification:**
+
 - Test `test_attack_5_rounding_favors_protocol` passes
 - Protocol always rounds in its favor
 
@@ -84,6 +90,7 @@ fn calculate_shares_to_burn(...) -> Uint128 {
 **Issue:** First depositor could manipulate share price by depositing small then donating large.
 
 **Fix:**
+
 ```rust
 // Require seed deposit on instantiate
 const MIN_DEPOSIT: u128 = 1_000_000;
@@ -91,7 +98,7 @@ const MIN_DEPOSIT: u128 = 1_000_000;
 fn instantiate(...) {
     let seed_amount = info.funds...;
     ensure!(seed_amount >= MIN_DEPOSIT, ContractError::AmountTooSmall);
-    
+
     let state = State {
         total_staked: seed_amount,
         total_shares: seed_amount,  // 1:1 seed ratio
@@ -101,6 +108,7 @@ fn instantiate(...) {
 ```
 
 **Verification:**
+
 - Test `test_first_depositor_protection` passes
 - Instantiation fails without seed deposit
 
@@ -109,15 +117,17 @@ fn instantiate(...) {
 **Issue:** Arithmetic operations could overflow/underflow.
 
 **Fix:**
+
 ```rust
 state.total_staked = state.total_staked.checked_add(amount)
     .map_err(|_| ContractError::Overflow)?;
-    
+
 state.total_shares = state.total_shares.checked_sub(shares_to_burn)
     .map_err(|_| ContractError::Underflow)?;
 ```
 
 **Verification:**
+
 - All arithmetic uses checked operations
 - Test `test_overflow_protection_stake` passes
 
@@ -126,6 +136,7 @@ state.total_shares = state.total_shares.checked_sub(shares_to_burn)
 **Issue:** No limit on unbonding requests per user (DoS vector).
 
 **Fix:**
+
 ```rust
 const MAX_UNBONDING_REQUESTS: u64 = 100;
 
@@ -137,6 +148,7 @@ fn execute_unstake(...) {
 ```
 
 **Verification:**
+
 - Test `test_attack_18_queue_dos_blocked` passes
 - Request limit enforced
 
@@ -145,6 +157,7 @@ fn execute_unstake(...) {
 **Issue:** Admin could set 100% fee.
 
 **Fix:**
+
 ```rust
 const MAX_FEE_BPS: u32 = 1000; // 10% maximum
 
@@ -156,6 +169,7 @@ fn execute_update_config(..., fee_bps: Option<u32>, ...) {
 ```
 
 **Verification:**
+
 - Test `test_attack_65_fee_cap_enforced` passes
 - Maximum 10% fee enforced
 
@@ -164,6 +178,7 @@ fn execute_update_config(..., fee_bps: Option<u32>, ...) {
 **Issue:** Slash events could be replayed.
 
 **Fix:**
+
 ```rust
 const PROCESSED_SLASHES: Map<u64, bool> = Map::new("processed_slashes");
 
@@ -176,6 +191,7 @@ fn execute_record_slash(..., slash_id: u64, ...) {
 ```
 
 **Verification:**
+
 - Test `test_slash_replay_protection` passes
 - Each slash_id can only be processed once
 
@@ -184,6 +200,7 @@ fn execute_record_slash(..., slash_id: u64, ...) {
 **Issue:** No emergency pause mechanism.
 
 **Fix:**
+
 ```rust
 pub struct Config {
     pub paused: bool,
@@ -200,6 +217,7 @@ fn execute_unpause(...) {
 ```
 
 **Verification:**
+
 - Test `test_pause_functionality` passes
 - Role separation prevents abuse
 
@@ -208,6 +226,7 @@ fn execute_unpause(...) {
 **Issue:** Single point of failure with admin key.
 
 **Fix:**
+
 ```rust
 pub struct Config {
     pub admin: Addr,      // Critical operations
@@ -217,6 +236,7 @@ pub struct Config {
 ```
 
 **Verification:**
+
 - Test `test_operator_can_update_validators` passes
 - Test `test_only_admin_can_unpause` passes
 - Role separation implemented
@@ -225,18 +245,18 @@ pub struct Config {
 
 ## 10 Critical Invariants - Verification
 
-| Invariant | Status | Implementation |
-|-----------|--------|----------------|
-| 1. Share Conservation | ✅ | `total_shares` tracked globally |
-| 2. Solvency | ✅ | `CheckSolvency` query implemented |
-| 3. No Double Claim | ✅ | `claimed` flag on `UnbondingRequest` |
-| 4. Monotonic Queue | ✅ | Once claimed, stays claimed |
-| 5. Slash Inclusion | ✅ | `PROCESSED_SLASHES` prevents replay |
-| 6. No Phantom Rewards | ✅ | Rewards deducted from pool before send |
-| 7. Fee Boundedness | ✅ | `MAX_FEE_BPS = 1000` (10%) |
-| 8. Role Safety | ✅ | Admin, Operator, Pauser separation |
-| 9. Upgrade Continuity | ⚠️ | No upgrade mechanism (add if needed) |
-| 10. Redemption Fairness | ✅ | Rounding favors protocol |
+| Invariant               | Status | Implementation                         |
+| ----------------------- | ------ | -------------------------------------- |
+| 1. Share Conservation   | ✅     | `total_shares` tracked globally        |
+| 2. Solvency             | ✅     | `CheckSolvency` query implemented      |
+| 3. No Double Claim      | ✅     | `claimed` flag on `UnbondingRequest`   |
+| 4. Monotonic Queue      | ✅     | Once claimed, stays claimed            |
+| 5. Slash Inclusion      | ✅     | `PROCESSED_SLASHES` prevents replay    |
+| 6. No Phantom Rewards   | ✅     | Rewards deducted from pool before send |
+| 7. Fee Boundedness      | ✅     | `MAX_FEE_BPS = 1000` (10%)             |
+| 8. Role Safety          | ✅     | Admin, Operator, Pauser separation     |
+| 9. Upgrade Continuity   | ⚠️     | No upgrade mechanism (add if needed)   |
+| 10. Redemption Fairness | ✅     | Rounding favors protocol               |
 
 ---
 
@@ -244,28 +264,28 @@ pub struct Config {
 
 ### Accounting Attacks (Attacks #1-15)
 
-| Attack | Description | Status | Test |
-|--------|-------------|--------|------|
-| #1 | Phantom Share Mint | ✅ Blocked | `test_attack_1_phantom_share_mint_blocked` |
-| #4 | Share Price Manipulation | ✅ Blocked | `test_attack_4_donation_does_not_inflate_shares` |
-| #5 | Rounding Arbitrage | ✅ Blocked | `test_attack_5_rounding_favors_protocol` |
-| #7 | Zero Share Mint | ✅ Blocked | `test_attack_7_zero_share_mint_blocked` |
-| #12 | Mispriced Initial Deposit | ✅ Blocked | `test_first_depositor_protection` |
+| Attack | Description               | Status     | Test                                             |
+| ------ | ------------------------- | ---------- | ------------------------------------------------ |
+| #1     | Phantom Share Mint        | ✅ Blocked | `test_attack_1_phantom_share_mint_blocked`       |
+| #4     | Share Price Manipulation  | ✅ Blocked | `test_attack_4_donation_does_not_inflate_shares` |
+| #5     | Rounding Arbitrage        | ✅ Blocked | `test_attack_5_rounding_favors_protocol`         |
+| #7     | Zero Share Mint           | ✅ Blocked | `test_attack_7_zero_share_mint_blocked`          |
+| #12    | Mispriced Initial Deposit | ✅ Blocked | `test_first_depositor_protection`                |
 
 ### Withdrawal Queue Attacks (Attacks #16-27)
 
-| Attack | Description | Status | Test |
-|--------|-------------|--------|------|
-| #16 | Double Claim | ✅ Blocked | `test_attack_16_double_claim_blocked` |
-| #18 | Queue DoS | ✅ Blocked | `test_attack_18_queue_dos_blocked` |
-| #20 | Cancel Withdraw Exploit | N/A | Cancel not implemented |
+| Attack | Description             | Status     | Test                                  |
+| ------ | ----------------------- | ---------- | ------------------------------------- |
+| #16    | Double Claim            | ✅ Blocked | `test_attack_16_double_claim_blocked` |
+| #18    | Queue DoS               | ✅ Blocked | `test_attack_18_queue_dos_blocked`    |
+| #20    | Cancel Withdraw Exploit | N/A        | Cancel not implemented                |
 
 ### Access Control Attacks (Attacks #56-65)
 
-| Attack | Description | Status | Test |
-|--------|-------------|--------|------|
-| #60 | Role Escalation | ✅ Mitigated | Role separation implemented |
-| #65 | Fee Parameter Abuse | ✅ Blocked | `test_attack_65_fee_cap_enforced` |
+| Attack | Description         | Status       | Test                              |
+| ------ | ------------------- | ------------ | --------------------------------- |
+| #60    | Role Escalation     | ✅ Mitigated | Role separation implemented       |
+| #65    | Fee Parameter Abuse | ✅ Blocked   | `test_attack_65_fee_cap_enforced` |
 
 ---
 
@@ -377,13 +397,13 @@ First Depositor Tests:
 
 ## Code Quality Metrics
 
-| Metric | Score |
-|--------|-------|
-| Test Coverage | 92% |
-| Critical Paths Covered | 100% |
-| Invariant Tests | 5 |
-| Attack Scenario Tests | 15 |
-| Documentation Coverage | 95% |
+| Metric                 | Score |
+| ---------------------- | ----- |
+| Test Coverage          | 92%   |
+| Critical Paths Covered | 100%  |
+| Invariant Tests        | 5     |
+| Attack Scenario Tests  | 15    |
+| Documentation Coverage | 95%   |
 
 ---
 
@@ -456,15 +476,15 @@ The AethelVault contract has been security-hardened to address all critical vuln
 
 ## Changelog
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2026-03-07 | Initial security-hardened release |
-| | | Fixed 12 critical vulnerabilities |
-| | | Added 25+ security tests |
-| | | Implemented role separation |
-| | | Added pause functionality |
-| | | Added fee caps |
-| | | Added slashing protection |
+| Version | Date       | Changes                           |
+| ------- | ---------- | --------------------------------- |
+| 1.0.0   | 2026-03-07 | Initial security-hardened release |
+|         |            | Fixed 12 critical vulnerabilities |
+|         |            | Added 25+ security tests          |
+|         |            | Implemented role separation       |
+|         |            | Added pause functionality         |
+|         |            | Added fee caps                    |
+|         |            | Added slashing protection         |
 
 ---
 

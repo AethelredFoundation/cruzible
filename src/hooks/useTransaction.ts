@@ -7,33 +7,33 @@
  * Integrates with the AppContext notification system for toast feedback.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState } from "react";
 import {
   useWriteContract,
   useWaitForTransactionReceipt,
   type UseWriteContractParameters,
-} from 'wagmi';
-import { type Abi, type Address, type Hash } from 'viem';
+} from "wagmi";
+import { type Abi, type Address, type Hash } from "viem";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type TxStatus =
-  | 'idle'
-  | 'awaiting_signature' // Wallet popup is open
-  | 'pending'            // Tx submitted, waiting for confirmation
-  | 'confirming'         // Tx included in block, waiting for finality
-  | 'confirmed'          // Tx finalized
-  | 'reverted'           // Tx included but reverted
-  | 'rejected'           // User rejected in wallet
-  | 'error';             // Other error (RPC timeout, dropped, etc.)
+  | "idle"
+  | "awaiting_signature" // Wallet popup is open
+  | "pending" // Tx submitted, waiting for confirmation
+  | "confirming" // Tx included in block, waiting for finality
+  | "confirmed" // Tx finalized
+  | "reverted" // Tx included but reverted
+  | "rejected" // User rejected in wallet
+  | "error"; // Other error (RPC timeout, dropped, etc.)
 
 export interface TxState {
   status: TxStatus;
   hash: Hash | undefined;
   error: Error | null;
-  receipt: ReturnType<typeof useWaitForTransactionReceipt>['data'] | null;
+  receipt: ReturnType<typeof useWaitForTransactionReceipt>["data"] | null;
 }
 
 export interface UseTransactionReturn {
@@ -54,7 +54,7 @@ export interface UseTransactionReturn {
 
 export function useTransaction(): UseTransactionReturn {
   const [state, setState] = useState<TxState>({
-    status: 'idle',
+    status: "idle",
     hash: undefined,
     error: null,
     receipt: null,
@@ -71,7 +71,7 @@ export function useTransaction(): UseTransactionReturn {
       value?: bigint;
     }): Promise<Hash | undefined> => {
       setState({
-        status: 'awaiting_signature',
+        status: "awaiting_signature",
         hash: undefined,
         error: null,
         receipt: null,
@@ -88,7 +88,7 @@ export function useTransaction(): UseTransactionReturn {
 
         setState((prev) => ({
           ...prev,
-          status: 'pending',
+          status: "pending",
           hash,
         }));
 
@@ -96,13 +96,13 @@ export function useTransaction(): UseTransactionReturn {
       } catch (err: any) {
         // Detect user rejection
         const isRejection =
-          err?.name === 'UserRejectedRequestError' ||
+          err?.name === "UserRejectedRequestError" ||
           err?.code === 4001 ||
-          err?.message?.includes('rejected') ||
-          err?.message?.includes('denied');
+          err?.message?.includes("rejected") ||
+          err?.message?.includes("denied");
 
         setState({
-          status: isRejection ? 'rejected' : 'error',
+          status: isRejection ? "rejected" : "error",
           hash: undefined,
           error: err instanceof Error ? err : new Error(String(err)),
           receipt: null,
@@ -116,7 +116,7 @@ export function useTransaction(): UseTransactionReturn {
 
   const reset = useCallback(() => {
     setState({
-      status: 'idle',
+      status: "idle",
       hash: undefined,
       error: null,
       receipt: null,
@@ -132,40 +132,40 @@ export function useTransaction(): UseTransactionReturn {
 
 export function txStatusLabel(status: TxStatus): string {
   switch (status) {
-    case 'idle':
-      return '';
-    case 'awaiting_signature':
-      return 'Awaiting wallet signature...';
-    case 'pending':
-      return 'Transaction submitted, waiting for confirmation...';
-    case 'confirming':
-      return 'Transaction included, confirming...';
-    case 'confirmed':
-      return 'Transaction confirmed!';
-    case 'reverted':
-      return 'Transaction reverted';
-    case 'rejected':
-      return 'Transaction rejected in wallet';
-    case 'error':
-      return 'Transaction failed';
+    case "idle":
+      return "";
+    case "awaiting_signature":
+      return "Awaiting wallet signature...";
+    case "pending":
+      return "Transaction submitted, waiting for confirmation...";
+    case "confirming":
+      return "Transaction included, confirming...";
+    case "confirmed":
+      return "Transaction confirmed!";
+    case "reverted":
+      return "Transaction reverted";
+    case "rejected":
+      return "Transaction rejected in wallet";
+    case "error":
+      return "Transaction failed";
     default:
-      return '';
+      return "";
   }
 }
 
 export function txStatusColor(status: TxStatus): string {
   switch (status) {
-    case 'confirmed':
-      return 'text-emerald-400';
-    case 'pending':
-    case 'confirming':
-    case 'awaiting_signature':
-      return 'text-amber-400';
-    case 'reverted':
-    case 'rejected':
-    case 'error':
-      return 'text-red-400';
+    case "confirmed":
+      return "text-emerald-400";
+    case "pending":
+    case "confirming":
+    case "awaiting_signature":
+      return "text-amber-400";
+    case "reverted":
+    case "rejected":
+    case "error":
+      return "text-red-400";
     default:
-      return 'text-gray-400';
+      return "text-gray-400";
   }
 }

@@ -4,15 +4,24 @@
  * Premium dark-themed page for browsing registered AI models.
  */
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Search, RefreshCw, Box, CheckCircle, Clock, Activity, FileCode } from 'lucide-react';
-import Link from 'next/link';
-import { SEOHead } from '@/components/SEOHead';
-import { TopNav, Footer } from '@/components/SharedComponents';
-import { GlassCard } from '@/components/PagePrimitives';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Search,
+  RefreshCw,
+  Box,
+  CheckCircle,
+  Clock,
+  Activity,
+  FileCode,
+} from "lucide-react";
+import Link from "next/link";
+import { SEOHead } from "@/components/SEOHead";
+import { TopNav, Footer } from "@/components/SharedComponents";
+import { GlassCard } from "@/components/PagePrimitives";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.mainnet.aethelred.org';
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
 
 interface Model {
   modelHash: string;
@@ -31,23 +40,26 @@ interface Model {
 
 async function fetchModels(): Promise<{ models: Model[]; total: number }> {
   const response = await fetch(`${API_URL}/v1/models?limit=50`);
-  if (!response.ok) throw new Error('Failed to fetch models');
+  if (!response.ok) throw new Error("Failed to fetch models");
   return response.json();
 }
 
 function CategoryBadge({ category }: { category: string }) {
   const categoryColors: Record<string, string> = {
-    'MEDICAL': 'bg-red-500/15 text-red-400 border border-red-500/30',
-    'SCIENTIFIC': 'bg-blue-500/15 text-blue-400 border border-blue-500/30',
-    'FINANCIAL': 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
-    'LEGAL': 'bg-purple-500/15 text-purple-400 border border-purple-500/30',
-    'EDUCATIONAL': 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
-    'ENVIRONMENTAL': 'bg-teal-500/15 text-teal-400 border border-teal-500/30',
-    'GENERAL': 'bg-slate-500/15 text-slate-400 border border-slate-500/30',
+    MEDICAL: "bg-red-500/15 text-red-400 border border-red-500/30",
+    SCIENTIFIC: "bg-blue-500/15 text-blue-400 border border-blue-500/30",
+    FINANCIAL:
+      "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
+    LEGAL: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+    EDUCATIONAL: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+    ENVIRONMENTAL: "bg-teal-500/15 text-teal-400 border border-teal-500/30",
+    GENERAL: "bg-slate-500/15 text-slate-400 border border-slate-500/30",
   };
 
-  const normalizedCategory = category.replace('UTILITY_CATEGORY_', '');
-  const color = categoryColors[normalizedCategory] || 'bg-slate-500/15 text-slate-400 border border-slate-500/30';
+  const normalizedCategory = category.replace("UTILITY_CATEGORY_", "");
+  const color =
+    categoryColors[normalizedCategory] ||
+    "bg-slate-500/15 text-slate-400 border border-slate-500/30";
 
   return (
     <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${color}`}>
@@ -57,17 +69,17 @@ function CategoryBadge({ category }: { category: string }) {
 }
 
 export default function ModelsPage() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['models'],
+    queryKey: ["models"],
     queryFn: fetchModels,
     refetchInterval: 60000,
   });
 
   const truncateHash = (hash: string) => {
-    if (!hash || hash.length <= 16) return hash || '-';
+    if (!hash || hash.length <= 16) return hash || "-";
     return `${hash.slice(0, 8)}...${hash.slice(-8)}`;
   };
 
@@ -75,14 +87,24 @@ export default function ModelsPage() {
     return new Date(dateString).toLocaleDateString();
   };
 
-  const categories = ['MEDICAL', 'SCIENTIFIC', 'FINANCIAL', 'LEGAL', 'EDUCATIONAL', 'ENVIRONMENTAL', 'GENERAL'];
+  const categories = [
+    "MEDICAL",
+    "SCIENTIFIC",
+    "FINANCIAL",
+    "LEGAL",
+    "EDUCATIONAL",
+    "ENVIRONMENTAL",
+    "GENERAL",
+  ];
 
-  const filteredModels = data?.models?.filter(model =>
-    (!searchQuery ||
-      model.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      model.modelHash.toLowerCase().includes(searchQuery.toLowerCase())) &&
-    (!categoryFilter || model.category.includes(categoryFilter))
-  ) || [];
+  const filteredModels =
+    data?.models?.filter(
+      (model) =>
+        (!searchQuery ||
+          model.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          model.modelHash.toLowerCase().includes(searchQuery.toLowerCase())) &&
+        (!categoryFilter || model.category.includes(categoryFilter)),
+    ) || [];
 
   return (
     <>
@@ -102,8 +124,12 @@ export default function ModelsPage() {
                 <Box className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold font-display">Model Registry</h1>
-                <p className="text-sm text-slate-400">Registered AI models on Aethelred</p>
+                <h1 className="text-2xl font-bold font-display">
+                  Model Registry
+                </h1>
+                <p className="text-sm text-slate-400">
+                  Registered AI models on Aethelred
+                </p>
               </div>
             </div>
             <button
@@ -124,7 +150,9 @@ export default function ModelsPage() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500">Total Models</p>
-                  <p className="text-xl font-bold text-white">{data?.total || 0}</p>
+                  <p className="text-xl font-bold text-white">
+                    {data?.total || 0}
+                  </p>
                 </div>
               </div>
             </GlassCard>
@@ -136,7 +164,7 @@ export default function ModelsPage() {
                 <div>
                   <p className="text-xs text-slate-500">Verified Models</p>
                   <p className="text-xl font-bold text-white">
-                    {data?.models?.filter(m => m.verified).length || 0}
+                    {data?.models?.filter((m) => m.verified).length || 0}
                   </p>
                 </div>
               </div>
@@ -149,7 +177,9 @@ export default function ModelsPage() {
                 <div>
                   <p className="text-xs text-slate-500">Total Jobs Run</p>
                   <p className="text-xl font-bold text-white">
-                    {data?.models?.reduce((sum, m) => sum + m.totalJobs, 0).toLocaleString() || 0}
+                    {data?.models
+                      ?.reduce((sum, m) => sum + m.totalJobs, 0)
+                      .toLocaleString() || 0}
                   </p>
                 </div>
               </div>
@@ -162,7 +192,10 @@ export default function ModelsPage() {
                 <div>
                   <p className="text-xs text-slate-500">Architectures</p>
                   <p className="text-xl font-bold text-white">
-                    {new Set(data?.models?.map(m => m.architecture) || []).size}
+                    {
+                      new Set(data?.models?.map((m) => m.architecture) || [])
+                        .size
+                    }
                   </p>
                 </div>
               </div>
@@ -193,7 +226,7 @@ export default function ModelsPage() {
                   className="input-premium px-3 py-2.5 text-sm appearance-none cursor-pointer"
                 >
                   <option value="">All Categories</option>
-                  {categories.map(cat => (
+                  {categories.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat.charAt(0) + cat.slice(1).toLowerCase()}
                     </option>
@@ -226,13 +259,19 @@ export default function ModelsPage() {
                     <CategoryBadge category={model.category} />
                   </div>
 
-                  <h3 className="text-lg font-semibold text-white mb-1">{model.name}</h3>
-                  <p className="text-xs text-slate-500 font-mono mb-3">{truncateHash(model.modelHash)}</p>
+                  <h3 className="text-lg font-semibold text-white mb-1">
+                    {model.name}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-mono mb-3">
+                    {truncateHash(model.modelHash)}
+                  </p>
 
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-slate-500">Architecture:</span>
-                      <span className="text-slate-300">{model.architecture}</span>
+                      <span className="text-slate-300">
+                        {model.architecture}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Version:</span>
@@ -240,7 +279,9 @@ export default function ModelsPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Total Jobs:</span>
-                      <span className="text-white font-semibold">{model.totalJobs.toLocaleString()}</span>
+                      <span className="text-white font-semibold">
+                        {model.totalJobs.toLocaleString()}
+                      </span>
                     </div>
                   </div>
 

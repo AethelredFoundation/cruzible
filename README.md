@@ -34,6 +34,7 @@ Cruzible is a full-stack liquid staking application built on **Aethelred** — a
 <td width="50%">
 
 **Blockchain Explorer**
+
 - Real-time block tracking with WebSocket feeds
 - Full transaction history with advanced filtering
 - Validator performance and uptime monitoring
@@ -43,6 +44,7 @@ Cruzible is a full-stack liquid staking application built on **Aethelred** — a
 <td width="50%">
 
 **AI Job Verification**
+
 - TEE-attested inference job submission
 - Automatic validator assignment
 - ZK proof, TEE attestation, and MPC proof verification
@@ -54,6 +56,7 @@ Cruzible is a full-stack liquid staking application built on **Aethelred** — a
 <td width="50%">
 
 **Liquid Staking (stAETHEL)**
+
 - Stake AETHEL and earn rewards with full liquidity
 - Trade stAETHEL without unbonding periods
 - Manual or auto-delegated validator selection
@@ -62,7 +65,8 @@ Cruzible is a full-stack liquid staking application built on **Aethelred** — a
 </td>
 <td width="50%">
 
-**Governance** *(preview — not yet deployed on-chain)*
+**Governance** _(preview — not yet deployed on-chain)_
+
 - Protocol upgrade proposals
 - On-chain voting and delegation
 - Treasury and community fund management
@@ -111,13 +115,13 @@ graph TB
 
 ### Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Node.js | >= 20.0.0 |
-| Rust | >= 1.75.0 |
-| Docker + Compose | latest |
-| PostgreSQL | >= 16 |
-| Redis | >= 7 |
+| Tool             | Version   |
+| ---------------- | --------- |
+| Node.js          | >= 20.0.0 |
+| Rust             | >= 1.75.0 |
+| Docker + Compose | latest    |
+| PostgreSQL       | >= 16     |
+| Redis            | >= 7      |
 
 ### Installation
 
@@ -245,13 +249,13 @@ Reentrancy guard (checks-effects-interactions), checked arithmetic, role-based a
 
 ## Performance
 
-| Metric | Target | Current |
-|--------|--------|---------|
-| First Contentful Paint | < 1.5 s | 0.9 s |
-| Largest Contentful Paint | < 2.5 s | 1.8 s |
-| Time to Interactive | < 3.5 s | 2.2 s |
-| API Response Time (p95) | < 200 ms | 120 ms |
-| Contract Gas — stake | < 100 k | 80 k |
+| Metric                   | Target   | Current |
+| ------------------------ | -------- | ------- |
+| First Contentful Paint   | < 1.5 s  | 0.9 s   |
+| Largest Contentful Paint | < 2.5 s  | 1.8 s   |
+| Time to Interactive      | < 3.5 s  | 2.2 s   |
+| API Response Time (p95)  | < 200 ms | 120 ms  |
+| Contract Gas — stake     | < 100 k  | 80 k    |
 
 Optimisations: code splitting, Next.js image optimisation, Redis response caching, CDN edge delivery, Gzip/Brotli compression, database indexing.
 
@@ -290,10 +294,16 @@ GET  /v1/validators/:address
 ### WebSocket
 
 ```javascript
-const ws = new WebSocket('wss://api.aethelred.io/ws');
+const ws = new WebSocket("wss://api.aethelred.io/ws");
 
-ws.send(JSON.stringify({ method: 'subscribe', channel: 'blocks' }));
-ws.send(JSON.stringify({ method: 'subscribe', channel: 'transactions', filter: { address: 'aethelred1...' } }));
+ws.send(JSON.stringify({ method: "subscribe", channel: "blocks" }));
+ws.send(
+  JSON.stringify({
+    method: "subscribe",
+    channel: "transactions",
+    filter: { address: "aethelred1..." },
+  }),
+);
 ```
 
 Full reference: [api.aethelred.io/docs](https://api.aethelred.io/docs)

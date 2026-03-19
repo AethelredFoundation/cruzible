@@ -2,11 +2,11 @@
  * Jest Setup - Testing Environment Configuration
  */
 
-import '@testing-library/jest-dom';
-import { server } from './src/mocks/server';
+import "@testing-library/jest-dom";
+import { server } from "./src/mocks/server";
 
 // Establish API mocking before all tests
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 
 // Reset any request handlers that we may add during the tests
 afterEach(() => server.resetHandlers());
@@ -15,12 +15,12 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 // Mock Next.js router
-jest.mock('next/router', () => ({
+jest.mock("next/router", () => ({
   useRouter: () => ({
-    route: '/',
-    pathname: '/',
+    route: "/",
+    pathname: "/",
     query: {},
-    asPath: '/',
+    asPath: "/",
     push: jest.fn(),
     replace: jest.fn(),
     reload: jest.fn(),
@@ -40,7 +40,7 @@ jest.mock('next/router', () => ({
 }));
 
 // Mock next/head
-jest.mock('next/head', () => {
+jest.mock("next/head", () => {
   return {
     __esModule: true,
     default: ({ children }) => {
@@ -56,16 +56,16 @@ class IntersectionObserver {
   unobserve = jest.fn();
 }
 
-Object.defineProperty(window, 'IntersectionObserver', {
+Object.defineProperty(window, "IntersectionObserver", {
   writable: true,
   configurable: true,
   value: IntersectionObserver,
 });
 
 // Mock matchMedia
-Object.defineProperty(window, 'matchMedia', {
+Object.defineProperty(window, "matchMedia", {
   writable: true,
-  value: jest.fn().mockImplementation(query => ({
+  value: jest.fn().mockImplementation((query) => ({
     matches: false,
     media: query,
     onchange: null,
@@ -84,7 +84,7 @@ class ResizeObserver {
   unobserve = jest.fn();
 }
 
-Object.defineProperty(window, 'ResizeObserver', {
+Object.defineProperty(window, "ResizeObserver", {
   writable: true,
   configurable: true,
   value: ResizeObserver,

@@ -1,7 +1,7 @@
 # Aethelred Blockchain Infrastructure
 # Production-grade Docker Compose configuration
 
-version: '3.8'
+version: "3.8"
 
 services:
   # ============ AETHELRED NODE ============
@@ -13,11 +13,11 @@ services:
     container_name: aethelred-node
     restart: unless-stopped
     ports:
-      - "26656:26656"   # P2P
-      - "26657:26657"   # RPC
-      - "1317:1317"     # REST API
-      - "9090:9090"     # gRPC
-      - "9091:9091"     # gRPC Web
+      - "26656:26656" # P2P
+      - "26657:26657" # RPC
+      - "1317:1317" # REST API
+      - "9090:9090" # gRPC
+      - "9091:9091" # gRPC Web
     volumes:
       - aethelred-data:/data
       - ./config/node:/config:ro
@@ -38,10 +38,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4.0'
+          cpus: "4.0"
           memory: 16G
         reservations:
-          cpus: '2.0'
+          cpus: "2.0"
           memory: 8G
     logging:
       driver: "json-file"
@@ -60,7 +60,7 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
-      - "3001:3001"     # Metrics
+      - "3001:3001" # Metrics
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -81,7 +81,15 @@ services:
     networks:
       - aethelred-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/health",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -89,7 +97,7 @@ services:
       replicas: 2
       resources:
         limits:
-          cpus: '2.0'
+          cpus: "2.0"
           memory: 4G
     logging:
       driver: "json-file"
@@ -123,7 +131,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          cpus: "2.0"
           memory: 4G
     logging:
       driver: "json-file"
@@ -181,17 +189,21 @@ services:
     networks:
       - aethelred-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-aethelred} -d ${DB_NAME:-aethelred}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-aethelred} -d ${DB_NAME:-aethelred}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          cpus: "2.0"
           memory: 8G
         reservations:
-          cpus: '1.0'
+          cpus: "1.0"
           memory: 4G
 
   # ============ REDIS ============
@@ -215,10 +227,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: "1.0"
           memory: 2G
         reservations:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 1G
 
   # ============ NGINX REVERSE PROXY ============
@@ -238,7 +250,15 @@ services:
     networks:
       - aethelred-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -255,12 +275,12 @@ services:
       - ./config/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.enable-lifecycle'
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
     networks:
       - aethelred-network
 

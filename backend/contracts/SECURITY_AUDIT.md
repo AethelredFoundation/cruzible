@@ -15,12 +15,12 @@ This document provides a comprehensive security audit of the Aethelred Cruzible 
 
 ## Critical Findings Summary
 
-| Severity | Count | Status |
-|----------|-------|--------|
-| 🔴 Critical | 12 | Requires immediate fix |
-| 🟠 High | 18 | Must fix before mainnet |
-| 🟡 Medium | 24 | Should fix before launch |
-| 🟢 Low | 15 | Nice to have |
+| Severity    | Count | Status                   |
+| ----------- | ----- | ------------------------ |
+| 🔴 Critical | 12    | Requires immediate fix   |
+| 🟠 High     | 18    | Must fix before mainnet  |
+| 🟡 Medium   | 24    | Should fix before launch |
+| 🟢 Low      | 15    | Nice to have             |
 
 ### Top 5 Critical Issues
 
@@ -37,6 +37,7 @@ This document provides a comprehensive security audit of the Aethelred Cruzible 
 ### Attack #1 - Phantom Share Mint ⚠️ PARTIALLY MITIGATED
 
 **Current Code:**
+
 ```rust
 // vault/src/lib.rs:189-193
 let shares = if state.total_shares.is_zero() {
@@ -49,6 +50,7 @@ let shares = if state.total_shares.is_zero() {
 **Vulnerability:** If `amount` is 0, shares = 0. If `total_staked` becomes 0 but shares exist, calculation breaks.
 
 **Fix Required:**
+
 ```rust
 // Add minimum stake check
 if amount < config.min_stake || amount.is_zero() {
@@ -71,6 +73,7 @@ let shares = if state.total_shares.is_zero() {
 ### Attack #2 - Deposit Front-Run Rewards ⚠️ PARTIALLY MITIGATED
 
 **Current Code:**
+
 ```rust
 // vault/src/lib.rs:169-209
 fn execute_stake(...) {
@@ -82,6 +85,7 @@ fn execute_stake(...) {
 **Vulnerability:** New depositors can capture rewards earned before their deposit.
 
 **Fix Required:**
+
 ```rust
 // Add checkpoint-based reward accounting
 pub struct UserStake {
@@ -92,7 +96,7 @@ pub struct UserStake {
 fn execute_stake(...) {
     // Update global reward index before minting shares
     update_reward_index(deps, env)?;
-    
+
     // Set user's checkpoint to current index
     let user = UserStake {
         shares: new_shares,
@@ -108,6 +112,7 @@ fn execute_stake(...) {
 ### Attack #3 - Reward Double Counting ✅ MITIGATED
 
 **Current Code:**
+
 ```rust
 fn execute_claim_rewards(...) {
     let rewards = calculate_rewards(...)?;
@@ -126,6 +131,7 @@ fn execute_claim_rewards(...) {
 ### Attack #4 - Share Price Manipulation via Donation 🔴 CRITICAL
 
 **Current Code:**
+
 ```rust
 // Anyone can send tokens to contract address
 // No tracking of accounted vs actual balance
@@ -134,6 +140,7 @@ fn execute_claim_rewards(...) {
 **Vulnerability:** Attacker can donate tokens directly to vault, inflating share price.
 
 **Fix Required:**
+
 ```rust
 // Track accounted assets separately from raw balance
 pub struct State {
@@ -164,6 +171,7 @@ fn execute_sweep_donations(admin_only) {
 ### Attack #5 - Rounding Arbitrage 🔴 CRITICAL
 
 **Current Code:**
+
 ```rust
 // vault/src/lib.rs:192-193
 let shares = amount.multiply_ratio(state.total_shares, state.total_staked);
@@ -174,6 +182,7 @@ let shares_to_burn = amount.multiply_ratio(state.total_shares, state.total_stake
 **Vulnerability:** `multiply_ratio` rounds down. Attacker can extract value through repeated small deposits/withdrawals.
 
 **Fix Required:**
+
 ```rust
 // Mint rounds down (favors protocol)
 // Burn rounds up (favors protocol)
@@ -205,6 +214,7 @@ const MIN_DEPOSIT: Uint128 = Uint128::from(1_000_000u128); // 1 unit with 6 deci
 ### Attack #7 - Zero Share Mint ✅ MITIGATED
 
 **Current Code:**
+
 ```rust
 if amount.is_zero() || amount < config.min_stake || amount > config.max_stake {
     return Err(ContractError::InvalidAmount {});
@@ -218,6 +228,7 @@ if amount.is_zero() || amount < config.min_stake || amount > config.max_stake {
 ### Attack #12 - Mispriced Initial Deposit ⚠️ PARTIALLY MITIGATED
 
 **Current Code:**
+
 ```rust
 let shares = if state.total_shares.is_zero() {
     amount  // First depositor gets 1:1
@@ -227,6 +238,7 @@ let shares = if state.total_shares.is_zero() {
 **Vulnerability:** First depositor can be gamed. Attacker deposits 1 wei, then donates large amount.
 
 **Fix Required:**
+
 ```rust
 // Seed the vault with initial deposit (dead shares)
 const INITIAL_SEED: Uint128 = Uint128::from(1_000_000u128); // 1 token
@@ -252,6 +264,7 @@ fn instantiate(...) {
 ### Attack #16 - Double Withdrawal Claim 🔴 CRITICAL
 
 **Current Code:**
+
 ```rust
 // vault/src/lib.rs:249-282
 fn execute_claim(...) {
@@ -271,6 +284,7 @@ fn execute_claim(...) {
 **Vulnerability:** No tracking of claimed requests. If called twice before state saves, double claim possible.
 
 **Fix Required:**
+
 ```rust
 // Add claimed status to request
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -303,6 +317,7 @@ fn execute_claim(...) {
 ### Attack #18 - Withdrawal Queue DoS 🟠 HIGH
 
 **Current Code:**
+
 ```rust
 // No limit on number of unbonding requests per user
 UNSTAKE_COUNT.save(deps.storage, &info.sender, &(count + 1))?;
@@ -311,6 +326,7 @@ UNSTAKE_COUNT.save(deps.storage, &info.sender, &(count + 1))?;
 **Vulnerability:** User can create unlimited unbonding requests, causing gas exhaustion.
 
 **Fix Required:**
+
 ```rust
 const MAX_UNBONDING_REQUESTS: u64 = 100;
 
@@ -334,6 +350,7 @@ fn execute_claim(...) {
 ### Attack #20 - Cancel Withdraw Exploit 🔴 CRITICAL
 
 **Current Code:**
+
 ```rust
 // No cancel_unstake function exists!
 ```
@@ -341,15 +358,16 @@ fn execute_claim(...) {
 **Vulnerability:** If cancel is added without proper checks, could cancel and claim.
 
 **Fix Required (if adding cancel):**
+
 ```rust
 fn execute_cancel_unstake(unbonding_id: u64) {
     let mut req = UNSTAKE_REQUESTS.load(&info.sender, unbonding_id)?;
     ensure!(!req.claimed, ContractError::AlreadyClaimed);
-    
+
     // Return shares to user
     let shares_to_return = calculate_shares(req.amount);
     // ... update state
-    
+
     UNSTAKE_REQUESTS.remove(...);
 }
 ```
@@ -361,6 +379,7 @@ fn execute_cancel_unstake(unbonding_id: u64) {
 ### Attack #26 - Queue State Corruption 🟠 HIGH
 
 **Current Code:**
+
 ```rust
 // State updates are not atomic
 state.total_staked -= amount;
@@ -374,6 +393,7 @@ UNSTAKE_REQUESTS.save(deps.storage, (&info.sender, count), &unbonding)?;
 **Vulnerability:** If one save fails, state becomes inconsistent.
 
 **Fix Required:**
+
 ```rust
 // Use transaction-like pattern
 // In CosmWasm, all storage changes are atomic per contract call
@@ -383,11 +403,11 @@ fn execute_unstake(...) {
     // Validate everything first
     let current_stake = STAKES.load(...)?;
     ensure!(current_stake >= amount, ...);
-    
+
     let shares_to_burn = calculate_shares_to_burn(...);
     let current_shares = SHARES.load(...)?;
     ensure!(current_shares >= shares_to_burn, ...);
-    
+
     // All validations passed, now update state atomically
     // All saves will succeed or all fail (CosmWasm guarantee)
 }
@@ -402,6 +422,7 @@ fn execute_unstake(...) {
 ### Attack #28 - Malicious Validator Selection 🟡 MEDIUM
 
 **Current Code:**
+
 ```rust
 fn execute_stake(deps: DepsMut, _env: Env, info: MessageInfo, _validator: String) {
     // Validator parameter accepted but not validated or used
@@ -411,6 +432,7 @@ fn execute_stake(deps: DepsMut, _env: Env, info: MessageInfo, _validator: String
 **Vulnerability:** User can specify any validator, including malicious ones.
 
 **Fix Required:**
+
 ```rust
 fn execute_stake(...) {
     let validator_addr = deps.api.addr_validate(&validator)?;
@@ -418,7 +440,7 @@ fn execute_stake(...) {
         config.validators.contains(&validator_addr),
         ContractError::InvalidValidator
     );
-    
+
     // Track delegation per validator
     VALIDATOR_DELEGATIONS.update(deps.storage, &validator_addr, |d| {
         let mut del = d.unwrap_or_default();
@@ -435,6 +457,7 @@ fn execute_stake(...) {
 ### Attack #36 - Validator Delegation Overflow 🟠 HIGH
 
 **Current Code:**
+
 ```rust
 // No overflow checks on total_staked
 state.total_staked += amount;
@@ -444,6 +467,7 @@ state.total_shares += shares;
 **Vulnerability:** Uint128 overflow possible with extreme deposits.
 
 **Fix Required:**
+
 ```rust
 use cw_utils::OverflowChecker;
 
@@ -462,13 +486,14 @@ state.total_shares = state.total_shares.checked_add(shares)
 ### Attack #38 - Withdrawal Reentrancy 🔴 CRITICAL
 
 **Current Code:**
+
 ```rust
 // vault/src/lib.rs:249-282
 fn execute_claim(...) {
     // ... calculate total_claim
-    
+
     let send_msg = CosmosMsg::Bank(BankMsg::Send { ... });
-    
+
     Ok(Response::new()
         .add_message(send_msg)  // External call
         .add_attribute(...))
@@ -484,12 +509,13 @@ fn execute_claim(...) {
 ### Attack #40 - Reward Claim Reentrancy 🟠 HIGH
 
 **Current Code:**
+
 ```rust
 fn execute_claim_rewards(...) {
     let rewards = calculate_rewards(...)?;
     state.reward_pool -= rewards;  // State update before send
     STATE.save(deps.storage, &state)?;
-    
+
     let send_msg = CosmosMsg::Bank(BankMsg::Send { ... });  // External call after
     ...
 }
@@ -506,6 +532,7 @@ fn execute_claim_rewards(...) {
 ### Attack #56 - Unauthorized Upgrade 🔴 CRITICAL
 
 **Current Code:**
+
 ```rust
 // Contracts use cw2 for version tracking but no proxy/upgrade mechanism
 ```
@@ -513,6 +540,7 @@ fn execute_claim_rewards(...) {
 **Vulnerability:** If upgrade mechanism added, needs proper access control.
 
 **Fix Required (if adding upgrades):**
+
 ```rust
 // Use timelock + multisig
 pub struct UpgradeConfig {
@@ -545,6 +573,7 @@ fn execute_apply_upgrade(...) {
 ### Attack #60 - Role Escalation 🟠 HIGH
 
 **Current Code:**
+
 ```rust
 // Single admin pattern
 if info.sender != config.admin {
@@ -555,6 +584,7 @@ if info.sender != config.admin {
 **Vulnerability:** Single point of failure, no role separation.
 
 **Fix Required:**
+
 ```rust
 pub struct Config {
     pub admin: Addr,
@@ -573,6 +603,7 @@ pub struct Config {
 ### Attack #65 - Fee Parameter Abuse 🟠 HIGH
 
 **Current Code:**
+
 ```rust
 fn execute_update_config(..., fee_bps: Option<u32>, ...) {
     if let Some(fee) = fee_bps {
@@ -584,6 +615,7 @@ fn execute_update_config(..., fee_bps: Option<u32>, ...) {
 **Vulnerability:** Admin can set fee to 100% (10000 bps).
 
 **Fix Required:**
+
 ```rust
 const MAX_FEE_BPS: u32 = 1000; // 10% maximum
 
@@ -604,6 +636,7 @@ fn execute_update_config(..., fee_bps: Option<u32>, ...) {
 ### Attack #101 - Vault Token Injection 🔴 CRITICAL
 
 **Current Code:**
+
 ```rust
 // execute_stake uses info.funds directly
 let amount = info.funds.iter().find(|c| c.denom == config.denom).map(|c| c.amount);
@@ -612,6 +645,7 @@ let amount = info.funds.iter().find(|c| c.denom == config.denom).map(|c| c.amoun
 **Vulnerability:** No verification that funds actually belong to the sender.
 
 **Fix Required:**
+
 ```rust
 // CosmWasm guarantees info.funds are from sender
 // But we should validate denom strictly
@@ -630,39 +664,40 @@ ensure!(info.funds.len() == 1, ContractError::InvalidFunds);
 
 ## Section 7: 25 Catastrophic Vulnerabilities Assessment
 
-| # | Vulnerability | Status | Priority |
-|---|---------------|--------|----------|
-| 1 | Broken share accounting | 🟠 Partial | Critical |
-| 2 | Reentrancy | ✅ Low | - |
-| 3 | Stale exchange rate | 🟡 Medium | Medium |
-| 4 | Slashing not socialized | 🔴 Missing | Critical |
-| 5 | Withdrawal queue corruption | 🔴 Critical | Critical |
-| 6 | Privileged role drain | 🟠 High | High |
-| 7 | Upgradeability takeover | 🟡 Medium | Medium |
-| 8 | Direct token donation | 🔴 Critical | Critical |
-| 9 | Rounding exploitation | 🔴 Critical | Critical |
-| 10 | Reward double counting | 🟡 Medium | Medium |
-| 11 | Pending withdrawal double count | 🟠 High | High |
-| 12 | Mispriced initial deposit | 🟠 High | High |
-| 13 | Validator concentration | 🟡 Medium | Medium |
-| 14 | Malicious validator manager | 🟡 Medium | Medium |
-| 15 | Flash loan exploit | 🟠 High | High |
-| 16 | Oracle trust failure | 🟡 Medium | Medium |
-| 17 | State machine ambiguity | ✅ Low | - |
-| 18 | Gas-based DoS | 🟠 High | High |
-| 19 | Emergency pause weakness | 🟡 Medium | Medium |
-| 20 | Storage collision | 🟡 Medium | Medium |
-| 21 | Uninitialized contracts | ✅ Low | - |
-| 22 | Monitoring blind spots | 🟡 Medium | Medium |
-| 23 | Unsafe dependencies | 🟡 Medium | Medium |
-| 24 | No bank-run planning | 🟠 High | High |
-| 25 | No invariant culture | 🔴 Missing | Critical |
+| #   | Vulnerability                   | Status      | Priority |
+| --- | ------------------------------- | ----------- | -------- |
+| 1   | Broken share accounting         | 🟠 Partial  | Critical |
+| 2   | Reentrancy                      | ✅ Low      | -        |
+| 3   | Stale exchange rate             | 🟡 Medium   | Medium   |
+| 4   | Slashing not socialized         | 🔴 Missing  | Critical |
+| 5   | Withdrawal queue corruption     | 🔴 Critical | Critical |
+| 6   | Privileged role drain           | 🟠 High     | High     |
+| 7   | Upgradeability takeover         | 🟡 Medium   | Medium   |
+| 8   | Direct token donation           | 🔴 Critical | Critical |
+| 9   | Rounding exploitation           | 🔴 Critical | Critical |
+| 10  | Reward double counting          | 🟡 Medium   | Medium   |
+| 11  | Pending withdrawal double count | 🟠 High     | High     |
+| 12  | Mispriced initial deposit       | 🟠 High     | High     |
+| 13  | Validator concentration         | 🟡 Medium   | Medium   |
+| 14  | Malicious validator manager     | 🟡 Medium   | Medium   |
+| 15  | Flash loan exploit              | 🟠 High     | High     |
+| 16  | Oracle trust failure            | 🟡 Medium   | Medium   |
+| 17  | State machine ambiguity         | ✅ Low      | -        |
+| 18  | Gas-based DoS                   | 🟠 High     | High     |
+| 19  | Emergency pause weakness        | 🟡 Medium   | Medium   |
+| 20  | Storage collision               | 🟡 Medium   | Medium   |
+| 21  | Uninitialized contracts         | ✅ Low      | -        |
+| 22  | Monitoring blind spots          | 🟡 Medium   | Medium   |
+| 23  | Unsafe dependencies             | 🟡 Medium   | Medium   |
+| 24  | No bank-run planning            | 🟠 High     | High     |
+| 25  | No invariant culture            | 🔴 Missing  | Critical |
 
 ---
 
 ## Section 8: 10 Critical Invariants Verification
 
 ### Invariant #1: Share Conservation
+
 ```rust
 // Required: sum(user_shares) + protocol_shares == total_shares
 
@@ -673,10 +708,10 @@ ensure!(info.funds.len() == 1, ContractError::InvalidFunds);
 fn invariant_share_conservation(deps: &OwnedDeps) -> bool {
     let state = STATE.load(deps.storage).unwrap();
     let mut sum_shares = Uint128::zero();
-    
+
     // Iterate all users (expensive - consider tracking in production)
     // Or maintain running sum
-    
+
     sum_shares == state.total_shares
 }
 ```
@@ -686,6 +721,7 @@ fn invariant_share_conservation(deps: &OwnedDeps) -> bool {
 ---
 
 ### Invariant #2: Solvency
+
 ```rust
 // Required: real_assets >= total_redeemable_claims
 
@@ -693,7 +729,7 @@ fn invariant_share_conservation(deps: &OwnedDeps) -> bool {
 pub fn check_solvency(deps: Deps) -> Result<bool, ContractError> {
     let state = STATE.load(deps.storage)?;
     let pending_unstakes = calculate_total_pending_unstakes(deps)?;
-    
+
     Ok(state.total_staked >= pending_unstakes)
 }
 ```
@@ -703,6 +739,7 @@ pub fn check_solvency(deps: Deps) -> Result<bool, ContractError> {
 ---
 
 ### Invariant #3: No Double Claim
+
 ```rust
 // Each unbonding request can only be claimed once
 
@@ -718,6 +755,7 @@ pub struct UnbondingRequest {
 ---
 
 ### Invariant #4: Monotonic Queue Integrity
+
 ```
 // Once claimed, request stays claimed
 // Once processed, cannot become pending
@@ -730,6 +768,7 @@ pub struct UnbondingRequest {
 ---
 
 ### Invariant #5: Slash Inclusion
+
 ```rust
 // Slash events must be reflected exactly once
 
@@ -796,7 +835,7 @@ fn test_cannot_double_claim() {
 fn test_rounding_favors_protocol() {
     // Small deposit
     // Verify user gets fewer shares than theoretical
-    // Small withdrawal  
+    // Small withdrawal
     // Verify user burns more shares than theoretical
 }
 

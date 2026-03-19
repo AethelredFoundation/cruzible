@@ -34,14 +34,14 @@ Secondary evidence:
 
 ## Contract Ratings
 
-| Contract | Rating | Notes |
-|---|---:|---|
-| `vault` | 3/10 | Reward accounting is unsafe and the advertised liquid staking flow is not actually implemented |
-| `cw20_staking` | 5/10 | Mostly standard token plumbing, but assurance quality is poor and some paths appear uncompilable |
-| `governance` | 1/10 | Governance capture is trivial because vote weight and quorum are placeholders |
-| `model_registry` | 4/10 | Low direct custody risk, but key economic and integrity controls are missing |
-| `seal_manager` | 1/10 | Seals are not rooted in verified jobs or validator-authenticated evidence |
-| `ai_job_manager` | 2/10 | Escrow, verification, and expiry handling are unsafe |
+| Contract         | Rating | Notes                                                                                            |
+| ---------------- | -----: | ------------------------------------------------------------------------------------------------ |
+| `vault`          |   3/10 | Reward accounting is unsafe and the advertised liquid staking flow is not actually implemented   |
+| `cw20_staking`   |   5/10 | Mostly standard token plumbing, but assurance quality is poor and some paths appear uncompilable |
+| `governance`     |   1/10 | Governance capture is trivial because vote weight and quorum are placeholders                    |
+| `model_registry` |   4/10 | Low direct custody risk, but key economic and integrity controls are missing                     |
+| `seal_manager`   |   1/10 | Seals are not rooted in verified jobs or validator-authenticated evidence                        |
+| `ai_job_manager` |   2/10 | Escrow, verification, and expiry handling are unsafe                                             |
 
 ## Findings
 

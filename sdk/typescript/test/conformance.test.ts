@@ -33,24 +33,31 @@ function tryReadJson(relativePath: string): any | null {
 // ─── Default Vectors ──────────────────────────────────────────────────────
 function testDefaultVectors(): void {
   console.log("  [default] validator-selection/default.json");
-  const validatorVector = readJson("test-vectors/validator-selection/default.json");
+  const validatorVector = readJson(
+    "test-vectors/validator-selection/default.json",
+  );
   const rewardVector = readJson("test-vectors/reward/default.json");
   const delegationVector = readJson("test-vectors/delegation/default.json");
 
   const validatorSetHash = bytesToHex(
-    computeValidatorSetHash(validatorVector.input.epoch, validatorVector.input.validators)
+    computeValidatorSetHash(
+      validatorVector.input.epoch,
+      validatorVector.input.validators,
+    ),
   );
-  const policyHash = bytesToHex(computeSelectionPolicyHash(validatorVector.input.config));
+  const policyHash = bytesToHex(
+    computeSelectionPolicyHash(validatorVector.input.config),
+  );
   const universeHash = bytesToHex(
-    computeEligibleUniverseHash(validatorVector.input.eligible_addresses)
+    computeEligibleUniverseHash(validatorVector.input.eligible_addresses),
   );
   const validatorPayload = bytesToHex(
     computeCanonicalValidatorPayload(
       validatorVector.input.epoch,
       validatorVector.input.validators,
       validatorVector.input.config,
-      validatorVector.input.eligible_addresses
-    )
+      validatorVector.input.eligible_addresses,
+    ),
   );
 
   assert.equal(validatorSetHash, validatorVector.expected.validator_set_hash);
@@ -60,13 +67,16 @@ function testDefaultVectors(): void {
 
   console.log("  [default] reward/default.json");
   const stakeSnapshotHash = bytesToHex(
-    computeStakeSnapshotHash(rewardVector.input.epoch, rewardVector.input.staker_stakes)
+    computeStakeSnapshotHash(
+      rewardVector.input.epoch,
+      rewardVector.input.staker_stakes,
+    ),
   );
   const stakerRegistryRoot = bytesToHex(
-    computeStakerRegistryRoot(rewardVector.input.staker_stakes)
+    computeStakerRegistryRoot(rewardVector.input.staker_stakes),
   );
   const delegationRegistryRoot = bytesToHex(
-    computeDelegationRegistryRoot(rewardVector.input.staker_stakes)
+    computeDelegationRegistryRoot(rewardVector.input.staker_stakes),
   );
   const rewardPayload = bytesToHex(
     computeCanonicalRewardPayload({
@@ -78,17 +88,20 @@ function testDefaultVectors(): void {
       validator_set_hash: rewardVector.input.validator_set_hash,
       staker_registry_root: stakerRegistryRoot,
       delegation_registry_root: delegationRegistryRoot,
-    })
+    }),
   );
 
   assert.equal(stakeSnapshotHash, rewardVector.expected.stake_snapshot_hash);
   assert.equal(stakerRegistryRoot, rewardVector.expected.staker_registry_root);
-  assert.equal(delegationRegistryRoot, rewardVector.expected.delegation_registry_root);
+  assert.equal(
+    delegationRegistryRoot,
+    rewardVector.expected.delegation_registry_root,
+  );
   assert.equal(rewardPayload, rewardVector.expected.payload_hex);
 
   console.log("  [default] delegation/default.json");
   const delegationPayload = bytesToHex(
-    computeCanonicalDelegationPayload(delegationVector.input)
+    computeCanonicalDelegationPayload(delegationVector.input),
   );
   assert.equal(delegationPayload, delegationVector.expected.payload_hex);
 }
@@ -98,33 +111,43 @@ function testDefaultVectors(): void {
 function hasExpectedValues(expected: any): boolean {
   if (!expected) return false;
   return Object.entries(expected).some(
-    ([key, value]) => key !== "_note" && value !== null && typeof value === "string"
+    ([key, value]) =>
+      key !== "_note" && value !== null && typeof value === "string",
   );
 }
 
 function testEdgeSingleValidator(): void {
   const vector = tryReadJson("test-vectors/edge-cases/single-validator.json");
   if (!vector || !hasExpectedValues(vector.expected)) {
-    console.log("  [skip] single-validator.json (expected values not yet generated)");
+    console.log(
+      "  [skip] single-validator.json (expected values not yet generated)",
+    );
     return;
   }
   console.log("  [edge] single-validator.json");
   const { epoch, validators, config, eligible_addresses } = vector.input;
   assert.equal(
     bytesToHex(computeValidatorSetHash(epoch, validators)),
-    vector.expected.validator_set_hash
+    vector.expected.validator_set_hash,
   );
   assert.equal(
     bytesToHex(computeSelectionPolicyHash(config)),
-    vector.expected.policy_hash
+    vector.expected.policy_hash,
   );
   assert.equal(
     bytesToHex(computeEligibleUniverseHash(eligible_addresses)),
-    vector.expected.universe_hash
+    vector.expected.universe_hash,
   );
   assert.equal(
-    bytesToHex(computeCanonicalValidatorPayload(epoch, validators, config, eligible_addresses)),
-    vector.expected.payload_hex
+    bytesToHex(
+      computeCanonicalValidatorPayload(
+        epoch,
+        validators,
+        config,
+        eligible_addresses,
+      ),
+    ),
+    vector.expected.payload_hex,
   );
 }
 
@@ -138,88 +161,96 @@ function testEdgeZeroStake(): void {
   const { epoch, staker_stakes } = vector.input;
   assert.equal(
     bytesToHex(computeStakeSnapshotHash(epoch, staker_stakes)),
-    vector.expected.stake_snapshot_hash
+    vector.expected.stake_snapshot_hash,
   );
   assert.equal(
     bytesToHex(computeStakerRegistryRoot(staker_stakes)),
-    vector.expected.staker_registry_root
+    vector.expected.staker_registry_root,
   );
   assert.equal(
     bytesToHex(computeDelegationRegistryRoot(staker_stakes)),
-    vector.expected.delegation_registry_root
+    vector.expected.delegation_registry_root,
   );
 }
 
 function testEdgeMaxUint64(): void {
   const vector = tryReadJson("test-vectors/edge-cases/max-uint64-values.json");
   if (!vector || !hasExpectedValues(vector.expected)) {
-    console.log("  [skip] max-uint64-values.json (expected values not yet generated)");
+    console.log(
+      "  [skip] max-uint64-values.json (expected values not yet generated)",
+    );
     return;
   }
   console.log("  [edge] max-uint64-values.json");
   const { epoch, validators, staker_stakes } = vector.input;
   assert.equal(
     bytesToHex(computeValidatorSetHash(epoch, validators)),
-    vector.expected.validator_set_hash
+    vector.expected.validator_set_hash,
   );
   assert.equal(
     bytesToHex(computeStakeSnapshotHash(epoch, staker_stakes)),
-    vector.expected.stake_snapshot_hash
+    vector.expected.stake_snapshot_hash,
   );
   assert.equal(
     bytesToHex(computeStakerRegistryRoot(staker_stakes)),
-    vector.expected.staker_registry_root
+    vector.expected.staker_registry_root,
   );
   assert.equal(
     bytesToHex(computeDelegationRegistryRoot(staker_stakes)),
-    vector.expected.delegation_registry_root
+    vector.expected.delegation_registry_root,
   );
 }
 
 function testEdgeEmptyTeeKey(): void {
   const vector = tryReadJson("test-vectors/edge-cases/empty-tee-key.json");
   if (!vector || !hasExpectedValues(vector.expected)) {
-    console.log("  [skip] empty-tee-key.json (expected values not yet generated)");
+    console.log(
+      "  [skip] empty-tee-key.json (expected values not yet generated)",
+    );
     return;
   }
   console.log("  [edge] empty-tee-key.json");
   const { epoch, validators } = vector.input;
   assert.equal(
     bytesToHex(computeValidatorSetHash(epoch, validators)),
-    vector.expected.validator_set_hash
+    vector.expected.validator_set_hash,
   );
 }
 
 function testEdgeSpecialAddresses(): void {
   const vector = tryReadJson("test-vectors/edge-cases/special-addresses.json");
   if (!vector || !hasExpectedValues(vector.expected)) {
-    console.log("  [skip] special-addresses.json (expected values not yet generated)");
+    console.log(
+      "  [skip] special-addresses.json (expected values not yet generated)",
+    );
     return;
   }
   console.log("  [edge] special-addresses.json");
   const { epoch, staker_stakes, validators } = vector.input;
   assert.equal(
     bytesToHex(computeValidatorSetHash(epoch, validators)),
-    vector.expected.validator_set_hash
+    vector.expected.validator_set_hash,
   );
   assert.equal(
     bytesToHex(computeStakeSnapshotHash(epoch, staker_stakes)),
-    vector.expected.stake_snapshot_hash
+    vector.expected.stake_snapshot_hash,
   );
   assert.equal(
     bytesToHex(computeStakerRegistryRoot(staker_stakes)),
-    vector.expected.staker_registry_root
+    vector.expected.staker_registry_root,
   );
   assert.equal(
     bytesToHex(computeDelegationRegistryRoot(staker_stakes)),
-    vector.expected.delegation_registry_root
+    vector.expected.delegation_registry_root,
   );
 }
 
 function testEdgeMaxValidators(): void {
   const vector = tryReadJson("test-vectors/edge-cases/max-validators.json");
   if (!vector || !hasExpectedValues(vector.expected)) {
-    console.log("  [skip] max-validators.json (expected values not yet generated)");
+    console.log(
+      "  [skip] max-validators.json (expected values not yet generated)",
+    );
     return;
   }
   if (!Array.isArray(vector.input.validators)) {
@@ -228,8 +259,10 @@ function testEdgeMaxValidators(): void {
   }
   console.log("  [edge] max-validators.json");
   assert.equal(
-    bytesToHex(computeValidatorSetHash(vector.input.epoch, vector.input.validators)),
-    vector.expected.validator_set_hash
+    bytesToHex(
+      computeValidatorSetHash(vector.input.epoch, vector.input.validators),
+    ),
+    vector.expected.validator_set_hash,
   );
 }
 

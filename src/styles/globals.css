@@ -28,8 +28,15 @@ html {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #050810;
@@ -81,57 +88,112 @@ body {
 
 /* Modal / overlay enter & exit */
 @keyframes modal-overlay-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes modal-content-in {
-  from { opacity: 0; transform: scale(0.95) translateY(10px); }
-  to   { opacity: 1; transform: scale(1)    translateY(0); }
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 @keyframes modal-overlay-out {
-  from { opacity: 1; }
-  to   { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes modal-content-out {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.95); }
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
 }
 
 /* Drawer slide */
 @keyframes drawer-in {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 @keyframes drawer-out {
-  from { transform: translateX(0); }
-  to   { transform: translateX(100%); }
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
 /* Toast */
 @keyframes toast-in {
-  from { transform: translateX(100%); opacity: 0; }
-  to   { transform: translateX(0);    opacity: 1; }
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 @keyframes toast-out {
-  from { transform: translateX(0);    opacity: 1; }
-  to   { transform: translateX(100%); opacity: 0; }
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
 }
 
 /* Animated number count-up */
 @keyframes countUp {
-  from { opacity: 0; transform: translateY(5px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Glow pulse (brand red) */
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 8px rgba(220, 38, 38, 0.2), 0 0 2px rgba(220, 38, 38, 0.4); }
-  50%      { box-shadow: 0 0 24px rgba(220, 38, 38, 0.4), 0 0 6px rgba(220, 38, 38, 0.6); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 8px rgba(220, 38, 38, 0.2),
+      0 0 2px rgba(220, 38, 38, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 24px rgba(220, 38, 38, 0.4),
+      0 0 6px rgba(220, 38, 38, 0.6);
+  }
 }
 
 .glow-pulse {
@@ -140,14 +202,26 @@ body {
 
 /* Live dot */
 @keyframes live-dot {
-  0%, 100% { transform: scale(1);   opacity: 1; }
-  50%      { transform: scale(1.6); opacity: 0.4; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.6);
+    opacity: 0.4;
+  }
 }
 
 /* Pulse slow */
 @keyframes pulse-slow {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.6; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 .animate-pulse-slow {
@@ -156,32 +230,61 @@ body {
 
 /* Slide in from top (new block feed) */
 @keyframes slide-in-top {
-  from { transform: translateY(-20px); opacity: 0; max-height: 0; }
-  to   { transform: translateY(0);     opacity: 1; max-height: 200px; }
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+    max-height: 200px;
+  }
 }
 
 .slide-in-top {
-  animation: slide-in-top 0.35s cubic-bezier(0.16,1,0.3,1);
+  animation: slide-in-top 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Skeleton loading (premium dark) */
 @keyframes skeleton-loading {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* Ambient orb float */
 @keyframes orb-float {
-  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
-  25%      { transform: translate(15px, -25px) scale(1.05); opacity: 0.5; }
-  50%      { transform: translate(-10px, 10px) scale(0.95); opacity: 0.35; }
-  75%      { transform: translate(25px, 5px) scale(1.02); opacity: 0.45; }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.4;
+  }
+  25% {
+    transform: translate(15px, -25px) scale(1.05);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate(-10px, 10px) scale(0.95);
+    opacity: 0.35;
+  }
+  75% {
+    transform: translate(25px, 5px) scale(1.02);
+    opacity: 0.45;
+  }
 }
 
 /* Gradient border animation */
 @keyframes gradient-border-spin {
-  0%   { --angle: 0deg; }
-  100% { --angle: 360deg; }
+  0% {
+    --angle: 0deg;
+  }
+  100% {
+    --angle: 360deg;
+  }
 }
 
 /* ==========================================================================
@@ -189,7 +292,11 @@ body {
    ========================================================================== */
 
 .glass-card {
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.7) 0%, rgba(15, 23, 42, 0.5) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(15, 23, 42, 0.7) 0%,
+    rgba(15, 23, 42, 0.5) 100%
+  );
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(99, 102, 241, 0.08);
@@ -204,7 +311,11 @@ body {
 }
 
 .glass-card-hover:hover {
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.85) 0%, rgba(15, 23, 42, 0.65) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(15, 23, 42, 0.85) 0%,
+    rgba(15, 23, 42, 0.65) 100%
+  );
   border-color: rgba(99, 102, 241, 0.15);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.04),
@@ -216,18 +327,29 @@ body {
 /* Premium gradient-border card */
 .gradient-border-card {
   position: relative;
-  background: linear-gradient(135deg, rgba(10, 14, 26, 0.9) 0%, rgba(15, 23, 42, 0.8) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(10, 14, 26, 0.9) 0%,
+    rgba(15, 23, 42, 0.8) 100%
+  );
   border-radius: 1rem;
 }
 
 .gradient-border-card::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(220, 38, 38, 0.2) 0%, rgba(99, 102, 241, 0.15) 50%, rgba(220, 38, 38, 0.1) 100%);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  background: linear-gradient(
+    135deg,
+    rgba(220, 38, 38, 0.2) 0%,
+    rgba(99, 102, 241, 0.15) 50%,
+    rgba(220, 38, 38, 0.1) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
@@ -246,11 +368,19 @@ body {
 }
 
 .ambient-orb-red {
-  background: radial-gradient(circle, rgba(220, 38, 38, 0.4) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(220, 38, 38, 0.4) 0%,
+    transparent 70%
+  );
 }
 
 .ambient-orb-navy {
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.3) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(99, 102, 241, 0.3) 0%,
+    transparent 70%
+  );
 }
 
 .ambient-mesh {
@@ -313,8 +443,12 @@ body {
 }
 
 @keyframes shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* ==========================================================================
@@ -338,7 +472,7 @@ body {
 }
 
 .status-active::before {
-  content: '';
+  content: "";
   position: absolute;
   width: 8px;
   height: 8px;
@@ -387,7 +521,12 @@ body {
    ========================================================================== */
 
 .skeleton {
-  background: linear-gradient(90deg, rgba(30, 41, 59, 0.5) 25%, rgba(51, 65, 85, 0.3) 50%, rgba(30, 41, 59, 0.5) 75%);
+  background: linear-gradient(
+    90deg,
+    rgba(30, 41, 59, 0.5) 25%,
+    rgba(51, 65, 85, 0.3) 50%,
+    rgba(30, 41, 59, 0.5) 75%
+  );
   background-size: 200% 100%;
   animation: skeleton-loading 1.8s infinite;
   border-radius: 8px;
@@ -398,14 +537,15 @@ body {
    ========================================================================== */
 
 .code-block {
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, Monaco,
-    'Andale Mono', 'Ubuntu Mono', monospace;
+  font-family:
+    "JetBrains Mono", "Fira Code", Consolas, Monaco, "Andale Mono",
+    "Ubuntu Mono", monospace;
   font-size: 0.875rem;
   line-height: 1.5;
 }
 
 .hash-display {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
   font-size: 0.75rem;
   letter-spacing: 0.025em;
 }
@@ -441,7 +581,10 @@ body {
   white-space: nowrap;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+  transition:
+    opacity 0.2s,
+    visibility 0.2s,
+    transform 0.2s;
   transform: translateX(-50%) translateY(4px);
   z-index: 50;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
@@ -484,19 +627,27 @@ body {
 .btn-primary {
   @apply relative overflow-hidden px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all duration-300;
   background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-  box-shadow: 0 2px 8px -2px rgba(220, 38, 38, 0.3), 0 0 0 1px rgba(220, 38, 38, 0.1);
+  box-shadow:
+    0 2px 8px -2px rgba(220, 38, 38, 0.3),
+    0 0 0 1px rgba(220, 38, 38, 0.1);
 }
 
 .btn-primary:hover {
-  box-shadow: 0 4px 16px -2px rgba(220, 38, 38, 0.4), 0 0 0 1px rgba(220, 38, 38, 0.2);
+  box-shadow:
+    0 4px 16px -2px rgba(220, 38, 38, 0.4),
+    0 0 0 1px rgba(220, 38, 38, 0.2);
   transform: translateY(-1px);
 }
 
 .btn-primary::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    transparent 50%
+  );
   pointer-events: none;
 }
 
@@ -523,7 +674,7 @@ body {
 }
 
 .nav-link::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -1px;
   left: 50%;

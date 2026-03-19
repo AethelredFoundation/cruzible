@@ -10,42 +10,42 @@ This document outlines the documentation deliverables, deployment checklist, and
 
 ### 1.1 Architecture Documentation (Completed)
 
-| Document | Status | Location |
-|----------|--------|----------|
-| Storage & Oracle Scoping | Done | `docs/architecture/09-storage-oracle-scoping.md` |
-| Security Trust Model & Threat Model | Done | `docs/architecture/10-security-trust-model.md` |
-| Benchmarking & SLOs | Done | `docs/architecture/11-benchmarking-slos.md` |
-| Public Readiness (this doc) | Done | `docs/architecture/12-public-readiness.md` |
+| Document                            | Status | Location                                         |
+| ----------------------------------- | ------ | ------------------------------------------------ |
+| Storage & Oracle Scoping            | Done   | `docs/architecture/09-storage-oracle-scoping.md` |
+| Security Trust Model & Threat Model | Done   | `docs/architecture/10-security-trust-model.md`   |
+| Benchmarking & SLOs                 | Done   | `docs/architecture/11-benchmarking-slos.md`      |
+| Public Readiness (this doc)         | Done   | `docs/architecture/12-public-readiness.md`       |
 
 ### 1.2 API Documentation
 
-| Item | Status | Tool |
-|------|--------|------|
-| REST API OpenAPI spec | Partial (swagger.ts exists) | swagger-jsdoc |
-| WebSocket event docs | Needed | Manual |
-| Error code reference | Needed | From ApiError |
-| Rate limit documentation | Needed | From rateLimiter |
-| Authentication flow | Partial (auth service exists) | Manual |
+| Item                     | Status                        | Tool             |
+| ------------------------ | ----------------------------- | ---------------- |
+| REST API OpenAPI spec    | Partial (swagger.ts exists)   | swagger-jsdoc    |
+| WebSocket event docs     | Needed                        | Manual           |
+| Error code reference     | Needed                        | From ApiError    |
+| Rate limit documentation | Needed                        | From rateLimiter |
+| Authentication flow      | Partial (auth service exists) | Manual           |
 
 ### 1.3 SDK Documentation
 
-| SDK | API Docs | Examples | Conformance Tests |
-|-----|----------|----------|-------------------|
-| TypeScript | Types exported | `src/` | `test/conformance.test.ts` |
-| Python | Docstrings | `examples/` | `tests/test_conformance.py` |
-| Go (keeper) | GoDoc comments | Benchmark tests | Keeper unit tests |
-| Rust (TEE) | Inline docs | Integration tests | Cross-layer hash tests |
+| SDK         | API Docs       | Examples          | Conformance Tests           |
+| ----------- | -------------- | ----------------- | --------------------------- |
+| TypeScript  | Types exported | `src/`            | `test/conformance.test.ts`  |
+| Python      | Docstrings     | `examples/`       | `tests/test_conformance.py` |
+| Go (keeper) | GoDoc comments | Benchmark tests   | Keeper unit tests           |
+| Rust (TEE)  | Inline docs    | Integration tests | Cross-layer hash tests      |
 
 ### 1.4 Operator Documentation
 
-| Item | Priority | Status |
-|------|----------|--------|
-| Validator onboarding guide | P0 | Needed |
-| TEE enclave setup (SGX) | P0 | Needed |
-| TEE enclave setup (Nitro) | P0 | Needed |
-| Relayer deployment guide | P0 | Needed |
-| Emergency procedures runbook | P0 | Covered in Track 10 |
-| Monitoring setup guide | P1 | Covered in Track 11 |
+| Item                         | Priority | Status              |
+| ---------------------------- | -------- | ------------------- |
+| Validator onboarding guide   | P0       | Needed              |
+| TEE enclave setup (SGX)      | P0       | Needed              |
+| TEE enclave setup (Nitro)    | P0       | Needed              |
+| Relayer deployment guide     | P0       | Needed              |
+| Emergency procedures runbook | P0       | Covered in Track 10 |
+| Monitoring setup guide       | P1       | Covered in Track 11 |
 
 ---
 
@@ -123,6 +123,7 @@ This document outlines the documentation deliverables, deployment checklist, and
 ## 3. Launch Sequence
 
 ### Phase 1: Private Testnet (Week 1-2)
+
 - Deploy all contracts to private testnet
 - Onboard 10-20 validators
 - Run end-to-end staking flow
@@ -130,6 +131,7 @@ This document outlines the documentation deliverables, deployment checklist, and
 - Load test with synthetic traffic
 
 ### Phase 2: Public Testnet (Week 3-4)
+
 - Open testnet to public
 - Bug bounty on testnet contracts
 - Community validator onboarding
@@ -137,12 +139,14 @@ This document outlines the documentation deliverables, deployment checklist, and
 - Documentation review by community
 
 ### Phase 3: Mainnet Soft Launch (Week 5-6)
+
 - Deploy to mainnet with deposit cap (e.g., 10M AETHEL)
 - Whitelist initial validator set
 - Monitor for 48 hours before removing cap
 - Gradual cap increases (10M → 50M → 100M → unlimited)
 
 ### Phase 4: Full Launch (Week 7+)
+
 - Remove deposit caps
 - Enable circuit breaker with production thresholds
 - Open validator onboarding
@@ -154,18 +158,21 @@ This document outlines the documentation deliverables, deployment checklist, and
 ## 4. Post-Launch Monitoring
 
 ### First 24 Hours
+
 - 15-minute reconciliation checks
 - Manual review of every vault state change
 - Core team on-call 24/7
 - Real-time TVL and exchange rate monitoring
 
 ### First Week
+
 - Daily reconciliation summary
 - Review all circuit breaker near-misses
 - Monitor validator telemetry freshness
 - Track gas costs against budgets
 
 ### Ongoing
+
 - Weekly performance reviews
 - Monthly security reviews
 - Quarterly audit refreshes
@@ -175,13 +182,13 @@ This document outlines the documentation deliverables, deployment checklist, and
 
 ## 5. Communication Plan
 
-| Channel | Purpose | Frequency |
-|---------|---------|-----------|
-| Discord | Community support, announcements | Real-time |
-| Twitter/X | Launch announcements, milestones | As needed |
+| Channel     | Purpose                             | Frequency                       |
+| ----------- | ----------------------------------- | ------------------------------- |
+| Discord     | Community support, announcements    | Real-time                       |
+| Twitter/X   | Launch announcements, milestones    | As needed                       |
 | Blog/Medium | Technical deep dives, audit reports | Weekly pre-launch, monthly post |
-| GitHub | Release notes, changelogs | Per release |
-| Email | Critical security notices | Emergency only |
+| GitHub      | Release notes, changelogs           | Per release                     |
+| Email       | Critical security notices           | Emergency only                  |
 
 ---
 

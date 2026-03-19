@@ -31,75 +31,89 @@ export type LiveReconciliationDocument = {
   };
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export async function fetchLiveReconciliation(
-  validatorLimit = 200
+  validatorLimit = 200,
 ): Promise<LiveReconciliationDocument> {
-  const response = await fetch(`${API_URL}/reconciliation/live?validator_limit=${validatorLimit}`);
+  const response = await fetch(
+    `${API_URL}/reconciliation/live?validator_limit=${validatorLimit}`,
+  );
   if (!response.ok) {
-    throw new Error(`Failed to load live reconciliation: HTTP ${response.status}`);
+    throw new Error(
+      `Failed to load live reconciliation: HTTP ${response.status}`,
+    );
   }
   return response.json();
 }
 
 export function renderLiveReconciliationMarkdown(
-  document: LiveReconciliationDocument
+  document: LiveReconciliationDocument,
 ): string {
   const warningCount = document.warnings?.length ?? 0;
-  const validatorCount = document.validator_selection?.meta?.validator_count ?? 'n/a';
+  const validatorCount =
+    document.validator_selection?.meta?.validator_count ?? "n/a";
   const stakeMeta = document.stake_snapshot?.meta;
   const sourceLines = Object.entries(document.source ?? {}).map(
-    ([key, value]) => `- \`${key}\`: \`${String(value)}\``
+    ([key, value]) => `- \`${key}\`: \`${String(value)}\``,
   );
 
   const lines = [
-    '# Cruzible Live Reconciliation',
-    '',
+    "# Cruzible Live Reconciliation",
+    "",
     `- Epoch: \`${document.epoch}\``,
     `- Network: \`${document.network}\``,
     `- Mode: \`${document.mode}\``,
     `- Captured At: \`${document.captured_at}\``,
     `- Validators: \`${validatorCount}\``,
-    `- Included Stakers: \`${stakeMeta?.included_stakers ?? 'n/a'}\``,
+    `- Included Stakers: \`${stakeMeta?.included_stakers ?? "n/a"}\``,
     `- Warning Count: \`${warningCount}\``,
-    '',
-    '## Observed Hashes',
-    '',
-    `- Universe Hash: \`${document.validator_selection?.observed?.universe_hash ?? 'n/a'}\``,
-    `- Stake Snapshot Hash: \`${document.stake_snapshot?.observed?.stake_snapshot_hash ?? 'n/a'}\``,
-    `- Staker Registry Root: \`${document.stake_snapshot?.observed?.staker_registry_root ?? 'n/a'}\``,
-    `- Delegation Registry Root: \`${document.stake_snapshot?.observed?.delegation_registry_root ?? 'n/a'}\``,
-    '',
+    "",
+    "## Observed Hashes",
+    "",
+    `- Universe Hash: \`${document.validator_selection?.observed?.universe_hash ?? "n/a"}\``,
+    `- Stake Snapshot Hash: \`${document.stake_snapshot?.observed?.stake_snapshot_hash ?? "n/a"}\``,
+    `- Staker Registry Root: \`${document.stake_snapshot?.observed?.staker_registry_root ?? "n/a"}\``,
+    `- Delegation Registry Root: \`${document.stake_snapshot?.observed?.delegation_registry_root ?? "n/a"}\``,
+    "",
   ];
 
   if (stakeMeta) {
-    lines.push('## Stake Snapshot Status', '');
-    lines.push(`- Complete: \`${stakeMeta.complete ? 'yes' : 'partial'}\``);
-    lines.push(`- Skipped Stakers: \`${stakeMeta.skipped_stakers ?? 'n/a'}\``);
-    lines.push(`- Included Shares: \`${stakeMeta.included_total_shares ?? 'n/a'}\``);
-    lines.push(`- Vault Total Shares: \`${stakeMeta.vault_total_shares ?? 'n/a'}\``);
+    lines.push("## Stake Snapshot Status", "");
+    lines.push(`- Complete: \`${stakeMeta.complete ? "yes" : "partial"}\``);
+    lines.push(`- Skipped Stakers: \`${stakeMeta.skipped_stakers ?? "n/a"}\``);
     lines.push(
-      `- Registry Roots Available: \`${stakeMeta.registry_roots_available ? 'yes' : 'no'}\``
+      `- Included Shares: \`${stakeMeta.included_total_shares ?? "n/a"}\``,
     );
-    lines.push('');
+    lines.push(
+      `- Vault Total Shares: \`${stakeMeta.vault_total_shares ?? "n/a"}\``,
+    );
+    lines.push(
+      `- Registry Roots Available: \`${stakeMeta.registry_roots_available ? "yes" : "no"}\``,
+    );
+    lines.push("");
   }
 
   if (sourceLines.length > 0) {
-    lines.push('## Source', '', ...sourceLines, '');
+    lines.push("## Source", "", ...sourceLines, "");
   }
 
   if (warningCount > 0) {
-    lines.push('## Warnings', '', ...(document.warnings ?? []).map((warning) => `- ${warning}`), '');
+    lines.push(
+      "## Warnings",
+      "",
+      ...(document.warnings ?? []).map((warning) => `- ${warning}`),
+      "",
+    );
   }
 
-  return lines.join('\n').trimEnd() + '\n';
+  return lines.join("\n").trimEnd() + "\n";
 }
 
 export function downloadTextFile(filename: string, content: string): void {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-  const anchor = window.document.createElement('a');
+  const anchor = window.document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
   window.document.body.appendChild(anchor);

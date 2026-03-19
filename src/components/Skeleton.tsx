@@ -1,13 +1,13 @@
-import React from 'react';
+import React from "react";
 
 /**
  * Animated skeleton line placeholder.
  * Uses the .skeleton CSS class defined in globals.css.
  */
 export function SkeletonLine({
-  width = '100%',
-  height = '1rem',
-  className = '',
+  width = "100%",
+  height = "1rem",
+  className = "",
 }: {
   width?: string;
   height?: string;
@@ -26,8 +26,8 @@ export function SkeletonLine({
  * Skeleton card placeholder matching GlassCard dimensions.
  */
 export function SkeletonCard({
-  height = '12rem',
-  className = '',
+  height = "12rem",
+  className = "",
 }: {
   height?: string;
   className?: string;
@@ -47,7 +47,7 @@ export function SkeletonCard({
 export function SkeletonTable({
   rows = 5,
   columns = 4,
-  className = '',
+  className = "",
 }: {
   rows?: number;
   columns?: number;
@@ -82,7 +82,7 @@ export function SkeletonTable({
  */
 export function SkeletonChart({
   height = 200,
-  className = '',
+  className = "",
 }: {
   height?: number;
   className?: string;
@@ -101,15 +101,21 @@ export function SkeletonChart({
  */
 export function SkeletonStats({
   count = 4,
-  className = '',
+  className = "",
 }: {
   count?: number;
   className?: string;
 }) {
   return (
-    <div className={`grid grid-cols-2 md:grid-cols-${count} gap-4 ${className}`} aria-hidden="true">
+    <div
+      className={`grid grid-cols-2 md:grid-cols-${count} gap-4 ${className}`}
+      aria-hidden="true"
+    >
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="skeleton rounded-2xl h-28 border border-slate-700/30" />
+        <div
+          key={i}
+          className="skeleton rounded-2xl h-28 border border-slate-700/30"
+        />
       ))}
     </div>
   );

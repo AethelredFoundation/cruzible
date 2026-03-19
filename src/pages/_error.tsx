@@ -1,25 +1,27 @@
-import React from 'react';
-import Head from 'next/head';
-import Link from 'next/link';
-import { AlertTriangle, Home, RefreshCw } from 'lucide-react';
-import { NextPageContext } from 'next';
+import React from "react";
+import Head from "next/head";
+import Link from "next/link";
+import { AlertTriangle, Home, RefreshCw } from "lucide-react";
+import { NextPageContext } from "next";
 
 interface ErrorProps {
   statusCode?: number;
 }
 
 function ErrorPage({ statusCode }: ErrorProps) {
-  const title = statusCode === 500
-    ? 'Internal Server Error'
-    : statusCode === 503
-    ? 'Service Unavailable'
-    : `Error ${statusCode || 'Unknown'}`;
+  const title =
+    statusCode === 500
+      ? "Internal Server Error"
+      : statusCode === 503
+        ? "Service Unavailable"
+        : `Error ${statusCode || "Unknown"}`;
 
-  const description = statusCode === 500
-    ? 'Something went wrong on our end. Our validators are investigating.'
-    : statusCode === 503
-    ? 'The network is temporarily unavailable. Please try again shortly.'
-    : 'An unexpected error occurred while processing your request.';
+  const description =
+    statusCode === 500
+      ? "Something went wrong on our end. Our validators are investigating."
+      : statusCode === 503
+        ? "The network is temporarily unavailable. Please try again shortly."
+        : "An unexpected error occurred while processing your request.";
 
   return (
     <>
@@ -39,7 +41,9 @@ function ErrorPage({ statusCode }: ErrorProps) {
           </div>
 
           {statusCode && (
-            <div className="text-6xl font-bold text-slate-800 mb-2 tracking-tighter">{statusCode}</div>
+            <div className="text-6xl font-bold text-slate-800 mb-2 tracking-tighter">
+              {statusCode}
+            </div>
           )}
 
           <h1 className="text-2xl font-bold text-white mb-3">{title}</h1>

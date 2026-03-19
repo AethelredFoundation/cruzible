@@ -1,12 +1,12 @@
-import 'reflect-metadata';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import "reflect-metadata";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks — hoisted by vitest before any imports
 // ---------------------------------------------------------------------------
 
 // Mock PrismaClient so the scheduler constructor and fetchIndexedState work.
-vi.mock('@prisma/client', () => ({
+vi.mock("@prisma/client", () => ({
   PrismaClient: vi.fn().mockImplementation(() => ({
     vaultState: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -19,7 +19,7 @@ vi.mock('@prisma/client', () => ({
 }));
 
 // Mock logger — we need a reference to assert on specific messages.
-vi.mock('../src/utils/logger', () => ({
+vi.mock("../src/utils/logger", () => ({
   logger: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -29,14 +29,14 @@ vi.mock('../src/utils/logger', () => ({
 }));
 
 // Static import after mocks are hoisted — gets the mocked versions.
-import { ReconciliationScheduler } from '../src/services/ReconciliationScheduler';
-import { logger } from '../src/utils/logger';
+import { ReconciliationScheduler } from "../src/services/ReconciliationScheduler";
+import { logger } from "../src/utils/logger";
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('ReconciliationScheduler lifecycle and overlap guard', () => {
+describe("ReconciliationScheduler lifecycle and overlap guard", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.mocked(logger.info).mockClear();
@@ -58,17 +58,16 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
   }) {
     const blockchainService = {
       getLatestHeight:
-        overrides?.getLatestHeight ??
-        vi.fn().mockResolvedValue(100),
+        overrides?.getLatestHeight ?? vi.fn().mockResolvedValue(100),
       getValidators:
         overrides?.getValidators ??
         vi.fn().mockResolvedValue({
           data: [
-            { tokens: '1000', jailed: false },
-            { tokens: '2000', jailed: false },
-            { tokens: '3000', jailed: false },
-            { tokens: '4000', jailed: false },
-            { tokens: '5000', jailed: false },
+            { tokens: "1000", jailed: false },
+            { tokens: "2000", jailed: false },
+            { tokens: "3000", jailed: false },
+            { tokens: "4000", jailed: false },
+            { tokens: "5000", jailed: false },
           ],
         }),
     };
@@ -96,7 +95,7 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
   // Lifecycle tests
   // -----------------------------------------------------------------------
 
-  it('start() fires an immediate tick and produces a result', async () => {
+  it("start() fires an immediate tick and produces a result", async () => {
     const { scheduler } = createScheduler();
 
     expect(scheduler.getLatestResult()).toBeNull();
@@ -112,7 +111,7 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
     scheduler.stop();
   });
 
-  it('start() is idempotent — second call is a no-op', async () => {
+  it("start() is idempotent — second call is a no-op", async () => {
     const { scheduler } = createScheduler();
 
     scheduler.start();
@@ -122,13 +121,13 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
     scheduler.start();
 
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      expect.stringContaining('already running'),
+      expect.stringContaining("already running"),
     );
 
     scheduler.stop();
   });
 
-  it('stop() prevents further ticks after the initial one', async () => {
+  it("stop() prevents further ticks after the initial one", async () => {
     const { scheduler, blockchainService } = createScheduler();
 
     scheduler.start();
@@ -149,7 +148,7 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
     expect(callsAfterStop).toBe(callsAfterStart);
   });
 
-  it('stop() before start() is a safe no-op', () => {
+  it("stop() before start() is a safe no-op", () => {
     const { scheduler } = createScheduler();
 
     // Should not throw
@@ -162,7 +161,7 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
   // Overlap guard
   // -----------------------------------------------------------------------
 
-  it('tickInFlight guard skips overlapping ticks', async () => {
+  it("tickInFlight guard skips overlapping ticks", async () => {
     // Create a deferred promise so the first tick hangs
     let resolveHeight!: (value: number) => void;
     const slowHeight = new Promise<number>((resolve) => {
@@ -188,7 +187,7 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
     // The interval tick should have been skipped because the first is still
     // in-flight.
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      expect.stringContaining('previous tick still in flight'),
+      expect.stringContaining("previous tick still in flight"),
     );
 
     // Now let the first tick complete.

@@ -6,14 +6,18 @@
  * JWT authentication.
  */
 
-import { Router, Request, Response } from 'express';
-import { query } from 'express-validator';
-import { container } from 'tsyringe';
-import { AlertService, AlertSeverity, AlertType } from '../../services/AlertService';
-import { ReconciliationScheduler } from '../../services/ReconciliationScheduler';
-import { authenticate } from '../../auth/middleware';
-import { validate } from '../../middleware/validate';
-import { asyncHandler } from '../../utils/asyncHandler';
+import { Router, Request, Response } from "express";
+import { query } from "express-validator";
+import { container } from "tsyringe";
+import {
+  AlertService,
+  AlertSeverity,
+  AlertType,
+} from "../../services/AlertService";
+import { ReconciliationScheduler } from "../../services/ReconciliationScheduler";
+import { authenticate } from "../../auth/middleware";
+import { validate } from "../../middleware/validate";
+import { asyncHandler } from "../../utils/asyncHandler";
 
 const router = Router();
 
@@ -71,12 +75,12 @@ const TYPE_VALUES = Object.values(AlertType);
  *         description: Unauthorized
  */
 router.get(
-  '/',
+  "/",
   [
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
-    query('severity').optional().isIn(SEVERITY_VALUES),
-    query('type').optional().isIn(TYPE_VALUES),
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset").optional().isInt({ min: 0 }).toInt(),
+    query("severity").optional().isIn(SEVERITY_VALUES),
+    query("type").optional().isIn(TYPE_VALUES),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -123,7 +127,7 @@ router.get(
  *         description: Unauthorized
  */
 router.get(
-  '/summary',
+  "/summary",
   asyncHandler(async (_req: Request, res: Response) => {
     const summary = alertService.getAlertSummary();
     res.json(summary);
@@ -158,14 +162,15 @@ reconciliationStatusRouter.use(authenticate);
  *         description: No reconciliation has run yet
  */
 reconciliationStatusRouter.get(
-  '/status',
+  "/status",
   asyncHandler(async (_req: Request, res: Response) => {
     const result = reconciliationScheduler.getLatestResult();
 
     if (!result) {
       res.status(404).json({
-        error: 'Not Found',
-        message: 'No reconciliation result available yet. The scheduler may not have run.',
+        error: "Not Found",
+        message:
+          "No reconciliation result available yet. The scheduler may not have run.",
       });
       return;
     }

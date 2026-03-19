@@ -3,9 +3,10 @@
  * Type-safe API client with automatic error handling and caching
  */
 
-import { BRAND } from './constants';
+import { BRAND } from "./constants";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/v1';
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
 
 // =============================================================================
 // TYPES
@@ -47,7 +48,7 @@ export interface Block {
 
 export async function getBlocks(
   page = 1,
-  limit = 50
+  limit = 50,
 ): Promise<ApiResponse<Block[]>> {
   return fetchApi(`/blocks?page=${page}&limit=${limit}`);
 }
@@ -57,7 +58,7 @@ export async function getBlock(height: number): Promise<ApiResponse<Block>> {
 }
 
 export async function getLatestBlock(): Promise<ApiResponse<Block>> {
-  return fetchApi('/blocks/latest');
+  return fetchApi("/blocks/latest");
 }
 
 // =============================================================================
@@ -73,7 +74,7 @@ export interface Transaction {
   denom: string;
   gas_used: number;
   gas_wanted: number;
-  status: 'success' | 'failed' | 'pending';
+  status: "success" | "failed" | "pending";
   timestamp: string;
   type: string;
   memo?: string;
@@ -87,20 +88,23 @@ export async function getTransactions(
     recipient?: string;
     block_height?: number;
     tx_type?: string;
-  } = {}
+  } = {},
 ): Promise<ApiResponse<Transaction[]>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', params.page.toString());
-  if (params.limit) query.set('limit', params.limit.toString());
-  if (params.sender) query.set('sender', params.sender);
-  if (params.recipient) query.set('recipient', params.recipient);
-  if (params.block_height) query.set('block_height', params.block_height.toString());
-  if (params.tx_type) query.set('tx_type', params.tx_type);
-  
+  if (params.page) query.set("page", params.page.toString());
+  if (params.limit) query.set("limit", params.limit.toString());
+  if (params.sender) query.set("sender", params.sender);
+  if (params.recipient) query.set("recipient", params.recipient);
+  if (params.block_height)
+    query.set("block_height", params.block_height.toString());
+  if (params.tx_type) query.set("tx_type", params.tx_type);
+
   return fetchApi(`/transactions?${query.toString()}`);
 }
 
-export async function getTransaction(hash: string): Promise<ApiResponse<Transaction>> {
+export async function getTransaction(
+  hash: string,
+): Promise<ApiResponse<Transaction>> {
   return fetchApi(`/transactions/${hash}`);
 }
 
@@ -111,7 +115,7 @@ export async function getTransaction(hash: string): Promise<ApiResponse<Transact
 export interface Validator {
   address: string;
   moniker: string;
-  status: 'active' | 'inactive' | 'jailed';
+  status: "active" | "inactive" | "jailed";
   voting_power: number;
   commission: number;
   uptime: number;
@@ -126,17 +130,19 @@ export async function getValidators(
     page?: number;
     limit?: number;
     status?: string;
-  } = {}
+  } = {},
 ): Promise<ApiResponse<Validator[]>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', params.page.toString());
-  if (params.limit) query.set('limit', params.limit.toString());
-  if (params.status) query.set('status', params.status);
-  
+  if (params.page) query.set("page", params.page.toString());
+  if (params.limit) query.set("limit", params.limit.toString());
+  if (params.status) query.set("status", params.status);
+
   return fetchApi(`/validators?${query.toString()}`);
 }
 
-export async function getValidator(address: string): Promise<ApiResponse<Validator>> {
+export async function getValidator(
+  address: string,
+): Promise<ApiResponse<Validator>> {
   return fetchApi(`/validators/${address}`);
 }
 
@@ -148,7 +154,14 @@ export interface AIJob {
   id: string;
   creator: string;
   validator?: string;
-  status: 'pending' | 'assigned' | 'computing' | 'completed' | 'verified' | 'failed' | 'expired';
+  status:
+    | "pending"
+    | "assigned"
+    | "computing"
+    | "completed"
+    | "verified"
+    | "failed"
+    | "expired";
   model_hash: string;
   input_hash: string;
   output_hash?: string;
@@ -166,15 +179,15 @@ export async function getJobs(
     status?: string;
     creator?: string;
     validator?: string;
-  } = {}
+  } = {},
 ): Promise<ApiResponse<AIJob[]>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', params.page.toString());
-  if (params.limit) query.set('limit', params.limit.toString());
-  if (params.status) query.set('status', params.status);
-  if (params.creator) query.set('creator', params.creator);
-  if (params.validator) query.set('validator', params.validator);
-  
+  if (params.page) query.set("page", params.page.toString());
+  if (params.limit) query.set("limit", params.limit.toString());
+  if (params.status) query.set("status", params.status);
+  if (params.creator) query.set("creator", params.creator);
+  if (params.validator) query.set("validator", params.validator);
+
   return fetchApi(`/jobs?${query.toString()}`);
 }
 
@@ -190,8 +203,8 @@ export async function submitJob(jobData: {
   timeout: number;
   max_payment: string;
 }): Promise<ApiResponse<AIJob>> {
-  return fetchApi('/jobs', {
-    method: 'POST',
+  return fetchApi("/jobs", {
+    method: "POST",
     body: JSON.stringify(jobData),
   });
 }
@@ -211,12 +224,16 @@ export interface StakingInfo {
   }>;
 }
 
-export async function getStakingInfo(address: string): Promise<ApiResponse<StakingInfo>> {
+export async function getStakingInfo(
+  address: string,
+): Promise<ApiResponse<StakingInfo>> {
   return fetchApi(`/staking/${address}`);
 }
 
-export async function getStakingValidators(): Promise<ApiResponse<{ validators: Validator[] }>> {
-  return fetchApi('/staking/validators');
+export async function getStakingValidators(): Promise<
+  ApiResponse<{ validators: Validator[] }>
+> {
+  return fetchApi("/staking/validators");
 }
 
 // =============================================================================
@@ -235,7 +252,7 @@ export interface NetworkStats {
 }
 
 export async function getNetworkStats(): Promise<ApiResponse<NetworkStats>> {
-  return fetchApi('/network/stats');
+  return fetchApi("/network/stats");
 }
 
 // =============================================================================
@@ -244,26 +261,26 @@ export async function getNetworkStats(): Promise<ApiResponse<NetworkStats>> {
 
 async function fetchApi<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<ApiResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
-  
+
   const defaultOptions: RequestInit = {
     headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-Client-Name': BRAND.NAME,
-      'X-Client-Version': process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0',
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-Client-Name": BRAND.NAME,
+      "X-Client-Version": process.env.NEXT_PUBLIC_APP_VERSION || "1.0.0",
     },
   };
 
   // Add auth token if available
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('auth_token');
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("auth_token");
     if (token) {
       defaultOptions.headers = {
         ...defaultOptions.headers,
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       };
     }
   }
@@ -282,9 +299,9 @@ async function fetchApi<T>(
 
     if (!response.ok) {
       throw new ApiClientError(
-        data.message || 'API request failed',
+        data.message || "API request failed",
         response.status,
-        data
+        data,
       );
     }
 
@@ -293,11 +310,11 @@ async function fetchApi<T>(
     if (error instanceof ApiClientError) {
       throw error;
     }
-    
+
     throw new ApiClientError(
-      'Network error. Please check your connection.',
+      "Network error. Please check your connection.",
       0,
-      { error: 'network_error' }
+      { error: "network_error" },
     );
   }
 }
@@ -306,10 +323,10 @@ class ApiClientError extends Error {
   constructor(
     message: string,
     public statusCode: number,
-    public data: any
+    public data: any,
   ) {
     super(message);
-    this.name = 'ApiClientError';
+    this.name = "ApiClientError";
   }
 }
 
@@ -317,20 +334,24 @@ class ApiClientError extends Error {
 // REACT QUERY HOOKS (Optional)
 // =============================================================================
 
-import { useQuery, useMutation, UseQueryOptions } from '@tanstack/react-query';
+import { useQuery, useMutation, UseQueryOptions } from "@tanstack/react-query";
 
-export function useBlocks(page = 1, limit = 50, options?: UseQueryOptions<Block[]>) {
+export function useBlocks(
+  page = 1,
+  limit = 50,
+  options?: UseQueryOptions<Block[]>,
+) {
   return useQuery({
-    queryKey: ['blocks', page, limit],
-    queryFn: () => getBlocks(page, limit).then(r => r.data),
+    queryKey: ["blocks", page, limit],
+    queryFn: () => getBlocks(page, limit).then((r) => r.data),
     ...options,
   });
 }
 
 export function useBlock(height: number, options?: UseQueryOptions<Block>) {
   return useQuery({
-    queryKey: ['block', height],
-    queryFn: () => getBlock(height).then(r => r.data),
+    queryKey: ["block", height],
+    queryFn: () => getBlock(height).then((r) => r.data),
     enabled: !!height,
     ...options,
   });
@@ -338,19 +359,19 @@ export function useBlock(height: number, options?: UseQueryOptions<Block>) {
 
 export function useValidators(
   params: { page?: number; limit?: number; status?: string } = {},
-  options?: UseQueryOptions<Validator[]>
+  options?: UseQueryOptions<Validator[]>,
 ) {
   return useQuery({
-    queryKey: ['validators', params],
-    queryFn: () => getValidators(params).then(r => r.data),
+    queryKey: ["validators", params],
+    queryFn: () => getValidators(params).then((r) => r.data),
     ...options,
   });
 }
 
 export function useNetworkStats(options?: UseQueryOptions<NetworkStats>) {
   return useQuery({
-    queryKey: ['network-stats'],
-    queryFn: () => getNetworkStats().then(r => r.data),
+    queryKey: ["network-stats"],
+    queryFn: () => getNetworkStats().then((r) => r.data),
     refetchInterval: 30000, // Refetch every 30 seconds
     ...options,
   });

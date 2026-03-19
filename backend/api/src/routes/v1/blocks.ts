@@ -2,13 +2,13 @@
  * Blocks API Routes
  */
 
-import { Router, Request, Response, NextFunction } from 'express';
-import { query, validationResult } from 'express-validator';
-import { container } from 'tsyringe';
-import { BlockchainService } from '../../services/BlockchainService';
-import { CacheService } from '../../services/CacheService';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { ApiError } from '../../utils/ApiError';
+import { Router, Request, Response, NextFunction } from "express";
+import { query, validationResult } from "express-validator";
+import { container } from "tsyringe";
+import { BlockchainService } from "../../services/BlockchainService";
+import { CacheService } from "../../services/CacheService";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { ApiError } from "../../utils/ApiError";
 
 const router = Router();
 const blockchainService = container.resolve(BlockchainService);
@@ -18,7 +18,7 @@ const cacheService = container.resolve(CacheService);
 const validate = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    throw new ApiError(400, 'Validation failed', errors.array());
+    throw new ApiError(400, "Validation failed", errors.array());
   }
   next();
 };
@@ -52,34 +52,39 @@ const validate = (req: Request, res: Response, next: NextFunction) => {
  *       200:
  *         description: List of blocks
  */
-router.get('/',
+router.get(
+  "/",
   [
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
-    query('height').optional().isInt({ min: 1 }).toInt(),
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset").optional().isInt({ min: 0 }).toInt(),
+    query("height").optional().isInt({ min: 1 }).toInt(),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
-    const { limit = 20, offset = 0, height } = req.query as {
+    const {
+      limit = 20,
+      offset = 0,
+      height,
+    } = req.query as {
       limit?: number;
       offset?: number;
       height?: number;
     };
 
-    const cacheKey = `blocks:list:${limit}:${offset}:${height || 'all'}`;
+    const cacheKey = `blocks:list:${limit}:${offset}:${height || "all"}`;
     const cached = await cacheService.get(cacheKey);
-    
+
     if (cached) {
       return res.json(cached);
     }
 
     const result = await blockchainService.getBlocks({ limit, offset, height });
-    
+
     // Cache for 3 seconds (blocks update frequently)
     await cacheService.set(cacheKey, result, 3);
-    
+
     res.json(result);
-  })
+  }),
 );
 
 /**
@@ -92,22 +97,23 @@ router.get('/',
  *       200:
  *         description: Latest block data
  */
-router.get('/latest',
+router.get(
+  "/latest",
   asyncHandler(async (req: Request, res: Response) => {
-    const cacheKey = 'blocks:latest';
+    const cacheKey = "blocks:latest";
     const cached = await cacheService.get(cacheKey);
-    
+
     if (cached) {
       return res.json(cached);
     }
 
     const block = await blockchainService.getLatestBlock();
-    
+
     // Cache for 1 second
     await cacheService.set(cacheKey, block, 1);
-    
+
     res.json(block);
-  })
+  }),
 );
 
 /**
@@ -129,32 +135,33 @@ router.get('/latest',
  *       404:
  *         description: Block not found
  */
-router.get('/:height',
+router.get(
+  "/:height",
   asyncHandler(async (req: Request, res: Response) => {
     const height = parseInt(req.params.height, 10);
-    
+
     if (isNaN(height) || height < 1) {
-      throw new ApiError(400, 'Invalid block height');
+      throw new ApiError(400, "Invalid block height");
     }
 
     const cacheKey = `blocks:height:${height}`;
     const cached = await cacheService.get(cacheKey);
-    
+
     if (cached) {
       return res.json(cached);
     }
 
     const block = await blockchainService.getBlockByHeight(height);
-    
+
     if (!block) {
       throw new ApiError(404, `Block ${height} not found`);
     }
-    
+
     // Cache for 60 seconds (blocks are immutable)
     await cacheService.set(cacheKey, block, 60);
-    
+
     res.json(block);
-  })
+  }),
 );
 
 /**
@@ -185,10 +192,11 @@ router.get('/:height',
  *       200:
  *         description: Block transactions
  */
-router.get('/:height/transactions',
+router.get(
+  "/:height/transactions",
   [
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset").optional().isInt({ min: 0 }).toInt(),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -197,25 +205,28 @@ router.get('/:height/transactions',
       limit?: number;
       offset?: number;
     };
-    
+
     if (isNaN(height) || height < 1) {
-      throw new ApiError(400, 'Invalid block height');
+      throw new ApiError(400, "Invalid block height");
     }
 
     const cacheKey = `blocks:${height}:txs:${limit}:${offset}`;
     const cached = await cacheService.get(cacheKey);
-    
+
     if (cached) {
       return res.json(cached);
     }
 
-    const result = await blockchainService.getBlockTransactions(height, { limit, offset });
-    
+    const result = await blockchainService.getBlockTransactions(height, {
+      limit,
+      offset,
+    });
+
     // Cache for 60 seconds
     await cacheService.set(cacheKey, result, 60);
-    
+
     res.json(result);
-  })
+  }),
 );
 
 export { router as blocksRouter };

@@ -6,18 +6,29 @@
  * Phase 1.5: USDT visible as read-only
  */
 
-import { useState, useMemo, useCallback } from 'react';
-import { SEOHead } from '@/components/SEOHead';
+import { useState, useMemo, useCallback } from "react";
+import { SEOHead } from "@/components/SEOHead";
 import {
-  ArrowUpRight, Coins, History, Wallet, AlertTriangle,
-  ChevronDown, ExternalLink, Shield, Activity,
-} from 'lucide-react';
-import { useApp } from '@/contexts/AppContext';
+  ArrowUpRight,
+  Coins,
+  History,
+  Wallet,
+  AlertTriangle,
+  ChevronDown,
+  ExternalLink,
+  Shield,
+  Activity,
+} from "lucide-react";
+import { useApp } from "@/contexts/AppContext";
 import {
-  TopNav, Footer, Tabs, Badge, LiveDot,
-} from '@/components/SharedComponents';
-import { GlassCard } from '@/components/PagePrimitives';
-import { BRAND, STATUS_STYLES } from '@/lib/constants';
+  TopNav,
+  Footer,
+  Tabs,
+  Badge,
+  LiveDot,
+} from "@/components/SharedComponents";
+import { GlassCard } from "@/components/PagePrimitives";
+import { BRAND, STATUS_STYLES } from "@/lib/constants";
 import {
   STABLECOIN_ASSETS,
   StablecoinPhase,
@@ -27,19 +38,19 @@ import {
   isStablecoinEnabled,
   type StablecoinAsset,
   type CCTPDomainName,
-} from '@/lib/constants';
+} from "@/lib/constants";
 import {
   useBridgeOut,
   useStablecoinConfig,
   useStablecoinAllowance,
-} from '@/hooks/useStablecoinBridge';
-import { formatUnits } from 'viem';
+} from "@/hooks/useStablecoinBridge";
+import { formatUnits } from "viem";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-type StablecoinTab = 'bridge' | 'balances' | 'history';
+type StablecoinTab = "bridge" | "balances" | "history";
 
 // ============================================================================
 // PHASE BADGE
@@ -75,9 +86,11 @@ function PhaseBadge({ phase }: { phase: StablecoinPhase }) {
 function BridgeTab() {
   const { wallet } = useApp();
   const enabledAssets = getEnabledStablecoins();
-  const [selectedSymbol, setSelectedSymbol] = useState(enabledAssets[0]?.symbol ?? 'USDC');
-  const [amount, setAmount] = useState('');
-  const [destDomain, setDestDomain] = useState<CCTPDomainName>('ETHEREUM');
+  const [selectedSymbol, setSelectedSymbol] = useState(
+    enabledAssets[0]?.symbol ?? "USDC",
+  );
+  const [amount, setAmount] = useState("");
+  const [destDomain, setDestDomain] = useState<CCTPDomainName>("ETHEREUM");
 
   const asset = STABLECOIN_ASSETS[selectedSymbol];
   const balance = wallet.stablecoinBalances[selectedSymbol] ?? 0;
@@ -90,17 +103,30 @@ function BridgeTab() {
 
   const handleBridge = useCallback(async () => {
     if (!amount || parseFloat(amount) <= 0) return;
-    const txHash = await bridgeOut(selectedSymbol, amount, CCTP_DOMAINS[destDomain], config);
+    const txHash = await bridgeOut(
+      selectedSymbol,
+      amount,
+      CCTP_DOMAINS[destDomain],
+      config,
+    );
     // Only clear the input on a successful bridge — undefined means the tx
     // failed, was rejected, or was blocked by an on-chain gate.
     if (txHash) {
-      setAmount('');
+      setAmount("");
     }
   }, [selectedSymbol, amount, destDomain, bridgeOut, config]);
 
   // Disable submission when on-chain config says asset is disabled or paused
-  const onChainBlocked = !config.isLoading && (config.enabled === false || config.mintPaused === true);
-  const isDisabled = isPending || !wallet.connected || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > balance || onChainBlocked;
+  const onChainBlocked =
+    !config.isLoading &&
+    (config.enabled === false || config.mintPaused === true);
+  const isDisabled =
+    isPending ||
+    !wallet.connected ||
+    !amount ||
+    parseFloat(amount) <= 0 ||
+    parseFloat(amount) > balance ||
+    onChainBlocked;
 
   return (
     <div className="space-y-6">
@@ -110,8 +136,8 @@ function BridgeTab() {
           <AlertTriangle className="w-4 h-4 shrink-0" />
           <span>
             {config.mintPaused
-              ? 'Minting is currently paused on-chain. Bridge-out operations are unavailable.'
-              : 'This stablecoin is not currently enabled on-chain. Bridge operations are unavailable.'}
+              ? "Minting is currently paused on-chain. Bridge-out operations are unavailable."
+              : "This stablecoin is not currently enabled on-chain. Bridge operations are unavailable."}
           </span>
         </div>
       )}
@@ -134,7 +160,11 @@ function BridgeTab() {
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white appearance-none cursor-pointer focus:border-red-500/50 focus:outline-none"
               >
                 {enabledAssets.map((a) => (
-                  <option key={a.symbol} value={a.symbol} className="bg-slate-900">
+                  <option
+                    key={a.symbol}
+                    value={a.symbol}
+                    className="bg-slate-900"
+                  >
                     {a.symbol} — {a.name}
                   </option>
                 ))}
@@ -167,16 +197,21 @@ function BridgeTab() {
 
           {/* Destination Domain */}
           <div>
-            <label className="block text-sm text-slate-400 mb-1.5">Destination Chain</label>
+            <label className="block text-sm text-slate-400 mb-1.5">
+              Destination Chain
+            </label>
             <div className="relative">
               <select
                 value={destDomain}
-                onChange={(e) => setDestDomain(e.target.value as CCTPDomainName)}
+                onChange={(e) =>
+                  setDestDomain(e.target.value as CCTPDomainName)
+                }
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white appearance-none cursor-pointer focus:border-red-500/50 focus:outline-none"
               >
                 {(Object.keys(CCTP_DOMAINS) as CCTPDomainName[]).map((name) => (
                   <option key={name} value={name} className="bg-slate-900">
-                    {name.charAt(0) + name.slice(1).toLowerCase()} (Domain {CCTP_DOMAINS[name]})
+                    {name.charAt(0) + name.slice(1).toLowerCase()} (Domain{" "}
+                    {CCTP_DOMAINS[name]})
                   </option>
                 ))}
               </select>
@@ -187,7 +222,7 @@ function BridgeTab() {
           {/* Info Row */}
           <div className="flex justify-between text-sm text-slate-400 pt-2">
             <span>Decimals</span>
-            <span>{asset?.decimals ?? '—'}</span>
+            <span>{asset?.decimals ?? "—"}</span>
           </div>
 
           {/* Submit */}
@@ -196,11 +231,11 @@ function BridgeTab() {
             disabled={isDisabled}
             className={`w-full py-3.5 rounded-lg font-semibold text-sm transition-all ${
               isDisabled
-                ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                : 'bg-gradient-to-r from-red-600 to-red-500 text-white hover:from-red-500 hover:to-red-400 shadow-lg shadow-red-500/20'
+                ? "bg-slate-700 text-slate-500 cursor-not-allowed"
+                : "bg-gradient-to-r from-red-600 to-red-500 text-white hover:from-red-500 hover:to-red-400 shadow-lg shadow-red-500/20"
             }`}
           >
-            {isPending ? 'Processing...' : `Bridge ${selectedSymbol}`}
+            {isPending ? "Processing..." : `Bridge ${selectedSymbol}`}
           </button>
         </div>
       </GlassCard>
@@ -229,32 +264,54 @@ function BalancesTab() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th className="text-left py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">Asset</th>
-                  <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">Balance</th>
-                  <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">Decimals</th>
-                  <th className="text-center py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">Status</th>
+                  <th className="text-left py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">
+                    Asset
+                  </th>
+                  <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">
+                    Balance
+                  </th>
+                  <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">
+                    Decimals
+                  </th>
+                  <th className="text-center py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-medium">
+                    Status
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {allAssets.map((asset) => {
                   const bal = wallet.stablecoinBalances[asset.symbol] ?? 0;
                   return (
-                    <tr key={asset.symbol} className="hover:bg-white/[0.02] transition-colors">
+                    <tr
+                      key={asset.symbol}
+                      className="hover:bg-white/[0.02] transition-colors"
+                    >
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold text-white">
                             {asset.symbol.slice(0, 2)}
                           </div>
                           <div>
-                            <div className="text-white font-medium">{asset.symbol}</div>
-                            <div className="text-xs text-slate-500">{asset.name}</div>
+                            <div className="text-white font-medium">
+                              {asset.symbol}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {asset.name}
+                            </div>
                           </div>
                         </div>
                       </td>
                       <td className="py-4 px-4 text-right font-mono text-white">
-                        {wallet.connected ? bal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : '—'}
+                        {wallet.connected
+                          ? bal.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 6,
+                            })
+                          : "—"}
                       </td>
-                      <td className="py-4 px-4 text-right text-slate-400 text-sm">{asset.decimals}</td>
+                      <td className="py-4 px-4 text-right text-slate-400 text-sm">
+                        {asset.decimals}
+                      </td>
                       <td className="py-4 px-4 text-center">
                         <PhaseBadge phase={asset.phase} />
                       </td>
@@ -293,8 +350,12 @@ function HistoryTab() {
 
           <div className="text-center py-12 text-slate-500">
             <Activity className="w-10 h-10 mx-auto mb-3 text-slate-600" />
-            <p className="text-sm">Bridge event history will appear here once events are indexed.</p>
-            <p className="text-xs text-slate-600 mt-1">Events are synced from the InstitutionalStablecoinBridge contract.</p>
+            <p className="text-sm">
+              Bridge event history will appear here once events are indexed.
+            </p>
+            <p className="text-xs text-slate-600 mt-1">
+              Events are synced from the InstitutionalStablecoinBridge contract.
+            </p>
           </div>
         </div>
       </GlassCard>
@@ -307,12 +368,12 @@ function HistoryTab() {
 // ============================================================================
 
 export default function StablecoinsPage() {
-  const [activeTab, setActiveTab] = useState<StablecoinTab>('bridge');
+  const [activeTab, setActiveTab] = useState<StablecoinTab>("bridge");
 
   const tabs: { id: StablecoinTab; label: string }[] = [
-    { id: 'bridge', label: 'Bridge' },
-    { id: 'balances', label: 'Balances' },
-    { id: 'history', label: 'History' },
+    { id: "bridge", label: "Bridge" },
+    { id: "balances", label: "Balances" },
+    { id: "history", label: "History" },
   ];
 
   return (
@@ -334,7 +395,9 @@ export default function StablecoinsPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold">Stablecoins</h1>
-                <p className="text-sm text-slate-400">Bridge stablecoins via CCTP</p>
+                <p className="text-sm text-slate-400">
+                  Bridge stablecoins via CCTP
+                </p>
               </div>
             </div>
           </div>
@@ -347,8 +410,8 @@ export default function StablecoinsPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                   activeTab === tab.id
-                    ? 'bg-red-600 text-white shadow-lg shadow-red-500/20'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    ? "bg-red-600 text-white shadow-lg shadow-red-500/20"
+                    : "text-slate-400 hover:text-white hover:bg-white/5"
                 }`}
               >
                 {tab.label}
@@ -357,9 +420,9 @@ export default function StablecoinsPage() {
           </div>
 
           {/* Tab Content */}
-          {activeTab === 'bridge' && <BridgeTab />}
-          {activeTab === 'balances' && <BalancesTab />}
-          {activeTab === 'history' && <HistoryTab />}
+          {activeTab === "bridge" && <BridgeTab />}
+          {activeTab === "balances" && <BalancesTab />}
+          {activeTab === "history" && <HistoryTab />}
         </main>
 
         <Footer />

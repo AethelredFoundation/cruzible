@@ -4,14 +4,14 @@
 
 ## 📋 Contract Overview
 
-| Contract | Purpose | Key Features |
-|----------|---------|--------------|
-| **AI Job Manager** | Manage AI inference jobs | Job lifecycle, TEE attestation, payments |
-| **Seal Manager** | Digital attestations | Cryptographic seals, verification, revocation |
-| **Model Registry** | AI model registration | Model metadata, verification, categories |
-| **Governance** | On-chain governance | Proposals, voting, execution |
-| **AethelVault** | Liquid staking | Stake AETHEL, mint stAETHEL |
-| **CW20 Staking** | Staking token | CW20-compliant stAETHEL token |
+| Contract           | Purpose                  | Key Features                                  |
+| ------------------ | ------------------------ | --------------------------------------------- |
+| **AI Job Manager** | Manage AI inference jobs | Job lifecycle, TEE attestation, payments      |
+| **Seal Manager**   | Digital attestations     | Cryptographic seals, verification, revocation |
+| **Model Registry** | AI model registration    | Model metadata, verification, categories      |
+| **Governance**     | On-chain governance      | Proposals, voting, execution                  |
+| **AethelVault**    | Liquid staking           | Stake AETHEL, mint stAETHEL                   |
+| **CW20 Staking**   | Staking token            | CW20-compliant stAETHEL token                 |
 
 ## 🏗️ Contract Architecture
 
@@ -61,6 +61,7 @@
 **Purpose**: Core contract for managing verifiable AI inference jobs.
 
 **Key Messages**:
+
 ```rust
 // Submit a new AI job
 SubmitJob {
@@ -87,11 +88,13 @@ ClaimPayment { job_id: String }
 ```
 
 **State**:
+
 - Job records with status tracking
 - Pending job queue (by priority)
 - Validator statistics
 
 **Pricing**:
+
 ```rust
 Cost = base_cost(cpu_cycles) + memory_cost(memory_mb) + priority_multiplier
 ```
@@ -103,6 +106,7 @@ Cost = base_cost(cpu_cycles) + memory_cost(memory_mb) + priority_multiplier
 **Purpose**: Creates and manages digital seals (verifiable attestations) for AI outputs.
 
 **Key Messages**:
+
 ```rust
 // Create a new seal for verified output
 CreateSeal {
@@ -125,6 +129,7 @@ SupersedeSeal { old_seal_id: String, ... }
 ```
 
 **Seal States**:
+
 - `Active` - Valid and verifiable
 - `Revoked` - Manually revoked
 - `Expired` - Past expiration time
@@ -137,6 +142,7 @@ SupersedeSeal { old_seal_id: String, ... }
 **Purpose**: Register and manage AI models available for inference.
 
 **Key Messages**:
+
 ```rust
 // Register a new model
 RegisterModel {
@@ -163,6 +169,7 @@ UpdateModel {
 ```
 
 **Categories**:
+
 - `General`
 - `Medical`
 - `Scientific`
@@ -178,6 +185,7 @@ UpdateModel {
 **Purpose**: On-chain governance for protocol parameters and upgrades.
 
 **Key Messages**:
+
 ```rust
 // Submit proposal
 SubmitProposal {
@@ -197,6 +205,7 @@ ExecuteProposal { proposal_id: u64 }
 ```
 
 **Voting Parameters**:
+
 - Voting Period: 14 days
 - Quorum: 33.4% of staked tokens
 - Pass Threshold: 50% of participating votes
@@ -209,6 +218,7 @@ ExecuteProposal { proposal_id: u64 }
 **Purpose**: Liquid staking - stake AETHEL, receive stAETHEL.
 
 **Key Messages**:
+
 ```rust
 // Stake AETHEL, receive stAETHEL
 Stake {}
@@ -224,6 +234,7 @@ ClaimRewards {}
 ```
 
 **Exchange Rate**:
+
 ```
 Exchange Rate = Total Staked / Total Shares
 
@@ -234,6 +245,7 @@ Example:
 ```
 
 **Unstaking Flow**:
+
 1. Burn stAETHEL
 2. Create unstake request
 3. Wait 21 days (unbonding period)
@@ -246,12 +258,14 @@ Example:
 **Purpose**: CW20-compliant token contract for stAETHEL.
 
 **Features**:
+
 - Full CW20 standard (transfer, approve, transfer_from, etc.)
 - Mintable by vault contract only
 - Burnable for unstaking
 - Queryable balance and allowances
 
 **Instantiation**:
+
 ```json
 {
   "name": "Staked AETHEL",
@@ -266,6 +280,7 @@ Example:
 ## 🔧 Building and Deploying
 
 ### Prerequisites
+
 ```bash
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -279,6 +294,7 @@ cargo install cargo-wasm
 ```
 
 ### Build Contracts
+
 ```bash
 cd backend/contracts
 
@@ -293,6 +309,7 @@ docker run --rm -v "$(pwd)":/code \
 ```
 
 ### Deploy
+
 ```bash
 # Upload contract code
 wasmd tx wasm store artifacts/ai_job_manager.wasm \
@@ -310,28 +327,31 @@ wasmd tx wasm instantiate 1 '{"payment_denom":"aeth","min_timeout":100,...}' \
 
 ## 📊 Contract Addresses (Mainnet)
 
-| Contract | Address | Code ID |
-|----------|---------|---------|
-| AI Job Manager | `aeth1...` | 1 |
-| Seal Manager | `aeth1...` | 2 |
-| Model Registry | `aeth1...` | 3 |
-| Governance | `aeth1...` | 4 |
-| AethelVault | `aeth1...` | 5 |
-| stAETHEL (CW20) | `aeth1...` | 6 |
+| Contract        | Address    | Code ID |
+| --------------- | ---------- | ------- |
+| AI Job Manager  | `aeth1...` | 1       |
+| Seal Manager    | `aeth1...` | 2       |
+| Model Registry  | `aeth1...` | 3       |
+| Governance      | `aeth1...` | 4       |
+| AethelVault     | `aeth1...` | 5       |
+| stAETHEL (CW20) | `aeth1...` | 6       |
 
 ## 🔒 Security Considerations
 
 ### Access Control
+
 - Admin functions restricted to contract admin
 - Minter role restricted to vault contract
 - Verifier role for model verification
 
 ### Validation
+
 - All inputs validated (length, format)
 - Addresses validated using `deps.api.addr_validate()`
 - Arithmetic overflow protection (Uint128 checked math)
 
 ### Economic Security
+
 - Minimum deposits for proposals
 - Slashing for invalid attestations
 - Fee mechanism to prevent spam

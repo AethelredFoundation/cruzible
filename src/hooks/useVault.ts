@@ -9,7 +9,7 @@
  *   - Reading user withdrawals
  */
 
-import { useCallback } from 'react';
+import { useCallback } from "react";
 import {
   useReadContract,
   useReadContracts,
@@ -17,12 +17,12 @@ import {
   useWaitForTransactionReceipt,
   useAccount,
   useConfig,
-} from 'wagmi';
-import { waitForTransactionReceipt } from 'wagmi/actions';
-import { parseEther, formatEther, type Address, type Hash } from 'viem';
-import { CruzibleABI, ERC20ABI } from '@/config/abis';
-import { CONTRACT_ADDRESSES } from '@/config/chains';
-import { useApp } from '@/contexts/AppContext';
+} from "wagmi";
+import { waitForTransactionReceipt } from "wagmi/actions";
+import { parseEther, formatEther, type Address, type Hash } from "viem";
+import { CruzibleABI, ERC20ABI } from "@/config/abis";
+import { CONTRACT_ADDRESSES } from "@/config/chains";
+import { useApp } from "@/contexts/AppContext";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,27 +58,27 @@ export function useVaultState(): VaultState {
       {
         address: cruzibleAddr,
         abi: CruzibleABI,
-        functionName: 'totalPooledAethel',
+        functionName: "totalPooledAethel",
       },
       {
         address: cruzibleAddr,
         abi: CruzibleABI,
-        functionName: 'totalShares',
+        functionName: "totalShares",
       },
       {
         address: cruzibleAddr,
         abi: CruzibleABI,
-        functionName: 'getExchangeRate',
+        functionName: "getExchangeRate",
       },
       {
         address: cruzibleAddr,
         abi: CruzibleABI,
-        functionName: 'currentEpoch',
+        functionName: "currentEpoch",
       },
       {
         address: cruzibleAddr,
         abi: CruzibleABI,
-        functionName: 'effectiveAPY',
+        functionName: "effectiveAPY",
       },
     ],
     query: {
@@ -108,7 +108,7 @@ export function useUserWithdrawals() {
   const { data, isLoading, refetch } = useReadContract({
     address: cruzibleAddr,
     abi: CruzibleABI,
-    functionName: 'getUserWithdrawals',
+    functionName: "getUserWithdrawals",
     args: address ? [address] : undefined,
     query: {
       enabled: !!address && !!cruzibleAddr,
@@ -137,7 +137,11 @@ export function useStake() {
   const stake = useCallback(
     async (amountEther: string): Promise<Hash | undefined> => {
       if (!cruzibleAddr) {
-        addNotification('error', 'Configuration Error', 'Cruzible contract address not configured');
+        addNotification(
+          "error",
+          "Configuration Error",
+          "Cruzible contract address not configured",
+        );
         return undefined;
       }
 
@@ -146,64 +150,84 @@ export function useStake() {
 
         // Step 1: Approve AETHEL token spending
         if (tokenAddr) {
-          addNotification('info', 'Approving', 'Please approve AETHEL spending in your wallet...');
+          addNotification(
+            "info",
+            "Approving",
+            "Please approve AETHEL spending in your wallet...",
+          );
 
           const approveHash = await writeContractAsync({
             address: tokenAddr,
             abi: ERC20ABI,
-            functionName: 'approve',
+            functionName: "approve",
             args: [cruzibleAddr, amount],
           });
 
           // Wait for approval to be mined before calling stake().
           // Without this, the stake tx may land before the approval is
           // confirmed on-chain, causing a revert.
-          addNotification('info', 'Confirming Approval', 'Waiting for approval to be confirmed on-chain...');
+          addNotification(
+            "info",
+            "Confirming Approval",
+            "Waiting for approval to be confirmed on-chain...",
+          );
           await waitForTransactionReceipt(config, { hash: approveHash });
         }
 
         // Step 2: Stake (only after approval receipt is confirmed)
-        addNotification('info', 'Staking', 'Please confirm the stake transaction...');
+        addNotification(
+          "info",
+          "Staking",
+          "Please confirm the stake transaction...",
+        );
         const hash = await writeContractAsync({
           address: cruzibleAddr,
           abi: CruzibleABI,
-          functionName: 'stake',
+          functionName: "stake",
           args: [amount],
         });
 
         // Submitted — but not yet confirmed on-chain.
         addNotification(
-          'info',
-          'Stake Submitted',
+          "info",
+          "Stake Submitted",
           `Transaction submitted. Waiting for confirmation... Hash: ${hash.slice(0, 10)}...`,
         );
 
         // Wait for the receipt before reporting final success.
         const receipt = await waitForTransactionReceipt(config, { hash });
 
-        if (receipt.status === 'reverted') {
-          addNotification('error', 'Stake Reverted', 'The stake transaction was reverted on-chain.');
+        if (receipt.status === "reverted") {
+          addNotification(
+            "error",
+            "Stake Reverted",
+            "The stake transaction was reverted on-chain.",
+          );
           return undefined;
         }
 
         addNotification(
-          'success',
-          'Stake Confirmed',
-          'Your AETHEL has been staked and stAETHEL received.',
+          "success",
+          "Stake Confirmed",
+          "Your AETHEL has been staked and stAETHEL received.",
         );
 
         return hash;
       } catch (err: any) {
         const isRejection =
-          err?.code === 4001 || err?.message?.includes('rejected');
+          err?.code === 4001 || err?.message?.includes("rejected");
 
         if (isRejection) {
-          addNotification('warning', 'Rejected', 'Transaction was rejected in wallet');
+          addNotification(
+            "warning",
+            "Rejected",
+            "Transaction was rejected in wallet",
+          );
         } else {
           addNotification(
-            'error',
-            'Stake Failed',
-            err?.shortMessage || err?.message || 'Unknown error',
+            "error",
+            "Stake Failed",
+            err?.shortMessage || err?.message || "Unknown error",
           );
         }
         return undefined;
@@ -228,54 +252,70 @@ export function useUnstake() {
   const unstake = useCallback(
     async (sharesEther: string): Promise<Hash | undefined> => {
       if (!cruzibleAddr) {
-        addNotification('error', 'Configuration Error', 'Cruzible contract address not configured');
+        addNotification(
+          "error",
+          "Configuration Error",
+          "Cruzible contract address not configured",
+        );
         return undefined;
       }
 
       try {
         const shares = parseEther(sharesEther);
 
-        addNotification('info', 'Unstaking', 'Please confirm the unstake transaction...');
+        addNotification(
+          "info",
+          "Unstaking",
+          "Please confirm the unstake transaction...",
+        );
         const hash = await writeContractAsync({
           address: cruzibleAddr,
           abi: CruzibleABI,
-          functionName: 'unstake',
+          functionName: "unstake",
           args: [shares],
         });
 
         // Submitted — but not yet confirmed on-chain.
         addNotification(
-          'info',
-          'Unstake Submitted',
+          "info",
+          "Unstake Submitted",
           `Transaction submitted. Waiting for confirmation... Hash: ${hash.slice(0, 10)}...`,
         );
 
         // Wait for the receipt before reporting final success.
         const receipt = await waitForTransactionReceipt(config, { hash });
 
-        if (receipt.status === 'reverted') {
-          addNotification('error', 'Unstake Reverted', 'The unstake transaction was reverted on-chain.');
+        if (receipt.status === "reverted") {
+          addNotification(
+            "error",
+            "Unstake Reverted",
+            "The unstake transaction was reverted on-chain.",
+          );
           return undefined;
         }
 
         addNotification(
-          'success',
-          'Unstake Confirmed',
-          'Withdrawal request created. Unbonding period starts now.',
+          "success",
+          "Unstake Confirmed",
+          "Withdrawal request created. Unbonding period starts now.",
         );
 
         return hash;
       } catch (err: any) {
         const isRejection =
-          err?.code === 4001 || err?.message?.includes('rejected');
+          err?.code === 4001 || err?.message?.includes("rejected");
 
         if (isRejection) {
-          addNotification('warning', 'Rejected', 'Transaction was rejected in wallet');
+          addNotification(
+            "warning",
+            "Rejected",
+            "Transaction was rejected in wallet",
+          );
         } else {
           addNotification(
-            'error',
-            'Unstake Failed',
-            err?.shortMessage || err?.message || 'Unknown error',
+            "error",
+            "Unstake Failed",
+            err?.shortMessage || err?.message || "Unknown error",
           );
         }
         return undefined;
@@ -300,52 +340,68 @@ export function useWithdraw() {
   const withdraw = useCallback(
     async (withdrawalId: bigint): Promise<Hash | undefined> => {
       if (!cruzibleAddr) {
-        addNotification('error', 'Configuration Error', 'Cruzible contract address not configured');
+        addNotification(
+          "error",
+          "Configuration Error",
+          "Cruzible contract address not configured",
+        );
         return undefined;
       }
 
       try {
-        addNotification('info', 'Withdrawing', 'Please confirm the withdrawal...');
+        addNotification(
+          "info",
+          "Withdrawing",
+          "Please confirm the withdrawal...",
+        );
         const hash = await writeContractAsync({
           address: cruzibleAddr,
           abi: CruzibleABI,
-          functionName: 'withdraw',
+          functionName: "withdraw",
           args: [withdrawalId],
         });
 
         // Submitted — but not yet confirmed on-chain.
         addNotification(
-          'info',
-          'Withdrawal Submitted',
+          "info",
+          "Withdrawal Submitted",
           `Transaction submitted. Waiting for confirmation... Hash: ${hash.slice(0, 10)}...`,
         );
 
         // Wait for the receipt before reporting final success.
         const receipt = await waitForTransactionReceipt(config, { hash });
 
-        if (receipt.status === 'reverted') {
-          addNotification('error', 'Withdrawal Reverted', 'The withdrawal transaction was reverted on-chain.');
+        if (receipt.status === "reverted") {
+          addNotification(
+            "error",
+            "Withdrawal Reverted",
+            "The withdrawal transaction was reverted on-chain.",
+          );
           return undefined;
         }
 
         addNotification(
-          'success',
-          'Withdrawal Complete',
-          'Your AETHEL has been returned to your wallet.',
+          "success",
+          "Withdrawal Complete",
+          "Your AETHEL has been returned to your wallet.",
         );
 
         return hash;
       } catch (err: any) {
         const isRejection =
-          err?.code === 4001 || err?.message?.includes('rejected');
+          err?.code === 4001 || err?.message?.includes("rejected");
 
         if (isRejection) {
-          addNotification('warning', 'Rejected', 'Transaction was rejected in wallet');
+          addNotification(
+            "warning",
+            "Rejected",
+            "Transaction was rejected in wallet",
+          );
         } else {
           addNotification(
-            'error',
-            'Withdrawal Failed',
-            err?.shortMessage || err?.message || 'Unknown error',
+            "error",
+            "Withdrawal Failed",
+            err?.shortMessage || err?.message || "Unknown error",
           );
         }
         return undefined;
@@ -374,52 +430,68 @@ export function useClaimRewards() {
       proof: readonly `0x${string}`[];
     }): Promise<Hash | undefined> => {
       if (!cruzibleAddr) {
-        addNotification('error', 'Configuration Error', 'Cruzible contract address not configured');
+        addNotification(
+          "error",
+          "Configuration Error",
+          "Cruzible contract address not configured",
+        );
         return undefined;
       }
 
       try {
-        addNotification('info', 'Claiming Rewards', 'Please confirm the claim transaction...');
+        addNotification(
+          "info",
+          "Claiming Rewards",
+          "Please confirm the claim transaction...",
+        );
         const hash = await writeContractAsync({
           address: cruzibleAddr,
           abi: CruzibleABI,
-          functionName: 'claimRewards',
+          functionName: "claimRewards",
           args: [params.epoch, params.amount, params.proof],
         });
 
         // Submitted — but not yet confirmed on-chain.
         addNotification(
-          'info',
-          'Claim Submitted',
+          "info",
+          "Claim Submitted",
           `Transaction submitted. Waiting for confirmation... Hash: ${hash.slice(0, 10)}...`,
         );
 
         // Wait for the receipt before reporting final success.
         const receipt = await waitForTransactionReceipt(config, { hash });
 
-        if (receipt.status === 'reverted') {
-          addNotification('error', 'Claim Reverted', 'The claim transaction was reverted on-chain.');
+        if (receipt.status === "reverted") {
+          addNotification(
+            "error",
+            "Claim Reverted",
+            "The claim transaction was reverted on-chain.",
+          );
           return undefined;
         }
 
         addNotification(
-          'success',
-          'Rewards Claimed',
-          'Your rewards have been sent to your wallet.',
+          "success",
+          "Rewards Claimed",
+          "Your rewards have been sent to your wallet.",
         );
 
         return hash;
       } catch (err: any) {
         const isRejection =
-          err?.code === 4001 || err?.message?.includes('rejected');
+          err?.code === 4001 || err?.message?.includes("rejected");
 
         if (isRejection) {
-          addNotification('warning', 'Rejected', 'Transaction was rejected in wallet');
+          addNotification(
+            "warning",
+            "Rejected",
+            "Transaction was rejected in wallet",
+          );
         } else {
           addNotification(
-            'error',
-            'Claim Failed',
-            err?.shortMessage || err?.message || 'Unknown error',
+            "error",
+            "Claim Failed",
+            err?.shortMessage || err?.message || "Unknown error",
           );
         }
         return undefined;

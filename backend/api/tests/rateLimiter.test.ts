@@ -1,16 +1,16 @@
-import express from 'express';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { withHttpServer } from './helpers/http';
+import express from "express";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withHttpServer } from "./helpers/http";
 
 const originalEnv = { ...process.env };
 
-describe('rate limiter', () => {
+describe("rate limiter", () => {
   beforeEach(() => {
     vi.resetModules();
     process.env = {
       ...originalEnv,
-      RATE_LIMIT_WINDOW_MS: '60000',
-      RATE_LIMIT_MAX: '2',
+      RATE_LIMIT_WINDOW_MS: "60000",
+      RATE_LIMIT_MAX: "2",
     };
   });
 
@@ -19,12 +19,12 @@ describe('rate limiter', () => {
     vi.resetModules();
   });
 
-  it('returns 429 after the configured request budget is exhausted', async () => {
-    const { rateLimiter } = await import('../src/middleware/rateLimiter');
+  it("returns 429 after the configured request budget is exhausted", async () => {
+    const { rateLimiter } = await import("../src/middleware/rateLimiter");
 
     const app = express();
     app.use(rateLimiter);
-    app.get('/limited', (_req, res) => {
+    app.get("/limited", (_req, res) => {
       res.json({ ok: true });
     });
 
@@ -37,16 +37,16 @@ describe('rate limiter', () => {
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
       expect(third.status).toBe(429);
-      expect(body.error).toBe('TooManyRequests');
+      expect(body.error).toBe("TooManyRequests");
     });
   });
 
-  it('skips /health from rate limiting', async () => {
-    const { rateLimiter } = await import('../src/middleware/rateLimiter');
+  it("skips /health from rate limiting", async () => {
+    const { rateLimiter } = await import("../src/middleware/rateLimiter");
 
     const app = express();
     app.use(rateLimiter);
-    app.get('/health', (_req, res) => {
+    app.get("/health", (_req, res) => {
       res.json({ ok: true });
     });
 

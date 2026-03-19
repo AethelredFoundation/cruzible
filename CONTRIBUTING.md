@@ -17,13 +17,13 @@ By participating, you agree to uphold a welcoming, respectful, and harassment-fr
 
 ### Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Node.js | >= 20.0.0 |
-| Rust | >= 1.75.0 |
-| Docker + Compose | latest |
-| PostgreSQL | >= 16 |
-| Redis | >= 7 |
+| Tool             | Version   |
+| ---------------- | --------- |
+| Node.js          | >= 20.0.0 |
+| Rust             | >= 1.75.0 |
+| Docker + Compose | latest    |
+| PostgreSQL       | >= 16     |
+| Redis            | >= 7      |
 
 ### Running Locally
 
@@ -67,6 +67,7 @@ npm run validate    # type-check + lint + format + tests
 ## Reporting Issues
 
 Use GitHub Issues with the appropriate template. Include:
+
 - Steps to reproduce
 - Expected vs actual behavior
 - Environment details (OS, browser, Node version)

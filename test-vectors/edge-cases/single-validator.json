@@ -26,9 +26,7 @@
       "max_per_operator": 3,
       "min_stake": "32000000000000000000"
     },
-    "eligible_addresses": [
-      "0x1111111111111111111111111111111111111111"
-    ]
+    "eligible_addresses": ["0x1111111111111111111111111111111111111111"]
   },
   "expected": {
     "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes",
