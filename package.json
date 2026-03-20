@@ -71,7 +71,7 @@
     "prettier": "^3.2.4",
     "ts-jest": "^29.1.1",
     "typescript": "^5.3.3",
-    "undici": "^7.10.0"
+    "undici": "~6.21.0"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx}": [
