@@ -120,8 +120,9 @@ jobs:
 
       - name: Upload Frontend Coverage
         if: matrix.test-type == 'frontend'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/lcov.info
           flags: frontend
           name: frontend-coverage
@@ -151,8 +152,9 @@ jobs:
 
       - name: Upload Backend Coverage
         if: matrix.test-type == 'backend'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./backend/api/coverage/lcov.info
           flags: backend
           name: backend-coverage
@@ -178,8 +180,9 @@ jobs:
 
       - name: Upload Contract Coverage
         if: matrix.test-type == 'contracts'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./backend/contracts/cobertura.xml
           flags: contracts
           name: contract-coverage
@@ -294,7 +297,7 @@ jobs:
 
       # Build and push frontend
       - name: Build Frontend
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
@@ -307,7 +310,7 @@ jobs:
 
       # Build and push API
       - name: Build API
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./backend/api
           push: true
@@ -319,7 +322,7 @@ jobs:
 
       # Build and push contracts
       - name: Build Contracts
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./backend/contracts
           push: true
@@ -370,9 +373,11 @@ jobs:
           # kubectl apply -f k8s/production/
 
       - name: Notify on Success
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@v2
         if: env.SLACK_WEBHOOK_URL != ''
         with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
             {
               "text": "✅ Production deployment successful!"

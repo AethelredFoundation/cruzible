@@ -5,8 +5,17 @@ const nextConfig = {
 
   // Image optimization
   images: {
-    domains: ["localhost", "api.aethelred.io"],
-    formats: ["image/webp", "image/avif"],
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "api.aethelred.io",
+      },
+      {
+        protocol: "https",
+        hostname: "*.aethelred.io",
+      },
+    ],
+    formats: ["image/avif", "image/webp"],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
@@ -16,8 +25,7 @@ const nextConfig = {
 
   // Experimental features
   experimental: {
-    externalDir: true,
-    scrollRestoration: true,
+    optimizePackageImports: ["lucide-react", "recharts"],
   },
 
   // TypeScript
@@ -78,6 +86,13 @@ const nextConfig = {
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
           resource.request = resource.request.replace(/^node:/, "");
+        }),
+      );
+
+      // Ignore optional React Native dependencies from WalletConnect/MetaMask
+      config.plugins.push(
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^@react-native-async-storage\/async-storage$/,
         }),
       );
     }

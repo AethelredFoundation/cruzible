@@ -1,0 +1,44 @@
+# Dependencies
+node_modules
+**/node_modules
+
+# Build artifacts
+.next
+out
+dist
+build
+
+# Version control
+.git
+.gitignore
+
+# CI/CD
+.github
+
+# Tests
+**/__tests__
+**/*.test.*
+**/*.spec.*
+coverage
+playwright-report
+test-results
+
+# Development
+.env
+.env.*
+!.env.example
+*.md
+.vscode
+.idea
+
+# Backend (not needed for frontend image)
+backend/
+sdk/
+
+# Rust artifacts
+target/
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db
