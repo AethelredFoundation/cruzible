@@ -43,17 +43,8 @@ jobs:
         working-directory: ./backend/contracts
         run: cargo audit --ignore RUSTSEC-2024-0344
 
-      # CodeQL Analysis
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript, typescript, rust
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+      # CodeQL is handled by GitHub's default setup — do not add embedded
+      # CodeQL steps here as they conflict with the default configuration.
 
   # =============================================================================
   # LINT & FORMAT
@@ -151,7 +142,7 @@ jobs:
       - name: Build SDK (Backend dependency)
         if: matrix.test-type == 'backend'
         working-directory: ./sdk/typescript
-        run: npm install && npx tsc -p tsconfig.json
+        run: npm install && npm run build
 
       - name: Run Backend Tests
         if: matrix.test-type == 'backend'
