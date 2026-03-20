@@ -21,10 +21,6 @@ jobs:
   security-scan:
     name: Security Audit
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -47,17 +43,8 @@ jobs:
         working-directory: ./backend/contracts
         run: cargo audit --ignore RUSTSEC-2024-0344
 
-      # CodeQL Analysis
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript, typescript, rust
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+      # CodeQL is handled by GitHub's default setup — do not add embedded
+      # CodeQL steps here as they conflict with the default configuration.
 
   # =============================================================================
   # LINT & FORMAT
