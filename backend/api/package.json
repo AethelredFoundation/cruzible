@@ -16,6 +16,7 @@
     "start:prod": "node --max-old-space-size=8192 dist/index.js",
     "test": "vitest --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
+    "test:integration": "echo 'Integration tests not yet implemented — skipping' && exit 0",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
