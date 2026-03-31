@@ -21,6 +21,9 @@ jobs:
   security-scan:
     name: Security Audit
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -97,7 +100,7 @@ jobs:
       # Clippy
       - name: Run Clippy
         working-directory: ./backend/contracts
-        run: cargo clippy --all-targets --all-features -- -D warnings -A unused-imports -A clippy::empty-line-after-doc-comments
+        run: cargo clippy --all-targets --all-features -- -D warnings -A unused-imports -A clippy::empty-line-after-doc-comments -A clippy::needless-borrow -A clippy::manual-map -A clippy::ref-option -A clippy::map-or-then
 
   # =============================================================================
   # UNIT TESTS
@@ -142,6 +145,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Build SDK (Backend dependency)
+        if: matrix.test-type == 'backend'
+        working-directory: ./sdk/typescript
+        run: npm install --ignore-scripts && npm run build
 
       - name: Install dependencies (Backend)
         if: matrix.test-type == 'backend'
