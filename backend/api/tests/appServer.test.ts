@@ -6,12 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Mocks — hoisted by vitest before any imports
 // ---------------------------------------------------------------------------
 
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn().mockImplementation(() => ({
+vi.mock('@prisma/client', () => {
+  const MockPrismaClient = vi.fn().mockImplementation(function () {
+    return ({
     $queryRaw: vi.fn().mockResolvedValue([1]),
     vaultState: { findFirst: vi.fn().mockResolvedValue(null) },
-  })),
-}));
+  });
+  });
+  return { PrismaClient: MockPrismaClient };
+});
 
 vi.mock('../src/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

@@ -9,11 +9,14 @@ import { withHttpServer } from './helpers/http';
 // ---------------------------------------------------------------------------
 
 // Mock Prisma so the database health probe succeeds (tagged-template $queryRaw).
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn().mockImplementation(() => ({
+vi.mock('@prisma/client', () => {
+  const MockPrismaClient = vi.fn().mockImplementation(function () {
+    return ({
     $queryRaw: vi.fn().mockResolvedValue([1]),
-  })),
-}));
+  });
+  });
+  return { PrismaClient: MockPrismaClient };
+});
 
 // Suppress logger output in test runs.
 vi.mock('../src/utils/logger', () => ({

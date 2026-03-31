@@ -10,15 +10,18 @@ const mockContractInstance = {
   epochUsage: vi.fn(),
 };
 
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn().mockImplementation(() => ({
+vi.mock('@prisma/client', () => {
+  const MockPrismaClient = vi.fn().mockImplementation(function () {
+    return ({
     stablecoinConfig: {
       update: mockStablecoinUpdate,
       upsert: mockStablecoinUpsert,
       findUnique: mockFindUnique,
     },
-  })),
-}));
+  });
+  });
+  return { PrismaClient: MockPrismaClient };
+});
 
 vi.mock('../src/utils/logger', () => ({
   logger: {
@@ -34,7 +37,7 @@ vi.mock('ethers', async () => {
 
   return {
     ...actual,
-    Contract: vi.fn().mockImplementation(() => mockContractInstance),
+    Contract: vi.fn().mockImplementation(function () { return mockContractInstance; }),
   };
 });
 

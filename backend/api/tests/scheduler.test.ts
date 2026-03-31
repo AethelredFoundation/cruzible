@@ -6,17 +6,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 // Mock PrismaClient so the scheduler constructor and fetchIndexedState work.
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn().mockImplementation(() => ({
-    vaultState: {
-      findFirst: vi.fn().mockResolvedValue(null),
-    },
-    stablecoinConfig: {
-      findMany: vi.fn().mockResolvedValue([]),
-      update: vi.fn().mockResolvedValue(null),
-    },
-  })),
-}));
+vi.mock('@prisma/client', () => {
+  // Must use function keyword (not arrow) for Vitest 4.x constructor mocks.
+  const MockPrismaClient = vi.fn().mockImplementation(function () {
+    return {
+      vaultState: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      stablecoinConfig: {
+        findMany: vi.fn().mockResolvedValue([]),
+        update: vi.fn().mockResolvedValue(null),
+      },
+    };
+  });
+  return { PrismaClient: MockPrismaClient };
+});
 
 // Mock logger — we need a reference to assert on specific messages.
 vi.mock('../src/utils/logger', () => ({

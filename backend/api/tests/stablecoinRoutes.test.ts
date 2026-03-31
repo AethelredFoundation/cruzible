@@ -16,9 +16,12 @@ import { withHttpServer } from './helpers/http';
 // Mocks — hoisted before imports
 // ---------------------------------------------------------------------------
 
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn().mockImplementation(() => ({})),
-}));
+vi.mock('@prisma/client', () => {
+  const MockPrismaClient = vi.fn().mockImplementation(function () {
+    return ({});
+  });
+  return { PrismaClient: MockPrismaClient };
+});
 
 vi.mock('../src/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
