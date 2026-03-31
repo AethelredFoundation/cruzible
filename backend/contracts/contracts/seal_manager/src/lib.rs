@@ -1,18 +1,19 @@
 /**
  * Seal Manager Contract
- *
+ * 
  * Manages digital seals (verifiable attestations) for AI job outputs.
  */
+
 use cosmwasm_std::{
-    entry_point, to_json_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult, Timestamp,
+    entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
+    Addr, Timestamp,
 };
 use cw2::set_contract_version;
-use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
-use schemars::JsonSchema;
+use cw_storage_plus::{Item, Map, IndexedMap, Index, IndexList, MultiIndex};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use schemars::JsonSchema;
 use thiserror::Error;
+use sha2::{Digest, Sha256};
 
 const CONTRACT_NAME: &str = "crates.io:seal-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -116,21 +117,9 @@ const SEAL_COUNT: Item<u64> = Item::new("seal_count");
 
 fn seals<'a>() -> IndexedMap<'a, String, Seal, SealIndexes<'a>> {
     let indexes = SealIndexes {
-        job_id: MultiIndex::new(
-            |_pk: &[u8], d: &Seal| d.job_id.clone(),
-            "seals",
-            "seals__job_id",
-        ),
-        requester: MultiIndex::new(
-            |_pk: &[u8], d: &Seal| d.requester.clone(),
-            "seals",
-            "seals__requester",
-        ),
-        status: MultiIndex::new(
-            |_pk: &[u8], d: &Seal| format!("{:?}", d.status),
-            "seals",
-            "seals__status",
-        ),
+        job_id: MultiIndex::new(|_pk: &[u8], d: &Seal| d.job_id.clone(), "seals", "seals__job_id"),
+        requester: MultiIndex::new(|_pk: &[u8], d: &Seal| d.requester.clone(), "seals", "seals__requester"),
+        status: MultiIndex::new(|_pk: &[u8], d: &Seal| format!("{:?}", d.status), "seals", "seals__status"),
     };
     IndexedMap::new("seals", indexes)
 }
@@ -155,17 +144,9 @@ pub enum ExecuteMsg {
         validator_addresses: Vec<String>,
         expiration: Option<u64>,
     },
-    RevokeSeal {
-        seal_id: String,
-        reason: String,
-    },
-    VerifySeal {
-        seal_id: String,
-    },
-    ExtendExpiration {
-        seal_id: String,
-        additional_seconds: u64,
-    },
+    RevokeSeal { seal_id: String, reason: String },
+    VerifySeal { seal_id: String },
+    ExtendExpiration { seal_id: String, additional_seconds: u64 },
     SupersedeSeal {
         old_seal_id: String,
         job_id: String,
@@ -174,36 +155,19 @@ pub enum ExecuteMsg {
         output_commitment: String,
         validator_addresses: Vec<String>,
     },
-    BatchVerify {
-        seal_ids: Vec<String>,
-    },
-    UpdateConfig {
-        min_validators: Option<u32>,
-        max_validators: Option<u32>,
-    },
+    BatchVerify { seal_ids: Vec<String> },
+    UpdateConfig { min_validators: Option<u32>, max_validators: Option<u32> },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    Seal {
-        seal_id: String,
-    },
-    ListSeals {
-        status: Option<String>,
-        requester: Option<String>,
-        limit: Option<u32>,
-    },
-    Verify {
-        seal_id: String,
-    },
-    JobSealHistory {
-        job_id: String,
-    },
+    Seal { seal_id: String },
+    ListSeals { status: Option<String>, requester: Option<String>, limit: Option<u32> },
+    Verify { seal_id: String },
+    JobSealHistory { job_id: String },
     Stats {},
-    IsValid {
-        seal_id: String,
-    },
+    IsValid { seal_id: String },
 }
 
 #[entry_point]
@@ -214,7 +178,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-
+    
     let config = Config {
         admin: info.sender,
         ai_job_manager: deps.api.addr_validate(&msg.ai_job_manager)?,
@@ -223,10 +187,10 @@ pub fn instantiate(
         default_expiration: msg.default_expiration,
         max_expiration: msg.max_expiration,
     };
-
+    
     CONFIG.save(deps.storage, &config)?;
     SEAL_COUNT.save(deps.storage, &0)?;
-
+    
     Ok(Response::new().add_attribute("action", "instantiate"))
 }
 
@@ -238,55 +202,17 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::CreateSeal {
-            job_id,
-            model_commitment,
-            input_commitment,
-            output_commitment,
-            validator_addresses,
-            expiration,
-        } => execute_create_seal(
-            deps,
-            env,
-            info,
-            job_id,
-            model_commitment,
-            input_commitment,
-            output_commitment,
-            validator_addresses,
-            expiration,
-        ),
-        ExecuteMsg::RevokeSeal { seal_id, reason } => {
-            execute_revoke_seal(deps, env, info, seal_id, reason)
+        ExecuteMsg::CreateSeal { job_id, model_commitment, input_commitment, output_commitment, validator_addresses, expiration } => {
+            execute_create_seal(deps, env, info, job_id, model_commitment, input_commitment, output_commitment, validator_addresses, expiration)
         }
+        ExecuteMsg::RevokeSeal { seal_id, reason } => execute_revoke_seal(deps, env, info, seal_id, reason),
         ExecuteMsg::VerifySeal { seal_id } => execute_verify_seal(deps, env, seal_id),
-        ExecuteMsg::ExtendExpiration {
-            seal_id,
-            additional_seconds,
-        } => execute_extend_expiration(deps, env, info, seal_id, additional_seconds),
-        ExecuteMsg::SupersedeSeal {
-            old_seal_id,
-            job_id,
-            model_commitment,
-            input_commitment,
-            output_commitment,
-            validator_addresses,
-        } => execute_supersede_seal(
-            deps,
-            env,
-            info,
-            old_seal_id,
-            job_id,
-            model_commitment,
-            input_commitment,
-            output_commitment,
-            validator_addresses,
-        ),
+        ExecuteMsg::ExtendExpiration { seal_id, additional_seconds } => execute_extend_expiration(deps, env, info, seal_id, additional_seconds),
+        ExecuteMsg::SupersedeSeal { old_seal_id, job_id, model_commitment, input_commitment, output_commitment, validator_addresses } => {
+            execute_supersede_seal(deps, env, info, old_seal_id, job_id, model_commitment, input_commitment, output_commitment, validator_addresses)
+        }
         ExecuteMsg::BatchVerify { seal_ids } => execute_batch_verify(deps, env, seal_ids),
-        ExecuteMsg::UpdateConfig {
-            min_validators,
-            max_validators,
-        } => execute_update_config(deps, info, min_validators, max_validators),
+        ExecuteMsg::UpdateConfig { min_validators, max_validators } => execute_update_config(deps, info, min_validators, max_validators),
     }
 }
 
@@ -305,30 +231,19 @@ fn execute_create_seal(
 
     // SECURITY: Cross-contract query to verify job exists and is in a valid terminal state.
     // Prevents seals from being created for non-existent or in-progress jobs.
-    let job_response: JobResponse = deps
-        .querier
-        .query_wasm_smart(
-            config.ai_job_manager.to_string(),
-            &AiJobManagerQueryMsg::Job {
-                job_id: job_id.clone(),
-            },
-        )
-        .map_err(|_| {
-            ContractError::Std(cosmwasm_std::StdError::generic_err(format!(
-                "Job '{}' not found in AI Job Manager",
-                job_id
-            )))
-        })?;
+    let job_response: JobResponse = deps.querier.query_wasm_smart(
+        config.ai_job_manager.to_string(),
+        &AiJobManagerQueryMsg::Job { job_id: job_id.clone() },
+    ).map_err(|_| ContractError::Std(cosmwasm_std::StdError::generic_err(
+        format!("Job '{}' not found in AI Job Manager", job_id)
+    )))?;
 
     // Only allow seals for verified or paid (completed+paid) jobs
     match job_response.status {
         JobStatusResponse::Verified | JobStatusResponse::Paid | JobStatusResponse::Completed => {}
         _ => {
             return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                format!(
-                    "Job '{}' is not in a valid state for sealing (status: {:?})",
-                    job_id, job_response.status
-                ),
+                format!("Job '{}' is not in a valid state for sealing (status: {:?})", job_id, job_response.status)
             )));
         }
     }
@@ -338,18 +253,14 @@ fn execute_create_seal(
         return Err(ContractError::InvalidSealStatus {});
     }
 
-    let validators: Result<Vec<Addr>, _> = validator_addresses
-        .into_iter()
-        .map(|v| deps.api.addr_validate(&v))
-        .collect();
+    let validators: Result<Vec<Addr>, _> = validator_addresses.into_iter().map(|v| deps.api.addr_validate(&v)).collect();
     let validators = validators?;
-
-    let expires_at =
-        expiration.map(|exp| env.block.time.plus_seconds(exp.min(config.max_expiration)));
-
+    
+    let expires_at = expiration.map(|exp| env.block.time.plus_seconds(exp.min(config.max_expiration)));
+    
     let count = SEAL_COUNT.load(deps.storage)?;
     let seal_id = generate_seal_id(&job_id, &info.sender, count);
-
+    
     let seal = Seal {
         id: seal_id.clone(),
         job_id: job_id.clone(),
@@ -365,10 +276,10 @@ fn execute_create_seal(
         revoked_by: None,
         revocation_reason: None,
     };
-
+    
     seals().save(deps.storage, seal_id.clone(), &seal)?;
     SEAL_COUNT.save(deps.storage, &(count + 1))?;
-
+    
     Ok(Response::new()
         .add_attribute("action", "create_seal")
         .add_attribute("seal_id", seal_id)
@@ -383,22 +294,22 @@ fn execute_revoke_seal(
     reason: String,
 ) -> Result<Response, ContractError> {
     let mut seal = seals().load(deps.storage, seal_id.clone())?;
-
+    
     if seal.requester != info.sender {
         return Err(ContractError::Unauthorized {});
     }
-
+    
     if seal.status != SealStatus::Active {
         return Err(ContractError::InvalidSealStatus {});
     }
-
+    
     seal.status = SealStatus::Revoked;
     seal.revoked_at = Some(env.block.time);
     seal.revoked_by = Some(info.sender.clone());
     seal.revocation_reason = Some(reason.clone());
-
+    
     seals().save(deps.storage, seal_id.clone(), &seal)?;
-
+    
     Ok(Response::new()
         .add_attribute("action", "revoke_seal")
         .add_attribute("seal_id", seal_id)
@@ -414,26 +325,26 @@ fn execute_extend_expiration(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut seal = seals().load(deps.storage, seal_id.clone())?;
-
+    
     if seal.requester != info.sender {
         return Err(ContractError::Unauthorized {});
     }
-
+    
     if seal.status != SealStatus::Active {
         return Err(ContractError::InvalidSealStatus {});
     }
-
+    
     let current_expiry = seal.expires_at.unwrap_or(env.block.time);
     let max_expiry = env.block.time.plus_seconds(config.max_expiration);
-
+    
     let new_expiry = current_expiry.plus_seconds(additional_seconds);
     if new_expiry > max_expiry {
         return Err(ContractError::InvalidSealStatus {});
     }
-
+    
     seal.expires_at = Some(new_expiry);
     seals().save(deps.storage, seal_id.clone(), &seal)?;
-
+    
     Ok(Response::new()
         .add_attribute("action", "extend_expiration")
         .add_attribute("seal_id", seal_id))
@@ -451,11 +362,11 @@ fn execute_supersede_seal(
     validator_addresses: Vec<String>,
 ) -> Result<Response, ContractError> {
     let mut old_seal = seals().load(deps.storage, old_seal_id.clone())?;
-
+    
     if old_seal.requester != info.sender {
         return Err(ContractError::Unauthorized {});
     }
-
+    
     let config = CONFIG.load(deps.storage)?;
 
     // M-08 FIX: Validate validator count before superseding
@@ -467,14 +378,11 @@ fn execute_supersede_seal(
     old_seal.status = SealStatus::Superseded;
     seals().save(deps.storage, old_seal_id.clone(), &old_seal)?;
 
-    let validators: Result<Vec<Addr>, _> = validator_addresses
-        .into_iter()
-        .map(|v| deps.api.addr_validate(&v))
-        .collect();
+    let validators: Result<Vec<Addr>, _> = validator_addresses.into_iter().map(|v| deps.api.addr_validate(&v)).collect();
     let validators = validators?;
     let count = SEAL_COUNT.load(deps.storage)?;
     let new_seal_id = generate_seal_id(&job_id, &info.sender, count);
-
+    
     let new_seal = Seal {
         id: new_seal_id.clone(),
         job_id: job_id.clone(),
@@ -490,10 +398,10 @@ fn execute_supersede_seal(
         revoked_by: None,
         revocation_reason: None,
     };
-
+    
     seals().save(deps.storage, new_seal_id.clone(), &new_seal)?;
     SEAL_COUNT.save(deps.storage, &(count + 1))?;
-
+    
     Ok(Response::new()
         .add_attribute("action", "supersede_seal")
         .add_attribute("old_seal_id", old_seal_id)
@@ -507,8 +415,7 @@ fn execute_verify_seal(
     env: Env,
     seal_id: String,
 ) -> Result<Response, ContractError> {
-    let seal = seals()
-        .load(deps.storage, seal_id.clone())
+    let seal = seals().load(deps.storage, seal_id.clone())
         .map_err(|_| ContractError::SealNotFound {})?;
 
     let (valid, status) = check_seal_validity(&seal, &env);
@@ -594,18 +501,18 @@ fn execute_update_config(
     max_validators: Option<u32>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
-
+    
     if info.sender != config.admin {
         return Err(ContractError::Unauthorized {});
     }
-
+    
     if let Some(min) = min_validators {
         config.min_validators = min;
     }
     if let Some(max) = max_validators {
         config.max_validators = max;
     }
-
+    
     CONFIG.save(deps.storage, &config)?;
     Ok(Response::new().add_attribute("action", "update_config"))
 }
@@ -617,11 +524,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let seal = seals().load(deps.storage, seal_id)?;
             to_json_binary(&seal)
         }
-        QueryMsg::ListSeals {
-            status,
-            requester,
-            limit,
-        } => to_json_binary(&query_list_seals(deps, status, requester, limit)?),
+        QueryMsg::ListSeals { status, requester, limit } => {
+            to_json_binary(&query_list_seals(deps, status, requester, limit)?)
+        }
         QueryMsg::Verify { seal_id } => to_json_binary(&query_verify(deps, env, seal_id)?),
         QueryMsg::JobSealHistory { job_id } => {
             let seals_list: Vec<Seal> = seals()
@@ -644,12 +549,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-fn query_list_seals(
-    deps: Deps,
-    status: Option<String>,
-    requester: Option<String>,
-    limit: Option<u32>,
-) -> StdResult<Vec<Seal>> {
+fn query_list_seals(deps: Deps, status: Option<String>, requester: Option<String>, limit: Option<u32>) -> StdResult<Vec<Seal>> {
     let limit = limit.unwrap_or(50) as usize;
     let requester_addr = requester.map(|r| Addr::unchecked(r));
     let seals_list: Vec<Seal> = seals()
@@ -706,9 +606,7 @@ pub struct MigrateMsg {}
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
     let version = cw2::get_contract_version(deps.storage)?;
     if version.contract != CONTRACT_NAME {
-        return Err(cosmwasm_std::StdError::generic_err(
-            "Cannot migrate from a different contract",
-        ));
+        return Err(cosmwasm_std::StdError::generic_err("Cannot migrate from a different contract"));
     }
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     Ok(Response::new()

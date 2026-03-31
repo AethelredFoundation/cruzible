@@ -42,7 +42,7 @@ export function WalletButton() {
     return (
       <button
         onClick={switchNetwork}
-        className="flex items-center gap-2 rounded-xl bg-amber-600/15 border border-amber-500/30 px-4 py-2 text-sm font-medium text-amber-300 hover:bg-amber-600/25 transition-all duration-300"
+        className="flex items-center gap-2 rounded-lg bg-amber-600/20 border border-amber-500/40 px-4 py-2 text-sm font-medium text-amber-300 hover:bg-amber-600/30 transition-colors"
       >
         <span className="inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
         Switch to {activeChain.name}
@@ -55,7 +55,7 @@ export function WalletButton() {
     return (
       <button
         disabled
-        className="flex items-center gap-2 rounded-xl bg-slate-800/60 border border-slate-700/30 px-4 py-2 text-sm font-medium text-slate-400 cursor-wait backdrop-blur-sm"
+        className="flex items-center gap-2 rounded-lg bg-gray-800 border border-gray-700 px-4 py-2 text-sm font-medium text-gray-400 cursor-wait"
       >
         <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
           <circle
@@ -83,7 +83,7 @@ export function WalletButton() {
       <div ref={dropdownRef} className="relative">
         <button
           onClick={() => setShowDropdown(!showDropdown)}
-          className="flex items-center gap-2 rounded-xl bg-slate-800/40 border border-slate-700/30 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800/60 hover:border-slate-600/40 transition-all duration-300 backdrop-blur-sm"
+          className="flex items-center gap-2 rounded-lg bg-gray-800/80 border border-gray-700 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700/80 hover:border-gray-600 transition-colors"
         >
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
           <span className="font-mono text-xs">
@@ -103,29 +103,29 @@ export function WalletButton() {
         </button>
 
         {showDropdown && (
-          <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl border border-slate-700/30 bg-slate-900/95 backdrop-blur-xl p-4 shadow-premium-lg z-50">
-            <div className="mb-3 pb-3 border-b border-slate-800/30">
-              <p className="text-xs text-slate-500 mb-1">Connected Address</p>
-              <p className="font-mono text-xs text-slate-300 break-all">
+          <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-gray-700 bg-gray-900 p-4 shadow-2xl z-50">
+            <div className="mb-3 pb-3 border-b border-gray-800">
+              <p className="text-xs text-gray-500 mb-1">Connected Address</p>
+              <p className="font-mono text-xs text-gray-300 break-all">
                 {wallet.address}
               </p>
             </div>
 
             <div className="space-y-2 mb-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">AETHEL</span>
-                <span className="text-sm font-medium text-slate-200">
+                <span className="text-xs text-gray-500">AETHEL</span>
+                <span className="text-sm font-medium text-gray-200">
                   {formatNumber(wallet.balance, 4)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">stAETHEL</span>
-                <span className="text-sm font-medium text-slate-200">
+                <span className="text-xs text-gray-500">stAETHEL</span>
+                <span className="text-sm font-medium text-gray-200">
                   {formatNumber(wallet.stBalance, 4)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">Network</span>
+                <span className="text-xs text-gray-500">Network</span>
                 <span className="text-xs text-emerald-400">
                   {activeChain.name}
                 </span>
@@ -159,7 +159,7 @@ export function WalletButton() {
             setShowConnectorModal(!showConnectorModal);
           }
         }}
-        className="btn-primary flex items-center gap-2"
+        className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-500 transition-colors shadow-lg shadow-red-900/30"
       >
         <svg
           className="h-4 w-4"
@@ -172,12 +172,12 @@ export function WalletButton() {
           <path d="M3 5v14a2 2 0 002 2h16v-5" />
           <path d="M18 12a1 1 0 100 2 1 1 0 000-2z" />
         </svg>
-        Connect Wallet
+        CONNECT WALLET
       </button>
 
       {showConnectorModal && (
-        <div className="absolute right-0 top-full mt-2 w-64 rounded-2xl border border-slate-700/30 bg-slate-900/95 backdrop-blur-xl p-3 shadow-premium-lg z-50">
-          <p className="text-xs text-slate-400 mb-3 font-medium">
+        <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-gray-700 bg-gray-900 p-3 shadow-2xl z-50">
+          <p className="text-xs text-gray-400 mb-3 font-medium">
             Choose Wallet
           </p>
           <div className="space-y-1.5">

@@ -1,17 +1,18 @@
 /**
  * CW20 Staking Token (stAETHEL)
- *
+ * 
  * Liquid staking token representing staked AETHEL.
  * Implements the CW20 standard for compatibility with DeFi protocols.
  */
+
 use cosmwasm_std::{
-    entry_point, to_json_binary, Addr, Binary, Deps, DepsMut, Env, Event, MessageInfo, Response,
-    StdError, StdResult, Uint128, WasmMsg,
+    entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
+    StdError, Addr, Uint128, WasmMsg, Event,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Bound, Item, Map};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
 use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:cw20-staking";
@@ -112,11 +113,19 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     /// Transfer tokens to another address
-    Transfer { recipient: String, amount: Uint128 },
+    Transfer {
+        recipient: String,
+        amount: Uint128,
+    },
     /// Burn tokens
-    Burn { amount: Uint128 },
+    Burn {
+        amount: Uint128,
+    },
     /// Mint new tokens (minter only)
-    Mint { recipient: String, amount: Uint128 },
+    Mint {
+        recipient: String,
+        amount: Uint128,
+    },
     /// Approve spender
     IncreaseAllowance {
         spender: String,
@@ -136,7 +145,10 @@ pub enum ExecuteMsg {
         amount: Uint128,
     },
     /// Burn from allowance
-    BurnFrom { owner: String, amount: Uint128 },
+    BurnFrom {
+        owner: String,
+        amount: Uint128,
+    },
     /// Send tokens with callback
     Send {
         contract: String,
@@ -144,7 +156,9 @@ pub enum ExecuteMsg {
         msg: Binary,
     },
     /// Update marketing info
-    UpdateMinter { new_minter: Option<String> },
+    UpdateMinter {
+        new_minter: Option<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -181,7 +195,7 @@ pub fn instantiate(
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
     let minter = deps.api.addr_validate(&msg.minter)?;
-
+    
     let token_info = TokenInfo {
         name: msg.name.clone(),
         symbol: msg.symbol.clone(),
@@ -192,14 +206,14 @@ pub fn instantiate(
             cap: msg.cap,
         }),
     };
-
+    
     TOKEN_INFO.save(deps.storage, &token_info)?;
-
+    
     // Set initial supply to minter
     if !msg.initial_supply.is_zero() {
         BALANCES.save(deps.storage, &minter, &msg.initial_supply)?;
     }
-
+    
     Ok(Response::new()
         .add_attribute("action", "instantiate")
         .add_attribute("name", msg.name)
@@ -216,32 +230,20 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Transfer { recipient, amount } => {
-            execute_transfer(deps, env, info, recipient, amount)
-        }
+        ExecuteMsg::Transfer { recipient, amount } => execute_transfer(deps, env, info, recipient, amount),
         ExecuteMsg::Burn { amount } => execute_burn(deps, env, info, amount),
         ExecuteMsg::Mint { recipient, amount } => execute_mint(deps, env, info, recipient, amount),
-        ExecuteMsg::IncreaseAllowance {
-            spender,
-            amount,
-            expires,
-        } => execute_increase_allowance(deps, env, info, spender, amount, expires),
-        ExecuteMsg::DecreaseAllowance {
-            spender,
-            amount,
-            expires,
-        } => execute_decrease_allowance(deps, env, info, spender, amount, expires),
-        ExecuteMsg::TransferFrom {
-            owner,
-            recipient,
-            amount,
-        } => execute_transfer_from(deps, env, info, owner, recipient, amount),
+        ExecuteMsg::IncreaseAllowance { spender, amount, expires } => {
+            execute_increase_allowance(deps, env, info, spender, amount, expires)
+        }
+        ExecuteMsg::DecreaseAllowance { spender, amount, expires } => {
+            execute_decrease_allowance(deps, env, info, spender, amount, expires)
+        }
+        ExecuteMsg::TransferFrom { owner, recipient, amount } => {
+            execute_transfer_from(deps, env, info, owner, recipient, amount)
+        }
         ExecuteMsg::BurnFrom { owner, amount } => execute_burn_from(deps, env, info, owner, amount),
-        ExecuteMsg::Send {
-            contract,
-            amount,
-            msg,
-        } => execute_send(deps, env, info, contract, amount, msg),
+        ExecuteMsg::Send { contract, amount, msg } => execute_send(deps, env, info, contract, amount, msg),
         ExecuteMsg::UpdateMinter { new_minter } => execute_update_minter(deps, info, new_minter),
     }
 }
@@ -297,16 +299,16 @@ fn execute_burn(
     if amount.is_zero() {
         return Err(ContractError::InvalidZeroAmount {});
     }
-
+    
     BALANCES.update(deps.storage, &info.sender, |balance| -> StdResult<_> {
         Ok(balance.unwrap_or_default().checked_sub(amount)?)
     })?;
-
+    
     TOKEN_INFO.update(deps.storage, |mut info| -> StdResult<_> {
         info.total_supply = info.total_supply.checked_sub(amount)?;
         Ok(info)
     })?;
-
+    
     Ok(Response::new()
         .add_attribute("action", "burn")
         .add_attribute("from", info.sender)
@@ -323,7 +325,7 @@ fn execute_mint(
     if amount.is_zero() {
         return Err(ContractError::InvalidZeroAmount {});
     }
-
+    
     let mut config = TOKEN_INFO.load(deps.storage)?;
 
     // HIGH-5 FIX: Replace unwrap() with proper error handling
@@ -338,9 +340,9 @@ fn execute_mint(
             return Err(ContractError::CannotExceedCap {});
         }
     }
-
+    
     let recipient = deps.api.addr_validate(&recipient)?;
-
+    
     config.total_supply += amount;
     TOKEN_INFO.save(deps.storage, &config)?;
 
@@ -377,19 +379,15 @@ fn execute_increase_allowance(
         return Err(ContractError::CannotSetOwnAccount {});
     }
 
-    ALLOWANCES.update(
-        deps.storage,
-        (&info.sender, &spender),
-        |allow| -> StdResult<_> {
-            let mut allow = allow.unwrap_or_default();
-            if let Some(exp) = expires {
-                allow.expires = exp;
-            }
-            allow.allowance += amount;
-            Ok(allow)
-        },
-    )?;
-
+    ALLOWANCES.update(deps.storage, (&info.sender, &spender), |allow| -> StdResult<_> {
+        let mut allow = allow.unwrap_or_default();
+        if let Some(exp) = expires {
+            allow.expires = exp;
+        }
+        allow.allowance += amount;
+        Ok(allow)
+    })?;
+    
     Ok(Response::new()
         .add_attribute("action", "increase_allowance")
         .add_attribute("owner", info.sender)
@@ -412,19 +410,15 @@ fn execute_decrease_allowance(
         return Err(ContractError::CannotSetOwnAccount {});
     }
 
-    ALLOWANCES.update(
-        deps.storage,
-        (&info.sender, &spender),
-        |allow| -> StdResult<_> {
-            let mut allow = allow.unwrap_or_default();
-            if let Some(exp) = expires {
-                allow.expires = exp;
-            }
-            allow.allowance = allow.allowance.saturating_sub(amount);
-            Ok(allow)
-        },
-    )?;
-
+    ALLOWANCES.update(deps.storage, (&info.sender, &spender), |allow| -> StdResult<_> {
+        let mut allow = allow.unwrap_or_default();
+        if let Some(exp) = expires {
+            allow.expires = exp;
+        }
+        allow.allowance = allow.allowance.saturating_sub(amount);
+        Ok(allow)
+    })?;
+    
     Ok(Response::new()
         .add_attribute("action", "decrease_allowance")
         .add_attribute("owner", info.sender)
@@ -454,19 +448,14 @@ fn execute_transfer_from(
     }
 
     // Deduct allowance
-    ALLOWANCES.update(
-        deps.storage,
-        (&owner, &info.sender),
-        |allow| -> StdResult<_> {
-            let mut allow =
-                allow.ok_or_else(|| StdError::generic_err("No allowance for this spender"))?;
-            if allow.expires.is_expired(&env.block) {
-                return Err(StdError::generic_err("Allowance expired"));
-            }
-            allow.allowance = allow.allowance.checked_sub(amount)?;
-            Ok(allow)
-        },
-    )?;
+    ALLOWANCES.update(deps.storage, (&owner, &info.sender), |allow| -> StdResult<_> {
+        let mut allow = allow.ok_or_else(|| StdError::generic_err("No allowance for this spender"))?;
+        if allow.expires.is_expired(&env.block) {
+            return Err(StdError::generic_err("Allowance expired"));
+        }
+        allow.allowance = allow.allowance.checked_sub(amount)?;
+        Ok(allow)
+    })?;
 
     BALANCES.update(deps.storage, &owner, |balance| -> StdResult<_> {
         Ok(balance.unwrap_or_default().checked_sub(amount)?)
@@ -498,29 +487,24 @@ fn execute_burn_from(
     let owner = deps.api.addr_validate(&owner)?;
 
     // Deduct allowance
-    ALLOWANCES.update(
-        deps.storage,
-        (&owner, &info.sender),
-        |allow| -> StdResult<_> {
-            let mut allow =
-                allow.ok_or_else(|| StdError::generic_err("No allowance for this spender"))?;
-            if allow.expires.is_expired(&env.block) {
-                return Err(StdError::generic_err("Allowance expired"));
-            }
-            allow.allowance = allow.allowance.checked_sub(amount)?;
-            Ok(allow)
-        },
-    )?;
-
+    ALLOWANCES.update(deps.storage, (&owner, &info.sender), |allow| -> StdResult<_> {
+        let mut allow = allow.ok_or_else(|| StdError::generic_err("No allowance for this spender"))?;
+        if allow.expires.is_expired(&env.block) {
+            return Err(StdError::generic_err("Allowance expired"));
+        }
+        allow.allowance = allow.allowance.checked_sub(amount)?;
+        Ok(allow)
+    })?;
+    
     BALANCES.update(deps.storage, &owner, |balance| -> StdResult<_> {
         Ok(balance.unwrap_or_default().checked_sub(amount)?)
     })?;
-
+    
     TOKEN_INFO.update(deps.storage, |mut info| -> StdResult<_> {
         info.total_supply = info.total_supply.checked_sub(amount)?;
         Ok(info)
     })?;
-
+    
     Ok(Response::new()
         .add_attribute("action", "burn_from")
         .add_attribute("from", owner)
@@ -552,11 +536,11 @@ fn execute_send(
     BALANCES.update(deps.storage, &info.sender, |balance| -> StdResult<_> {
         Ok(balance.unwrap_or_default().checked_sub(amount)?)
     })?;
-
+    
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
         Ok(balance.unwrap_or_default() + amount)
     })?;
-
+    
     // Send message to contract
     let send_msg = WasmMsg::Execute {
         contract_addr: contract.clone(),
@@ -567,7 +551,7 @@ fn execute_send(
         })?,
         funds: vec![],
     };
-
+    
     Ok(Response::new()
         .add_message(send_msg)
         .add_attribute("action", "send")
@@ -639,9 +623,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Allowance { owner, spender } => {
             let owner = deps.api.addr_validate(&owner)?;
             let spender = deps.api.addr_validate(&spender)?;
-            let allowance = ALLOWANCES
-                .load(deps.storage, (&owner, &spender))
-                .unwrap_or_default();
+            let allowance = ALLOWANCES.load(deps.storage, (&owner, &spender)).unwrap_or_default();
             to_json_binary(&AllowanceResponse {
                 allowance: allowance.allowance,
                 expires: allowance.expires,
@@ -651,15 +633,10 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let info = TOKEN_INFO.load(deps.storage)?;
             to_json_binary(&info.mint)
         }
-        QueryMsg::AllAllowances {
-            owner,
-            start_after,
-            limit,
-        } => {
+        QueryMsg::AllAllowances { owner, start_after, limit } => {
             let owner_addr = deps.api.addr_validate(&owner)?;
             let limit = limit.unwrap_or(30).min(100) as usize;
-            let start = start_after
-                .as_deref()
+            let start = start_after.as_deref()
                 .map(|s| deps.api.addr_validate(s))
                 .transpose()?;
             let min = start.as_ref().map(Bound::exclusive);
@@ -667,19 +644,18 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 .prefix(&owner_addr)
                 .range(deps.storage, min, None, cosmwasm_std::Order::Ascending)
                 .take(limit)
-                .filter_map(|r| {
-                    r.ok().map(|(_spender, info)| AllowanceResponse {
+                .filter_map(|r| r.ok().map(|(_spender, info)| {
+                    AllowanceResponse {
                         allowance: info.allowance,
                         expires: info.expires,
-                    })
-                })
+                    }
+                }))
                 .collect();
             to_json_binary(&allowances)
         }
         QueryMsg::AllAccounts { start_after, limit } => {
             let limit = limit.unwrap_or(30).min(100) as usize;
-            let start = start_after
-                .as_deref()
+            let start = start_after.as_deref()
                 .map(|s| deps.api.addr_validate(s))
                 .transpose()?;
             let min = start.as_ref().map(Bound::exclusive);
@@ -712,9 +688,7 @@ pub struct MigrateMsg {}
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
     let version = cw2::get_contract_version(deps.storage)?;
     if version.contract != CONTRACT_NAME {
-        return Err(StdError::generic_err(
-            "Cannot migrate from a different contract",
-        ));
+        return Err(StdError::generic_err("Cannot migrate from a different contract"));
     }
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     Ok(Response::new()
@@ -725,3 +699,4 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response
 
 #[cfg(test)]
 mod contract_tests;
+

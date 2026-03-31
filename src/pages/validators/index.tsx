@@ -970,7 +970,7 @@ function ValidatorTableSection({
               placeholder="Search validators by name..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-800/50 border border-slate-700/30 rounded-xl text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-red-500/30 focus:border-red-500/50 transition-all outline-none"
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-800/50 border border-slate-700/50 rounded-xl text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-red-500/30 focus:border-red-500/50 transition-all outline-none"
             />
           </div>
         </div>
@@ -981,7 +981,7 @@ function ValidatorTableSection({
           onChange={(e) =>
             setStatusFilter(e.target.value as typeof statusFilter)
           }
-          className="border border-slate-700/30 rounded-xl px-3 py-2.5 text-sm bg-slate-800/50 text-white focus:ring-2 focus:ring-red-500/30 focus:border-red-500/50 transition-all outline-none"
+          className="border border-slate-700/50 rounded-xl px-3 py-2.5 text-sm bg-slate-800/50 text-white focus:ring-2 focus:ring-red-500/30 focus:border-red-500/50 transition-all outline-none"
         >
           <option value="all">All Status</option>
           <option value="active">Active</option>
@@ -993,7 +993,7 @@ function ValidatorTableSection({
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortKey)}
-          className="border border-slate-700/30 rounded-xl px-3 py-2.5 text-sm bg-slate-800/50 text-white focus:ring-2 focus:ring-red-500/30 focus:border-red-500/50 transition-all outline-none"
+          className="border border-slate-700/50 rounded-xl px-3 py-2.5 text-sm bg-slate-800/50 text-white focus:ring-2 focus:ring-red-500/30 focus:border-red-500/50 transition-all outline-none"
         >
           <option value="votingPower">Sort: Voting Power</option>
           <option value="commission">Sort: Commission</option>
@@ -1003,7 +1003,7 @@ function ValidatorTableSection({
         </select>
 
         {/* View toggle */}
-        <div className="flex items-center bg-slate-800/50 rounded-xl p-1 border border-slate-700/30">
+        <div className="flex items-center bg-slate-800/50 rounded-xl p-1 border border-slate-700/50">
           <button
             onClick={() => setViewMode("list")}
             className={`p-2 rounded-lg transition-all ${viewMode === "list" ? "bg-slate-700 text-white shadow-sm" : "text-slate-500 hover:text-slate-300"}`}
@@ -1034,7 +1034,7 @@ function ValidatorTableSection({
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-700/30">
+                <tr className="border-b border-slate-700/50">
                   <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 py-3 text-left w-10"></th>
                   <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 py-3 text-left">
                     Rank
@@ -1815,7 +1815,7 @@ function DelegationModal({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
-                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700/30 rounded-xl text-white text-lg font-semibold tabular-nums placeholder-slate-600 focus:ring-2 focus:ring-red-500/30 focus:border-red-500/50 transition-all outline-none"
+                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-xl text-white text-lg font-semibold tabular-nums placeholder-slate-600 focus:ring-2 focus:ring-red-500/30 focus:border-red-500/50 transition-all outline-none"
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-500 font-medium">
                 AETHEL
@@ -1829,7 +1829,7 @@ function DelegationModal({
               <button
                 key={pct}
                 onClick={() => handleQuickAmount(pct)}
-                className="flex-1 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/30 rounded-lg text-sm text-slate-400 hover:text-white transition-colors"
+                className="flex-1 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 rounded-lg text-sm text-slate-400 hover:text-white transition-colors"
               >
                 {pct}%
               </button>
@@ -2900,7 +2900,7 @@ function SlashingMonitorSection() {
 function BecomeValidatorSection() {
   return (
     <section className="mb-12">
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-red-950/60 border border-slate-700/30">
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-red-950/60 border border-slate-700/50">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(220,38,38,0.2)_0%,_transparent_60%)]" />
         <div
           className="absolute inset-0 opacity-[0.03]"
@@ -3082,7 +3082,7 @@ export default function ValidatorsPage() {
         path="/validators"
       />
 
-      <div className="min-h-screen bg-[#050810]">
+      <div className="min-h-screen bg-slate-950">
         <TopNav activePage="validators" />
         <HeroSection />
 

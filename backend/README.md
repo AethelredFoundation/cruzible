@@ -2,7 +2,7 @@
 
 > **World-class, production-ready blockchain infrastructure for the Aethelred sovereign AI verification network.**
 
-## 🏛️ Architecture Overview
+## Architecture Overview
 
 The Aethelred backend is a sophisticated, multi-layer blockchain infrastructure designed for high-throughput, verifiable AI computation at scale.
 
@@ -67,21 +67,19 @@ The Aethelred backend is a sophisticated, multi-layer blockchain infrastructure 
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 📦 Components
+## Components
 
 ### 1. **Blockchain Node** (`/node`)
 
 High-performance Rust implementation of the Aethelred blockchain.
 
 #### Key Features
-
 - **Consensus**: HotStuff-based BFT consensus with sub-3s finality
 - **PoUW**: Proof-of-Useful-Work with TEE attestation
 - **Throughput**: 2,500+ TPS sustained, 10,000+ TPS burst
 - **Modules**: Bank, Staking, Governance, AI Jobs, Vault, Seals, Models, WASM
 
 #### Core Crates
-
 ```
 node/
 ├── crates/
@@ -109,7 +107,6 @@ node/
 Production-ready Node.js/TypeScript API for blockchain interaction.
 
 #### Features
-
 - **Protocols**: REST, WebSocket, gRPC
 - **Performance**: Sub-50ms p95 response time
 - **Caching**: Multi-layer (Redis + in-memory)
@@ -118,7 +115,6 @@ Production-ready Node.js/TypeScript API for blockchain interaction.
 - **Observability**: OpenTelemetry, Prometheus, Jaeger
 
 #### API Endpoints
-
 ```
 /v1/blocks              # Block explorer
 /v1/transactions        # Transaction history
@@ -139,7 +135,6 @@ Production-ready Node.js/TypeScript API for blockchain interaction.
 Production Docker Compose and Kubernetes configurations.
 
 #### Services
-
 - **aethelred-node**: Blockchain node
 - **api-gateway**: REST/WebSocket API
 - **indexer**: Block/transaction indexer
@@ -150,10 +145,9 @@ Production Docker Compose and Kubernetes configurations.
 - **grafana**: Visualization dashboards
 - **jaeger**: Distributed tracing
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
-
 - Docker 24.0+
 - Docker Compose 2.20+
 - 16GB+ RAM
@@ -201,14 +195,14 @@ curl http://localhost:3000/v1/stats
 
 ### 4. Access Services
 
-| Service    | URL                        | Credentials |
-| ---------- | -------------------------- | ----------- |
-| API Docs   | http://localhost:3000/docs | -           |
-| Grafana    | http://localhost:3002      | admin/admin |
-| Prometheus | http://localhost:9090      | -           |
-| Jaeger     | http://localhost:16686     | -           |
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| API Docs | http://localhost:3000/docs | - |
+| Grafana | http://localhost:3002 | admin/admin |
+| Prometheus | http://localhost:9090 | - |
+| Jaeger | http://localhost:16686 | - |
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -257,42 +251,39 @@ size = 10000
 max_txs_bytes = 1073741824
 ```
 
-## 📊 Performance Benchmarks
+## Performance Benchmarks
 
-| Metric           | Value     |
-| ---------------- | --------- |
-| Block Time       | 3 seconds |
-| Block Size       | 10 MB     |
-| Max TPS          | 10,000    |
-| Sustained TPS    | 2,500     |
+| Metric | Value |
+|--------|-------|
+| Block Time | 3 seconds |
+| Block Size | 10 MB |
+| Max TPS | 10,000 |
+| Sustained TPS | 2,500 |
 | Time to Finality | 3 seconds |
-| API Response p50 | 15 ms     |
-| API Response p95 | 50 ms     |
-| API Response p99 | 150 ms    |
-| Validator Set    | 200       |
+| API Response p50 | 15 ms |
+| API Response p95 | 50 ms |
+| API Response p99 | 150 ms |
+| Validator Set | 200 |
 
-## 🔒 Security
+## Security
 
 ### TEE Attestation
-
 - **Intel SGX**: EPID and DCAP attestation
 - **Intel TDX**: Trust Domain Extensions
 - **AMD SEV-SNP**: Secure Encrypted Virtualization
 - **AWS Nitro Enclaves**: Cloud-native attestation
 
 ### Consensus Security
-
 - Byzantine Fault Tolerance: 33% malicious threshold
 - Double-signing detection and slashing
 - Light client verification
 
 ### Network Security
-
 - TLS 1.3 for all communications
 - libp2p with Noise protocol encryption
 - Rate limiting and DDoS protection
 
-## 🔬 Testing
+## Testing
 
 ```bash
 # Unit tests
@@ -309,7 +300,7 @@ npm run benchmark
 cargo fuzz run block_deserialize
 ```
 
-## 📚 Documentation
+## Documentation
 
 - [API Reference](./api/docs/API.md)
 - [Node Operator Guide](./node/docs/OPERATOR.md)
@@ -317,15 +308,15 @@ cargo fuzz run block_deserialize
 - [Smart Contracts](./contracts/README.md)
 - [Architecture Decisions](./docs/ADR/)
 
-## 🤝 Contributing
+## Contributing
 
 Please read our [Contributing Guidelines](../CONTRIBUTING.md) before submitting PRs.
 
-## 📄 License
+## License
 
 Apache 2.0 - see [LICENSE](../LICENSE) for details.
 
-## 🌐 Resources
+## Resources
 
 - **Website**: https://aethelred.org
 - **Documentation**: https://docs.aethelred.org
@@ -336,5 +327,5 @@ Apache 2.0 - see [LICENSE](../LICENSE) for details.
 ---
 
 <p align="center">
-  <strong>Built with ❤️ by Aethelred Labs</strong>
+  <strong>Built by Aethelred Labs</strong>
 </p>

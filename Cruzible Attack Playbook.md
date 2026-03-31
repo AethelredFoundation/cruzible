@@ -1041,10 +1041,10 @@ This is the number one liquid staking killer.
 **Prevent it by**
 
 - distinct accounting buckets:
-  - idle
-  - delegated
-  - pending undelegation
-  - claimable
+    - idle
+    - delegated
+    - pending undelegation
+    - claimable
 - invariant tests across state transitions
 
 ---
@@ -1164,9 +1164,9 @@ This is the number one liquid staking killer.
 **Prevent it by**
 
 - precise pause matrix:
-  - pause deposits?
-  - pause redelegations?
-  - pause claims?
+    - pause deposits?
+    - pause redelegations?
+    - pause claims?
 - emergency controls documented in advance
 - exit guarantees where possible
 
@@ -1212,11 +1212,11 @@ This is the number one liquid staking killer.
 
 - emitting events for every critical state change
 - off-chain alerts for:
-  - slash events
-  - validator jailing
-  - queue growth
-  - solvency deviations
-  - abnormal exchange-rate movement
+    - slash events
+    - validator jailing
+    - queue growth
+    - solvency deviations
+    - abnormal exchange-rate movement
 
 ---
 

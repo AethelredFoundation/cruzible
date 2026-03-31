@@ -46,7 +46,7 @@ export default function ReconciliationPage() {
         path="/reconciliation"
       />
 
-      <div className="min-h-screen bg-[#050810] text-slate-100">
+      <div className="min-h-screen bg-slate-950 text-slate-100">
         <TopNav activePage="reconciliation" />
 
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -246,7 +246,7 @@ export default function ReconciliationPage() {
                         <Download className="h-4 w-4 text-cyan-300" />
                         Markdown
                       </div>
-                      <pre className="max-h-[28rem] overflow-auto rounded-md border border-slate-800 bg-[#050810]/60 p-3 text-xs text-slate-200">
+                      <pre className="max-h-[28rem] overflow-auto rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-200">
                         {markdown}
                       </pre>
                     </div>
@@ -255,7 +255,7 @@ export default function ReconciliationPage() {
                         <Download className="h-4 w-4 text-cyan-300" />
                         JSON
                       </div>
-                      <pre className="max-h-[28rem] overflow-auto rounded-md border border-slate-800 bg-[#050810]/60 p-3 text-xs text-slate-200">
+                      <pre className="max-h-[28rem] overflow-auto rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-200">
                         {rawJson}
                       </pre>
                     </div>
@@ -349,7 +349,7 @@ function MetricLine({
   valueClassName?: string;
 }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-3">
+    <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-3">
       <div className="text-xs uppercase tracking-wide text-slate-400">
         {label}
       </div>
@@ -362,7 +362,7 @@ function MetricLine({
 
 function HashRow({ label, value }: { label: string; value?: string }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-[#050810]/50 px-3 py-3">
+    <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-3">
       <div className="text-xs uppercase tracking-wide text-slate-400">
         {label}
       </div>

@@ -6,45 +6,30 @@ import { BRAND } from "@/lib/constants";
 import { copyToClipboard, formatFullNumber } from "@/lib/utils";
 
 // ============================================================
-// GlassCard — Premium glass-morphism card container
+// GlassCard — Shared glass-morphism card container
 // ============================================================
 
 interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
-  children: React.ReactNode;
   className?: string;
   hover?: boolean;
-  active?: boolean;
-  onClick?: () => void;
-  variant?: "default" | "gradient" | "elevated";
 }
 
 export function GlassCard({
   children,
   className = "",
   hover = true,
-  active = false,
   onClick,
-  variant = "default",
-  ...rest
+  ...props
 }: GlassCardProps) {
-  const baseStyles = {
-    default: "bg-slate-900/50 backdrop-blur-xl border border-slate-800/40",
-    gradient: "gradient-border-card backdrop-blur-xl",
-    elevated:
-      "bg-slate-900/60 backdrop-blur-xl border border-slate-700/30 shadow-premium",
-  };
-
-  const hoverStyles = hover
-    ? "hover:border-red-500/30 hover:bg-slate-900/70 hover:shadow-premium transition-all duration-400"
-    : "";
-
-  const activeStyles = active ? "border-red-500/50" : "";
-
   return (
     <div
       onClick={onClick}
-      className={`rounded-2xl ${baseStyles[variant]} ${hoverStyles} ${activeStyles} ${onClick ? "cursor-pointer" : ""} ${className}`}
-      {...rest}
+      {...props}
+      className={`bg-slate-900/60 backdrop-blur-xl border border-slate-700/50 rounded-2xl ${
+        hover
+          ? "hover:border-slate-600/60 hover:bg-slate-900/70 transition-all duration-300"
+          : ""
+      } ${onClick ? "cursor-pointer" : ""} ${className}`}
     >
       {children}
     </div>
@@ -82,7 +67,7 @@ export function CopyButton({
   return (
     <button
       onClick={handleCopy}
-      className="p-1 rounded-lg hover:bg-slate-700/40 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      className="p-1 rounded hover:bg-slate-700/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
       title="Copy to clipboard"
       aria-label={copied ? "Copied" : "Copy to clipboard"}
     >
@@ -96,7 +81,7 @@ export function CopyButton({
 }
 
 // ============================================================
-// SectionHeader — Premium section titles with optional action
+// SectionHeader — Consistent section titles with optional action
 // ============================================================
 
 interface SectionHeaderProps {
@@ -118,15 +103,11 @@ export function SectionHeader({
     >
       <div>
         <h2
-          className={`font-display font-bold text-white tracking-tight ${size === "lg" ? "text-2xl" : "text-xl"}`}
+          className={`font-bold text-white tracking-tight ${size === "lg" ? "text-2xl" : "text-xl"}`}
         >
           {title}
         </h2>
-        {subtitle && (
-          <p className="text-sm text-slate-400 mt-1.5 leading-relaxed">
-            {subtitle}
-          </p>
-        )}
+        {subtitle && <p className="text-sm text-slate-400 mt-1">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -191,14 +172,13 @@ export function Sparkline({
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        style={{ filter: `drop-shadow(0 0 3px ${color}40)` }}
       />
     </svg>
   );
 }
 
 // ============================================================
-// ChartTooltip — Premium recharts custom tooltip
+// ChartTooltip — Shared recharts custom tooltip
 // ============================================================
 
 interface ChartTooltipProps {
@@ -219,19 +199,15 @@ export function ChartTooltip({
     formatValue ||
     ((v: number | string) => (typeof v === "number" ? formatFullNumber(v) : v));
   return (
-    <div className="bg-slate-900/95 backdrop-blur-xl text-white px-4 py-3 rounded-xl text-xs shadow-premium-lg border border-slate-700/30">
-      {label && <p className="font-medium mb-1.5 text-slate-300">{label}</p>}
+    <div className="bg-slate-800 text-white px-3 py-2 rounded-lg text-xs shadow-xl border border-slate-700">
+      {label && <p className="font-medium mb-1">{label}</p>}
       {payload.map((entry, i) => (
-        <p key={i} className="flex items-center gap-2 py-0.5">
+        <p key={i} className="flex items-center gap-1.5">
           <span
             className="w-2 h-2 rounded-full"
-            style={{
-              backgroundColor: entry.color,
-              boxShadow: `0 0 4px ${entry.color}40`,
-            }}
+            style={{ backgroundColor: entry.color }}
           />
-          <span className="text-slate-400">{entry.name}:</span>
-          <span className="font-medium text-white">{fmt(entry.value)}</span>
+          {entry.name}: {fmt(entry.value)}
         </p>
       ))}
     </div>
@@ -239,7 +215,7 @@ export function ChartTooltip({
 }
 
 // ============================================================
-// StatusBadge — Premium status indicator badge
+// StatusBadge — Generic status indicator badge
 // ============================================================
 
 interface StatusBadgeProps {
@@ -252,22 +228,22 @@ const DEFAULT_STATUS_STYLES: Record<
   { bg: string; text: string; dot: string }
 > = {
   Success: {
-    bg: "bg-emerald-500/15",
+    bg: "bg-emerald-500/20",
     text: "text-emerald-400",
     dot: "bg-emerald-400",
   },
   Verified: {
-    bg: "bg-emerald-500/15",
+    bg: "bg-emerald-500/20",
     text: "text-emerald-400",
     dot: "bg-emerald-400",
   },
   Completed: {
-    bg: "bg-emerald-500/15",
+    bg: "bg-emerald-500/20",
     text: "text-emerald-400",
     dot: "bg-emerald-400",
   },
   Active: {
-    bg: "bg-emerald-500/15",
+    bg: "bg-emerald-500/20",
     text: "text-emerald-400",
     dot: "bg-emerald-400",
   },
@@ -276,17 +252,17 @@ const DEFAULT_STATUS_STYLES: Record<
     text: "text-emerald-400",
     dot: "bg-emerald-400",
   },
-  Voting: { bg: "bg-blue-500/15", text: "text-blue-400", dot: "bg-blue-400" },
-  Failed: { bg: "bg-red-500/15", text: "text-red-400", dot: "bg-red-400" },
-  Rejected: { bg: "bg-red-500/15", text: "text-red-400", dot: "bg-red-400" },
+  Voting: { bg: "bg-blue-500/20", text: "text-blue-400", dot: "bg-blue-400" },
+  Failed: { bg: "bg-red-500/20", text: "text-red-400", dot: "bg-red-400" },
+  Rejected: { bg: "bg-red-500/20", text: "text-red-400", dot: "bg-red-400" },
   jailed: { bg: "bg-red-500/10", text: "text-red-400", dot: "bg-red-400" },
   Pending: {
-    bg: "bg-amber-500/15",
+    bg: "bg-amber-500/20",
     text: "text-amber-400",
     dot: "bg-amber-400",
   },
   Processing: {
-    bg: "bg-amber-500/15",
+    bg: "bg-amber-500/20",
     text: "text-amber-400",
     dot: "bg-amber-400",
   },
@@ -296,31 +272,27 @@ const DEFAULT_STATUS_STYLES: Record<
     dot: "bg-yellow-400",
   },
   Queued: {
-    bg: "bg-purple-500/15",
+    bg: "bg-purple-500/20",
     text: "text-purple-400",
     dot: "bg-purple-400",
   },
-  Executed: { bg: "bg-cyan-500/15", text: "text-cyan-400", dot: "bg-cyan-400" },
+  Executed: { bg: "bg-cyan-500/20", text: "text-cyan-400", dot: "bg-cyan-400" },
 };
 
 export function StatusBadge({ status, styles }: StatusBadgeProps) {
   const styleMap = styles || DEFAULT_STATUS_STYLES;
   const s = styleMap[status] || {
-    bg: "bg-slate-700/40",
+    bg: "bg-slate-700/50",
     text: "text-slate-300",
     dot: "bg-slate-400",
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ring-white/5 ${s.bg} ${s.text}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ring-white/10 ${s.bg} ${s.text}`}
     >
       <span
-        className={`w-1.5 h-1.5 rounded-full ${s.dot} ${
-          status === "active" || status === "Active" || status === "Processing"
-            ? "animate-pulse shadow-[0_0_4px_currentColor]"
-            : ""
-        }`}
+        className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === "active" || status === "Active" ? "animate-pulse" : ""}`}
       />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>

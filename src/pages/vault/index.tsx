@@ -1021,7 +1021,7 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
       <div className="grid lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3">
           <GlassCard className="overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-700/30 flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
               <h3 className="font-semibold text-white">Recent Activity</h3>
               <span className="text-xs text-slate-500">Last 10 events</span>
             </div>
@@ -1471,7 +1471,7 @@ function StakeTab() {
       {/* Staking Form */}
       <div className="lg:col-span-3">
         <GlassCard className="overflow-hidden">
-          <div className="px-8 py-5 border-b border-slate-700/30">
+          <div className="px-8 py-5 border-b border-slate-700/50">
             <h3 className="text-lg font-semibold text-white flex items-center gap-2">
               <ArrowDown className="w-5 h-5 text-red-400" />
               Stake AETHEL <ArrowRight className="w-4 h-4 text-slate-500" />{" "}
@@ -1878,7 +1878,7 @@ function UnstakeTab() {
         {/* Unstaking Form */}
         <div className="lg:col-span-3">
           <GlassCard className="overflow-hidden">
-            <div className="px-8 py-5 border-b border-slate-700/30">
+            <div className="px-8 py-5 border-b border-slate-700/50">
               <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                 <ArrowUp className="w-5 h-5 text-amber-400" />
                 Unstake stAETHEL{" "}
@@ -2074,7 +2074,7 @@ function UnstakeTab() {
 
       {/* Active Unstaking Queue */}
       <GlassCard className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/30">
+        <div className="px-6 py-4 border-b border-slate-700/50">
           <h3 className="font-semibold text-white">Active Unstaking Queue</h3>
         </div>
         <div className="overflow-x-auto">
@@ -2411,7 +2411,7 @@ function RewardsTab() {
 
       {/* Breakdown Table */}
       <GlassCard className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/30 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
           <h3 className="font-semibold text-white">Rewards Breakdown</h3>
           <button className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition-colors">
             <Download className="w-3 h-3" />
@@ -2960,7 +2960,7 @@ function AnalyticsTab() {
 
       {/* Top Stakers Leaderboard */}
       <GlassCard className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/30">
+        <div className="px-6 py-4 border-b border-slate-700/50">
           <h3 className="font-semibold text-white flex items-center gap-2">
             <Award className="w-4 h-4 text-amber-400" />
             Top Stakers Leaderboard
@@ -3128,13 +3128,13 @@ export default function VaultPage() {
         path="/vault"
       />
 
-      <div className="min-h-screen bg-[#050810] text-white font-[Inter,system-ui,sans-serif]">
+      <div className="min-h-screen bg-slate-950 text-white font-[Inter,system-ui,sans-serif]">
         <TopNav activePage="vault" />
 
         <HeroSection />
 
         {/* Tab Navigation */}
-        <div className="sticky top-16 z-40 bg-slate-900/80 backdrop-blur-xl border-b border-slate-700/30">
+        <div className="sticky top-16 z-40 bg-slate-900/80 backdrop-blur-xl border-b border-slate-700/50">
           <div className="max-w-[1400px] mx-auto px-6">
             <nav className="flex gap-1 -mb-px overflow-x-auto">
               {tabs.map((tab) => (

@@ -148,12 +148,12 @@ watch -n 5 'curl -s http://localhost:3001/health/ready | jq ".checks.indexer"'
 
 ### 4.1 Severity Classification
 
-| Level | Definition                               | Response Time | On-Call           |
-| ----- | ---------------------------------------- | ------------- | ----------------- |
-| SEV-0 | Active fund theft or protocol compromise | Immediate     | Entire team       |
-| SEV-1 | Potential exploit, no active theft       | < 1 hour      | Security team     |
-| SEV-2 | Data inconsistency, non-critical bug     | < 24 hours    | Engineering       |
-| SEV-3 | Minor issue, no user impact              | Next sprint   | Standard workflow |
+| Level | Definition | Response Time | On-Call |
+|-------|-----------|---------------|---------|
+| SEV-0 | Active fund theft or protocol compromise | Immediate | Entire team |
+| SEV-1 | Potential exploit, no active theft | < 1 hour | Security team |
+| SEV-2 | Data inconsistency, non-critical bug | < 24 hours | Engineering |
+| SEV-3 | Minor issue, no user impact | Next sprint | Standard workflow |
 
 ### 4.2 SEV-0 / SEV-1 Response Procedure
 
@@ -176,7 +176,7 @@ watch -n 5 'curl -s http://localhost:3001/health/ready | jq ".checks.indexer"'
 ### 4.3 Communication Template
 
 ```
-🚨 [SEV-X] Cruzible Incident — [Brief Description]
+[SEV-X] Cruzible Incident — [Brief Description]
 
 Status: [Investigating | Mitigating | Resolved]
 Impact: [User-facing impact description]
@@ -263,7 +263,6 @@ curl http://localhost:3001/health/ready | jq
 ### 6.3 Circuit Breaker Auto-Pause
 
 The vault automatically pauses when:
-
 - Unstake volume exceeds `MaxUnstakePerEpochPct` of TVL in a single epoch
 - Slash count exceeds `MaxSlashesPerEpoch` in a single epoch
 
@@ -321,12 +320,12 @@ If reconciliation reports CRITICAL:
 
 ## 8. Monitoring Dashboards
 
-| Dashboard       | URL                                | Purpose                                     |
-| --------------- | ---------------------------------- | ------------------------------------------- |
-| API Health      | `/health/ready`                    | Readiness check with all subsystem statuses |
-| Reconciliation  | `/v1/reconciliation/latest`        | Latest reconciliation result                |
-| Alerts          | `/v1/alerts`                       | Active and historical alerts                |
-| Indexer Metrics | `/health/ready` → `checks.indexer` | Block lag and sync status                   |
+| Dashboard | URL | Purpose |
+|-----------|-----|---------|
+| API Health | `/health/ready` | Readiness check with all subsystem statuses |
+| Reconciliation | `/v1/reconciliation/latest` | Latest reconciliation result |
+| Alerts | `/v1/alerts` | Active and historical alerts |
+| Indexer Metrics | `/health/ready` → `checks.indexer` | Block lag and sync status |
 
 ---
 
@@ -426,9 +425,9 @@ To add a new stablecoin (e.g., USDU) to the bridge:
 
 ### 10.5 Environment Variables
 
-| Variable                                | Description                          | Example |
-| --------------------------------------- | ------------------------------------ | ------- |
-| `NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS` | Bridge contract proxy address        | `0x...` |
-| `NEXT_PUBLIC_USDC_TOKEN_ADDRESS`        | USDC ERC-20 token on Aethelred       | `0x...` |
-| `NEXT_PUBLIC_USDT_TOKEN_ADDRESS`        | USDT ERC-20 token on Aethelred       | `0x...` |
-| `STABLECOIN_BRIDGE_ADDRESS`             | Bridge address for indexer (backend) | `0x...` |
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS` | Bridge contract proxy address | `0x...` |
+| `NEXT_PUBLIC_USDC_TOKEN_ADDRESS` | USDC ERC-20 token on Aethelred | `0x...` |
+| `NEXT_PUBLIC_USDT_TOKEN_ADDRESS` | USDT ERC-20 token on Aethelred | `0x...` |
+| `STABLECOIN_BRIDGE_ADDRESS` | Bridge address for indexer (backend) | `0x...` |

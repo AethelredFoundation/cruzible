@@ -7,9 +7,5 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node dist/test/conformance.test.js"
-  },
-  "devDependencies": {
-    "@types/node": "^20.11.0",
-    "typescript": "^5.3.3"
   }
 }

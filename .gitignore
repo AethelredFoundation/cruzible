@@ -4,19 +4,11 @@ node_modules/
 # Next.js
 .next/
 out/
-output/
 
-# Build outputs
-dist/
-build/
-*.tsbuildinfo
-
-# Environment & Secrets
+# Environment
 .env
-.env.*
-!.env.example
-*.pem
-*.key
+.env.local
+.env.production.local
 
 # Debug
 npm-debug.log*
@@ -32,20 +24,3 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
-
-# Rust
-target/
-.cargo/
-
-# Coverage
-coverage/
-.coverage
-*.lcov
-
-# AI Tooling
-.claude/
-
-# Terraform
-.terraform/
-*.tfstate
-*.tfstate.*

@@ -52,12 +52,7 @@ function generateSingleValidator(): void {
     policy_hash: bytesToHex(computeSelectionPolicyHash(config)),
     universe_hash: bytesToHex(computeEligibleUniverseHash(eligible_addresses)),
     payload_hex: bytesToHex(
-      computeCanonicalValidatorPayload(
-        epoch,
-        validators,
-        config,
-        eligible_addresses,
-      ),
+      computeCanonicalValidatorPayload(epoch, validators, config, eligible_addresses)
     ),
   };
 
@@ -71,13 +66,9 @@ function generateZeroStake(): void {
   const { epoch, staker_stakes } = vector.input;
 
   vector.expected = {
-    stake_snapshot_hash: bytesToHex(
-      computeStakeSnapshotHash(epoch, staker_stakes),
-    ),
+    stake_snapshot_hash: bytesToHex(computeStakeSnapshotHash(epoch, staker_stakes)),
     staker_registry_root: bytesToHex(computeStakerRegistryRoot(staker_stakes)),
-    delegation_registry_root: bytesToHex(
-      computeDelegationRegistryRoot(staker_stakes),
-    ),
+    delegation_registry_root: bytesToHex(computeDelegationRegistryRoot(staker_stakes)),
   };
 
   writeVector(filePath, vector);
@@ -91,13 +82,9 @@ function generateMaxUint64(): void {
 
   vector.expected = {
     validator_set_hash: bytesToHex(computeValidatorSetHash(epoch, validators)),
-    stake_snapshot_hash: bytesToHex(
-      computeStakeSnapshotHash(epoch, staker_stakes),
-    ),
+    stake_snapshot_hash: bytesToHex(computeStakeSnapshotHash(epoch, staker_stakes)),
     staker_registry_root: bytesToHex(computeStakerRegistryRoot(staker_stakes)),
-    delegation_registry_root: bytesToHex(
-      computeDelegationRegistryRoot(staker_stakes),
-    ),
+    delegation_registry_root: bytesToHex(computeDelegationRegistryRoot(staker_stakes)),
   };
 
   writeVector(filePath, vector);
@@ -124,13 +111,9 @@ function generateSpecialAddresses(): void {
 
   vector.expected = {
     validator_set_hash: bytesToHex(computeValidatorSetHash(epoch, validators)),
-    stake_snapshot_hash: bytesToHex(
-      computeStakeSnapshotHash(epoch, staker_stakes),
-    ),
+    stake_snapshot_hash: bytesToHex(computeStakeSnapshotHash(epoch, staker_stakes)),
     staker_registry_root: bytesToHex(computeStakerRegistryRoot(staker_stakes)),
-    delegation_registry_root: bytesToHex(
-      computeDelegationRegistryRoot(staker_stakes),
-    ),
+    delegation_registry_root: bytesToHex(computeDelegationRegistryRoot(staker_stakes)),
   };
 
   writeVector(filePath, vector);
@@ -147,9 +130,7 @@ function generateMaxValidators(): void {
     const hex = i.toString(16).padStart(40, "0");
     validators.push({
       address: `0x${hex}`,
-      stake: String(
-        32_000_000_000_000_000_000n + BigInt(i) * 1_000_000_000_000_000_000n,
-      ),
+      stake: String(32_000_000_000_000_000_000n + BigInt(i) * 1_000_000_000_000_000_000n),
       performance_score: 9000 + (i % 1000),
       decentralization_score: 7000 + (i % 3000),
       reputation_score: 8000 + (i % 2000),
@@ -162,9 +143,7 @@ function generateMaxValidators(): void {
 
   vector.input.validators = validators;
   vector.expected = {
-    validator_set_hash: bytesToHex(
-      computeValidatorSetHash(vector.input.epoch, validators),
-    ),
+    validator_set_hash: bytesToHex(computeValidatorSetHash(vector.input.epoch, validators)),
   };
 
   writeVector(filePath, vector);

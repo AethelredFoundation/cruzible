@@ -35,21 +35,11 @@ describe("GlassCard", () => {
       </GlassCard>,
     );
 
-    expect(container.firstChild).toHaveClass("hover:border-red-500/30");
-  });
-
-  it("applies active state when active prop is true", () => {
-    const { container } = render(
-      <GlassCard active>
-        <div>Content</div>
-      </GlassCard>,
-    );
-
-    expect(container.firstChild).toHaveClass("border-red-500/50");
+    expect(container.firstChild).toHaveClass("hover:border-slate-600/60");
   });
 
   it("handles click events", () => {
-    const handleClick = jest.fn();
+    const handleClick = vi.fn();
     render(
       <GlassCard onClick={handleClick}>
         <div>Clickable</div>

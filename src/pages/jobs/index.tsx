@@ -1,7 +1,5 @@
 /**
- * Cruzible — Jobs Explorer Page
- *
- * Premium dark-themed page for browsing AI verification jobs.
+ * Aethelred Dashboard - Jobs Explorer Page
  */
 
 import { useState } from "react";
@@ -16,9 +14,6 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { SEOHead } from "@/components/SEOHead";
-import { TopNav, Footer } from "@/components/SharedComponents";
-import { GlassCard } from "@/components/PagePrimitives";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
@@ -54,38 +49,35 @@ async function fetchJobs(
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const statusConfig: Record<
-    string,
-    { classes: string; icon: React.ReactNode }
-  > = {
-    completed: {
-      classes:
-        "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
-      icon: <CheckCircle className="w-3 h-3" />,
-    },
-    pending: {
-      classes: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-      icon: <Clock className="w-3 h-3" />,
-    },
-    computing: {
-      classes: "bg-blue-500/15 text-blue-400 border border-blue-500/30",
-      icon: <Cpu className="w-3 h-3" />,
-    },
-    failed: {
-      classes: "bg-red-500/15 text-red-400 border border-red-500/30",
-      icon: <XCircle className="w-3 h-3" />,
-    },
-  };
+  const statusConfig: Record<string, { color: string; icon: React.ReactNode }> =
+    {
+      completed: {
+        color: "bg-green-100 text-green-800",
+        icon: <CheckCircle className="w-3 h-3" />,
+      },
+      pending: {
+        color: "bg-yellow-100 text-yellow-800",
+        icon: <Clock className="w-3 h-3" />,
+      },
+      computing: {
+        color: "bg-blue-100 text-blue-800",
+        icon: <Cpu className="w-3 h-3" />,
+      },
+      failed: {
+        color: "bg-red-100 text-red-800",
+        icon: <XCircle className="w-3 h-3" />,
+      },
+    };
 
   const normalizedStatus = status.toLowerCase().replace("job_status_", "");
   const config = statusConfig[normalizedStatus] || {
-    classes: "bg-slate-500/15 text-slate-400 border border-slate-500/30",
+    color: "bg-gray-100 text-gray-800",
     icon: null,
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${config.classes}`}
+      className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${config.color}`}
     >
       {config.icon}
       {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
@@ -121,189 +113,174 @@ export default function JobsPage() {
     ) || [];
 
   return (
-    <>
-      <SEOHead
-        title="Jobs Explorer | Cruzible by Aethelred"
-        description="Browse AI verification jobs on the Aethelred network."
-      />
-
-      <div className="min-h-screen bg-[#050810] text-white">
-        <TopNav activePage="jobs" />
-
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-16">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center">
-                <Cpu className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold font-display">
-                  Jobs Explorer
-                </h1>
-                <p className="text-sm text-slate-400">
-                  AI verification job tracker
-                </p>
-              </div>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center space-x-4">
+              <Link href="/" className="text-indigo-600 hover:text-indigo-700">
+                ← Back
+              </Link>
+              <h1 className="text-xl font-bold text-gray-900">Jobs Explorer</h1>
             </div>
             <button
               onClick={() => refetch()}
-              className="btn-secondary flex items-center gap-2 px-4 py-2 text-sm"
+              className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
             </button>
           </div>
+        </div>
+      </header>
 
-          {/* Filters */}
-          <GlassCard className="mb-6">
-            <div className="p-4 flex flex-wrap gap-4">
-              <div className="flex-1 min-w-64">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="Search by job ID or creator..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="input-premium w-full pl-10 pr-4 py-2.5"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Filter className="w-5 h-5 text-slate-500" />
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="input-premium px-3 py-2.5 text-sm appearance-none cursor-pointer"
-                >
-                  <option value="">All Status</option>
-                  <option value="pending">Pending</option>
-                  <option value="computing">Computing</option>
-                  <option value="completed">Completed</option>
-                  <option value="failed">Failed</option>
-                </select>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Filters */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+          <div className="flex flex-wrap gap-4">
+            {/* Search */}
+            <div className="flex-1 min-w-64">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by job ID or creator..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
               </div>
             </div>
-          </GlassCard>
 
-          {/* Jobs Table */}
-          <GlassCard>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="border-b border-slate-800/50">
-                    <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                      Job ID
-                    </th>
-                    <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                      Proof Type
-                    </th>
-                    <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                      Creator
-                    </th>
-                    <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                      Model Hash
-                    </th>
-                    <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                      Created
-                    </th>
+            {/* Status Filter */}
+            <div className="flex items-center gap-2">
+              <Filter className="w-5 h-5 text-gray-400" />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option value="">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="computing">Computing</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Jobs Table */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Job ID
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Proof Type
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Creator
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Model Hash
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Created
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {isLoading ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-6 py-12 text-center text-gray-500"
+                    >
+                      Loading jobs...
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/30">
-                  {isLoading ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="px-6 py-12 text-center text-slate-500"
-                      >
-                        Loading jobs...
+                ) : filteredJobs.length > 0 ? (
+                  filteredJobs.map((job) => (
+                    <tr key={job.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Link
+                          href={`/jobs/${job.id}`}
+                          className="text-sm font-medium text-indigo-600 hover:text-indigo-700 font-mono"
+                        >
+                          {truncateHash(job.id)}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <StatusBadge status={job.status} />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {job.proofType.replace("PROOF_TYPE_", "")}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Link
+                          href={`/address/${job.creator}`}
+                          className="text-sm text-indigo-600 hover:text-indigo-700 font-mono"
+                        >
+                          {truncateHash(job.creator)}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+                        {truncateHash(job.modelHash)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {formatDate(job.createdAt)}
                       </td>
                     </tr>
-                  ) : filteredJobs.length > 0 ? (
-                    filteredJobs.map((job) => (
-                      <tr
-                        key={job.id}
-                        className="hover:bg-white/[0.02] transition-colors"
-                      >
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <Link
-                            href={`/jobs/${job.id}`}
-                            className="text-sm font-medium text-red-400 hover:text-red-300 font-mono transition-colors"
-                          >
-                            {truncateHash(job.id)}
-                          </Link>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <StatusBadge status={job.status} />
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
-                          {job.proofType.replace("PROOF_TYPE_", "")}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <Link
-                            href={`/address/${job.creator}`}
-                            className="text-sm text-red-400 hover:text-red-300 font-mono transition-colors"
-                          >
-                            {truncateHash(job.creator)}
-                          </Link>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400 font-mono">
-                          {truncateHash(job.modelHash)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400">
-                          {formatDate(job.createdAt)}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="px-6 py-12 text-center text-slate-500"
-                      >
-                        No jobs found
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-6 py-12 text-center text-gray-500"
+                    >
+                      No jobs found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-            {/* Pagination */}
-            <div className="px-6 py-3 border-t border-slate-800/30 flex items-center justify-between">
-              <div className="text-sm text-slate-500">
-                Showing {filteredJobs.length} of {data?.total || 0} jobs
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="px-4 py-2 border border-slate-700/50 rounded-lg text-sm text-slate-300 disabled:opacity-40 hover:bg-slate-800/50 transition-colors"
-                >
-                  Previous
-                </button>
-                <span className="px-4 py-2 text-sm text-slate-400">
-                  Page {page}
-                </span>
-                <button
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={!data?.jobs || data.jobs.length < 20}
-                  className="px-4 py-2 border border-slate-700/50 rounded-lg text-sm text-slate-300 disabled:opacity-40 hover:bg-slate-800/50 transition-colors"
-                >
-                  Next
-                </button>
-              </div>
+          {/* Pagination */}
+          <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex items-center justify-between">
+            <div className="text-sm text-gray-500">
+              Showing {filteredJobs.length} of {data?.total || 0} jobs
             </div>
-          </GlassCard>
-        </main>
-
-        <Footer />
-      </div>
-    </>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1 border border-gray-300 rounded text-sm disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <span className="px-3 py-1 text-sm text-gray-600">
+                Page {page}
+              </span>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!data?.jobs || data.jobs.length < 20}
+                className="px-3 py-1 border border-gray-300 rounded text-sm disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

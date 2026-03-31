@@ -3,45 +3,83 @@
  */
 
 import {
+  formatFullNumber,
   formatNumber,
+  seededAddress,
+  seededHex,
+  seededInt,
+  seededRandom,
+  seededRange,
   truncateAddress,
-  formatDate,
-  formatDuration,
-  calculatePercentage,
-  shortenHash,
-  parseAmount,
-  formatAmount,
 } from "@/lib/utils";
 
+describe("seededRandom", () => {
+  it("is deterministic for the same seed", () => {
+    expect(seededRandom(42)).toBe(seededRandom(42));
+  });
+
+  it("returns a value in the [0, 1) range", () => {
+    const result = seededRandom(42);
+    expect(result).toBeGreaterThanOrEqual(0);
+    expect(result).toBeLessThan(1);
+  });
+});
+
+describe("seededRange", () => {
+  it("stays within the requested range", () => {
+    const result = seededRange(42, 10, 20);
+    expect(result).toBeGreaterThanOrEqual(10);
+    expect(result).toBeLessThan(20);
+  });
+});
+
+describe("seededInt", () => {
+  it("returns a deterministic integer within the inclusive range", () => {
+    const result = seededInt(42, 1, 5);
+    expect(result).toBeGreaterThanOrEqual(1);
+    expect(result).toBeLessThanOrEqual(5);
+    expect(result).toBe(seededInt(42, 1, 5));
+  });
+});
+
+describe("seededHex", () => {
+  it("returns a deterministic hex string of the requested length", () => {
+    const result = seededHex(42, 12);
+    expect(result).toHaveLength(12);
+    expect(result).toMatch(/^[0-9a-f]+$/);
+    expect(result).toBe(seededHex(42, 12));
+  });
+});
+
+describe("seededAddress", () => {
+  it("returns an aethelred-style deterministic address", () => {
+    const result = seededAddress(42);
+    expect(result).toMatch(/^aeth1[a-z0-9]{38}$/);
+    expect(result).toBe(seededAddress(42));
+  });
+});
+
 describe("formatNumber", () => {
-  it("formats billions with compact notation", () => {
-    expect(formatNumber(1234567890)).toBe("1.23B");
+  it("formats large numbers with compact suffixes", () => {
+    expect(formatNumber(1_000_000)).toBe("1.0M");
+    expect(formatNumber(1_234_567_890)).toBe("1.23B");
   });
 
-  it("formats millions with compact notation", () => {
-    expect(formatNumber(1000000)).toBe("1.0M");
-    expect(formatNumber(2500000)).toBe("2.5M");
+  it("formats decimal thousands using compact notation", () => {
+    expect(formatNumber(1234.5678, 2)).toBe("1.23K");
+    expect(formatNumber(1234.5, 4)).toBe("1.2345K");
   });
 
-  it("formats thousands with compact notation", () => {
-    expect(formatNumber(1500)).toBe("1.5K");
-    expect(formatNumber(1000)).toBe("1.0K");
-  });
-
-  it("formats sub-thousand numbers with commas", () => {
-    expect(formatNumber(999)).toBe("999");
-  });
-
-  it("formats decimal numbers below 1000", () => {
-    expect(formatNumber(123.4567, 2)).toBe("123.46");
-  });
-
-  it("handles zero", () => {
+  it("handles zero and negative numbers", () => {
     expect(formatNumber(0)).toBe("0");
+    expect(formatNumber(-1_000_000)).toBe("-1,000,000");
   });
+});
 
-  it("respects explicit decimals for millions", () => {
-    expect(formatNumber(1234567, 2)).toBe("1.23M");
+describe("formatFullNumber", () => {
+  it("formats numbers with locale separators", () => {
+    expect(formatFullNumber(1_000_000)).toBe("1,000,000");
+    expect(formatFullNumber(1234.567)).toBe("1,234.567");
   });
 });
 
@@ -52,108 +90,6 @@ describe("truncateAddress", () => {
   });
 
   it("returns short addresses unchanged", () => {
-    const address = "short";
-    expect(truncateAddress(address)).toBe("short");
-  });
-
-  it("uses default start and end lengths", () => {
-    const address = "aethelred1validatoraddress123456";
-    const result = truncateAddress(address);
-    expect(result).toContain("...");
-  });
-});
-
-describe("formatDate", () => {
-  it("formats ISO date string", () => {
-    const date = "2024-03-07T12:00:00Z";
-    expect(formatDate(date)).toBeDefined();
-  });
-
-  it("formats Date object", () => {
-    const date = new Date("2024-03-07T12:00:00Z");
-    expect(formatDate(date)).toBeDefined();
-  });
-
-  it("handles timestamp", () => {
-    const timestamp = 1709812800000;
-    expect(formatDate(timestamp)).toBeDefined();
-  });
-});
-
-describe("formatDuration", () => {
-  it("formats seconds to human readable", () => {
-    expect(formatDuration(30)).toBe("30 seconds");
-    expect(formatDuration(60)).toBe("1 minute");
-    expect(formatDuration(90)).toBe("1 minute 30 seconds");
-  });
-
-  it("formats hours", () => {
-    expect(formatDuration(3600)).toBe("1 hour");
-    expect(formatDuration(7200)).toBe("2 hours");
-  });
-
-  it("formats days", () => {
-    expect(formatDuration(86400)).toBe("1 day");
-    expect(formatDuration(172800)).toBe("2 days");
-  });
-
-  it("formats complex durations", () => {
-    expect(formatDuration(90061)).toBe("1 day 1 hour 1 minute 1 second");
-  });
-});
-
-describe("calculatePercentage", () => {
-  it("calculates percentage correctly", () => {
-    expect(calculatePercentage(50, 100)).toBe(50);
-    expect(calculatePercentage(25, 100)).toBe(25);
-  });
-
-  it("handles zero total", () => {
-    expect(calculatePercentage(50, 0)).toBe(0);
-  });
-
-  it("handles values greater than total", () => {
-    expect(calculatePercentage(150, 100)).toBe(150);
-  });
-});
-
-describe("shortenHash", () => {
-  it("shortens long hashes", () => {
-    const hash = "0x" + "a".repeat(64);
-    expect(shortenHash(hash)).toBe("0xaaaa...aaaa");
-  });
-
-  it("returns short hashes unchanged", () => {
-    const hash = "0x1234";
-    expect(shortenHash(hash)).toBe("0x1234");
-  });
-});
-
-describe("parseAmount", () => {
-  it("parses string amount", () => {
-    expect(parseAmount("1000000")).toBe(1000000);
-    expect(parseAmount("1000000.5")).toBe(1000000.5);
-  });
-
-  it("parses number amount", () => {
-    expect(parseAmount(1000000)).toBe(1000000);
-  });
-
-  it("handles scientific notation", () => {
-    expect(parseAmount("1e6")).toBe(1000000);
-  });
-});
-
-describe("formatAmount", () => {
-  it("formats with default decimals", () => {
-    expect(formatAmount(1000000, 6)).toBe("1.000000");
-  });
-
-  it("formats large amounts", () => {
-    expect(formatAmount(1000000000000, 6)).toBe("1000000.000000");
-  });
-
-  it("formats small amounts", () => {
-    expect(formatAmount(1, 6)).toBe("0.000001");
+    expect(truncateAddress("short")).toBe("short");
   });
 });

@@ -1,15 +1,15 @@
-import type { AddressInfo } from "node:net";
-import type { Express } from "express";
-import { createServer } from "node:http";
+import type { AddressInfo } from 'node:net';
+import type { Express } from 'express';
+import { createServer } from 'node:http';
 
 export async function withHttpServer<T>(
   app: Express,
-  run: (baseUrl: string) => Promise<T>,
+  run: (baseUrl: string) => Promise<T>
 ): Promise<T> {
   const server = createServer(app);
 
   await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
+    server.listen(0, '127.0.0.1', () => resolve());
   });
 
   const address = server.address() as AddressInfo;

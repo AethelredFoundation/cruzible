@@ -1,81 +1,98 @@
 # Contributing to Cruzible
 
-Thank you for your interest in contributing to Cruzible! This guide will help you get started.
+Thank you for your interest in contributing to Cruzible. This guide explains how to get involved.
 
-## Code of Conduct
-
-By participating, you agree to uphold a welcoming, respectful, and harassment-free environment for everyone.
+---
 
 ## Getting Started
 
 1. **Fork** the repository
 2. **Clone** your fork locally
-3. **Install** dependencies: `npm ci`
-4. **Create** a feature branch: `git checkout -b feature/my-feature`
+3. **Install** dependencies — see the [Quick Start](README.md#quick-start) section
+4. **Create a branch** from `main` using the naming convention below
 
-## Development Workflow
+## Branch Naming
 
-### Prerequisites
+| Type | Pattern | Example |
+|------|---------|---------|
+| Feature | `feature/<short-description>` | `feature/validator-dashboard` |
+| Bug fix | `fix/<short-description>` | `fix/staking-rounding` |
+| Docs | `docs/<short-description>` | `docs/api-reference` |
+| Chore | `chore/<short-description>` | `chore/bump-wagmi` |
 
-| Tool             | Version   |
-| ---------------- | --------- |
-| Node.js          | >= 20.0.0 |
-| Rust             | >= 1.75.0 |
-| Docker + Compose | latest    |
-| PostgreSQL       | >= 16     |
-| Redis            | >= 7      |
+## Commit Messages
 
-### Running Locally
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-```bash
-cp .env.example .env
-docker-compose -f backend/infra/docker-compose.yml up -d
-npm run dev
+```
+<type>(<scope>): <description>
+
+[optional body]
 ```
 
-### Before Submitting
+**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`
 
-Run the full validation suite:
+**Scopes:** `frontend`, `api`, `contracts`, `node`, `infra`, `sdk`
 
-```bash
-npm run validate    # type-check + lint + format + tests
+Examples:
+```
+feat(contracts): add flash loan protection to AethelVault
+fix(frontend): correct staking reward display rounding
+docs(api): add WebSocket event reference
 ```
 
-## Pull Request Guidelines
+## Pull Requests
 
-1. **Branch naming**: `feature/`, `fix/`, `docs/`, `refactor/`, `test/`
-2. **Commit messages**: Follow [Conventional Commits](https://www.conventionalcommits.org/)
-   - `feat:` new feature
-   - `fix:` bug fix
-   - `docs:` documentation
-   - `refactor:` code restructuring
-   - `test:` adding or updating tests
-   - `chore:` maintenance tasks
-3. **PR description**: Explain what changed and why
-4. **Tests**: Add or update tests for your changes
-5. **One concern per PR**: Keep PRs focused and reviewable
+1. Run `npm run validate` before pushing
+2. Open a PR against `main`
+3. Fill in the PR template
+4. Ensure CI passes — the pipeline runs lint, tests, and security checks
+5. Request review from a maintainer
 
-## Areas of Contribution
+### PR Checklist
 
-- **Frontend** (Next.js / React / Tailwind) — `src/`
-- **Backend API** (Express / TypeScript) — `backend/api/`
-- **Smart Contracts** (CosmWasm / Rust) — `backend/contracts/`
-- **SDKs** (TypeScript, Python) — `sdk/`
-- **Documentation** — `docs/`
-- **Tests** — improving coverage across all areas
+- [ ] Code compiles and tests pass locally
+- [ ] New functionality includes tests
+- [ ] Documentation updated if needed
+- [ ] No secrets, keys, or credentials committed
+- [ ] Follows existing code style and patterns
 
-## Reporting Issues
+## Code Style
 
-Use GitHub Issues with the appropriate template. Include:
+### TypeScript (Frontend + API)
 
-- Steps to reproduce
-- Expected vs actual behavior
-- Environment details (OS, browser, Node version)
+- Strict mode enabled
+- ESLint + Prettier enforced via pre-commit hooks
+- Prefer `const` and `readonly` where possible
+- Use explicit return types for exported functions
 
-## Security Issues
+### Rust (Smart Contracts + Node)
 
-**Do NOT** file security issues as public GitHub issues. See [SECURITY.md](SECURITY.md) for responsible disclosure instructions.
+- `cargo fmt` and `cargo clippy -- -D warnings` must pass
+- Use `thiserror` for error types
+- Checked arithmetic (`checked_add`, `checked_sub`) for all token math
+- All public functions documented with `///` comments
+
+### Solidity (EVM Contracts)
+
+- Solidity 0.8.20+
+- NatSpec comments on all external functions
+- Follow checks-effects-interactions pattern
+
+## Testing
+
+| Component | Command | Minimum Coverage |
+|-----------|---------|-----------------|
+| Frontend | `npm test` | 80% |
+| API | `cd backend/api && npm test` | 80% |
+| Contracts (CosmWasm) | `cd backend/contracts && cargo test --all` | 90% |
+| Contracts (Solidity) | `cd contracts && forge test` | 90% |
+| E2E | `npm run test:e2e` | Critical paths |
+
+## Security
+
+If you discover a security vulnerability, **do not open a public issue**. Follow the [Security Policy](SECURITY.md) for responsible disclosure.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [Apache 2.0 License](LICENSE).
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).

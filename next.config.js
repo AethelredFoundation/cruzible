@@ -5,7 +5,10 @@ const nextConfig = {
 
   // Image optimization
   images: {
-    domains: ["localhost", "api.aethelred.io"],
+    remotePatterns: [
+      { protocol: "http", hostname: "localhost" },
+      { protocol: "https", hostname: "api.aethelred.io" },
+    ],
     formats: ["image/webp", "image/avif"],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
@@ -18,11 +21,17 @@ const nextConfig = {
   experimental: {
     externalDir: true,
     scrollRestoration: true,
+    optimizePackageImports: ["lucide-react", "recharts"],
   },
 
   // TypeScript
   typescript: {
     ignoreBuildErrors: false,
+  },
+
+  // Linting runs as a dedicated CI step, so builds don't need to invoke it again.
+  eslint: {
+    ignoreDuringBuilds: true,
   },
 
   // Headers for security and caching
@@ -64,6 +73,11 @@ const nextConfig = {
   // Webpack optimization
   webpack: (config, { isServer, dev }) => {
     if (!isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        "@react-native-async-storage/async-storage": false,
+      };
+
       config.resolve.fallback = {
         ...config.resolve.fallback,
         crypto: false,

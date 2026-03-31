@@ -24,10 +24,7 @@ function sortStrings(values: readonly string[]): string[] {
   return [...values].sort((a, b) => a.localeCompare(b));
 }
 
-export function computeValidatorSetHash(
-  epoch: bigint | number | string,
-  validators: readonly ScoredValidator[],
-): Uint8Array {
+export function computeValidatorSetHash(epoch: bigint | number | string, validators: readonly ScoredValidator[]): Uint8Array {
   const innerHashes = validators.map((validator) => {
     const inner = concatBytes(
       padAddressish32(validator.address),
@@ -37,7 +34,7 @@ export function computeValidatorSetHash(
       encodeUint256(validator.reputation_score),
       encodeUint256(validator.composite_score),
       teePublicKeyBytes32(validator.tee_public_key),
-      encodeUint256(validator.commission_bps),
+      encodeUint256(validator.commission_bps)
     );
     return sha256Bytes(inner);
   });
@@ -45,20 +42,14 @@ export function computeValidatorSetHash(
   return sha256Bytes(
     concatBytes(
       utf8Bytes("CruzibleValidatorSet-v1"),
-      Uint8Array.from(
-        Buffer.from(BigInt(epoch).toString(16).padStart(16, "0"), "hex"),
-      ),
-      Uint8Array.from(
-        Buffer.from(validators.length.toString(16).padStart(8, "0"), "hex"),
-      ),
-      ...innerHashes,
-    ),
+      Uint8Array.from(Buffer.from(BigInt(epoch).toString(16).padStart(16, "0"), "hex")),
+      Uint8Array.from(Buffer.from(validators.length.toString(16).padStart(8, "0"), "hex")),
+      ...innerHashes
+    )
   );
 }
 
-export function computeSelectionPolicyHash(
-  config: SelectionConfig,
-): Uint8Array {
+export function computeSelectionPolicyHash(config: SelectionConfig): Uint8Array {
   return sha256Bytes(
     concatBytes(
       utf8Bytes("CruzibleSelectionPolicy-v1"),
@@ -69,55 +60,39 @@ export function computeSelectionPolicyHash(
       encodeUint256(config.max_commission_bps),
       encodeUint256(config.max_per_region),
       encodeUint256(config.max_per_operator),
-      encodeUint256(config.min_stake),
-    ),
+      encodeUint256(config.min_stake)
+    )
   );
 }
 
-export function computeEligibleUniverseHash(
-  addresses: readonly string[],
-): Uint8Array {
-  const parts = sortStrings(addresses).flatMap((address) => [
-    utf8Bytes(address),
-    new Uint8Array([0]),
-  ]);
+export function computeEligibleUniverseHash(addresses: readonly string[]): Uint8Array {
+  const parts = sortStrings(addresses).flatMap((address) => [utf8Bytes(address), new Uint8Array([0])]);
   return sha256Bytes(concatBytes(...parts));
 }
 
-export function computeStakeSnapshotHash(
-  epoch: bigint | number | string,
-  stakers: readonly StakerStake[],
-): Uint8Array {
-  const sorted = [...stakers].sort((a, b) =>
-    a.address.localeCompare(b.address),
-  );
+export function computeStakeSnapshotHash(epoch: bigint | number | string, stakers: readonly StakerStake[]): Uint8Array {
+  const sorted = [...stakers].sort((a, b) => a.address.localeCompare(b.address));
   const innerHashes = sorted.map((staker) =>
     sha256Bytes(
       concatBytes(
         padAddressish32(staker.address),
         encodeUint256(staker.shares),
-        padAddressish32(staker.delegated_to),
-      ),
-    ),
+        padAddressish32(staker.delegated_to)
+      )
+    )
   );
 
   return sha256Bytes(
     concatBytes(
       utf8Bytes("CruzibleStakeSnapshot-v1"),
-      Uint8Array.from(
-        Buffer.from(BigInt(epoch).toString(16).padStart(16, "0"), "hex"),
-      ),
-      Uint8Array.from(
-        Buffer.from(sorted.length.toString(16).padStart(8, "0"), "hex"),
-      ),
-      ...innerHashes,
-    ),
+      Uint8Array.from(Buffer.from(BigInt(epoch).toString(16).padStart(16, "0"), "hex")),
+      Uint8Array.from(Buffer.from(sorted.length.toString(16).padStart(8, "0"), "hex")),
+      ...innerHashes
+    )
   );
 }
 
-export function validateUniqueStakerAddresses(
-  stakers: readonly StakerStake[],
-): void {
+export function validateUniqueStakerAddresses(stakers: readonly StakerStake[]): void {
   const seen = new Set<string>();
   for (const staker of stakers) {
     if (seen.has(staker.address)) {
@@ -127,9 +102,7 @@ export function validateUniqueStakerAddresses(
   }
 }
 
-export function computeStakerRegistryRoot(
-  stakers: readonly StakerStake[],
-): Uint8Array {
+export function computeStakerRegistryRoot(stakers: readonly StakerStake[]): Uint8Array {
   validateUniqueStakerAddresses(stakers);
   const accumulator = new Uint8Array(32);
 
@@ -137,19 +110,14 @@ export function computeStakerRegistryRoot(
     if (BigInt(staker.shares) === 0n) {
       continue;
     }
-    const leaf = concatBytes(
-      parseAddressBytes20(staker.address),
-      encodeUint256(staker.shares),
-    );
+    const leaf = concatBytes(parseAddressBytes20(staker.address), encodeUint256(staker.shares));
     xorBytes32(accumulator, keccak256(leaf));
   }
 
   return accumulator;
 }
 
-export function computeDelegationRegistryRoot(
-  stakers: readonly StakerStake[],
-): Uint8Array {
+export function computeDelegationRegistryRoot(stakers: readonly StakerStake[]): Uint8Array {
   validateUniqueStakerAddresses(stakers);
   const accumulator = new Uint8Array(32);
 
@@ -159,7 +127,7 @@ export function computeDelegationRegistryRoot(
     }
     const leaf = concatBytes(
       parseAddressBytes20(staker.address),
-      parseAddressBytes20(staker.delegated_to),
+      parseAddressBytes20(staker.delegated_to)
     );
     xorBytes32(accumulator, keccak256(leaf));
   }
@@ -171,18 +139,16 @@ export function computeCanonicalValidatorPayload(
   epoch: bigint | number | string,
   validators: readonly ScoredValidator[],
   config: SelectionConfig,
-  eligibleAddresses: readonly string[],
+  eligibleAddresses: readonly string[]
 ): Uint8Array {
   return concatBytes(
     computeValidatorSetHash(epoch, validators),
     computeSelectionPolicyHash(config),
-    computeEligibleUniverseHash(eligibleAddresses),
+    computeEligibleUniverseHash(eligibleAddresses)
   );
 }
 
-export function computeCanonicalRewardPayload(
-  input: RewardPayloadInput,
-): Uint8Array {
+export function computeCanonicalRewardPayload(input: RewardPayloadInput): Uint8Array {
   return concatBytes(
     encodeU64Word(input.epoch),
     encodeUint256(input.total_rewards),
@@ -191,16 +157,14 @@ export function computeCanonicalRewardPayload(
     padBytes32(input.stake_snapshot_hash),
     padBytes32(input.validator_set_hash),
     padBytes32(input.staker_registry_root),
-    padBytes32(input.delegation_registry_root),
+    padBytes32(input.delegation_registry_root)
   );
 }
 
-export function computeCanonicalDelegationPayload(
-  input: DelegationPayloadInput,
-): Uint8Array {
+export function computeCanonicalDelegationPayload(input: DelegationPayloadInput): Uint8Array {
   return concatBytes(
     encodeU64Word(input.epoch),
     padBytes32(input.delegation_root),
-    padBytes32(input.staker_registry_root),
+    padBytes32(input.staker_registry_root)
   );
 }

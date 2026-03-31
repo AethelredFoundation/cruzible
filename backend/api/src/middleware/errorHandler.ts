@@ -1,13 +1,13 @@
-import type { NextFunction, Request, Response } from "express";
-import { ApiError } from "../utils/ApiError";
-import { logger } from "../utils/logger";
-import { config } from "../config";
+import type { NextFunction, Request, Response } from 'express';
+import { ApiError } from '../utils/ApiError';
+import { logger } from '../utils/logger';
+import { config } from '../config';
 
 export function errorHandler(
   error: unknown,
   req: Request,
   res: Response,
-  next: NextFunction,
+  next: NextFunction
 ): void {
   void next;
 
@@ -27,11 +27,11 @@ export function errorHandler(
   }
 
   // Server-side only — never sent to client
-  logger.error("Unhandled API error", { requestId: req.requestId, error });
+  logger.error('Unhandled API error', { requestId: req.requestId, error });
 
   res.status(500).json({
-    error: "InternalServerError",
-    message: "Unexpected server error",
+    error: 'InternalServerError',
+    message: 'Unexpected server error',
     requestId: req.requestId,
   });
 }

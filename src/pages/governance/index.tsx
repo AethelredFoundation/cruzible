@@ -1316,7 +1316,7 @@ function ProposalDetailModal({
         {/* Charts row */}
         <div className="grid md:grid-cols-2 gap-4">
           {/* Pie chart */}
-          <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/30">
+          <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/50">
             <h5 className="text-xs font-semibold text-white mb-3">
               Vote Distribution
             </h5>
@@ -1343,7 +1343,7 @@ function ProposalDetailModal({
           </div>
 
           {/* Voting timeline */}
-          <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/30">
+          <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/50">
             <h5 className="text-xs font-semibold text-white mb-3">
               Voting Timeline
             </h5>
@@ -1385,10 +1385,10 @@ function ProposalDetailModal({
         {/* Top Voters */}
         <div>
           <h4 className="text-sm font-semibold text-white mb-3">Top Voters</h4>
-          <div className="rounded-xl bg-slate-800/50 border border-slate-700/30 overflow-hidden">
+          <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 overflow-hidden">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-700/30">
+                <tr className="border-b border-slate-700/50">
                   <th className="text-left text-xs font-medium text-slate-500 uppercase px-4 py-2">
                     Address
                   </th>
@@ -1436,7 +1436,7 @@ function ProposalDetailModal({
             {comments.map((c, i) => (
               <div
                 key={i}
-                className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/30"
+                className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/50"
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-mono text-slate-400">
@@ -1586,7 +1586,7 @@ function ProposalListSection({
 
       <GlassCard className="overflow-hidden">
         {/* Filter Bar */}
-        <div className="p-4 border-b border-slate-700/30">
+        <div className="p-4 border-b border-slate-700/50">
           <div className="flex flex-wrap items-center gap-4">
             <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
             <div className="flex-1 min-w-[200px]">
@@ -1617,7 +1617,7 @@ function ProposalListSection({
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-700/30">
+              <tr className="border-b border-slate-700/50">
                 <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-4 py-3">
                   AIP
                 </th>
@@ -1835,7 +1835,7 @@ function CreateProposalModal({
           </div>
 
           {title && description && (
-            <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/30">
+            <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/50">
               <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">
                 Preview
               </p>
@@ -2072,7 +2072,7 @@ function TreasurySection() {
 
       {/* Recent Disbursements */}
       <GlassCard className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/30">
+        <div className="px-6 py-4 border-b border-slate-700/50">
           <h3 className="text-sm font-semibold text-white">
             Recent Disbursements
           </h3>
@@ -2080,7 +2080,7 @@ function TreasurySection() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-700/30">
+              <tr className="border-b border-slate-700/50">
                 <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-6 py-3">
                   Recipient
                 </th>
@@ -2150,7 +2150,7 @@ function DelegateLeaderboard({
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-700/30">
+              <tr className="border-b border-slate-700/50">
                 <th className="text-left text-xs font-medium text-slate-500 uppercase px-4 py-3">
                   Rank
                 </th>
@@ -2570,7 +2570,7 @@ function DelegationModal({
         size="md"
       >
         <div className="space-y-5">
-          <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/30">
+          <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/50">
             <p className="text-xs text-slate-500 mb-1">Your Voting Power</p>
             <p className="text-xl font-bold text-white">
               {formatFullNumber(wallet.stBalance)} stAETHEL
@@ -2602,7 +2602,7 @@ function DelegationModal({
                   className={`w-full flex items-center justify-between p-3 rounded-xl border transition-colors ${
                     delegateAddr === d.address
                       ? "bg-red-500/10 border-red-500/30"
-                      : "bg-slate-800/30 border-slate-700/30 hover:bg-slate-700/30"
+                      : "bg-slate-800/30 border-slate-700/50 hover:bg-slate-700/30"
                   }`}
                 >
                   <div className="text-left">
@@ -2819,7 +2819,7 @@ export default function GovernancePage() {
         path="/governance"
       />
 
-      <div className="min-h-screen bg-[#050810] text-white">
+      <div className="min-h-screen bg-slate-950 text-white">
         <TopNav activePage="governance" />
         <HeroSection />
 
@@ -2927,7 +2927,7 @@ export default function GovernancePage() {
       {/* Vote Processing Overlay */}
       {voteProcessing && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-900 rounded-2xl border border-slate-700/30 p-8 text-center shadow-2xl">
+          <div className="bg-slate-900 rounded-2xl border border-slate-700/50 p-8 text-center shadow-2xl">
             <div className="w-12 h-12 border-3 border-red-500/30 border-t-red-500 rounded-full animate-spin mx-auto mb-4" />
             <p className="text-white font-medium">Processing your vote...</p>
             <p className="text-sm text-slate-400 mt-1">

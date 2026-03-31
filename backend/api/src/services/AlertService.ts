@@ -11,29 +11,29 @@
  *  - Maintain an in-memory ring buffer of the last N alerts for API consumption
  */
 
-import { injectable } from "tsyringe";
-import { logger } from "../utils/logger";
+import { injectable } from 'tsyringe';
+import { logger } from '../utils/logger';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export enum AlertSeverity {
-  INFO = "INFO",
-  WARNING = "WARNING",
-  CRITICAL = "CRITICAL",
+  INFO = 'INFO',
+  WARNING = 'WARNING',
+  CRITICAL = 'CRITICAL',
 }
 
 export enum AlertType {
-  RECONCILIATION_MISMATCH = "RECONCILIATION_MISMATCH",
-  EXCHANGE_RATE_DRIFT = "EXCHANGE_RATE_DRIFT",
-  TVL_ANOMALY = "TVL_ANOMALY",
-  EPOCH_STALE = "EPOCH_STALE",
-  VALIDATOR_COUNT_DROP = "VALIDATOR_COUNT_DROP",
+  RECONCILIATION_MISMATCH = 'RECONCILIATION_MISMATCH',
+  EXCHANGE_RATE_DRIFT = 'EXCHANGE_RATE_DRIFT',
+  TVL_ANOMALY = 'TVL_ANOMALY',
+  EPOCH_STALE = 'EPOCH_STALE',
+  VALIDATOR_COUNT_DROP = 'VALIDATOR_COUNT_DROP',
   // Stablecoin bridge alerts
-  STABLECOIN_CIRCUIT_BREAKER = "STABLECOIN_CIRCUIT_BREAKER",
-  STABLECOIN_RESERVE_DRIFT = "STABLECOIN_RESERVE_DRIFT",
-  STABLECOIN_CONFIG_MISMATCH = "STABLECOIN_CONFIG_MISMATCH",
+  STABLECOIN_CIRCUIT_BREAKER = 'STABLECOIN_CIRCUIT_BREAKER',
+  STABLECOIN_RESERVE_DRIFT = 'STABLECOIN_RESERVE_DRIFT',
+  STABLECOIN_CONFIG_MISMATCH = 'STABLECOIN_CONFIG_MISMATCH',
 }
 
 export type AlertMetadata = Record<string, unknown>;
@@ -85,8 +85,7 @@ export class AlertService {
 
   constructor() {
     this.webhookUrl = process.env.ALERT_WEBHOOK_URL || undefined;
-    this.rateLimitMs =
-      Number(process.env.ALERT_RATE_LIMIT_MS) || DEFAULT_RATE_LIMIT_MS;
+    this.rateLimitMs = Number(process.env.ALERT_RATE_LIMIT_MS) || DEFAULT_RATE_LIMIT_MS;
   }
 
   // -----------------------------------------------------------------------
@@ -214,8 +213,7 @@ export class AlertService {
    * Return the count of active CRITICAL alerts (used by health check).
    */
   getActiveCriticalCount(): number {
-    return this.history.filter((a) => a.severity === AlertSeverity.CRITICAL)
-      .length;
+    return this.history.filter((a) => a.severity === AlertSeverity.CRITICAL).length;
   }
 
   // -----------------------------------------------------------------------
@@ -246,8 +244,8 @@ export class AlertService {
 
     try {
       const response = await fetch(this.webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: alert.id,
           severity: alert.severity,
@@ -265,7 +263,7 @@ export class AlertService {
         );
       }
     } catch (error) {
-      logger.warn("Alert webhook delivery error", { error });
+      logger.warn('Alert webhook delivery error', { error });
     }
   }
 

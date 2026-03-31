@@ -6,15 +6,15 @@
  * and tested without triggering `listen()` or `process.exit()`.
  */
 
-import { createAppServer } from "./server";
-import { logger } from "./utils/logger";
+import { createAppServer } from './server';
+import { logger } from './utils/logger';
 
 async function main(): Promise<void> {
   try {
     const api = createAppServer();
     await api.start();
   } catch (error) {
-    logger.error("Failed to start server:", error);
+    logger.error('Failed to start server:', error);
     process.exit(1);
   }
 }
