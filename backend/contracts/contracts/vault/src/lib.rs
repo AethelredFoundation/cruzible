@@ -1,28 +1,27 @@
 /**
  * AethelVault - Security-Hardened Liquid Staking Contract
- * 
+ *
  * Implements comprehensive security controls against:
  * - Double claim attacks
  * - Share inflation/donation attacks  
  * - Rounding exploitation
  * - Overflow/underflow
  * - Access control bypass
- * 
+ *
  * Critical Invariants Enforced:
  * 1. Share conservation: sum(shares) == totalShares
  * 2. Solvency: totalStaked >= pendingUnstakes
  * 3. No double claim: each request claimed at most once
  * 4. Monotonic queue: processed requests stay processed
  */
-
 use cosmwasm_std::{
-    entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
-    Addr, Uint128, CosmosMsg, BankMsg, coin, ensure, Event,
+    coin, ensure, entry_point, to_json_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut,
+    Env, Event, MessageInfo, Response, StdResult, Uint128,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Item, Map};
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:aethel-vault";
@@ -84,8 +83,8 @@ pub enum ContractError {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
     pub admin: Addr,
-    pub operator: Addr,       // Routine operations (not admin)
-    pub pauser: Addr,         // Emergency pause
+    pub operator: Addr, // Routine operations (not admin)
+    pub pauser: Addr,   // Emergency pause
     pub unbonding_period: u64,
     pub denom: String,
     pub staking_token: String,
@@ -165,25 +164,40 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Stake { validator: String },
-    Unstake { amount: Uint128 },
+    Stake {
+        validator: String,
+    },
+    Unstake {
+        amount: Uint128,
+    },
     Claim {},
     ClaimRewards {},
-    Compound { validator: String },
-    Restake { unbonding_id: u64 },
+    Compound {
+        validator: String,
+    },
+    Restake {
+        unbonding_id: u64,
+    },
     UpdateConfig {
         unbonding_period: Option<u64>,
         fee_bps: Option<u32>,
         min_stake: Option<Uint128>,
         max_stake: Option<Uint128>,
     },
-    UpdateValidators { validators: Vec<String> },
+    UpdateValidators {
+        validators: Vec<String>,
+    },
     AddRewards {},
-    RecordSlash { slash_id: u64, amount: Uint128 },
+    RecordSlash {
+        slash_id: u64,
+        amount: Uint128,
+    },
     Pause {},
     Unpause {},
     /// Sweep accidental donations (admin only)
-    SweepDonations { recipient: String },
+    SweepDonations {
+        recipient: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -191,9 +205,15 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     Config {},
     State {},
-    UserStake { address: String },
-    Unbonding { address: String },
-    PendingUnstakes { address: String },
+    UserStake {
+        address: String,
+    },
+    Unbonding {
+        address: String,
+    },
+    PendingUnstakes {
+        address: String,
+    },
     ExchangeRate {},
     /// SECURITY: Check solvency invariant
     CheckSolvency {},
@@ -209,17 +229,19 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    
+
     // Validate fee is within bounds
     if msg.fee_bps > MAX_FEE_BPS {
         return Err(ContractError::FeeTooHigh {});
     }
-    
-    let validators: Result<Vec<Addr>, _> = msg.validators.iter()
+
+    let validators: Result<Vec<Addr>, _> = msg
+        .validators
+        .iter()
         .map(|v| deps.api.addr_validate(v))
         .collect();
     let validators = validators?;
-    
+
     // SECURITY: Require seed deposit to prevent first depositor attack
     let seed_amount = info
         .funds
@@ -227,11 +249,11 @@ pub fn instantiate(
         .find(|c| c.denom == msg.denom)
         .map(|c| c.amount)
         .unwrap_or_default();
-    
+
     if seed_amount < Uint128::from(MIN_DEPOSIT) {
         return Err(ContractError::AmountTooSmall {});
     }
-    
+
     // M-05 FIX: Validate min_stake <= max_stake
     let effective_min_stake = msg.min_stake.max(Uint128::from(MIN_DEPOSIT));
     if effective_min_stake > msg.max_stake {
@@ -239,7 +261,7 @@ pub fn instantiate(
             format!(
                 "min_stake ({}) must be <= max_stake ({})",
                 effective_min_stake, msg.max_stake
-            )
+            ),
         )));
     }
 
@@ -256,7 +278,7 @@ pub fn instantiate(
         max_stake: msg.max_stake,
         paused: false,
     };
-    
+
     // Seed shares 1:1 with seed deposit
     let state = State {
         total_staked: seed_amount,
@@ -268,10 +290,10 @@ pub fn instantiate(
         seed_deposited: true,
         reward_index: Uint128::zero(),
     };
-    
+
     CONFIG.save(deps.storage, &config)?;
     STATE.save(deps.storage, &state)?;
-    
+
     Ok(Response::new()
         .add_attribute("action", "instantiate")
         .add_attribute("seed_amount", seed_amount))
@@ -291,11 +313,11 @@ pub fn execute(
     if config.paused {
         // Allow unpause even when paused
         match msg {
-            ExecuteMsg::Unpause {} => {},
+            ExecuteMsg::Unpause {} => {}
             _ => return Err(ContractError::Paused {}),
         }
     }
-    
+
     match msg {
         ExecuteMsg::Stake { validator } => execute_stake(deps, env, info, validator),
         ExecuteMsg::Unstake { amount } => execute_unstake(deps, env, info, amount),
@@ -303,15 +325,24 @@ pub fn execute(
         ExecuteMsg::ClaimRewards {} => execute_claim_rewards(deps, env, info),
         ExecuteMsg::Compound { validator } => execute_compound(deps, env, info, validator),
         ExecuteMsg::Restake { unbonding_id } => execute_restake(deps, env, info, unbonding_id),
-        ExecuteMsg::UpdateConfig { unbonding_period, fee_bps, min_stake, max_stake } => {
-            execute_update_config(deps, info, unbonding_period, fee_bps, min_stake, max_stake)
+        ExecuteMsg::UpdateConfig {
+            unbonding_period,
+            fee_bps,
+            min_stake,
+            max_stake,
+        } => execute_update_config(deps, info, unbonding_period, fee_bps, min_stake, max_stake),
+        ExecuteMsg::UpdateValidators { validators } => {
+            execute_update_validators(deps, info, validators)
         }
-        ExecuteMsg::UpdateValidators { validators } => execute_update_validators(deps, info, validators),
         ExecuteMsg::AddRewards {} => execute_add_rewards(deps, info),
-        ExecuteMsg::RecordSlash { slash_id, amount } => execute_record_slash(deps, info, slash_id, amount),
+        ExecuteMsg::RecordSlash { slash_id, amount } => {
+            execute_record_slash(deps, info, slash_id, amount)
+        }
         ExecuteMsg::Pause {} => execute_pause(deps, info),
         ExecuteMsg::Unpause {} => execute_unpause(deps, info),
-        ExecuteMsg::SweepDonations { recipient } => execute_sweep_donations(deps, env, info, recipient),
+        ExecuteMsg::SweepDonations { recipient } => {
+            execute_sweep_donations(deps, env, info, recipient)
+        }
     }
 }
 
@@ -325,16 +356,16 @@ fn calculate_shares_to_mint(
         // First depositor after seed gets 1:1
         return Ok(amount);
     }
-    
+
     // Round down - user gets slightly fewer shares (favors protocol)
     // shares = amount * total_shares / total_staked
     let shares = amount.multiply_ratio(total_shares, total_staked);
-    
+
     // Ensure at least 1 share for non-zero deposits
     if shares.is_zero() && !amount.is_zero() {
         return Ok(Uint128::one());
     }
-    
+
     Ok(shares)
 }
 
@@ -347,13 +378,14 @@ fn calculate_shares_to_burn(
     if total_staked.is_zero() {
         return Err(ContractError::Underflow {});
     }
-    
+
     // Round up - user burns slightly more shares
     // shares = ceil(amount * total_shares / total_staked)
-    let numerator = amount.checked_mul(total_shares)
+    let numerator = amount
+        .checked_mul(total_shares)
         .map_err(|_| ContractError::Overflow {})?;
     let denominator = total_staked;
-    
+
     // ceil(a/b) = (a + b - 1) / b
     let shares = numerator
         .checked_add(denominator)
@@ -361,7 +393,7 @@ fn calculate_shares_to_burn(
         .map_err(|_| ContractError::Overflow {})?
         .checked_div(denominator)
         .map_err(|_| ContractError::Underflow {})?;
-    
+
     Ok(shares)
 }
 
@@ -373,14 +405,14 @@ fn execute_stake(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
-    
+
     // Validate validator is whitelisted
     let validator_addr = deps.api.addr_validate(&validator)?;
     ensure!(
         config.validators.contains(&validator_addr),
         ContractError::InvalidValidator {}
     );
-    
+
     // Get stake amount
     let amount = info
         .funds
@@ -388,7 +420,7 @@ fn execute_stake(
         .find(|c| c.denom == config.denom)
         .map(|c| c.amount)
         .unwrap_or_default();
-    
+
     // SECURITY: Validate amount
     if amount.is_zero() {
         return Err(ContractError::InvalidAmount {});
@@ -399,35 +431,46 @@ fn execute_stake(
     if amount > config.max_stake {
         return Err(ContractError::InvalidAmount {});
     }
-    
+
     // SECURITY: Overflow protection
     if state.total_staked.u128() > MAX_TOTAL_STAKED - amount.u128() {
         return Err(ContractError::Overflow {});
     }
-    
+
     // Calculate shares (rounds down)
     let new_shares = calculate_shares_to_mint(amount, state.total_staked, state.total_shares)?;
     ensure!(!new_shares.is_zero(), ContractError::AmountTooSmall {});
-    
+
     // Update state
-    state.total_staked = state.total_staked.checked_add(amount)
+    state.total_staked = state
+        .total_staked
+        .checked_add(amount)
         .map_err(|_| ContractError::Overflow {})?;
-    state.total_shares = state.total_shares.checked_add(new_shares)
+    state.total_shares = state
+        .total_shares
+        .checked_add(new_shares)
         .map_err(|_| ContractError::Overflow {})?;
-    
+
     // Update user stake
-    let mut user_stake = USER_STAKES.may_load(deps.storage, &info.sender)?.unwrap_or(UserStake {
-        shares: Uint128::zero(),
-        staked_amount: Uint128::zero(),
-        reward_debt: Uint128::zero(),
-    });
-    user_stake.shares = user_stake.shares.checked_add(new_shares)
+    let mut user_stake = USER_STAKES
+        .may_load(deps.storage, &info.sender)?
+        .unwrap_or(UserStake {
+            shares: Uint128::zero(),
+            staked_amount: Uint128::zero(),
+            reward_debt: Uint128::zero(),
+        });
+    user_stake.shares = user_stake
+        .shares
+        .checked_add(new_shares)
         .map_err(|_| ContractError::Overflow {})?;
-    user_stake.staked_amount = user_stake.staked_amount.checked_add(amount)
+    user_stake.staked_amount = user_stake
+        .staked_amount
+        .checked_add(amount)
         .map_err(|_| ContractError::Overflow {})?;
     // HIGH-1: Set reward_debt to current index × new total shares so new deposits
     // don't get retroactive rewards from before they staked
-    user_stake.reward_debt = state.reward_index
+    user_stake.reward_debt = state
+        .reward_index
         .checked_mul(user_stake.shares)
         .map_err(|_| ContractError::Overflow {})?
         .checked_div(Uint128::from(REWARD_INDEX_SCALE))
@@ -463,54 +506,70 @@ fn execute_unstake(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
-    
+
     // Validate amount
     if amount.is_zero() {
         return Err(ContractError::InvalidAmount {});
     }
-    
+
     // Get user stake
     let mut user_stake = USER_STAKES.load(deps.storage, &info.sender)?;
-    ensure!(user_stake.staked_amount >= amount, ContractError::InsufficientBalance {});
-    
+    ensure!(
+        user_stake.staked_amount >= amount,
+        ContractError::InsufficientBalance {}
+    );
+
     // Calculate shares to burn (rounds up - favors protocol)
     let shares_to_burn = calculate_shares_to_burn(amount, state.total_staked, state.total_shares)?;
-    ensure!(user_stake.shares >= shares_to_burn, ContractError::InsufficientBalance {});
-    
+    ensure!(
+        user_stake.shares >= shares_to_burn,
+        ContractError::InsufficientBalance {}
+    );
+
     // Check request limit (DoS protection)
     let count = UNSTAKE_COUNT.load(deps.storage, &info.sender).unwrap_or(0);
     if count >= MAX_UNBONDING_REQUESTS {
         return Err(ContractError::TooManyUnbondingRequests {});
     }
-    
+
     // Update user stake
-    user_stake.shares = user_stake.shares.checked_sub(shares_to_burn)
+    user_stake.shares = user_stake
+        .shares
+        .checked_sub(shares_to_burn)
         .map_err(|_| ContractError::Underflow {})?;
-    user_stake.staked_amount = user_stake.staked_amount.checked_sub(amount)
+    user_stake.staked_amount = user_stake
+        .staked_amount
+        .checked_sub(amount)
         .map_err(|_| ContractError::Underflow {})?;
-    
+
     if user_stake.shares.is_zero() {
         USER_STAKES.remove(deps.storage, &info.sender);
     } else {
         USER_STAKES.save(deps.storage, &info.sender, &user_stake)?;
     }
-    
+
     // Update global state
-    state.total_staked = state.total_staked.checked_sub(amount)
+    state.total_staked = state
+        .total_staked
+        .checked_sub(amount)
         .map_err(|_| ContractError::Underflow {})?;
-    state.total_shares = state.total_shares.checked_sub(shares_to_burn)
+    state.total_shares = state
+        .total_shares
+        .checked_sub(shares_to_burn)
         .map_err(|_| ContractError::Underflow {})?;
-    state.total_unbonding = state.total_unbonding.checked_add(amount)
+    state.total_unbonding = state
+        .total_unbonding
+        .checked_add(amount)
         .map_err(|_| ContractError::Overflow {})?;
-    
+
     // Create unbonding request
     let unbonding = UnbondingRequest {
         amount,
         unbond_time: env.block.time.seconds(),
         complete_time: env.block.time.seconds() + config.unbonding_period,
-        claimed: false,  // SECURITY: Track claim status
+        claimed: false, // SECURITY: Track claim status
     };
-    
+
     UNSTAKE_REQUESTS.save(deps.storage, (&info.sender, count), &unbonding)?;
     UNSTAKE_COUNT.save(deps.storage, &info.sender, &(count + 1))?;
     STATE.save(deps.storage, &state)?;
@@ -534,18 +593,14 @@ fn execute_unstake(
 }
 
 /// SECURITY: State updates before external calls (checks-effects-interactions)
-fn execute_claim(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-) -> Result<Response, ContractError> {
+fn execute_claim(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
     let count = UNSTAKE_COUNT.load(deps.storage, &info.sender).unwrap_or(0);
-    
+
     let mut total_claim = Uint128::zero();
     let mut claimed_count = 0u64;
-    
+
     // SECURITY: Update state before external call
     for i in 0..count {
         if let Ok(mut req) = UNSTAKE_REQUESTS.load(deps.storage, (&info.sender, i)) {
@@ -553,27 +608,30 @@ fn execute_claim(
                 // Mark as claimed BEFORE sending
                 req.claimed = true;
                 UNSTAKE_REQUESTS.save(deps.storage, (&info.sender, i), &req)?;
-                
-                total_claim = total_claim.checked_add(req.amount)
+
+                total_claim = total_claim
+                    .checked_add(req.amount)
                     .map_err(|_| ContractError::Overflow {})?;
                 claimed_count += 1;
             }
         }
     }
-    
+
     ensure!(!total_claim.is_zero(), ContractError::NothingToClaim {});
-    
+
     // Update total unbonding
-    state.total_unbonding = state.total_unbonding.checked_sub(total_claim)
+    state.total_unbonding = state
+        .total_unbonding
+        .checked_sub(total_claim)
         .map_err(|_| ContractError::Underflow {})?;
     STATE.save(deps.storage, &state)?;
-    
+
     // SECURITY: External call AFTER all state updates
     let send_msg = CosmosMsg::Bank(BankMsg::Send {
         to_address: info.sender.to_string(),
         amount: vec![coin(total_claim.u128(), &config.denom)],
     });
-    
+
     Ok(Response::new()
         .add_message(send_msg)
         .add_attribute("action", "claim")
@@ -596,7 +654,8 @@ fn execute_claim_rewards(
 
     // HIGH-1 FIX: Update reward_debt to current entitlement BEFORE external call.
     // This ensures calling claim_rewards again immediately yields zero.
-    user_stake.reward_debt = state.reward_index
+    user_stake.reward_debt = state
+        .reward_index
         .checked_mul(user_stake.shares)
         .map_err(|_| ContractError::Overflow {})?
         .checked_div(Uint128::from(REWARD_INDEX_SCALE))
@@ -604,7 +663,9 @@ fn execute_claim_rewards(
     USER_STAKES.save(deps.storage, &info.sender, &user_stake)?;
 
     // Update state BEFORE external call
-    state.reward_pool = state.reward_pool.checked_sub(rewards)
+    state.reward_pool = state
+        .reward_pool
+        .checked_sub(rewards)
         .map_err(|_| ContractError::Underflow {})?;
     STATE.save(deps.storage, &state)?;
 
@@ -651,20 +712,31 @@ fn execute_compound(
     ensure!(!new_shares.is_zero(), ContractError::AmountTooSmall {});
 
     // Move rewards from reward_pool to total_staked (internal re-stake)
-    state.reward_pool = state.reward_pool.checked_sub(rewards)
+    state.reward_pool = state
+        .reward_pool
+        .checked_sub(rewards)
         .map_err(|_| ContractError::Underflow {})?;
-    state.total_staked = state.total_staked.checked_add(rewards)
+    state.total_staked = state
+        .total_staked
+        .checked_add(rewards)
         .map_err(|_| ContractError::Overflow {})?;
-    state.total_shares = state.total_shares.checked_add(new_shares)
+    state.total_shares = state
+        .total_shares
+        .checked_add(new_shares)
         .map_err(|_| ContractError::Overflow {})?;
 
     // Update user stake
-    user_stake.shares = user_stake.shares.checked_add(new_shares)
+    user_stake.shares = user_stake
+        .shares
+        .checked_add(new_shares)
         .map_err(|_| ContractError::Overflow {})?;
-    user_stake.staked_amount = user_stake.staked_amount.checked_add(rewards)
+    user_stake.staked_amount = user_stake
+        .staked_amount
+        .checked_add(rewards)
         .map_err(|_| ContractError::Overflow {})?;
     // Reset reward_debt to current entitlement
-    user_stake.reward_debt = state.reward_index
+    user_stake.reward_debt = state
+        .reward_index
         .checked_mul(user_stake.shares)
         .map_err(|_| ContractError::Overflow {})?
         .checked_div(Uint128::from(REWARD_INDEX_SCALE))
@@ -687,37 +759,51 @@ fn execute_restake(
     unbonding_id: u64,
 ) -> Result<Response, ContractError> {
     let mut state = STATE.load(deps.storage)?;
-    
+
     // Load and validate unbonding request
     let unbonding = UNSTAKE_REQUESTS.load(deps.storage, (&info.sender, unbonding_id))?;
     ensure!(!unbonding.claimed, ContractError::AlreadyClaimed {});
-    
+
     // Remove the unbonding request
     UNSTAKE_REQUESTS.remove(deps.storage, (&info.sender, unbonding_id));
-    
+
     // Calculate shares to mint (rounds down)
-    let shares = calculate_shares_to_mint(unbonding.amount, state.total_staked, state.total_shares)?;
-    
+    let shares =
+        calculate_shares_to_mint(unbonding.amount, state.total_staked, state.total_shares)?;
+
     // Update state
-    state.total_staked = state.total_staked.checked_add(unbonding.amount)
+    state.total_staked = state
+        .total_staked
+        .checked_add(unbonding.amount)
         .map_err(|_| ContractError::Overflow {})?;
-    state.total_shares = state.total_shares.checked_add(shares)
+    state.total_shares = state
+        .total_shares
+        .checked_add(shares)
         .map_err(|_| ContractError::Overflow {})?;
-    state.total_unbonding = state.total_unbonding.checked_sub(unbonding.amount)
+    state.total_unbonding = state
+        .total_unbonding
+        .checked_sub(unbonding.amount)
         .map_err(|_| ContractError::Underflow {})?;
-    
+
     // Update user stake
-    let mut user_stake = USER_STAKES.may_load(deps.storage, &info.sender)?.unwrap_or(UserStake {
-        shares: Uint128::zero(),
-        staked_amount: Uint128::zero(),
-        reward_debt: Uint128::zero(),
-    });
-    user_stake.shares = user_stake.shares.checked_add(shares)
+    let mut user_stake = USER_STAKES
+        .may_load(deps.storage, &info.sender)?
+        .unwrap_or(UserStake {
+            shares: Uint128::zero(),
+            staked_amount: Uint128::zero(),
+            reward_debt: Uint128::zero(),
+        });
+    user_stake.shares = user_stake
+        .shares
+        .checked_add(shares)
         .map_err(|_| ContractError::Overflow {})?;
-    user_stake.staked_amount = user_stake.staked_amount.checked_add(unbonding.amount)
+    user_stake.staked_amount = user_stake
+        .staked_amount
+        .checked_add(unbonding.amount)
         .map_err(|_| ContractError::Overflow {})?;
     // Update reward_debt to prevent restaked shares from earning retroactive rewards
-    user_stake.reward_debt = state.reward_index
+    user_stake.reward_debt = state
+        .reward_index
         .checked_mul(user_stake.shares)
         .map_err(|_| ContractError::Overflow {})?
         .checked_div(Uint128::from(REWARD_INDEX_SCALE))
@@ -742,17 +828,20 @@ fn execute_update_config(
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure!(info.sender == config.admin, ContractError::Unauthorized {});
-    
+
     if let Some(period) = unbonding_period {
         // MED-4: Enforce minimum unbonding period to prevent admin from setting 0
         if period < MIN_UNBONDING_PERIOD {
             return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                format!("Unbonding period must be at least {} seconds", MIN_UNBONDING_PERIOD)
+                format!(
+                    "Unbonding period must be at least {} seconds",
+                    MIN_UNBONDING_PERIOD
+                ),
             )));
         }
         config.unbonding_period = period;
     }
-    
+
     // SECURITY: Enforce fee cap
     if let Some(fee) = fee_bps {
         if fee > MAX_FEE_BPS {
@@ -760,7 +849,7 @@ fn execute_update_config(
         }
         config.fee_bps = fee;
     }
-    
+
     if let Some(min) = min_stake {
         config.min_stake = min.max(Uint128::from(MIN_DEPOSIT));
     }
@@ -774,12 +863,12 @@ fn execute_update_config(
             format!(
                 "min_stake ({}) must be <= max_stake ({})",
                 config.min_stake, config.max_stake
-            )
+            ),
         )));
     }
 
     CONFIG.save(deps.storage, &config)?;
-    
+
     Ok(Response::new()
         .add_attribute("action", "update_config")
         .add_attribute("fee_bps", config.fee_bps.to_string()))
@@ -796,20 +885,18 @@ fn execute_update_validators(
         info.sender == config.admin || info.sender == config.operator,
         ContractError::Unauthorized {}
     );
-    
-    let validators: Result<Vec<Addr>, _> = validators.iter()
+
+    let validators: Result<Vec<Addr>, _> = validators
+        .iter()
         .map(|v| deps.api.addr_validate(v))
         .collect();
     config.validators = validators?;
-    
+
     CONFIG.save(deps.storage, &config)?;
     Ok(Response::new().add_attribute("action", "update_validators"))
 }
 
-fn execute_add_rewards(
-    deps: DepsMut,
-    info: MessageInfo,
-) -> Result<Response, ContractError> {
+fn execute_add_rewards(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
 
@@ -829,11 +916,15 @@ fn execute_add_rewards(
             .map_err(|_| ContractError::Overflow {})?
             .checked_div(state.total_shares)
             .map_err(|_| ContractError::Underflow {})?;
-        state.reward_index = state.reward_index.checked_add(index_increment)
+        state.reward_index = state
+            .reward_index
+            .checked_add(index_increment)
             .map_err(|_| ContractError::Overflow {})?;
     }
 
-    state.reward_pool = state.reward_pool.checked_add(rewards)
+    state.reward_pool = state
+        .reward_pool
+        .checked_add(rewards)
         .map_err(|_| ContractError::Overflow {})?;
     STATE.save(deps.storage, &state)?;
 
@@ -851,24 +942,26 @@ fn execute_record_slash(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
-    
+
     // Only operator or admin can record slashes
     ensure!(
         info.sender == config.admin || info.sender == config.operator,
         ContractError::Unauthorized {}
     );
-    
+
     // Replay protection
     if PROCESSED_SLASHES.has(deps.storage, slash_id) {
         return Err(ContractError::AlreadyClaimed {});
     }
     PROCESSED_SLASHES.save(deps.storage, slash_id, &true)?;
-    
+
     // Apply slash to exchange rate
     // New rate = (total_staked - slash) / total_shares
-    let new_staked = state.total_staked.checked_sub(amount)
+    let new_staked = state
+        .total_staked
+        .checked_sub(amount)
         .map_err(|_| ContractError::Underflow {})?;
-    
+
     state.total_staked = new_staked;
     // Update exchange rate for precision
     if !state.total_shares.is_zero() {
@@ -886,7 +979,14 @@ fn execute_record_slash(
         .add_attribute("slash_id", slash_id.to_string())
         .add_attribute("amount", amount.to_string())
         .add_attribute("remaining_staked", new_staked.to_string())
-        .add_attribute("severity", if amount > state.total_shares { "critical" } else { "normal" });
+        .add_attribute(
+            "severity",
+            if amount > state.total_shares {
+                "critical"
+            } else {
+                "normal"
+            },
+        );
 
     Ok(Response::new()
         .add_event(slash_event)
@@ -923,32 +1023,32 @@ fn execute_sweep_donations(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let state = STATE.load(deps.storage)?;
-    
+
     ensure!(info.sender == config.admin, ContractError::Unauthorized {});
-    
+
     let recipient_addr = deps.api.addr_validate(&recipient)?;
-    
+
     // Query actual contract balance
-    let balance: cosmwasm_std::BalanceResponse = deps.querier.query(&cosmwasm_std::QueryRequest::Bank(
-        cosmwasm_std::BankQuery::Balance {
+    let balance: cosmwasm_std::BalanceResponse = deps.querier.query(
+        &cosmwasm_std::QueryRequest::Bank(cosmwasm_std::BankQuery::Balance {
             address: env.contract.address.to_string(),
             denom: config.denom.clone(),
-        },
-    ))?;
-    
+        }),
+    )?;
+
     // Calculate excess (donations)
     let accounted = state.total_staked + state.reward_pool + state.total_unbonding;
     let excess = balance.amount.amount.saturating_sub(accounted);
-    
+
     if excess.is_zero() {
         return Err(ContractError::NothingToClaim {});
     }
-    
+
     let send_msg = CosmosMsg::Bank(BankMsg::Send {
         to_address: recipient_addr.to_string(),
         amount: vec![coin(excess.u128(), &config.denom)],
     });
-    
+
     Ok(Response::new()
         .add_message(send_msg)
         .add_attribute("action", "sweep_donations")
@@ -965,7 +1065,8 @@ fn calculate_rewards(state: &State, user_stake: &UserStake) -> Result<Uint128, C
     }
 
     // Calculate user's total entitled rewards based on current index
-    let entitled = state.reward_index
+    let entitled = state
+        .reward_index
         .checked_mul(user_stake.shares)
         .map_err(|_| ContractError::Overflow {})?
         .checked_div(Uint128::from(REWARD_INDEX_SCALE))
@@ -991,7 +1092,8 @@ fn assert_vault_invariants(state: &State) -> Result<(), ContractError> {
     // INV-1: Total value conservation — the sum of staked + unbonding + rewards
     // must not exceed safe arithmetic bounds. Individual unbonding can exceed
     // staked (when most users are exiting), so we check the aggregate.
-    let total_accounted = state.total_staked
+    let total_accounted = state
+        .total_staked
         .checked_add(state.total_unbonding)
         .and_then(|v| v.checked_add(state.reward_pool))
         .map_err(|_| ContractError::InvariantViolation {})?;
@@ -1015,7 +1117,9 @@ fn assert_vault_invariants(state: &State) -> Result<(), ContractError> {
     // INV-4: Exchange rate sanity — shares should never exceed staked by more
     // than 100× (implies rate < 0.01, extreme dilution indicates a bug).
     // Uses 100× to allow for moderate slash scenarios.
-    if !state.total_staked.is_zero() && state.total_shares > state.total_staked * Uint128::from(100u128) {
+    if !state.total_staked.is_zero()
+        && state.total_shares > state.total_staked * Uint128::from(100u128)
+    {
         return Err(ContractError::InvariantViolation {});
     }
 
@@ -1040,11 +1144,13 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::State {} => to_json_binary(&STATE.load(deps.storage)?),
         QueryMsg::UserStake { address } => {
             let addr = deps.api.addr_validate(&address)?;
-            let stake = USER_STAKES.may_load(deps.storage, &addr)?.unwrap_or(UserStake {
-                shares: Uint128::zero(),
-                staked_amount: Uint128::zero(),
-                reward_debt: Uint128::zero(),
-            });
+            let stake = USER_STAKES
+                .may_load(deps.storage, &addr)?
+                .unwrap_or(UserStake {
+                    shares: Uint128::zero(),
+                    staked_amount: Uint128::zero(),
+                    reward_debt: Uint128::zero(),
+                });
             to_json_binary(&stake)
         }
         QueryMsg::Unbonding { address } => {
@@ -1085,7 +1191,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             } else {
                 // rate_scaled_1e18 = total_staked * 1e18 / total_shares
                 let scale = Uint128::from(1_000_000_000_000_000_000u128);
-                let rate_scaled = state.total_staked
+                let rate_scaled = state
+                    .total_staked
                     .checked_mul(scale)
                     .unwrap_or(Uint128::MAX)
                     .checked_div(state.total_shares)
@@ -1115,7 +1222,9 @@ pub struct MigrateMsg {}
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
     let version = cw2::get_contract_version(deps.storage)?;
     if version.contract != CONTRACT_NAME {
-        return Err(cosmwasm_std::StdError::generic_err("Cannot migrate from a different contract"));
+        return Err(cosmwasm_std::StdError::generic_err(
+            "Cannot migrate from a different contract",
+        ));
     }
     // Update stored version to current
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;

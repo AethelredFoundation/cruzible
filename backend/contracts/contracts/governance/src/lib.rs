@@ -1,18 +1,17 @@
 /**
  * Governance Contract
- * 
+ *
  * On-chain governance for the Aethelred network.
  * Supports proposal creation, voting, and execution.
  */
-
 use cosmwasm_std::{
-    entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
-    Addr, Timestamp, Uint128, CosmosMsg, Empty,
+    entry_point, to_json_binary, Addr, Binary, CosmosMsg, Deps, DepsMut, Empty, Env, MessageInfo,
+    Response, StdResult, Timestamp, Uint128,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Item, Map};
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:aethelred-governance";
@@ -50,7 +49,9 @@ pub enum ContractError {
     SnapshotWindowEnded {},
     #[error("Voting has not started yet (snapshot window still open)")]
     VotingNotOpenYet {},
-    #[error("Total bonded value is stale: admin must call UpdateTotalBonded before proposal activation")]
+    #[error(
+        "Total bonded value is stale: admin must call UpdateTotalBonded before proposal activation"
+    )]
     StaleTotalBonded {},
     #[error("Total bonded inconsistency: participating voter weights exceed admin-reported total bonded")]
     TotalBondedInconsistency {},
@@ -68,7 +69,9 @@ pub enum ContractError {
     FeederAlreadyRegistered {},
     #[error("Feeder not found")]
     FeederNotFound {},
-    #[error("Oracle consensus not reached: insufficient fresh submissions or values too divergent")]
+    #[error(
+        "Oracle consensus not reached: insufficient fresh submissions or values too divergent"
+    )]
     ConsensusNotReached {},
     #[error("Cannot remove feeder: would reduce feeder count below min_feeder_quorum")]
     CannotRemoveBelowQuorum {},
@@ -356,14 +359,21 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    Proposal { proposal_id: u64 },
+    Proposal {
+        proposal_id: u64,
+    },
     Proposals {
         status: Option<String>,
         start_after: Option<u64>,
         limit: Option<u32>,
     },
-    Vote { proposal_id: u64, voter: String },
-    Tally { proposal_id: u64 },
+    Vote {
+        proposal_id: u64,
+        voter: String,
+    },
+    Tally {
+        proposal_id: u64,
+    },
     /// Returns the oracle status: registered feeders, their latest
     /// submissions, current consensus value, and canonical total_bonded.
     OracleStatus {},
@@ -377,7 +387,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    
+
     let config = Config {
         admin: info.sender.clone(),
         voting_period: msg.voting_period,
@@ -430,12 +440,19 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::SubmitProposal { title, description, messages } => {
-            execute_submit_proposal(deps, env, info, title, description, messages)
-        }
+        ExecuteMsg::SubmitProposal {
+            title,
+            description,
+            messages,
+        } => execute_submit_proposal(deps, env, info, title, description, messages),
         ExecuteMsg::Deposit { proposal_id } => execute_deposit(deps, env, info, proposal_id),
-        ExecuteMsg::Vote { proposal_id, option } => execute_vote(deps, env, info, proposal_id, option),
-        ExecuteMsg::ExecuteProposal { proposal_id } => execute_execute_proposal(deps, env, proposal_id),
+        ExecuteMsg::Vote {
+            proposal_id,
+            option,
+        } => execute_vote(deps, env, info, proposal_id, option),
+        ExecuteMsg::ExecuteProposal { proposal_id } => {
+            execute_execute_proposal(deps, env, proposal_id)
+        }
         ExecuteMsg::UpdateTotalBonded { total_bonded } => {
             execute_update_total_bonded(deps, env, info, total_bonded)
         }
@@ -457,7 +474,7 @@ fn execute_submit_proposal(
     messages: Vec<CosmosMsg<Empty>>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    
+
     // Check deposit
     let deposit = info
         .funds
@@ -465,9 +482,9 @@ fn execute_submit_proposal(
         .find(|c| c.denom == config.deposit_denom)
         .map(|c| c.amount)
         .unwrap_or_default();
-    
+
     let id = PROPOSAL_COUNT.load(deps.storage)? + 1;
-    
+
     let proposal = Proposal {
         id,
         title: title.clone(),
@@ -490,10 +507,10 @@ fn execute_submit_proposal(
         execution_time: None,
         messages,
     };
-    
+
     PROPOSALS.save(deps.storage, id, &proposal)?;
     PROPOSAL_COUNT.save(deps.storage, &id)?;
-    
+
     Ok(Response::new()
         .add_attribute("action", "submit_proposal")
         .add_attribute("proposal_id", id.to_string())
@@ -508,24 +525,24 @@ fn execute_deposit(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut proposal = PROPOSALS.load(deps.storage, proposal_id)?;
-    
+
     if proposal.status != ProposalStatus::Pending {
         return Err(ContractError::InvalidStatus {});
     }
-    
+
     if env.block.time > proposal.deposit_end_time {
         return Err(ContractError::VotingEnded {});
     }
-    
+
     let deposit = info
         .funds
         .iter()
         .find(|c| c.denom == config.deposit_denom)
         .map(|c| c.amount)
         .unwrap_or_default();
-    
+
     proposal.deposit += deposit;
-    
+
     // Activate if min deposit reached
     if proposal.deposit >= config.min_deposit && proposal.status == ProposalStatus::Pending {
         // ── P2 fix: enforce freshness of the admin-supplied total_bonded ──
@@ -534,7 +551,13 @@ fn execute_deposit(
         // the manipulation window from "any time before activation" to a narrow
         // band the community can audit.
         let updated_at = TOTAL_BONDED_UPDATED_AT.load(deps.storage)?;
-        if env.block.time.seconds().saturating_sub(updated_at.seconds()) > config.max_staleness {
+        if env
+            .block
+            .time
+            .seconds()
+            .saturating_sub(updated_at.seconds())
+            > config.max_staleness
+        {
             return Err(ContractError::StaleTotalBonded {});
         }
 
@@ -555,7 +578,11 @@ fn execute_deposit(
         // max_delta_bps, and each step requires min_activation_gap to elapse.
         let last_activation = LAST_ACTIVATION_TIME.load(deps.storage)?;
         if last_activation.seconds() > 0
-            && env.block.time.seconds().saturating_sub(last_activation.seconds())
+            && env
+                .block
+                .time
+                .seconds()
+                .saturating_sub(last_activation.seconds())
                 < config.min_activation_gap
         {
             return Err(ContractError::ActivationCooldownNotElapsed {});
@@ -571,8 +598,7 @@ fn execute_deposit(
         } else {
             anchor - current_bonded
         };
-        let max_allowed = anchor * Uint128::from(config.max_delta_bps)
-            / Uint128::from(10000u128);
+        let max_allowed = anchor * Uint128::from(config.max_delta_bps) / Uint128::from(10000u128);
         if delta > max_allowed {
             return Err(ContractError::TotalBondedDeltaExceeded {});
         }
@@ -599,9 +625,9 @@ fn execute_deposit(
         // Record activation time for cooldown enforcement.
         LAST_ACTIVATION_TIME.save(deps.storage, &env.block.time)?;
     }
-    
+
     PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-    
+
     Ok(Response::new()
         .add_attribute("action", "deposit")
         .add_attribute("proposal_id", proposal_id.to_string())
@@ -696,7 +722,11 @@ fn check_oracle_consensus(
         // participate in consensus until quarantine_period elapses.
         if config.feeder_quarantine_period > 0 {
             if let Ok(registered_at) = FEEDER_REGISTERED_AT.load(storage, feeder) {
-                if env.block.time.seconds().saturating_sub(registered_at.seconds())
+                if env
+                    .block
+                    .time
+                    .seconds()
+                    .saturating_sub(registered_at.seconds())
                     < config.feeder_quarantine_period
                 {
                     continue;
@@ -707,7 +737,11 @@ fn check_oracle_consensus(
         if let Ok(sub) = FEEDER_SUBMISSIONS.load(storage, feeder) {
             // Only consider submissions from the current epoch AND within staleness
             if sub.epoch == current_epoch
-                && env.block.time.seconds().saturating_sub(sub.submitted_at.seconds())
+                && env
+                    .block
+                    .time
+                    .seconds()
+                    .saturating_sub(sub.submitted_at.seconds())
                     <= config.max_staleness
             {
                 fresh_values.push(sub.value);
@@ -755,10 +789,13 @@ fn check_oracle_consensus(
             // Check all values in this window are within tolerance of its median
             let mut all_within = true;
             for v in window {
-                let delta = if *v > median { *v - median } else { median - *v };
-                let max_allowed = median
-                    * Uint128::from(config.feeder_tolerance_bps)
-                    / Uint128::from(10000u128);
+                let delta = if *v > median {
+                    *v - median
+                } else {
+                    median - *v
+                };
+                let max_allowed =
+                    median * Uint128::from(config.feeder_tolerance_bps) / Uint128::from(10000u128);
                 if delta > max_allowed {
                     all_within = false;
                     break;
@@ -829,7 +866,11 @@ fn execute_add_feeder(
 
     // Enforce mutation cooldown — prevent rapid feeder set reshaping
     let last_mutation = LAST_FEEDER_MUTATION_TIME.load(deps.storage)?;
-    if env.block.time.seconds().saturating_sub(last_mutation.seconds())
+    if env
+        .block
+        .time
+        .seconds()
+        .saturating_sub(last_mutation.seconds())
         < config.feeder_mutation_cooldown
     {
         return Err(ContractError::FeederMutationCooldownNotElapsed {});
@@ -870,7 +911,11 @@ fn execute_remove_feeder(
 
     // Enforce mutation cooldown — prevent rapid feeder set reshaping
     let last_mutation = LAST_FEEDER_MUTATION_TIME.load(deps.storage)?;
-    if env.block.time.seconds().saturating_sub(last_mutation.seconds())
+    if env
+        .block
+        .time
+        .seconds()
+        .saturating_sub(last_mutation.seconds())
         < config.feeder_mutation_cooldown
     {
         return Err(ContractError::FeederMutationCooldownNotElapsed {});
@@ -1008,7 +1053,7 @@ fn execute_vote(
         weight,
     };
     VOTES.save(deps.storage, (proposal_id, &info.sender), &vote)?;
-    
+
     // Update tallies
     match option {
         VoteOption::Yes => proposal.votes_yes += weight,
@@ -1016,9 +1061,9 @@ fn execute_vote(
         VoteOption::Abstain => proposal.votes_abstain += weight,
         VoteOption::NoWithVeto => proposal.votes_no_with_veto += weight,
     }
-    
+
     PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-    
+
     Ok(Response::new()
         .add_attribute("action", "vote")
         .add_attribute("proposal_id", proposal_id.to_string())
@@ -1058,7 +1103,10 @@ fn execute_execute_proposal(
     }
 
     // Calculate results
-    let total_votes = proposal.votes_yes + proposal.votes_no + proposal.votes_abstain + proposal.votes_no_with_veto;
+    let total_votes = proposal.votes_yes
+        + proposal.votes_no
+        + proposal.votes_abstain
+        + proposal.votes_no_with_veto;
 
     // Enforce quorum against the total_bonded snapshot taken at proposal activation,
     // NOT the live TOTAL_BONDED value. This prevents the admin from steering quorum
@@ -1084,7 +1132,8 @@ fn execute_execute_proposal(
         return Err(ContractError::TotalBondedInconsistency {});
     }
 
-    let quorum_threshold = snapshot_bonded * Uint128::from(config.quorum) / Uint128::from(10000u128);
+    let quorum_threshold =
+        snapshot_bonded * Uint128::from(config.quorum) / Uint128::from(10000u128);
     if total_votes < quorum_threshold {
         proposal.status = ProposalStatus::Rejected;
         PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
@@ -1092,7 +1141,8 @@ fn execute_execute_proposal(
     }
 
     // Check veto
-    let veto_threshold = total_votes * Uint128::from(config.veto_threshold) / Uint128::from(10000u128);
+    let veto_threshold =
+        total_votes * Uint128::from(config.veto_threshold) / Uint128::from(10000u128);
     if proposal.votes_no_with_veto > veto_threshold {
         proposal.status = ProposalStatus::Rejected;
         PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
@@ -1100,7 +1150,8 @@ fn execute_execute_proposal(
     }
 
     // Check pass threshold
-    let pass_threshold = (proposal.votes_yes + proposal.votes_no) * Uint128::from(config.threshold) / Uint128::from(10000u128);
+    let pass_threshold = (proposal.votes_yes + proposal.votes_no) * Uint128::from(config.threshold)
+        / Uint128::from(10000u128);
     if proposal.votes_yes < pass_threshold {
         proposal.status = ProposalStatus::Rejected;
         PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
@@ -1132,9 +1183,11 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let proposal = PROPOSALS.load(deps.storage, proposal_id)?;
             to_json_binary(&proposal)
         }
-        QueryMsg::Proposals { status, start_after, limit } => {
-            to_json_binary(&query_proposals(deps, status, start_after, limit)?)
-        }
+        QueryMsg::Proposals {
+            status,
+            start_after,
+            limit,
+        } => to_json_binary(&query_proposals(deps, status, start_after, limit)?),
         QueryMsg::Vote { proposal_id, voter } => {
             let addr = deps.api.addr_validate(&voter)?;
             let vote = VOTES.load(deps.storage, (proposal_id, &addr))?;
@@ -1149,9 +1202,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 "no_with_veto": proposal.votes_no_with_veto,
             }))
         }
-        QueryMsg::OracleStatus {} => {
-            to_json_binary(&query_oracle_status(deps, _env)?)
-        }
+        QueryMsg::OracleStatus {} => to_json_binary(&query_oracle_status(deps, _env)?),
     }
 }
 
@@ -1198,7 +1249,10 @@ fn query_oracle_status(deps: Deps, env: Env) -> StdResult<OracleStatusResponse> 
     for feeder in &feeders {
         let submission = FEEDER_SUBMISSIONS.may_load(deps.storage, feeder)?;
         let is_fresh = submission.as_ref().map_or(false, |s| {
-            env.block.time.seconds().saturating_sub(s.submitted_at.seconds())
+            env.block
+                .time
+                .seconds()
+                .saturating_sub(s.submitted_at.seconds())
                 <= config.max_staleness
         });
         feeder_infos.push(FeederInfo {
@@ -1229,7 +1283,9 @@ pub struct MigrateMsg {}
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
     let version = cw2::get_contract_version(deps.storage)?;
     if version.contract != CONTRACT_NAME {
-        return Err(cosmwasm_std::StdError::generic_err("Cannot migrate from a different contract"));
+        return Err(cosmwasm_std::StdError::generic_err(
+            "Cannot migrate from a different contract",
+        ));
     }
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     Ok(Response::new()
@@ -1271,16 +1327,22 @@ mod tests {
             deposit_denom: DENOM.to_string(),
             snapshot_period: 120,
             max_staleness: 300,
-            max_delta_bps: 1000, // ±10%
-            min_activation_gap: 60, // 60s for tests (production should be higher)
-            min_feeder_quorum: 1, // single-feeder default for backward compat
-            feeder_tolerance_bps: 500, // 5% tolerance between feeders
+            max_delta_bps: 1000,         // ±10%
+            min_activation_gap: 60,      // 60s for tests (production should be higher)
+            min_feeder_quorum: 1,        // single-feeder default for backward compat
+            feeder_tolerance_bps: 500,   // 5% tolerance between feeders
             feeder_mutation_cooldown: 0, // no cooldown for single-feeder tests
             feeder_quarantine_period: 0, // no quarantine for single-feeder tests
         }
     }
 
-    fn setup_contract(deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>) {
+    fn setup_contract(
+        deps: &mut cosmwasm_std::OwnedDeps<
+            cosmwasm_std::MemoryStorage,
+            cosmwasm_std::testing::MockApi,
+            cosmwasm_std::testing::MockQuerier,
+        >,
+    ) {
         let msg = default_init_msg();
         let info = mock_info(ADMIN, &[]);
         instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -1288,7 +1350,11 @@ mod tests {
 
     /// Configure mock staking state: one validator with delegations.
     fn set_delegations(
-        deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>,
+        deps: &mut cosmwasm_std::OwnedDeps<
+            cosmwasm_std::MemoryStorage,
+            cosmwasm_std::testing::MockApi,
+            cosmwasm_std::testing::MockQuerier,
+        >,
         delegations: &[(&str, u128)],
     ) {
         let validator = Validator {
@@ -1315,7 +1381,8 @@ mod tests {
             })
             .collect();
 
-        deps.querier.update_staking(DENOM, &[validator], &full_delegations);
+        deps.querier
+            .update_staking(DENOM, &[validator], &full_delegations);
     }
 
     fn env_at(seconds: u64) -> Env {
@@ -1327,7 +1394,11 @@ mod tests {
 
     /// Submit a proposal and return its ID.
     fn submit_proposal(
-        deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>,
+        deps: &mut cosmwasm_std::OwnedDeps<
+            cosmwasm_std::MemoryStorage,
+            cosmwasm_std::testing::MockApi,
+            cosmwasm_std::testing::MockQuerier,
+        >,
         env: Env,
     ) -> u64 {
         let info = mock_info(VOTER_A, &coins(500_000, DENOM));
@@ -1347,7 +1418,11 @@ mod tests {
 
     /// Admin refreshes total_bonded.
     fn refresh_total_bonded(
-        deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>,
+        deps: &mut cosmwasm_std::OwnedDeps<
+            cosmwasm_std::MemoryStorage,
+            cosmwasm_std::testing::MockApi,
+            cosmwasm_std::testing::MockQuerier,
+        >,
         env: Env,
         amount: u128,
     ) {
@@ -1365,22 +1440,24 @@ mod tests {
 
     /// Admin seeds the initial anchor (required before any activation).
     fn seed_anchor(
-        deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>,
+        deps: &mut cosmwasm_std::OwnedDeps<
+            cosmwasm_std::MemoryStorage,
+            cosmwasm_std::testing::MockApi,
+            cosmwasm_std::testing::MockQuerier,
+        >,
         env: Env,
     ) {
         let info = mock_info(ADMIN, &[]);
-        execute(
-            deps.as_mut(),
-            env,
-            info,
-            ExecuteMsg::SeedAnchor {},
-        )
-        .unwrap();
+        execute(deps.as_mut(), env, info, ExecuteMsg::SeedAnchor {}).unwrap();
     }
 
     /// Deposit enough to activate.
     fn activate_proposal(
-        deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>,
+        deps: &mut cosmwasm_std::OwnedDeps<
+            cosmwasm_std::MemoryStorage,
+            cosmwasm_std::testing::MockApi,
+            cosmwasm_std::testing::MockQuerier,
+        >,
         env: Env,
         proposal_id: u64,
     ) {
@@ -1416,7 +1493,12 @@ mod tests {
 
         // Verify proposal is Active
         let prop: Proposal = from_json(
-            query(deps.as_ref(), env_at(t0 + 20), QueryMsg::Proposal { proposal_id: 1 }).unwrap(),
+            query(
+                deps.as_ref(),
+                env_at(t0 + 20),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(prop.status, ProposalStatus::Active);
@@ -1482,7 +1564,12 @@ mod tests {
 
         // Verify passed
         let prop: Proposal = from_json(
-            query(deps.as_ref(), env_at(t0 + 800), QueryMsg::Proposal { proposal_id: 1 }).unwrap(),
+            query(
+                deps.as_ref(),
+                env_at(t0 + 800),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(prop.status, ProposalStatus::Passed);
@@ -1701,7 +1788,12 @@ mod tests {
 
         // Verify proposal was rejected
         let prop: Proposal = from_json(
-            query(deps.as_ref(), env_at(t0 + 800), QueryMsg::Proposal { proposal_id: 1 }).unwrap(),
+            query(
+                deps.as_ref(),
+                env_at(t0 + 800),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(prop.status, ProposalStatus::Rejected);
@@ -1897,7 +1989,10 @@ mod tests {
             ExecuteMsg::SnapshotStake { proposal_id: 1 },
         )
         .unwrap();
-        assert!(res.attributes.iter().any(|a| a.value == "already_snapshotted"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.value == "already_snapshotted"));
     }
 
     // ── Test: execute on non-Active proposal rejected ────────────────────
@@ -2073,7 +2168,12 @@ mod tests {
         activate_proposal(&mut deps, env_at(t0 + 20), 1);
 
         let prop: Proposal = from_json(
-            query(deps.as_ref(), env_at(t0 + 20), QueryMsg::Proposal { proposal_id: 1 }).unwrap(),
+            query(
+                deps.as_ref(),
+                env_at(t0 + 20),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(prop.status, ProposalStatus::Active);
@@ -2256,7 +2356,12 @@ mod tests {
 
         // Verify new anchor moved to 10.5M
         let prop: Proposal = from_json(
-            query(deps.as_ref(), env_at(t0 + 100), QueryMsg::Proposal { proposal_id: 2 }).unwrap(),
+            query(
+                deps.as_ref(),
+                env_at(t0 + 100),
+                QueryMsg::Proposal { proposal_id: 2 },
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(prop.status, ProposalStatus::Active);
@@ -2320,7 +2425,12 @@ mod tests {
         assert_eq!(res.attributes[0].value, "deposit");
 
         let prop: Proposal = from_json(
-            query(deps.as_ref(), env_at(t0 + 85), QueryMsg::Proposal { proposal_id: 2 }).unwrap(),
+            query(
+                deps.as_ref(),
+                env_at(t0 + 85),
+                QueryMsg::Proposal { proposal_id: 2 },
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(prop.status, ProposalStatus::Active);
@@ -2337,13 +2447,7 @@ mod tests {
         refresh_total_bonded(&mut deps, env_at(t0), 10_000_000);
 
         let info = mock_info(VOTER_A, &[]);
-        let err = execute(
-            deps.as_mut(),
-            env_at(t0),
-            info,
-            ExecuteMsg::SeedAnchor {},
-        )
-        .unwrap_err();
+        let err = execute(deps.as_mut(), env_at(t0), info, ExecuteMsg::SeedAnchor {}).unwrap_err();
         assert_eq!(err, ContractError::Unauthorized {});
     }
 
@@ -2378,7 +2482,11 @@ mod tests {
     /// Set up a contract with 3-of-5 feeder quorum for multi-feeder tests,
     /// matching the Aethelred protocol's oracle configuration.
     fn setup_multi_feeder_contract(
-        deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>,
+        deps: &mut cosmwasm_std::OwnedDeps<
+            cosmwasm_std::MemoryStorage,
+            cosmwasm_std::testing::MockApi,
+            cosmwasm_std::testing::MockQuerier,
+        >,
     ) {
         let msg = InstantiateMsg {
             min_feeder_quorum: 3,
@@ -2395,7 +2503,9 @@ mod tests {
                 deps.as_mut(),
                 mock_env(),
                 info,
-                ExecuteMsg::AddFeeder { address: feeder.to_string() },
+                ExecuteMsg::AddFeeder {
+                    address: feeder.to_string(),
+                },
             )
             .unwrap();
         }
@@ -2443,7 +2553,10 @@ mod tests {
         .unwrap();
 
         // Consensus should NOT be reached
-        assert!(res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "false"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "false"));
 
         // Canonical TOTAL_BONDED should still be zero
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
@@ -2470,7 +2583,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "false"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "false"));
 
         // Feeder 2 submits 10.1M — need 3, have 2
         let info = mock_info(FEEDER_2, &[]);
@@ -2483,7 +2599,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "false"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "false"));
 
         // Admin submits 10.2M (within 5%) — now 3-of-5, consensus reached
         let info = mock_info(ADMIN, &[]);
@@ -2498,7 +2617,10 @@ mod tests {
         .unwrap();
 
         // 3-of-5 feeders agree within tolerance → consensus
-        assert!(res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "true"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "true"));
 
         // Median of sorted [10M, 10.1M, 10.2M] = 10.1M
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
@@ -2550,7 +2672,10 @@ mod tests {
         )
         .unwrap();
 
-        assert!(res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "true"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "true"));
 
         // Median of [10M, 10.1M, 10.3M] = 10.1M
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
@@ -2627,7 +2752,10 @@ mod tests {
         .unwrap();
 
         // Only 1 fresh submission (ADMIN's), need 3 → no consensus
-        assert!(res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "false"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "false"));
     }
 
     // ── Test: add and remove feeders ─────────────────────────────────────
@@ -2643,10 +2771,15 @@ mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            ExecuteMsg::AddFeeder { address: FEEDER_1.to_string() },
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_1.to_string(),
+            },
         )
         .unwrap();
-        assert!(res.attributes.iter().any(|a| a.key == "total_feeders" && a.value == "2"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "total_feeders" && a.value == "2"));
 
         // Duplicate add fails
         let info = mock_info(ADMIN, &[]);
@@ -2654,7 +2787,9 @@ mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            ExecuteMsg::AddFeeder { address: FEEDER_1.to_string() },
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_1.to_string(),
+            },
         )
         .unwrap_err();
         assert_eq!(err, ContractError::FeederAlreadyRegistered {});
@@ -2665,7 +2800,9 @@ mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            ExecuteMsg::AddFeeder { address: FEEDER_2.to_string() },
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_2.to_string(),
+            },
         )
         .unwrap_err();
         assert_eq!(err, ContractError::Unauthorized {});
@@ -2676,10 +2813,15 @@ mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            ExecuteMsg::RemoveFeeder { address: FEEDER_1.to_string() },
+            ExecuteMsg::RemoveFeeder {
+                address: FEEDER_1.to_string(),
+            },
         )
         .unwrap();
-        assert!(res.attributes.iter().any(|a| a.key == "total_feeders" && a.value == "1"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "total_feeders" && a.value == "1"));
 
         // Removing non-existent feeder fails
         let info = mock_info(ADMIN, &[]);
@@ -2687,7 +2829,9 @@ mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            ExecuteMsg::RemoveFeeder { address: FEEDER_3.to_string() },
+            ExecuteMsg::RemoveFeeder {
+                address: FEEDER_3.to_string(),
+            },
         )
         .unwrap_err();
         assert_eq!(err, ContractError::FeederNotFound {});
@@ -2708,7 +2852,9 @@ mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            ExecuteMsg::RemoveFeeder { address: FEEDER_4.to_string() },
+            ExecuteMsg::RemoveFeeder {
+                address: FEEDER_4.to_string(),
+            },
         )
         .unwrap();
 
@@ -2718,7 +2864,9 @@ mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            ExecuteMsg::RemoveFeeder { address: FEEDER_3.to_string() },
+            ExecuteMsg::RemoveFeeder {
+                address: FEEDER_3.to_string(),
+            },
         )
         .unwrap();
 
@@ -2728,7 +2876,9 @@ mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            ExecuteMsg::RemoveFeeder { address: FEEDER_2.to_string() },
+            ExecuteMsg::RemoveFeeder {
+                address: FEEDER_2.to_string(),
+            },
         )
         .unwrap_err();
         assert_eq!(err, ContractError::CannotRemoveBelowQuorum {});
@@ -2758,7 +2908,9 @@ mod tests {
             deps.as_mut(),
             env_at(t0),
             info,
-            ExecuteMsg::AddFeeder { address: FEEDER_1.to_string() },
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_1.to_string(),
+            },
         )
         .unwrap();
 
@@ -2768,7 +2920,9 @@ mod tests {
             deps.as_mut(),
             env_at(t0 + 30),
             info,
-            ExecuteMsg::AddFeeder { address: FEEDER_2.to_string() },
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_2.to_string(),
+            },
         )
         .unwrap_err();
         assert_eq!(err, ContractError::FeederMutationCooldownNotElapsed {});
@@ -2779,7 +2933,9 @@ mod tests {
             deps.as_mut(),
             env_at(t0 + 30),
             info,
-            ExecuteMsg::RemoveFeeder { address: FEEDER_1.to_string() },
+            ExecuteMsg::RemoveFeeder {
+                address: FEEDER_1.to_string(),
+            },
         )
         .unwrap_err();
         assert_eq!(err, ContractError::FeederMutationCooldownNotElapsed {});
@@ -2790,7 +2946,9 @@ mod tests {
             deps.as_mut(),
             env_at(t0 + 61),
             info,
-            ExecuteMsg::AddFeeder { address: FEEDER_2.to_string() },
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_2.to_string(),
+            },
         )
         .unwrap();
     }
@@ -2823,7 +2981,9 @@ mod tests {
             deps.as_mut(),
             env_at(t0),
             info,
-            ExecuteMsg::AddFeeder { address: FEEDER_1.to_string() },
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_1.to_string(),
+            },
         )
         .unwrap();
 
@@ -2854,7 +3014,9 @@ mod tests {
         // Consensus NOT reached — quarantined feeder's submission excluded,
         // only 1 eligible fresh value (admin) but need quorum=2
         assert!(
-            res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "false"),
+            res.attributes
+                .iter()
+                .any(|a| a.key == "consensus_reached" && a.value == "false"),
             "Quarantined feeder must not contribute to consensus"
         );
 
@@ -2885,7 +3047,9 @@ mod tests {
         // Consensus reached — both admin (not quarantined) and FEEDER_1
         // (quarantine elapsed) contribute fresh values
         assert!(
-            res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "true"),
+            res.attributes
+                .iter()
+                .any(|a| a.key == "consensus_reached" && a.value == "true"),
             "After quarantine expires, feeder must contribute to consensus"
         );
     }
@@ -2917,7 +3081,9 @@ mod tests {
                 deps.as_mut(),
                 mock_env(),
                 info,
-                ExecuteMsg::AddFeeder { address: feeder.to_string() },
+                ExecuteMsg::AddFeeder {
+                    address: feeder.to_string(),
+                },
             )
             .unwrap();
         }
@@ -2970,7 +3136,9 @@ mod tests {
             deps.as_mut(),
             env_at(t0 + 5),
             info,
-            ExecuteMsg::RemoveFeeder { address: FEEDER_1.to_string() },
+            ExecuteMsg::RemoveFeeder {
+                address: FEEDER_1.to_string(),
+            },
         )
         .unwrap();
 
@@ -2994,7 +3162,9 @@ mod tests {
         // (stale by epoch), and admin is the only epoch-1 submission.
         // Need quorum=2 but only 1 current-epoch value → no consensus.
         assert!(
-            res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "false"),
+            res.attributes
+                .iter()
+                .any(|a| a.key == "consensus_reached" && a.value == "false"),
             "Admin alone cannot reach consensus after epoch increment"
         );
 
@@ -3023,7 +3193,9 @@ mod tests {
         // NOW consensus is reached: admin(20.1M) + FEEDER_2(20M) at epoch 1
         // Median of [20M, 20.1M] = 20.05M
         assert!(
-            res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "true"),
+            res.attributes
+                .iter()
+                .any(|a| a.key == "consensus_reached" && a.value == "true"),
             "Consensus should be reached once enough feeders re-submit at current epoch"
         );
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
@@ -3074,10 +3246,9 @@ mod tests {
         .unwrap();
 
         // Query oracle status
-        let status: OracleStatusResponse = from_json(
-            query(deps.as_ref(), env_at(t0 + 10), QueryMsg::OracleStatus {}).unwrap(),
-        )
-        .unwrap();
+        let status: OracleStatusResponse =
+            from_json(query(deps.as_ref(), env_at(t0 + 10), QueryMsg::OracleStatus {}).unwrap())
+                .unwrap();
 
         assert_eq!(status.feeders.len(), 5); // admin + feeder_1..4
         assert_eq!(status.min_feeder_quorum, 3);
@@ -3139,7 +3310,12 @@ mod tests {
 
         // Verify proposal activated with the consensus value
         let prop: Proposal = from_json(
-            query(deps.as_ref(), env_at(t0 + 30), QueryMsg::Proposal { proposal_id: 1 }).unwrap(),
+            query(
+                deps.as_ref(),
+                env_at(t0 + 30),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(prop.status, ProposalStatus::Active);
@@ -3201,7 +3377,12 @@ mod tests {
         assert_eq!(res.attributes[0].value, "execute_proposal");
 
         let prop: Proposal = from_json(
-            query(deps.as_ref(), env_at(t0 + 900), QueryMsg::Proposal { proposal_id: 1 }).unwrap(),
+            query(
+                deps.as_ref(),
+                env_at(t0 + 900),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(prop.status, ProposalStatus::Passed);
@@ -3280,7 +3461,9 @@ mod tests {
         // Consensus MUST still be reached — the sliding window finds the
         // 3-of-5 subset [10M, 10.1M, 10.2M] that agrees within tolerance.
         assert!(
-            res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "true"),
+            res.attributes
+                .iter()
+                .any(|a| a.key == "consensus_reached" && a.value == "true"),
             "Outlier feeders must not be able to veto consensus of honest feeders"
         );
 
@@ -3389,11 +3572,11 @@ mod tests {
         // This prevents either cluster from having all 3 members until
         // the 5th and 6th submissions respectively.
         let submissions = [
-            (ADMIN,     10_000_000u128),  // A1
-            (FEEDER_3,  20_000_000u128),  // B1
-            (FEEDER_1,  10_100_000u128),  // A2
-            (FEEDER_4,  20_100_000u128),  // B2
-            (FEEDER_2,  10_200_000u128),  // A3 — completes cluster A (5 total values)
+            (ADMIN, 10_000_000u128),      // A1
+            (FEEDER_3, 20_000_000u128),   // B1
+            (FEEDER_1, 10_100_000u128),   // A2
+            (FEEDER_4, 20_100_000u128),   // B2
+            (FEEDER_2, 10_200_000u128),   // A3 — completes cluster A (5 total values)
             ("feeder_5", 20_200_000u128), // B3 — completes cluster B (6 total values)
         ];
 
@@ -3419,7 +3602,9 @@ mod tests {
         //   → ambiguity guard fires → None
         let res = last_res.unwrap();
         assert!(
-            res.attributes.iter().any(|a| a.key == "consensus_reached" && a.value == "false"),
+            res.attributes
+                .iter()
+                .any(|a| a.key == "consensus_reached" && a.value == "false"),
             "Split-brain: the 6th submission must report consensus_reached=false \
              when two equally-sized qualifying clusters exist"
         );
@@ -3467,6 +3652,10 @@ mod tests {
 
         // No 3-element subset within 5% tolerance → consensus fails
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
-        assert_eq!(bonded, Uint128::zero(), "When all feeders diverge, consensus must fail");
+        assert_eq!(
+            bonded,
+            Uint128::zero(),
+            "When all feeders diverge, consensus must fail"
+        );
     }
 }

@@ -18,8 +18,10 @@
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{from_json, Addr, Uint128, OwnedDeps, Env, Binary};
+    use cosmwasm_std::testing::{
+        mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
+    };
+    use cosmwasm_std::{from_json, Addr, Binary, Env, OwnedDeps, Uint128};
 
     // ============ TEST HELPERS ============
 
@@ -55,8 +57,19 @@ mod tests {
         (deps, env)
     }
 
-    fn query_balance(deps: &OwnedDeps<MockStorage, MockApi, MockQuerier>, env: &Env, addr: &str) -> Uint128 {
-        let res = query(deps.as_ref(), env.clone(), QueryMsg::Balance { address: addr.to_string() }).unwrap();
+    fn query_balance(
+        deps: &OwnedDeps<MockStorage, MockApi, MockQuerier>,
+        env: &Env,
+        addr: &str,
+    ) -> Uint128 {
+        let res = query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::Balance {
+                address: addr.to_string(),
+            },
+        )
+        .unwrap();
         let bal: BalanceResponse = from_json(&res).unwrap();
         bal.balance
     }
@@ -83,7 +96,10 @@ mod tests {
     #[test]
     fn test_instantiate_sets_minter_balance() {
         let (deps, env) = default_instantiate();
-        assert_eq!(query_balance(&deps, &env, "minter"), Uint128::from(1_000_000_000u128));
+        assert_eq!(
+            query_balance(&deps, &env, "minter"),
+            Uint128::from(1_000_000_000u128)
+        );
     }
 
     #[test]
@@ -127,7 +143,10 @@ mod tests {
         };
         execute(deps.as_mut(), env.clone(), info, msg).unwrap();
         assert_eq!(query_balance(&deps, &env, "alice"), Uint128::from(500u128));
-        assert_eq!(query_balance(&deps, &env, "minter"), Uint128::from(999_999_500u128));
+        assert_eq!(
+            query_balance(&deps, &env, "minter"),
+            Uint128::from(999_999_500u128)
+        );
     }
 
     #[test]
@@ -242,7 +261,10 @@ mod tests {
             amount: Uint128::from(999_999_999_999u128),
         };
         execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-        assert_eq!(query_balance(&deps, &env, "alice"), Uint128::from(999_999_999_999u128));
+        assert_eq!(
+            query_balance(&deps, &env, "alice"),
+            Uint128::from(999_999_999_999u128)
+        );
     }
 
     // ============ BURN TESTS ============
@@ -255,7 +277,10 @@ mod tests {
             amount: Uint128::from(500u128),
         };
         execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-        assert_eq!(query_balance(&deps, &env, "minter"), Uint128::from(999_999_500u128));
+        assert_eq!(
+            query_balance(&deps, &env, "minter"),
+            Uint128::from(999_999_500u128)
+        );
         assert_eq!(query_supply(&deps, &env), Uint128::from(999_999_500u128));
     }
 
@@ -263,7 +288,9 @@ mod tests {
     fn test_burn_zero_rejected() {
         let (mut deps, env) = default_instantiate();
         let info = mock_info("minter", &[]);
-        let msg = ExecuteMsg::Burn { amount: Uint128::zero() };
+        let msg = ExecuteMsg::Burn {
+            amount: Uint128::zero(),
+        };
         let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(err, ContractError::InvalidZeroAmount {});
     }
@@ -272,7 +299,9 @@ mod tests {
     fn test_burn_exceeds_balance() {
         let (mut deps, env) = default_instantiate();
         let info = mock_info("nobody", &[]);
-        let msg = ExecuteMsg::Burn { amount: Uint128::from(100u128) };
+        let msg = ExecuteMsg::Burn {
+            amount: Uint128::from(100u128),
+        };
         let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert!(matches!(err, ContractError::Std(_)));
     }
@@ -290,10 +319,15 @@ mod tests {
         };
         execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
-        let res = query(deps.as_ref(), env.clone(), QueryMsg::Allowance {
-            owner: "minter".to_string(),
-            spender: "spender".to_string(),
-        }).unwrap();
+        let res = query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::Allowance {
+                owner: "minter".to_string(),
+                spender: "spender".to_string(),
+            },
+        )
+        .unwrap();
         let allow: AllowanceResponse = from_json(&res).unwrap();
         assert_eq!(allow.allowance, Uint128::from(500u128));
     }
@@ -317,23 +351,40 @@ mod tests {
         let info = mock_info("minter", &[]);
 
         // First increase
-        execute(deps.as_mut(), env.clone(), info.clone(), ExecuteMsg::IncreaseAllowance {
-            spender: "spender".to_string(),
-            amount: Uint128::from(500u128),
-            expires: None,
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(500u128),
+                expires: None,
+            },
+        )
+        .unwrap();
 
         // Then decrease
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::DecreaseAllowance {
-            spender: "spender".to_string(),
-            amount: Uint128::from(200u128),
-            expires: None,
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::DecreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(200u128),
+                expires: None,
+            },
+        )
+        .unwrap();
 
-        let res = query(deps.as_ref(), env.clone(), QueryMsg::Allowance {
-            owner: "minter".to_string(),
-            spender: "spender".to_string(),
-        }).unwrap();
+        let res = query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::Allowance {
+                owner: "minter".to_string(),
+                spender: "spender".to_string(),
+            },
+        )
+        .unwrap();
         let allow: AllowanceResponse = from_json(&res).unwrap();
         assert_eq!(allow.allowance, Uint128::from(300u128));
     }
@@ -357,28 +408,48 @@ mod tests {
 
         // Approve spender
         let info = mock_info("minter", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::IncreaseAllowance {
-            spender: "spender".to_string(),
-            amount: Uint128::from(500u128),
-            expires: None,
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(500u128),
+                expires: None,
+            },
+        )
+        .unwrap();
 
         // Spender transfers from minter to alice
         let info = mock_info("spender", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::TransferFrom {
-            owner: "minter".to_string(),
-            recipient: "alice".to_string(),
-            amount: Uint128::from(300u128),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::TransferFrom {
+                owner: "minter".to_string(),
+                recipient: "alice".to_string(),
+                amount: Uint128::from(300u128),
+            },
+        )
+        .unwrap();
 
         assert_eq!(query_balance(&deps, &env, "alice"), Uint128::from(300u128));
-        assert_eq!(query_balance(&deps, &env, "minter"), Uint128::from(999_999_700u128));
+        assert_eq!(
+            query_balance(&deps, &env, "minter"),
+            Uint128::from(999_999_700u128)
+        );
 
         // Allowance should be reduced
-        let res = query(deps.as_ref(), env.clone(), QueryMsg::Allowance {
-            owner: "minter".to_string(),
-            spender: "spender".to_string(),
-        }).unwrap();
+        let res = query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::Allowance {
+                owner: "minter".to_string(),
+                spender: "spender".to_string(),
+            },
+        )
+        .unwrap();
         let allow: AllowanceResponse = from_json(&res).unwrap();
         assert_eq!(allow.allowance, Uint128::from(200u128));
     }
@@ -389,19 +460,31 @@ mod tests {
 
         // Approve spender
         let info = mock_info("minter", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::IncreaseAllowance {
-            spender: "spender".to_string(),
-            amount: Uint128::from(500u128),
-            expires: None,
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(500u128),
+                expires: None,
+            },
+        )
+        .unwrap();
 
         // Spender tries to transfer from minter to minter (self-transfer via allowance)
         let info = mock_info("spender", &[]);
-        let err = execute(deps.as_mut(), env, info, ExecuteMsg::TransferFrom {
-            owner: "minter".to_string(),
-            recipient: "minter".to_string(),
-            amount: Uint128::from(100u128),
-        }).unwrap_err();
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::TransferFrom {
+                owner: "minter".to_string(),
+                recipient: "minter".to_string(),
+                amount: Uint128::from(100u128),
+            },
+        )
+        .unwrap_err();
         assert_eq!(err, ContractError::CannotTransferToSelf {});
     }
 
@@ -410,18 +493,30 @@ mod tests {
         let (mut deps, env) = default_instantiate();
 
         let info = mock_info("minter", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::IncreaseAllowance {
-            spender: "spender".to_string(),
-            amount: Uint128::from(100u128),
-            expires: None,
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(100u128),
+                expires: None,
+            },
+        )
+        .unwrap();
 
         let info = mock_info("spender", &[]);
-        let err = execute(deps.as_mut(), env, info, ExecuteMsg::TransferFrom {
-            owner: "minter".to_string(),
-            recipient: "alice".to_string(),
-            amount: Uint128::from(200u128),
-        }).unwrap_err();
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::TransferFrom {
+                owner: "minter".to_string(),
+                recipient: "alice".to_string(),
+                amount: Uint128::from(200u128),
+            },
+        )
+        .unwrap_err();
         assert!(matches!(err, ContractError::Std(_)));
     }
 
@@ -430,21 +525,33 @@ mod tests {
         let (mut deps, mut env) = default_instantiate();
 
         let info = mock_info("minter", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::IncreaseAllowance {
-            spender: "spender".to_string(),
-            amount: Uint128::from(500u128),
-            expires: Some(Expiration::AtHeight(100)),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(500u128),
+                expires: Some(Expiration::AtHeight(100)),
+            },
+        )
+        .unwrap();
 
         // Advance past expiration
         env.block.height = 200;
 
         let info = mock_info("spender", &[]);
-        let err = execute(deps.as_mut(), env, info, ExecuteMsg::TransferFrom {
-            owner: "minter".to_string(),
-            recipient: "alice".to_string(),
-            amount: Uint128::from(100u128),
-        }).unwrap_err();
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::TransferFrom {
+                owner: "minter".to_string(),
+                recipient: "alice".to_string(),
+                amount: Uint128::from(100u128),
+            },
+        )
+        .unwrap_err();
         assert!(matches!(err, ContractError::Std(_)));
     }
 
@@ -456,20 +563,35 @@ mod tests {
 
         // Approve spender to burn
         let info = mock_info("minter", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::IncreaseAllowance {
-            spender: "burner".to_string(),
-            amount: Uint128::from(500u128),
-            expires: None,
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "burner".to_string(),
+                amount: Uint128::from(500u128),
+                expires: None,
+            },
+        )
+        .unwrap();
 
         // Burner burns from minter
         let info = mock_info("burner", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::BurnFrom {
-            owner: "minter".to_string(),
-            amount: Uint128::from(300u128),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::BurnFrom {
+                owner: "minter".to_string(),
+                amount: Uint128::from(300u128),
+            },
+        )
+        .unwrap();
 
-        assert_eq!(query_balance(&deps, &env, "minter"), Uint128::from(999_999_700u128));
+        assert_eq!(
+            query_balance(&deps, &env, "minter"),
+            Uint128::from(999_999_700u128)
+        );
         assert_eq!(query_supply(&deps, &env), Uint128::from(999_999_700u128));
     }
 
@@ -477,10 +599,16 @@ mod tests {
     fn test_burn_from_zero_rejected() {
         let (mut deps, env) = default_instantiate();
         let info = mock_info("burner", &[]);
-        let err = execute(deps.as_mut(), env, info, ExecuteMsg::BurnFrom {
-            owner: "minter".to_string(),
-            amount: Uint128::zero(),
-        }).unwrap_err();
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::BurnFrom {
+                owner: "minter".to_string(),
+                amount: Uint128::zero(),
+            },
+        )
+        .unwrap_err();
         assert_eq!(err, ContractError::InvalidZeroAmount {});
     }
 
@@ -524,8 +652,14 @@ mod tests {
         let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
         // Should have one message (the WasmMsg::Execute callback)
         assert_eq!(res.messages.len(), 1);
-        assert_eq!(query_balance(&deps, &env, "minter"), Uint128::from(999_999_900u128));
-        assert_eq!(query_balance(&deps, &env, "target_contract"), Uint128::from(100u128));
+        assert_eq!(
+            query_balance(&deps, &env, "minter"),
+            Uint128::from(999_999_900u128)
+        );
+        assert_eq!(
+            query_balance(&deps, &env, "target_contract"),
+            Uint128::from(100u128)
+        );
     }
 
     // ============ MINTER MANAGEMENT TESTS ============
@@ -570,10 +704,16 @@ mod tests {
 
         // Try to mint after renouncing
         let info = mock_info("minter", &[]);
-        let err = execute(deps.as_mut(), env, info, ExecuteMsg::Mint {
-            recipient: "alice".to_string(),
-            amount: Uint128::from(100u128),
-        }).unwrap_err();
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::Mint {
+                recipient: "alice".to_string(),
+                amount: Uint128::from(100u128),
+            },
+        )
+        .unwrap_err();
         assert_eq!(err, ContractError::Unauthorized {});
     }
 
@@ -585,19 +725,36 @@ mod tests {
 
         // Transfer to some accounts
         let info = mock_info("minter", &[]);
-        execute(deps.as_mut(), env.clone(), info.clone(), ExecuteMsg::Transfer {
-            recipient: "alice".to_string(),
-            amount: Uint128::from(100u128),
-        }).unwrap();
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Transfer {
-            recipient: "bob".to_string(),
-            amount: Uint128::from(200u128),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            ExecuteMsg::Transfer {
+                recipient: "alice".to_string(),
+                amount: Uint128::from(100u128),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::Transfer {
+                recipient: "bob".to_string(),
+                amount: Uint128::from(200u128),
+            },
+        )
+        .unwrap();
 
-        let res = query(deps.as_ref(), env.clone(), QueryMsg::AllAccounts {
-            start_after: None,
-            limit: None,
-        }).unwrap();
+        let res = query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::AllAccounts {
+                start_after: None,
+                limit: None,
+            },
+        )
+        .unwrap();
         let accounts: Vec<String> = from_json(&res).unwrap();
         assert!(accounts.len() >= 3); // minter, alice, bob
     }
@@ -608,22 +765,39 @@ mod tests {
         let info = mock_info("minter", &[]);
 
         // Set up multiple allowances
-        execute(deps.as_mut(), env.clone(), info.clone(), ExecuteMsg::IncreaseAllowance {
-            spender: "spender1".to_string(),
-            amount: Uint128::from(100u128),
-            expires: None,
-        }).unwrap();
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::IncreaseAllowance {
-            spender: "spender2".to_string(),
-            amount: Uint128::from(200u128),
-            expires: None,
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender1".to_string(),
+                amount: Uint128::from(100u128),
+                expires: None,
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender2".to_string(),
+                amount: Uint128::from(200u128),
+                expires: None,
+            },
+        )
+        .unwrap();
 
-        let res = query(deps.as_ref(), env.clone(), QueryMsg::AllAllowances {
-            owner: "minter".to_string(),
-            start_after: None,
-            limit: None,
-        }).unwrap();
+        let res = query(
+            deps.as_ref(),
+            env.clone(),
+            QueryMsg::AllAllowances {
+                owner: "minter".to_string(),
+                start_after: None,
+                limit: None,
+            },
+        )
+        .unwrap();
         let allowances: Vec<AllowanceResponse> = from_json(&res).unwrap();
         assert_eq!(allowances.len(), 2);
     }
@@ -693,26 +867,44 @@ mod tests {
 
         // Mint to alice
         let info = mock_info("minter", &[]);
-        execute(deps.as_mut(), env.clone(), info.clone(), ExecuteMsg::Mint {
-            recipient: "alice".to_string(),
-            amount: Uint128::from(1000u128),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            ExecuteMsg::Mint {
+                recipient: "alice".to_string(),
+                amount: Uint128::from(1000u128),
+            },
+        )
+        .unwrap();
         assert_eq!(query_balance(&deps, &env, "alice"), Uint128::from(1000u128));
 
         // Alice transfers to bob
         let info = mock_info("alice", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Transfer {
-            recipient: "bob".to_string(),
-            amount: Uint128::from(600u128),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::Transfer {
+                recipient: "bob".to_string(),
+                amount: Uint128::from(600u128),
+            },
+        )
+        .unwrap();
         assert_eq!(query_balance(&deps, &env, "alice"), Uint128::from(400u128));
         assert_eq!(query_balance(&deps, &env, "bob"), Uint128::from(600u128));
 
         // Bob burns his tokens
         let info = mock_info("bob", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Burn {
-            amount: Uint128::from(600u128),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::Burn {
+                amount: Uint128::from(600u128),
+            },
+        )
+        .unwrap();
         assert_eq!(query_balance(&deps, &env, "bob"), Uint128::zero());
         // Total supply reduced
         assert_eq!(query_supply(&deps, &env), Uint128::from(1_000_000_400u128));
@@ -724,30 +916,48 @@ mod tests {
 
         // Set allowance with height expiration
         let info = mock_info("minter", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::IncreaseAllowance {
-            spender: "spender".to_string(),
-            amount: Uint128::from(1000u128),
-            expires: Some(Expiration::AtHeight(env.block.height + 100)),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(1000u128),
+                expires: Some(Expiration::AtHeight(env.block.height + 100)),
+            },
+        )
+        .unwrap();
 
         // Use partial allowance
         let info = mock_info("spender", &[]);
-        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::TransferFrom {
-            owner: "minter".to_string(),
-            recipient: "alice".to_string(),
-            amount: Uint128::from(500u128),
-        }).unwrap();
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::TransferFrom {
+                owner: "minter".to_string(),
+                recipient: "alice".to_string(),
+                amount: Uint128::from(500u128),
+            },
+        )
+        .unwrap();
 
         // Advance past expiration
         env.block.height += 200;
 
         // Try to use remaining allowance after expiration
         let info = mock_info("spender", &[]);
-        let err = execute(deps.as_mut(), env, info, ExecuteMsg::TransferFrom {
-            owner: "minter".to_string(),
-            recipient: "alice".to_string(),
-            amount: Uint128::from(100u128),
-        }).unwrap_err();
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::TransferFrom {
+                owner: "minter".to_string(),
+                recipient: "alice".to_string(),
+                amount: Uint128::from(100u128),
+            },
+        )
+        .unwrap_err();
         assert!(matches!(err, ContractError::Std(_)));
     }
 }
