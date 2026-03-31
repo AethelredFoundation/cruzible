@@ -27,3 +27,4 @@ Thumbs.db
 .claude/
 target/
 backend/contracts/target/
+coverage/
