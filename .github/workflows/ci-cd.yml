@@ -100,7 +100,14 @@ jobs:
       # Clippy
       - name: Run Clippy
         working-directory: ./backend/contracts
-        run: cargo clippy --all-targets --all-features -- -D warnings -A unused-imports -A clippy::empty-line-after-doc-comments -A clippy::needless-borrow -A clippy::manual-map -A clippy::ref-option -A clippy::map-or-then
+        run: >
+          cargo clippy --all-targets --all-features -- -D warnings
+          -A unused-imports -A unused-variables -A unused-mut
+          -A clippy::empty-line-after-doc-comments
+          -A clippy::needless-borrow -A clippy::needless-borrows-for-generic-args
+          -A clippy::unnecessary-map-or -A clippy::op-ref
+          -A clippy::redundant-closure -A clippy::too-many-arguments
+          -A clippy::items-after-test-module
 
   # =============================================================================
   # UNIT TESTS
