@@ -55,6 +55,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm install --no-fund --no-audit
       - run: npm run test:ci
+      - name: Upload frontend coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+          fail_ci_if_error: false
+          disable_search: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   test-backend:
     name: Backend Tests
@@ -76,6 +86,16 @@ jobs:
       - name: Run tests
         working-directory: ./backend/api
         run: npm run test
+      - name: Upload backend coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./backend/api/coverage/lcov.info
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
+          disable_search: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   test-contracts:
     name: Contract Tests
@@ -86,3 +106,18 @@ jobs:
       - name: Run tests
         working-directory: ./backend/contracts
         run: cargo test --all
+      - name: Generate contract coverage
+        working-directory: ./backend/contracts
+        run: |
+          cargo install cargo-tarpaulin --locked
+          cargo tarpaulin --all --out xml --output-dir . --lib -- --test-threads=1
+      - name: Upload contract coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./backend/contracts/cobertura.xml
+          flags: contracts
+          name: contract-coverage
+          fail_ci_if_error: false
+          disable_search: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

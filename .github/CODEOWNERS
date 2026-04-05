@@ -1,0 +1,9 @@
+# Default owners
+* @ramtamilselvan
+
+# Smart contracts require security review
+contracts/ @ramtamilselvan
+**/contracts/ @ramtamilselvan
+
+# CI/CD changes require ops review
+.github/ @ramtamilselvan
