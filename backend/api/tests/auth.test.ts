@@ -1,6 +1,7 @@
 import express from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
 import { authenticate } from '../src/auth/middleware';
+import { rateLimiter } from '../src/middleware/rateLimiter';
 import { generateTokens } from '../src/auth/service';
 import { withHttpServer } from './helpers/http';
 
@@ -11,6 +12,7 @@ describe('auth middleware', () => {
 
   it('rejects requests without a bearer token', async () => {
     const app = express();
+    app.use(rateLimiter);
     app.get('/protected', authenticate, (req, res) => {
       res.json({ address: req.user?.address });
     });
@@ -26,6 +28,7 @@ describe('auth middleware', () => {
 
   it('accepts requests with a valid access token', async () => {
     const app = express();
+    app.use(rateLimiter);
     app.get('/protected', authenticate, (req, res) => {
       res.json({ address: req.user?.address, roles: req.user?.roles });
     });
