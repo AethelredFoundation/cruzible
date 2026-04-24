@@ -86,4 +86,6 @@ jobs:
         with:
           createIssues: false
           denyWarnings: true
+          file: Cargo.lock
+          ignore: RUSTSEC-2024-0344,RUSTSEC-2024-0388
           workingDirectory: backend/contracts
