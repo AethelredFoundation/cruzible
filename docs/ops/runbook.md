@@ -12,7 +12,7 @@ This runbook covers the surfaces that are implemented in the current repository:
 - CosmWasm contracts in `backend/contracts`
 - Readiness and environment documentation in `docs/`
 
-This runbook does not assume that every checked-in infrastructure artifact is turnkey. In particular, `backend/infra/docker-compose.yml` and `k8s/base/frontend.yaml` still have gaps called out below.
+This runbook does not assume that every checked-in infrastructure artifact is turnkey. In particular, `backend/infra/docker-compose.yml` and the missing backend Kubernetes manifest still have gaps called out below.
 
 ## 2. Preflight Assumptions
 
@@ -179,7 +179,6 @@ npm run db:migrate:deploy
 ## 8. Known Operator Gaps In This Repo Snapshot
 
 - `backend/infra/docker-compose.yml` references config directories and `backend/api/Dockerfile.indexer` that are not checked in.
-- `k8s/base/frontend.yaml` currently probes `/api/health`, but the Next.js app in this repository does not implement that route.
 - There is no checked-in backend Kubernetes manifest matching the API gateway.
 - Production database-backed auth and alert state requires the `AuthNonce`,
   `AuthRefreshSession`, and `AlertEvent` Prisma migrations to be applied with
