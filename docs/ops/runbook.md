@@ -1,7 +1,7 @@
 # Cruzible Operations Runbook
 
 > Snapshot-aligned operator guidance for this repository.
-> Last reconciled against the workspace on 2026-04-22.
+> Last reconciled against the workspace on 2026-04-27.
 
 ## 1. Scope
 
@@ -19,8 +19,11 @@ This runbook does not assume that every checked-in infrastructure artifact is tu
 - Operators can provide a reachable PostgreSQL database for `DATABASE_URL`.
 - Operators can provide a reachable Aethelred RPC endpoint for `RPC_URL`.
 - JWT secrets are provisioned externally and are not left at development defaults.
+- Operator/admin wallet addresses are provisioned through `AUTH_OPERATOR_ADDRESSES`
+  and `AUTH_ADMIN_ADDRESSES`.
 - Backend env is injected by the runtime environment. `backend/api` does not auto-load `.env` files.
-- Protected admin/ops endpoints use JWT bearer auth, but token issuance is not exposed as a public route in the current API surface.
+- Protected admin/ops endpoints use JWT bearer auth with wallet-backed nonce
+  login, refresh-token rotation, and logout revocation.
 
 ## 3. Startup Paths
 
@@ -46,6 +49,7 @@ Before starting the API, inject the variables documented in [backend/.env.exampl
 - `RPC_URL`
 - `JWT_SECRET`
 - `JWT_REFRESH_SECRET`
+- `AUTH_OPERATOR_ADDRESSES` or `AUTH_ADMIN_ADDRESSES` for protected ops access
 
 ### Build verification
 
@@ -170,12 +174,15 @@ npm run db:migrate
 - `k8s/base/frontend.yaml` currently probes `/api/health`, but the Next.js app in this repository does not implement that route.
 - `backend/api` uses in-memory cache and in-memory alert history in the current implementation.
 - There is no checked-in backend Kubernetes manifest matching the API gateway.
-- There is no checked-in auth/token issuance route for the JWT-protected ops endpoints.
+- Production auth state requires the `AuthNonce` and `AuthRefreshSession` Prisma
+  migration to be applied before enabling the API gateway.
 
 ## 9. Operator Checklist
 
 - Read [docs/ops/environment-reference.md](environment-reference.md) before provisioning config.
 - Use [docs/architecture/12-public-readiness.md](../architecture/12-public-readiness.md) as the current readiness register.
 - Confirm JWT secrets and CORS settings are production-safe before any shared deployment.
+- Confirm auth role address lists are set and test `/v1/auth/nonce`,
+  `/v1/auth/login`, `/v1/auth/refresh`, and `/v1/auth/logout`.
 - Treat `backend/infra/docker-compose.yml` as a scaffold until the missing assets are supplied.
 - Verify all externally referenced health probes and rollout steps against the deployed environment, not just the repo.

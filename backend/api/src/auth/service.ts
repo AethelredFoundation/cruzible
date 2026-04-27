@@ -1,11 +1,52 @@
 /**
- * Authentication Service
- * Handles JWT token generation, validation, and refresh
+ * Authentication service for wallet-backed login, JWT issuance, refresh
+ * rotation, logout revocation, and Cosmos ADR-036 signature verification.
  */
 
+import { randomBytes, randomUUID, createHash } from 'crypto';
+import { Secp256k1, Secp256k1Signature, Sha256 as CryptoSha256, Ripemd160 } from '@cosmjs/crypto';
+import { fromBase64, toBech32, fromBech32 } from '@cosmjs/encoding';
+import { serializeSignDoc, type StdSignDoc } from '@cosmjs/amino';
+import { PrismaClient } from '@prisma/client';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+
+const ACCESS_TOKEN_AUDIENCE = 'aethelred-client';
+const TOKEN_ISSUER = 'aethelred-api';
+const LOGIN_DOMAIN = 'Aethelred Cruzible API';
+const NONCE_BYTES = 24;
+
+type SessionContext = {
+  ip?: string;
+  userAgent?: string;
+};
+
+type RefreshTokenOptions = {
+  refreshSessionId?: string;
+  refreshTokenId?: string;
+};
+
+type StoredNonce = {
+  address: string;
+  nonceHash: string;
+  message: string;
+  expiresAt: Date;
+  consumedAt?: Date | null;
+};
+
+type StoredRefreshSession = {
+  id: string;
+  address: string;
+  roles: string[];
+  tokenHash: string;
+  parentSessionId?: string | null;
+  userAgentHash?: string | null;
+  ipHash?: string | null;
+  expiresAt: Date;
+  rotatedAt?: Date | null;
+  revokedAt?: Date | null;
+};
 
 export interface TokenPayload {
   address: string;
@@ -18,20 +59,40 @@ export interface AuthTokens {
   expiresIn: number;
 }
 
+export interface LoginChallenge {
+  address: string;
+  nonce: string;
+  message: string;
+  expiresAt: string;
+}
+
 interface RefreshTokenPayload {
   address: string;
   roles: string[];
   type?: string;
+  jti?: string;
+  sid?: string;
+  exp?: number;
 }
 
+const authPrisma = config.databaseUrl ? new PrismaClient() : null;
+const memoryNonces = new Map<string, StoredNonce>();
+const memoryRefreshSessions = new Map<string, StoredRefreshSession>();
+
 /**
- * Generate JWT access and refresh tokens
+ * Generate JWT access and refresh tokens.
+ *
+ * This helper only signs tokens. Login and refresh flows must call
+ * issueAuthTokens()/refreshAccessToken() so the refresh token is persisted.
  */
-export function generateTokens(payload: TokenPayload): AuthTokens {
+export function generateTokens(
+  payload: TokenPayload,
+  options: RefreshTokenOptions = {},
+): AuthTokens {
   const accessOptions: SignOptions = {
     expiresIn: config.jwtExpiresIn as SignOptions['expiresIn'],
-    issuer: 'aethelred-api',
-    audience: 'aethelred-client',
+    issuer: TOKEN_ISSUER,
+    audience: ACCESS_TOKEN_AUDIENCE,
   };
 
   const accessToken = jwt.sign(
@@ -40,82 +101,179 @@ export function generateTokens(payload: TokenPayload): AuthTokens {
       roles: payload.roles,
     },
     config.jwtSecret,
-    accessOptions
+    accessOptions,
   );
 
+  const refreshSessionId = options.refreshSessionId ?? randomUUID();
+  const refreshTokenId = options.refreshTokenId ?? randomUUID();
   const refreshOptions: SignOptions = {
     expiresIn: config.jwtRefreshExpiresIn as SignOptions['expiresIn'],
-    issuer: 'aethelred-api',
+    issuer: TOKEN_ISSUER,
+    jwtid: refreshTokenId,
   };
 
   const refreshToken = jwt.sign(
     {
       address: payload.address,
       roles: payload.roles,
+      sid: refreshSessionId,
       type: 'refresh',
     },
     config.jwtRefreshSecret,
-    refreshOptions
+    refreshOptions,
   );
-
-  // Parse expiresIn to get numeric value
-  const expiresInSeconds = parseExpiration(config.jwtExpiresIn);
 
   return {
     accessToken,
     refreshToken,
-    expiresIn: expiresInSeconds,
+    expiresIn: parseExpiration(config.jwtExpiresIn),
   };
 }
 
 /**
- * Verify and decode access token
+ * Verify and decode access token.
  */
 export function verifyAccessToken(token: string): TokenPayload {
   return jwt.verify(token, config.jwtSecret, {
     algorithms: ['HS256'],
-    issuer: 'aethelred-api',
-    audience: 'aethelred-client',
+    issuer: TOKEN_ISSUER,
+    audience: ACCESS_TOKEN_AUDIENCE,
   }) as TokenPayload;
 }
 
 /**
- * Verify refresh token and return payload
+ * Verify refresh token and return the rotation metadata.
  */
-export function verifyRefreshToken(token: string): { address: string; roles: string[] } {
+export function verifyRefreshToken(token: string): {
+  address: string;
+  roles: string[];
+  refreshTokenId: string;
+  refreshSessionId: string;
+  expiresAt: Date;
+} {
   const payload = jwt.verify(token, config.jwtRefreshSecret, {
     algorithms: ['HS256'],
-    issuer: 'aethelred-api',
+    issuer: TOKEN_ISSUER,
   }) as RefreshTokenPayload;
-  
+
   if (payload.type !== 'refresh') {
     throw new Error('Invalid token type');
+  }
+
+  if (!payload.jti || !payload.sid || !payload.exp) {
+    throw new Error('Refresh token missing rotation metadata');
   }
 
   return {
     address: payload.address,
     roles: payload.roles,
+    refreshTokenId: payload.jti,
+    refreshSessionId: payload.sid,
+    expiresAt: new Date(payload.exp * 1000),
   };
 }
 
+export async function createLoginChallenge(address: string): Promise<LoginChallenge> {
+  cleanupExpiredMemoryState();
+
+  const normalizedAddress = normalizeAddress(address);
+  const nonce = randomBytes(NONCE_BYTES).toString('base64url');
+  const issuedAt = new Date();
+  const expiresAt = new Date(issuedAt.getTime() + config.authNonceTtlMs);
+  const message = buildLoginMessage(normalizedAddress, nonce, issuedAt, expiresAt);
+  const nonceHash = hashSecret(nonce);
+
+  await storeNonce({
+    address: normalizedAddress,
+    nonceHash,
+    message,
+    expiresAt,
+  });
+
+  return {
+    address: normalizedAddress,
+    nonce,
+    message,
+    expiresAt: expiresAt.toISOString(),
+  };
+}
+
+export async function verifyLoginAndIssueTokens(
+  address: string,
+  message: string,
+  signature: string,
+  context: SessionContext = {},
+): Promise<AuthTokens> {
+  const normalizedAddress = normalizeAddress(address);
+  const parsedMessage = parseLoginMessage(message);
+
+  if (parsedMessage.address !== normalizedAddress) {
+    throw new Error('Login challenge address mismatch');
+  }
+
+  const storedNonce = await findValidNonce(hashSecret(parsedMessage.nonce));
+  if (!storedNonce || storedNonce.address !== normalizedAddress || storedNonce.message !== message) {
+    throw new Error('Invalid or expired login challenge');
+  }
+
+  const signatureValid = await verifySignature(normalizedAddress, message, signature);
+  if (!signatureValid) {
+    throw new Error('Invalid login signature');
+  }
+
+  const consumed = await consumeNonce(storedNonce.nonceHash);
+  if (!consumed) {
+    throw new Error('Login challenge has already been used');
+  }
+
+  return issueAuthTokens(
+    {
+      address: normalizedAddress,
+      roles: resolveRolesForAddress(normalizedAddress),
+    },
+    context,
+  );
+}
+
+export async function issueAuthTokens(
+  payload: TokenPayload,
+  context: SessionContext = {},
+  parentSessionId?: string,
+): Promise<AuthTokens> {
+  const { tokens, session } = buildTokenSession(payload, context, parentSessionId);
+  await storeRefreshSession(session);
+
+  return tokens;
+}
+
 /**
- * Refresh access token using refresh token.
- * HIGH-3 FIX: Checks blacklist before issuing new tokens.
+ * Rotate a refresh token. The presented refresh token is revoked before a new
+ * refresh session is persisted, so replaying the old token is rejected.
  */
-export function refreshAccessToken(refreshToken: string): AuthTokens {
+export async function refreshAccessToken(
+  refreshToken: string,
+  context: SessionContext = {},
+): Promise<AuthTokens> {
   try {
-    // HIGH-3: Check if the refresh token has been revoked
-    if (isTokenRevoked(refreshToken)) {
-      logger.warn('Attempted use of revoked refresh token');
-      throw new Error('Refresh token has been revoked');
+    const verified = verifyRefreshToken(refreshToken);
+    const tokenHash = hashSecret(refreshToken);
+    const { tokens, session: nextSession } = buildTokenSession(
+      {
+        address: verified.address,
+        roles: verified.roles,
+      },
+      context,
+      verified.refreshSessionId,
+    );
+    const rotated = await rotateRefreshSession(tokenHash, nextSession);
+
+    if (!rotated || rotated.address !== verified.address) {
+      throw new Error('Refresh session is invalid or already rotated');
     }
 
-    const { address, roles } = verifyRefreshToken(refreshToken);
-
-    // Generate new tokens
-    return generateTokens({ address, roles });
+    return tokens;
   } catch (error) {
-    logger.error('Token refresh failed', { error });
+    logger.warn('Token refresh rejected', { error });
     const invalidRefreshTokenError = new Error('Invalid refresh token') as Error & {
       cause?: unknown;
     };
@@ -125,13 +283,140 @@ export function refreshAccessToken(refreshToken: string): AuthTokens {
 }
 
 /**
- * Parse expiration string to seconds
- * Supports: '1h', '1d', '7d', '30d'
+ * Revoke a refresh token for logout. Invalid tokens are treated as rejected
+ * credentials by callers, not as successful logouts.
+ */
+export async function revokeRefreshToken(token: string): Promise<void> {
+  const verified = verifyRefreshToken(token);
+  const revoked = await revokeRefreshSession(hashSecret(token));
+
+  if (!revoked || revoked.address !== verified.address) {
+    throw new Error('Refresh session not found');
+  }
+
+  logger.info('Refresh token revoked', { address: verified.address });
+}
+
+export async function isTokenRevoked(token: string): Promise<boolean> {
+  const session = await findRefreshSession(hashSecret(token));
+  return !session || Boolean(session.revokedAt || session.rotatedAt);
+}
+
+function resolveRolesForAddress(address: string): string[] {
+  const normalizedAddress = normalizeAddress(address);
+  const roles = new Set<string>(['user']);
+
+  if (config.authAdminAddresses.includes(normalizedAddress)) {
+    roles.add('operator');
+    roles.add('admin');
+  }
+
+  if (config.authOperatorAddresses.includes(normalizedAddress)) {
+    roles.add('operator');
+  }
+
+  return [...roles];
+}
+
+function buildLoginMessage(
+  address: string,
+  nonce: string,
+  issuedAt: Date,
+  expiresAt: Date,
+): string {
+  return [
+    `${LOGIN_DOMAIN} login`,
+    `Address: ${address}`,
+    `Nonce: ${nonce}`,
+    `Issued At: ${issuedAt.toISOString()}`,
+    `Expires At: ${expiresAt.toISOString()}`,
+  ].join('\n');
+}
+
+function parseLoginMessage(message: string): {
+  address: string;
+  nonce: string;
+  issuedAt: Date;
+  expiresAt: Date;
+} {
+  const lines = message.split('\n');
+  if (lines.length !== 5 || lines[0] !== `${LOGIN_DOMAIN} login`) {
+    throw new Error('Invalid login challenge format');
+  }
+
+  const address = parseMessageField(lines[1], 'Address');
+  const nonce = parseMessageField(lines[2], 'Nonce');
+  const issuedAt = new Date(parseMessageField(lines[3], 'Issued At'));
+  const expiresAt = new Date(parseMessageField(lines[4], 'Expires At'));
+
+  if (!nonce || Number.isNaN(issuedAt.getTime()) || Number.isNaN(expiresAt.getTime())) {
+    throw new Error('Invalid login challenge fields');
+  }
+
+  if (Date.now() > expiresAt.getTime()) {
+    throw new Error('Login challenge expired');
+  }
+
+  return {
+    address: normalizeAddress(address),
+    nonce,
+    issuedAt,
+    expiresAt,
+  };
+}
+
+function parseMessageField(line: string, field: string): string {
+  const prefix = `${field}: `;
+  if (!line.startsWith(prefix)) {
+    throw new Error(`Missing ${field} in login challenge`);
+  }
+  return line.slice(prefix.length).trim();
+}
+
+function normalizeAddress(address: string): string {
+  return address.trim().toLowerCase();
+}
+
+function hashSecret(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function buildTokenSession(
+  payload: TokenPayload,
+  context: SessionContext,
+  parentSessionId?: string,
+): { tokens: AuthTokens; session: StoredRefreshSession } {
+  const refreshSessionId = randomUUID();
+  const refreshTokenId = randomUUID();
+  const tokens = generateTokens(payload, {
+    refreshSessionId,
+    refreshTokenId,
+  });
+  const verifiedRefreshToken = verifyRefreshToken(tokens.refreshToken);
+
+  return {
+    tokens,
+    session: {
+      id: refreshSessionId,
+      address: payload.address,
+      roles: payload.roles,
+      tokenHash: hashSecret(tokens.refreshToken),
+      parentSessionId,
+      userAgentHash: context.userAgent ? hashSecret(context.userAgent) : null,
+      ipHash: context.ip ? hashSecret(context.ip) : null,
+      expiresAt: verifiedRefreshToken.expiresAt,
+    },
+  };
+}
+
+/**
+ * Parse expiration string to seconds. Supports hours and days, matching the
+ * config schema.
  */
 function parseExpiration(expiresIn: string): number {
   const match = expiresIn.match(/^(\d+)([hd])$/);
   if (!match) {
-    return 3600; // Default 1 hour
+    return 3600;
   }
 
   const value = parseInt(match[1], 10);
@@ -139,90 +424,236 @@ function parseExpiration(expiresIn: string): number {
 
   if (unit === 'h') {
     return value * 3600;
-  } else if (unit === 'd') {
+  }
+  if (unit === 'd') {
     return value * 86400;
   }
 
   return 3600;
 }
 
-// ---------------------------------------------------------------------------
-// HIGH-3 FIX: Token revocation via in-memory blacklist with TTL cleanup.
-// For production at scale, replace with Redis SET + EXPIRE. This in-process
-// implementation is correct for single-instance deployments and tests.
-// ---------------------------------------------------------------------------
+async function storeNonce(nonce: StoredNonce): Promise<void> {
+  if (!authPrisma) {
+    memoryNonces.set(nonce.nonceHash, nonce);
+    return;
+  }
 
-/** Blacklisted refresh tokens with their expiry timestamps */
-const revokedTokens = new Map<string, number>();
+  await authPrisma.authNonce.create({
+    data: {
+      address: nonce.address,
+      nonceHash: nonce.nonceHash,
+      message: nonce.message,
+      expiresAt: nonce.expiresAt,
+    },
+  });
+}
 
-/** Periodic cleanup of expired blacklist entries (every 10 minutes) */
-const BLACKLIST_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
-let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+async function findValidNonce(nonceHash: string): Promise<StoredNonce | null> {
+  const now = new Date();
 
-function ensureCleanupTimer(): void {
-  if (cleanupTimer) return;
-  cleanupTimer = setInterval(() => {
-    const now = Date.now() / 1000;
-    for (const [token, expiry] of revokedTokens) {
-      if (now > expiry) {
-        revokedTokens.delete(token);
-      }
+  if (!authPrisma) {
+    const nonce = memoryNonces.get(nonceHash);
+    if (!nonce || nonce.consumedAt || nonce.expiresAt <= now) {
+      return null;
     }
-  }, BLACKLIST_CLEANUP_INTERVAL_MS);
-  // Allow process to exit even if timer is running
-  if (cleanupTimer && typeof cleanupTimer === 'object' && 'unref' in cleanupTimer) {
-    (cleanupTimer as NodeJS.Timeout).unref();
+    return nonce;
   }
+
+  return authPrisma.authNonce.findFirst({
+    where: {
+      nonceHash,
+      consumedAt: null,
+      expiresAt: { gt: now },
+    },
+  });
 }
 
-/**
- * Revoke a refresh token by adding it to the blacklist.
- * The token remains blacklisted until its natural expiry.
- */
-export async function revokeRefreshToken(token: string): Promise<void> {
-  try {
-    // Decode (without verification) to extract expiry for blacklist TTL
-    const decoded = jwt.decode(token) as { exp?: number } | null;
-    const expiry = decoded?.exp ?? Math.floor(Date.now() / 1000) + 7 * 86400; // fallback 7d
-    revokedTokens.set(token, expiry);
-    ensureCleanupTimer();
-    logger.info('Refresh token revoked and blacklisted', {
-      tokenPrefix: token.substring(0, 20) + '...',
+async function consumeNonce(nonceHash: string): Promise<boolean> {
+  const now = new Date();
+
+  if (!authPrisma) {
+    const nonce = memoryNonces.get(nonceHash);
+    if (!nonce || nonce.consumedAt || nonce.expiresAt <= now) {
+      return false;
+    }
+    nonce.consumedAt = now;
+    return true;
+  }
+
+  const result = await authPrisma.authNonce.updateMany({
+    where: {
+      nonceHash,
+      consumedAt: null,
+      expiresAt: { gt: now },
+    },
+    data: { consumedAt: now },
+  });
+
+  return result.count === 1;
+}
+
+async function storeRefreshSession(session: StoredRefreshSession): Promise<void> {
+  if (!authPrisma) {
+    memoryRefreshSessions.set(session.tokenHash, session);
+    return;
+  }
+
+  await authPrisma.authRefreshSession.create({
+    data: {
+      id: session.id,
+      address: session.address,
+      roles: session.roles,
+      tokenHash: session.tokenHash,
+      parentSessionId: session.parentSessionId,
+      userAgentHash: session.userAgentHash,
+      ipHash: session.ipHash,
+      expiresAt: session.expiresAt,
+    },
+  });
+}
+
+async function findRefreshSession(tokenHash: string): Promise<StoredRefreshSession | null> {
+  if (!authPrisma) {
+    return memoryRefreshSessions.get(tokenHash) ?? null;
+  }
+
+  return authPrisma.authRefreshSession.findUnique({
+    where: { tokenHash },
+  });
+}
+
+async function rotateRefreshSession(
+  tokenHash: string,
+  nextSession: StoredRefreshSession,
+): Promise<StoredRefreshSession | null> {
+  const now = new Date();
+
+  if (!authPrisma) {
+    const session = memoryRefreshSessions.get(tokenHash);
+    if (!isRefreshSessionUsable(session, now)) {
+      return null;
+    }
+    session.revokedAt = now;
+    session.rotatedAt = now;
+    memoryRefreshSessions.set(nextSession.tokenHash, nextSession);
+    return session;
+  }
+
+  return authPrisma.$transaction(async (tx) => {
+    const session = await tx.authRefreshSession.findUnique({
+      where: { tokenHash },
     });
-  } catch (error) {
-    logger.error('Failed to revoke token', { error });
+
+    if (!isRefreshSessionUsable(session, now)) {
+      return null;
+    }
+
+    const result = await tx.authRefreshSession.updateMany({
+      where: {
+        tokenHash,
+        revokedAt: null,
+        rotatedAt: null,
+        expiresAt: { gt: now },
+      },
+      data: {
+        revokedAt: now,
+        rotatedAt: now,
+      },
+    });
+
+    if (result.count !== 1) {
+      return null;
+    }
+
+    await tx.authRefreshSession.create({
+      data: {
+        id: nextSession.id,
+        address: nextSession.address,
+        roles: nextSession.roles,
+        tokenHash: nextSession.tokenHash,
+        parentSessionId: nextSession.parentSessionId,
+        userAgentHash: nextSession.userAgentHash,
+        ipHash: nextSession.ipHash,
+        expiresAt: nextSession.expiresAt,
+      },
+    });
+
+    return {
+      ...session,
+      revokedAt: now,
+      rotatedAt: now,
+    };
+  });
+}
+
+async function revokeRefreshSession(
+  tokenHash: string,
+): Promise<StoredRefreshSession | null> {
+  const now = new Date();
+
+  if (!authPrisma) {
+    const session = memoryRefreshSessions.get(tokenHash);
+    if (!session) {
+      return null;
+    }
+    session.revokedAt = now;
+    return session;
+  }
+
+  return authPrisma.$transaction(async (tx) => {
+    const session = await tx.authRefreshSession.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!session) {
+      return null;
+    }
+
+    await tx.authRefreshSession.update({
+      where: { tokenHash },
+      data: { revokedAt: now },
+    });
+
+    return {
+      ...session,
+      revokedAt: now,
+    };
+  });
+}
+
+function isRefreshSessionUsable(
+  session: StoredRefreshSession | null | undefined,
+  now: Date,
+): session is StoredRefreshSession {
+  return Boolean(
+    session &&
+      !session.revokedAt &&
+      !session.rotatedAt &&
+      session.expiresAt > now,
+  );
+}
+
+function cleanupExpiredMemoryState(): void {
+  if (authPrisma) {
+    return;
+  }
+
+  const now = new Date();
+  for (const [nonceHash, nonce] of memoryNonces) {
+    if (nonce.expiresAt <= now || nonce.consumedAt) {
+      memoryNonces.delete(nonceHash);
+    }
+  }
+
+  for (const [tokenHash, session] of memoryRefreshSessions) {
+    if (session.expiresAt <= now) {
+      memoryRefreshSessions.delete(tokenHash);
+    }
   }
 }
-
-/**
- * Check whether a refresh token has been revoked.
- */
-export function isTokenRevoked(token: string): boolean {
-  return revokedTokens.has(token);
-}
-
-// ---------------------------------------------------------------------------
-// HIGH-2 FIX: Real cryptographic signature verification using Cosmos
-// secp256k1 message signing (ADR-036). The mock path is guarded by
-// ALLOW_MOCK_SIGNATURES and is blocked in production by config/index.ts.
-// ---------------------------------------------------------------------------
-
-import { Secp256k1, Secp256k1Signature, Sha256 as CryptoSha256, Ripemd160 } from '@cosmjs/crypto';
-import { fromBase64, toBech32, fromBech32 } from '@cosmjs/encoding';
-import { serializeSignDoc, type StdSignDoc } from '@cosmjs/amino';
 
 /**
  * Verify a Cosmos-style signed message (ADR-036).
- *
- * Production path:
- *  1. Reconstruct the Amino sign-doc from the message
- *  2. SHA-256 hash the canonical JSON bytes
- *  3. Verify secp256k1 signature against hash + public key
- *  4. Derive bech32 address from pubkey and compare to `address`
- *
- * Development path (ALLOW_MOCK_SIGNATURES=true):
- *  Falls back to a trivial check. Production startup is guarded against
- *  this flag in config/index.ts.
  */
 export async function verifySignature(
   address: string,
@@ -231,26 +662,19 @@ export async function verifySignature(
 ): Promise<boolean> {
   logger.info('Verifying signature', { address });
 
-  // ── Mock path (development/test only) ──
   if (config.allowMockSignatures) {
     logger.warn(
-      'Using MOCK signature verification (ALLOW_MOCK_SIGNATURES=true). ' +
-        'This is blocked in production by config guards.',
+      'Using mock signature verification. This is blocked in production by config guards.',
     );
-    // Minimal sanity: non-empty signature and message must contain domain tag
     return signature.length > 0 && message.includes('Aethelred');
   }
 
-  // ── Production path: cryptographic verification ──
   try {
-    // Validate inputs
     if (!address || !message || !signature) {
       logger.warn('Signature verification failed: missing inputs');
       return false;
     }
 
-    // Decode the base64 envelope — expecting Amino StdSignature format:
-    // { pub_key: { type, value }, signature }
     let sigData: { pub_key?: { type?: string; value?: string }; signature?: string };
     try {
       sigData = JSON.parse(
@@ -266,11 +690,8 @@ export async function verifySignature(
       return false;
     }
 
-    // Decode raw bytes
     const pubKeyBytes = fromBase64(sigData.pub_key.value);
     const signatureBytes = fromBase64(sigData.signature);
-
-    // 1. Reconstruct ADR-036 sign-doc
     const signDoc: StdSignDoc = {
       chain_id: '',
       account_number: '0',
@@ -288,11 +709,8 @@ export async function verifySignature(
       memo: '',
     };
 
-    // 2. Canonical JSON → SHA-256
     const signBytes = serializeSignDoc(signDoc);
     const messageHash = new CryptoSha256(signBytes).digest();
-
-    // 3. Verify secp256k1 signature
     const trimmedSig = Secp256k1.trimRecoveryByte(signatureBytes);
     const sig = Secp256k1Signature.fromFixedLength(trimmedSig);
     const valid = await Secp256k1.verifySignature(
@@ -306,7 +724,6 @@ export async function verifySignature(
       return false;
     }
 
-    // 4. Derive bech32 address from public key and compare
     const pubKeyHash = new Ripemd160(new CryptoSha256(pubKeyBytes).digest()).digest();
     const { prefix } = fromBech32(address);
     const derivedAddress = toBech32(prefix, pubKeyHash);

@@ -38,6 +38,13 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+  AUTH_ADMIN_ADDRESSES: z.string().default(''),
+  AUTH_OPERATOR_ADDRESSES: z.string().default(''),
+  AUTH_NONCE_TTL_MS: z.coerce.number().int().min(30_000).default(300_000),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+  OPS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
+  OPS_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(60),
 
   // Indexer configuration
   INDEXER_WS_URL: optionalUrlSchema,
@@ -81,11 +88,20 @@ const defaultSecrets = new Set(['cruzible-dev-jwt-secret', 'cruzible-dev-refresh
 const indexerWsUrl =
   parsedEnv.INDEXER_WS_URL ?? parsedEnv.WS_URL ?? DEFAULT_INDEXER_WS_URL;
 const indexerRpcUrl = parsedEnv.INDEXER_RPC_URL ?? DEFAULT_INDEXER_RPC_URL;
+const authAdminAddresses = parseAddressList(parsedEnv.AUTH_ADMIN_ADDRESSES);
+const authOperatorAddresses = parseAddressList(parsedEnv.AUTH_OPERATOR_ADDRESSES);
 
 function requireProductionConfig(value: unknown, message: string): void {
   if (value === undefined || value === null || value === '') {
     throw new Error(message);
   }
+}
+
+function parseAddressList(value: string): string[] {
+  return value
+    .split(',')
+    .map((address) => address.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 if (isProduction) {
@@ -165,6 +181,13 @@ export const config = {
   rateLimitWindowMs: parsedEnv.RATE_LIMIT_WINDOW_MS,
   rateLimitMax: parsedEnv.RATE_LIMIT_MAX,
   allowMockSignatures: parsedEnv.ALLOW_MOCK_SIGNATURES,
+  authAdminAddresses,
+  authOperatorAddresses,
+  authNonceTtlMs: parsedEnv.AUTH_NONCE_TTL_MS,
+  authRateLimitWindowMs: parsedEnv.AUTH_RATE_LIMIT_WINDOW_MS,
+  authRateLimitMax: parsedEnv.AUTH_RATE_LIMIT_MAX,
+  opsRateLimitWindowMs: parsedEnv.OPS_RATE_LIMIT_WINDOW_MS,
+  opsRateLimitMax: parsedEnv.OPS_RATE_LIMIT_MAX,
 
   // Indexer
   indexerWsUrl,

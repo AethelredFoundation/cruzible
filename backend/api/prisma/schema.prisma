@@ -10,6 +10,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============ AUTH STATE ============
+
+model AuthNonce {
+  id         String    @id @default(uuid())
+  address    String    @db.VarChar(64)
+  nonceHash  String    @unique @db.VarChar(64)
+  message    String    @db.VarChar(1000)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([address])
+  @@index([expiresAt])
+}
+
+model AuthRefreshSession {
+  id              String    @id @default(uuid())
+  address         String    @db.VarChar(64)
+  roles           String[]
+  tokenHash       String    @unique @db.VarChar(64)
+  parentSessionId String?   @db.VarChar(36)
+  userAgentHash   String?   @db.VarChar(64)
+  ipHash          String?   @db.VarChar(64)
+  expiresAt       DateTime
+  rotatedAt       DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([address])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
 // ============ BLOCKS ============
 
 model Block {

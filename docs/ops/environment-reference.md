@@ -49,6 +49,13 @@ These variables are validated or consumed by `backend/api` in the current snapsh
 | `RATE_LIMIT_WINDOW_MS` | No | `60000` | Global limiter window |
 | `RATE_LIMIT_MAX` | No | `120` | Global limiter max request count |
 | `ALLOW_MOCK_SIGNATURES` | No | `false` | Development-only escape hatch; blocked in production |
+| `AUTH_OPERATOR_ADDRESSES` | Recommended for ops access | blank | Comma-separated wallet addresses that receive the `operator` role at login |
+| `AUTH_ADMIN_ADDRESSES` | Recommended for ops access | blank | Comma-separated wallet addresses that receive `operator` and `admin` roles at login |
+| `AUTH_NONCE_TTL_MS` | No | `300000` | Wallet login challenge lifetime |
+| `AUTH_RATE_LIMIT_WINDOW_MS` | No | `60000` | Auth route limiter window |
+| `AUTH_RATE_LIMIT_MAX` | No | `10` | Auth route max request count |
+| `OPS_RATE_LIMIT_WINDOW_MS` | No | `60000` | Protected ops route limiter window |
+| `OPS_RATE_LIMIT_MAX` | No | `60` | Protected ops route max request count |
 | `INDEXER_ENABLED` | No | `true` | Enables startup of the API-side indexer service |
 | `INDEXER_RPC_URL` | Required if production indexer enabled | `http://127.0.0.1:8545` | JSON-RPC endpoint used by the indexer service |
 | `INDEXER_WS_URL` | Required if production indexer enabled | `ws://127.0.0.1:8546` | WebSocket endpoint used by the indexer service |
@@ -106,6 +113,10 @@ When `NODE_ENV=production`, API startup refuses to run with:
 Environment validation also rejects malformed URLs, malformed or zero EVM addresses,
 and reconciliation thresholds where the critical exchange-rate threshold is not
 greater than the warning threshold.
+
+The `/v1/auth` routes persist nonce and refresh-token rotation state in the
+`AuthNonce` and `AuthRefreshSession` database tables when `DATABASE_URL` is set.
+Apply the matching Prisma migration before enabling production traffic.
 
 Treat these checks as the baseline production contract, not a complete production
 hardening program.

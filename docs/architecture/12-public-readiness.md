@@ -43,7 +43,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | API observability | Partial | Health/readiness/docs are implemented, but alert persistence is still in-memory |
 | Deployment scaffolding | Blocked | Compose references missing assets and a missing `backend/api/Dockerfile.indexer` |
 | Kubernetes readiness | Blocked | Only a frontend manifest is checked in, and it points to `/api/health`, which the current Next.js app does not implement |
-| Admin/ops authentication bootstrap | Blocked | JWT-protected ops routes exist, but token issuance is not exposed via the current route surface |
+| Admin/ops authentication bootstrap | Partial | Wallet-backed nonce login, refresh rotation, logout revocation, and role-gated ops routes exist; production deployments must apply the auth-state migration and configure operator/admin address lists |
 | Data persistence model | Partial | Prisma-backed database state exists, but cache and alert storage are in-memory in the checked-in API snapshot |
 | Migration workflow | Partial | `prisma migrate dev` is scripted, but a production migration apply path is not documented as code here |
 
@@ -51,7 +51,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 
 - Complete or replace `backend/infra/docker-compose.yml` so it only references assets that exist in the repository or deployment system.
 - Add or align frontend health endpoints with `k8s/base/frontend.yaml`, or update the deployment manifest outside this doc pass.
-- Define an operator-safe JWT issuance/bootstrap workflow for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
+- Exercise the `/v1/auth` nonce/login/refresh/logout workflow in staging and provision operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
 - Replace or augment in-memory alert history and cache behavior if multi-instance persistence is required.
 - Document and automate the production migration path beyond `prisma migrate dev`.
 - Track the temporary Next.js dependency exception in `docs/security/dependency-exceptions.md` until upstream stops bundling `postcss < 8.5.10`.

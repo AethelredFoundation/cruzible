@@ -11,14 +11,17 @@ import { query } from 'express-validator';
 import { container } from 'tsyringe';
 import { AlertService, AlertSeverity, AlertType } from '../../services/AlertService';
 import { ReconciliationScheduler } from '../../services/ReconciliationScheduler';
-import { authenticate } from '../../auth/middleware';
+import { authenticate, requireRoles } from '../../auth/middleware';
+import { opsRateLimiter } from '../../middleware/rateLimiter';
 import { validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 
 const router = Router();
 
-// All alert routes require authentication
+// All alert routes require authenticated operators or admins.
+router.use(opsRateLimiter);
 router.use(authenticate);
+router.use(requireRoles('operator', 'admin'));
 
 const alertService = container.resolve(AlertService);
 const reconciliationScheduler = container.resolve(ReconciliationScheduler);
@@ -139,7 +142,9 @@ router.get(
 // ---------------------------------------------------------------------------
 
 const reconciliationStatusRouter = Router();
+reconciliationStatusRouter.use(opsRateLimiter);
 reconciliationStatusRouter.use(authenticate);
+reconciliationStatusRouter.use(requireRoles('operator', 'admin'));
 
 /**
  * @swagger

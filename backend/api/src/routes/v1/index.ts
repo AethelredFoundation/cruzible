@@ -11,9 +11,11 @@ import { stablecoinsRouter } from './stablecoins';
 import { modelsRouter } from './models';
 import { sealsRouter } from './seals';
 import { validatorsRouter } from './validators';
+import { authRouter } from './auth';
 
 const router = Router();
 
+router.use('/auth', authRouter);
 router.use('/blocks', blocksRouter);
 router.use('/jobs', jobsRouter);
 router.use('/reconciliation', reconciliationRouter);

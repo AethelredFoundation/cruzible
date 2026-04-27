@@ -15,6 +15,13 @@ const CONFIG_ENV_KEYS = [
   'RATE_LIMIT_WINDOW_MS',
   'RATE_LIMIT_MAX',
   'ALLOW_MOCK_SIGNATURES',
+  'AUTH_ADMIN_ADDRESSES',
+  'AUTH_OPERATOR_ADDRESSES',
+  'AUTH_NONCE_TTL_MS',
+  'AUTH_RATE_LIMIT_WINDOW_MS',
+  'AUTH_RATE_LIMIT_MAX',
+  'OPS_RATE_LIMIT_WINDOW_MS',
+  'OPS_RATE_LIMIT_MAX',
   'INDEXER_ENABLED',
   'INDEXER_RPC_URL',
   'INDEXER_WS_URL',
@@ -132,6 +139,17 @@ describe('backend config hardening', () => {
     expect(config.alertWebhookUrl).toBeUndefined();
     expect(config.indexerRpcUrl).toBe('http://127.0.0.1:8545');
     expect(config.indexerWsUrl).toBe('ws://127.0.0.1:8546');
+  });
+
+  it('normalizes configured auth role address lists', async () => {
+    const { config } = await loadConfigWithEnv({
+      ...productionBaseEnv,
+      AUTH_ADMIN_ADDRESSES: ' AETH1ADMIN , aeth1second ',
+      AUTH_OPERATOR_ADDRESSES: 'aeth1operator',
+    });
+
+    expect(config.authAdminAddresses).toEqual(['aeth1admin', 'aeth1second']);
+    expect(config.authOperatorAddresses).toEqual(['aeth1operator']);
   });
 
   it('rejects invalid reconciliation threshold ordering', async () => {

@@ -20,6 +20,10 @@ This directory contains the backend-side pieces of the Cruzible workspace: the A
 - `GET /health/live`
 - `GET /health/ready`
 - `GET /docs`
+- `GET /v1/auth/nonce`
+- `POST /v1/auth/login`
+- `POST /v1/auth/refresh`
+- `POST /v1/auth/logout`
 - `GET /v1/blocks`
 - `GET /v1/jobs`
 - `GET /v1/reconciliation/live`
@@ -33,7 +37,10 @@ Additional route details are available from the checked-in Swagger annotations o
 - `GET /v1/alerts/summary`
 - `GET /v1/reconciliation/status`
 
-These routes require a bearer JWT. The current workspace does not expose an auth or token issuance route, so operator/admin token provisioning must happen outside the published route surface.
+These routes require a bearer JWT with the `operator` or `admin` role. Operators
+obtain tokens through the wallet-backed `/v1/auth` nonce/login flow. Configure
+`AUTH_OPERATOR_ADDRESSES` and `AUTH_ADMIN_ADDRESSES` before relying on protected
+ops routes in a shared environment.
 
 ### Runtime characteristics
 
