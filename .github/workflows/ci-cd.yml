@@ -162,11 +162,7 @@ jobs:
 
       - name: Collect CosmWasm artifact checksums
         working-directory: ./backend/contracts
-        run: |
-          mkdir -p audit-artifacts/contracts
-          cp target/wasm32-unknown-unknown/release/*.wasm audit-artifacts/contracts/
-          cd audit-artifacts/contracts
-          sha256sum *.wasm > SHA256SUMS
+        run: bash scripts/prepare-audit-artifacts.sh
 
       - name: Upload CosmWasm audit artifacts
         uses: actions/upload-artifact@v4

@@ -52,8 +52,9 @@ cargo build --release --target wasm32-unknown-unknown
 ```
 
 The `Contracts` CI job also publishes wasm files and `SHA256SUMS` as a
-commit-scoped audit artifact. The local Dockerfile mirrors that artifact build
-path and prints the generated checksums by default.
+commit-scoped audit artifact. `scripts/prepare-audit-artifacts.sh` also writes
+`manifest.json` with file sizes and checksums. The local Dockerfile mirrors
+that artifact build path and prints the generated checksums by default.
 
 ## Audit-Candidate Checklist
 
@@ -62,7 +63,7 @@ Before external audit:
 - [x] Prior critical remediations implemented in live code.
 - [x] Local `cargo test` passes with 233 tests.
 - [x] CI workflow enforces test, fmt, clippy, and wasm release build gates.
-- [x] CI workflow uploads commit-scoped wasm artifacts and checksums.
+- [x] CI workflow uploads commit-scoped wasm artifacts, checksums, and manifest.
 - [x] Known residual review items documented for auditor review.
 - [x] Deployment assumptions and contract address wiring documented.
 - [ ] Staging release manifest captured with code IDs, addresses, checksums, and role owners.

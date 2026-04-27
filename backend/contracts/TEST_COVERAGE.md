@@ -57,6 +57,6 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release --target wasm32-unknown-unknown
 ```
 
-These commands are enforced by CI. The wasm files and `SHA256SUMS` are uploaded
-as commit-scoped CI artifacts and should be archived with the audit-candidate
-package.
+These commands are enforced by CI. The wasm files, `SHA256SUMS`, and
+`manifest.json` are uploaded as commit-scoped CI artifacts and should be
+archived with the audit-candidate package.

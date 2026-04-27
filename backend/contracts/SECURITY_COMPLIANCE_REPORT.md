@@ -50,14 +50,14 @@ Completed for audit-candidate state:
 - [x] Seal manager cross-contract job check remediated.
 - [x] Local `cargo test` evidence passes with 233 tests.
 - [x] CI workflow enforces contract fmt, clippy, tests, dependency audit, and wasm release build.
-- [x] CI workflow uploads commit-scoped wasm artifacts and `SHA256SUMS`.
+- [x] CI workflow uploads commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json`.
 - [x] Residual review items and deployment assumptions are documented in `AUDIT_PACKET.md`.
 
 Required before production readiness:
 
 - [ ] Independent external audit completed.
 - [ ] Audit findings remediated or explicitly risk accepted.
-- [ ] Deployment manifest completed and reviewed with code IDs, addresses, checksums, and role owners.
+- [ ] Staging deployment manifest completed and reviewed with code IDs, addresses, checksums, and role owners.
 - [ ] Optimized wasm artifacts signed if required by launch policy.
 - [ ] Staging deployment validated on a real chain.
 - [ ] End-to-end cross-contract integration tested.

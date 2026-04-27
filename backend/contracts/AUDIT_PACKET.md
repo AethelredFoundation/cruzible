@@ -42,14 +42,13 @@ cargo build --workspace --release --target wasm32-unknown-unknown --locked
 Create local artifact checksums:
 
 ```bash
-mkdir -p audit-artifacts/contracts
-cp target/wasm32-unknown-unknown/release/*.wasm audit-artifacts/contracts/
-cd audit-artifacts/contracts
-sha256sum *.wasm > SHA256SUMS
+bash scripts/prepare-audit-artifacts.sh
 ```
 
-The CI `Contracts` job performs the same wasm build and uploads the wasm files
-plus `SHA256SUMS` as an audit artifact named with the commit SHA.
+The script copies wasm files into `audit-artifacts/contracts`, writes
+`SHA256SUMS`, and creates `manifest.json` with the commit, timestamp, file
+sizes, and checksums. The CI `Contracts` job performs the same wasm build and
+uploads that directory as an audit artifact named with the commit SHA.
 
 ## Deployment Assumptions
 
@@ -75,6 +74,7 @@ These are not hidden TODOs. They are explicit pre-production review items:
 | Item                               | Status | Required action                                                                        |
 | ---------------------------------- | ------ | -------------------------------------------------------------------------------------- |
 | External audit                     | Open   | Complete independent review and remediate or accept findings.                          |
+| Artifact manifest                  | Ready  | `scripts/prepare-audit-artifacts.sh` generates `manifest.json` and `SHA256SUMS`.       |
 | Deployment manifest                | Open   | Record code IDs, contract addresses, admins, operators, and artifact checksums.        |
 | Staging deployment                 | Open   | Instantiate all contracts on a real chain and exercise core cross-contract flows.      |
 | Governance feeder decentralization | Open   | Define governance v2 feeder election or formally accept the bootstrapped feeder model. |

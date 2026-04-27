@@ -8,13 +8,11 @@ RUN rustup target add wasm32-unknown-unknown
 
 COPY Cargo.toml Cargo.lock ./
 COPY contracts ./contracts
+COPY scripts ./scripts
 
 RUN cargo build --workspace --release --target wasm32-unknown-unknown --locked
 
-RUN mkdir -p /artifacts/contracts \
-    && cp target/wasm32-unknown-unknown/release/*.wasm /artifacts/contracts/ \
-    && cd /artifacts/contracts \
-    && sha256sum *.wasm > SHA256SUMS
+RUN bash scripts/prepare-audit-artifacts.sh /artifacts/contracts
 
 FROM alpine:3.20 AS artifacts
 

@@ -70,7 +70,7 @@ The workspace is suitable for an external audit candidate branch after the follo
 
 - Current source tree and Cargo lockfile.
 - Reproducible `cargo test` output showing 233 passing tests.
-- Commit-scoped wasm artifacts and `SHA256SUMS` from CI.
+- Commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json` from CI.
 - This assurance report and the related security/test coverage documents.
 - `AUDIT_PACKET.md` with residual review items, deployment assumptions, and staging drill.
 
