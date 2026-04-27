@@ -77,6 +77,7 @@ cargo test --all
 | `GET /health` | Full health report | Includes DB, RPC, memory, uptime, optional indexer state, and optional reconciliation state |
 | `GET /health/live` | Liveness probe | Simple process-alive probe |
 | `GET /health/ready` | Readiness probe | Fails when DB/RPC are down, indexer lag exceeds 500 blocks, or reconciliation is CRITICAL |
+| `GET /metrics` | Prometheus scrape endpoint | Exposes process metrics plus HTTP request count, latency, and in-flight gauges |
 | `GET /docs` | Swagger UI | Built from checked-in route annotations |
 
 ### Common checks
@@ -85,6 +86,7 @@ cargo test --all
 curl -s http://localhost:3001/health | jq
 curl -s http://localhost:3001/health/live | jq
 curl -s http://localhost:3001/health/ready | jq
+curl -s http://localhost:3001/metrics | head
 curl -s http://localhost:3001/v1/reconciliation/live?validator_limit=50 | jq
 ```
 

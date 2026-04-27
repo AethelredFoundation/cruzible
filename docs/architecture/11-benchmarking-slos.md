@@ -74,7 +74,7 @@ cargo test --all
 
 - The current API benchmark script targets a stale path, `http://localhost:3000/v1/health`. Update that target locally before using it as a meaningful latency measurement.
 - Some frontend pages still include preview or mock fallback data. User-perceived performance should be interpreted in that context.
-- The checked-in Compose monitoring stack is incomplete because referenced config assets are missing from `backend/infra/`.
+- The API exposes Prometheus-compatible process and HTTP metrics at `/metrics`, but the checked-in Compose monitoring stack is incomplete because referenced config assets are missing from `backend/infra/`.
 - `CacheService` uses Redis when `REDIS_URL` is configured and production startup requires Redis. Alert history is database-backed when `DATABASE_URL` is configured.
 
 ## 6. Known Measurement Gaps

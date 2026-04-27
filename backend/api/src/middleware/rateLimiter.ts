@@ -6,7 +6,8 @@ export const rateLimiter = rateLimit({
   max: config.rateLimitMax,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path === '/health' || req.path.startsWith('/docs'),
+  skip: (req) =>
+    req.path === '/health' || req.path === '/metrics' || req.path.startsWith('/docs'),
   handler: (req, res) => {
     res.status(429).json({
       error: 'TooManyRequests',

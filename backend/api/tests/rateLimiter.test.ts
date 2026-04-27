@@ -57,4 +57,21 @@ describe('rate limiter', () => {
       }
     });
   });
+
+  it('skips /metrics from rate limiting', async () => {
+    const { rateLimiter } = await import('../src/middleware/rateLimiter');
+
+    const app = express();
+    app.use(rateLimiter);
+    app.get('/metrics', (_req, res) => {
+      res.type('text/plain').send('ok');
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      for (let i = 0; i < 4; i += 1) {
+        const response = await fetch(`${baseUrl}/metrics`);
+        expect(response.status).toBe(200);
+      }
+    });
+  });
 });

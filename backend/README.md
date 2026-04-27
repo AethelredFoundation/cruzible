@@ -19,6 +19,7 @@ This directory contains the backend-side pieces of the Cruzible workspace: the A
 - `GET /health`
 - `GET /health/live`
 - `GET /health/ready`
+- `GET /metrics`
 - `GET /docs`
 - `GET /v1/auth/nonce`
 - `POST /v1/auth/login`
@@ -45,6 +46,7 @@ ops routes in a shared environment.
 ### Runtime characteristics
 
 - Health and readiness checks are implemented in `backend/api/src/routes/health.ts`.
+- Prometheus-compatible HTTP metrics are exposed at `GET /metrics`.
 - The Socket.IO server currently emits a `ready` event on client connection.
 - `CacheService` uses Redis when `REDIS_URL` is configured and falls back to an in-memory cache for local/test operation.
 - `AlertService` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.

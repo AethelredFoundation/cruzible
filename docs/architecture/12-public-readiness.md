@@ -40,7 +40,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | --- | --- | --- |
 | Documentation baseline | Good | Core README, backend README, runbook, env reference, and readiness docs now describe checked-in surfaces instead of inferred ones |
 | Config examples | Good | Frontend and backend examples now separate runtime inputs from scaffold-only values |
-| API observability | Partial | Health/readiness/docs are implemented, alert history is database-backed when `DATABASE_URL` is configured, and API cache uses Redis when `REDIS_URL` is configured |
+| API observability | Partial | Health/readiness/docs are implemented, Prometheus-compatible `/metrics` is exposed, alert history is database-backed when `DATABASE_URL` is configured, and API cache uses Redis when `REDIS_URL` is configured |
 | Deployment scaffolding | Blocked | Compose references missing assets and a missing `backend/api/Dockerfile.indexer` |
 | Kubernetes readiness | Blocked | Only a frontend manifest is checked in, and it points to `/api/health`, which the current Next.js app does not implement |
 | Admin/ops authentication bootstrap | Partial | Wallet-backed nonce login, refresh rotation, logout revocation, and role-gated ops routes exist; production deployments must apply the auth-state migration and configure operator/admin address lists |

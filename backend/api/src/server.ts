@@ -26,7 +26,7 @@ import { config } from './config';
 import { swaggerSpec } from './config/swagger';
 import { errorHandler } from './middleware/errorHandler';
 import { rateLimiter } from './middleware/rateLimiter';
-import { metricsMiddleware } from './middleware/metrics';
+import { metricsHandler, metricsMiddleware } from './middleware/metrics';
 import { requestId } from './middleware/requestId';
 import { requestLogger } from './middleware/requestLogger';
 
@@ -211,6 +211,9 @@ export class ApiGateway {
   }
 
   private initializeRoutes(): void {
+    // Prometheus scrape endpoint (no rate limit)
+    this.app.get('/metrics', metricsHandler);
+
     // Health check (no rate limit)
     this.app.use('/health', healthRouter);
 
