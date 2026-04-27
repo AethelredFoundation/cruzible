@@ -31,10 +31,10 @@ import {
   useBlockNumber,
 } from "wagmi";
 
-import { formatUnits } from "viem";
+import { formatUnits, zeroAddress } from "viem";
 import { activeChain } from "@/config/wagmi";
 import { ERC20ABI } from "@/config/abis";
-import { CONTRACT_ADDRESSES } from "@/config/chains";
+import { getContractAddress } from "@/config/contracts";
 import {
   fetchReconciliationControlPlane,
   type ReconciliationControlPlaneSummary,
@@ -177,24 +177,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const trackedTokenContracts = [
     {
       symbol: "stAETHEL",
-      address: CONTRACT_ADDRESSES.stAethel as `0x${string}` | undefined,
+      address: getContractAddress("stAethel"),
       decimals: 18,
     },
     {
       symbol: "USDC",
-      address: CONTRACT_ADDRESSES.usdcToken as `0x${string}` | undefined,
+      address: getContractAddress("usdcToken"),
       decimals: 6,
     },
     {
       symbol: "USDT",
-      address: CONTRACT_ADDRESSES.usdtToken as `0x${string}` | undefined,
+      address: getContractAddress("usdtToken"),
       decimals: 6,
     },
   ] as const;
 
   const { data: tokenBalances } = useReadContracts({
     contracts: trackedTokenContracts.map((token) => ({
-      address: token.address ?? "0x0000000000000000000000000000000000000000",
+      address: token.address ?? zeroAddress,
       abi: ERC20ABI,
       functionName: "balanceOf",
       args: [address ?? "0x0000000000000000000000000000000000000000"],

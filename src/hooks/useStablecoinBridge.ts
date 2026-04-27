@@ -22,9 +22,14 @@ import {
   useConfig,
 } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
-import { parseUnits, pad, type Address, type Hash } from "viem";
+import { parseUnits, pad, zeroAddress, type Hash } from "viem";
 import { StablecoinBridgeABI, ERC20ABI } from "@/config/abis";
-import { CONTRACT_ADDRESSES } from "@/config/chains";
+import {
+  getContractAddress,
+  getStablecoinTokenAddress,
+  normalizeContractAddress,
+} from "@/config/contracts";
+import { activeChain } from "@/config/wagmi";
 import { useApp } from "@/contexts/AppContext";
 import {
   STABLECOIN_ASSETS,
@@ -58,15 +63,15 @@ export interface StablecoinOnChainConfig {
  */
 export function useStablecoinConfig(symbol: string): StablecoinOnChainConfig {
   const asset = STABLECOIN_ASSETS[symbol];
-  const bridgeAddr = CONTRACT_ADDRESSES.stablecoinBridge as Address;
+  const bridgeAddr = getContractAddress("stablecoinBridge");
 
   const { data, isLoading } = useReadContract({
-    address: bridgeAddr,
+    address: bridgeAddr ?? zeroAddress,
     abi: StablecoinBridgeABI,
     functionName: "stablecoins",
     args: asset ? [asset.assetId] : undefined,
     query: {
-      enabled: !!asset && !!bridgeAddr,
+      enabled: Boolean(asset && bridgeAddr),
       refetchInterval: 30_000,
     },
   });
@@ -115,25 +120,16 @@ export function useStablecoinConfig(symbol: string): StablecoinOnChainConfig {
  */
 export function useStablecoinAllowance(symbol: string) {
   const { address } = useAccount();
-  const asset = STABLECOIN_ASSETS[symbol];
-  const bridgeAddr = CONTRACT_ADDRESSES.stablecoinBridge as Address;
-
-  // Resolve the token address from CONTRACT_ADDRESSES
-  const tokenKey =
-    symbol === "USDC" ? "usdcToken" : symbol === "USDT" ? "usdtToken" : "";
-  const tokenAddr = (
-    tokenKey
-      ? CONTRACT_ADDRESSES[tokenKey as keyof typeof CONTRACT_ADDRESSES]
-      : ""
-  ) as Address;
+  const bridgeAddr = getContractAddress("stablecoinBridge");
+  const tokenAddr = getStablecoinTokenAddress(symbol);
 
   const { data, isLoading, refetch } = useReadContract({
-    address: tokenAddr,
+    address: tokenAddr ?? zeroAddress,
     abi: ERC20ABI,
     functionName: "allowance",
     args: address && bridgeAddr ? [address, bridgeAddr] : undefined,
     query: {
-      enabled: !!address && !!tokenAddr && !!bridgeAddr,
+      enabled: Boolean(address && tokenAddr && bridgeAddr),
       refetchInterval: 15_000,
     },
   });
@@ -159,11 +155,11 @@ export function useStablecoinAllowance(symbol: string) {
  * and return undefined.
  */
 export function useBridgeOut() {
-  const { addNotification } = useApp();
+  const { addNotification, wallet } = useApp();
   const config = useConfig();
   const { address } = useAccount();
   const { writeContractAsync, isPending } = useWriteContract();
-  const bridgeAddr = CONTRACT_ADDRESSES.stablecoinBridge as Address;
+  const bridgeAddr = getContractAddress("stablecoinBridge");
 
   const bridgeOut = useCallback(
     async (
@@ -193,6 +189,15 @@ export function useBridgeOut() {
         return undefined;
       }
 
+      if (wallet.isWrongNetwork) {
+        addNotification(
+          "error",
+          "Wrong Network",
+          `Switch to ${activeChain.name} before submitting this transaction.`,
+        );
+        return undefined;
+      }
+
       // Gate on live on-chain config — prevents submitting a tx that will revert
       if (onChainConfig && !onChainConfig.isLoading) {
         if (!onChainConfig.enabled) {
@@ -217,7 +222,7 @@ export function useBridgeOut() {
         addNotification(
           "error",
           "Configuration Error",
-          "Stablecoin bridge contract address not configured",
+          "Stablecoin bridge contract address is not configured or invalid",
         );
         return undefined;
       }
@@ -231,22 +236,27 @@ export function useBridgeOut() {
         return undefined;
       }
 
-      // Resolve token address
-      const tokenKey =
-        symbol === "USDC" ? "usdcToken" : symbol === "USDT" ? "usdtToken" : "";
-      const tokenAddr = (
-        tokenKey
-          ? CONTRACT_ADDRESSES[tokenKey as keyof typeof CONTRACT_ADDRESSES]
-          : ""
-      ) as Address;
+      const tokenAddr = getStablecoinTokenAddress(symbol);
 
       if (!tokenAddr) {
         addNotification(
           "error",
           "Configuration Error",
-          `${symbol} token address not configured`,
+          `${symbol} token address is not configured or invalid`,
         );
         return undefined;
+      }
+
+      if (onChainConfig && !onChainConfig.isLoading && onChainConfig.enabled) {
+        const onChainToken = normalizeContractAddress(onChainConfig.token);
+        if (!onChainToken || onChainToken !== tokenAddr) {
+          addNotification(
+            "error",
+            "Token Configuration Mismatch",
+            `${symbol} token address does not match the bridge's on-chain configuration.`,
+          );
+          return undefined;
+        }
       }
 
       try {
@@ -265,6 +275,7 @@ export function useBridgeOut() {
           abi: ERC20ABI,
           functionName: "approve",
           args: [bridgeAddr, amount],
+          chainId: activeChain.id,
         });
 
         addNotification(
@@ -272,7 +283,18 @@ export function useBridgeOut() {
           "Confirming Approval",
           "Waiting for approval to be confirmed on-chain...",
         );
-        await waitForTransactionReceipt(config, { hash: approveHash });
+        const approvalReceipt = await waitForTransactionReceipt(config, {
+          hash: approveHash,
+        });
+
+        if (approvalReceipt.status === "reverted") {
+          addNotification(
+            "error",
+            "Approval Reverted",
+            `The ${symbol} approval was reverted on-chain.`,
+          );
+          return undefined;
+        }
 
         // Step 2: Bridge out via CCTP
         // mintRecipient is the connected wallet address padded to bytes32
@@ -288,6 +310,7 @@ export function useBridgeOut() {
           abi: StablecoinBridgeABI,
           functionName: "bridgeOutViaCCTP",
           args: [asset.assetId, amount, destinationDomain, mintRecipient],
+          chainId: activeChain.id,
         });
 
         addNotification(
@@ -334,7 +357,7 @@ export function useBridgeOut() {
         return undefined;
       }
     },
-    [writeContractAsync, config, bridgeAddr, address, addNotification],
+    [writeContractAsync, config, bridgeAddr, address, wallet, addNotification],
   );
 
   return { bridgeOut, isPending };

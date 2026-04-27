@@ -123,6 +123,7 @@ function BridgeTab() {
   const isDisabled =
     isPending ||
     !wallet.connected ||
+    wallet.isWrongNetwork ||
     !amount ||
     parseFloat(amount) <= 0 ||
     parseFloat(amount) > balance ||

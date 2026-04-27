@@ -1471,7 +1471,11 @@ function StakeTab() {
   const receiveSt = liveRate != null && liveRate > 0 ? numAmt / liveRate : null;
   const fee = numAmt * 0.001;
   const projected30d = liveApy != null ? (numAmt * liveApy) / 100 / 12 : null;
-  const isValid = wallet.connected && numAmt >= 1 && numAmt <= maxBalance;
+  const isValid =
+    wallet.connected &&
+    !wallet.isWrongNetwork &&
+    numAmt >= 1 &&
+    numAmt <= maxBalance;
   const processing = stakeIsPending;
 
   const handleQuick = (pct: number) => {
@@ -1815,7 +1819,11 @@ function UnstakeTab() {
 
   const receiveAethel = liveRate == null ? null : numAmt * liveRate;
   const earlyFee = receiveAethel == null ? null : receiveAethel * 0.005;
-  const isValid = wallet.connected && numAmt > 0 && numAmt <= maxBal;
+  const isValid =
+    wallet.connected &&
+    !wallet.isWrongNetwork &&
+    numAmt > 0 &&
+    numAmt <= maxBal;
   const processing = unstakeIsPending;
 
   const completionDate = useMemo(() => {
