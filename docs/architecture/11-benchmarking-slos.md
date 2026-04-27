@@ -75,7 +75,7 @@ cargo test --all
 - The current API benchmark script targets a stale path, `http://localhost:3000/v1/health`. Update that target locally before using it as a meaningful latency measurement.
 - Some frontend pages still include preview or mock fallback data. User-perceived performance should be interpreted in that context.
 - The checked-in Compose monitoring stack is incomplete because referenced config assets are missing from `backend/infra/`.
-- `CacheService` and alert history are in-memory in the current snapshot, so multi-instance performance and persistence behavior require additional deployment work outside this repo.
+- `CacheService` is in-memory in the current snapshot. Alert history is database-backed when `DATABASE_URL` is configured, but multi-instance cache behavior still requires additional deployment work.
 
 ## 6. Known Measurement Gaps
 

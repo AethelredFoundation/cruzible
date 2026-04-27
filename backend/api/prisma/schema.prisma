@@ -847,6 +847,22 @@ enum ReconciliationDiscrepancySeverity {
   CRITICAL
 }
 
+// ============ ALERTS ============
+
+model AlertEvent {
+  id        String   @id @db.VarChar(80)
+  severity  String   @db.VarChar(16)
+  type      String   @db.VarChar(80)
+  message   String
+  metadata  Json
+  delivered Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([severity])
+  @@index([type])
+  @@index([createdAt])
+}
+
 // ============ SYNC STATE ============
 
 model SyncState {

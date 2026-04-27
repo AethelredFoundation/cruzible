@@ -47,7 +47,7 @@ ops routes in a shared environment.
 - Health and readiness checks are implemented in `backend/api/src/routes/health.ts`.
 - The Socket.IO server currently emits a `ready` event on client connection.
 - `CacheService` is in-memory in this snapshot.
-- `AlertService` retains alert history in-memory in this snapshot.
+- `AlertService` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.
 - The API reads environment from `process.env`; it does not automatically load `.env` files.
 
 ## Useful Commands

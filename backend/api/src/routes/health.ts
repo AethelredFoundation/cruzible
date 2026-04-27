@@ -163,7 +163,7 @@ router.get('/', async (_req: Request, res: Response) => {
     const scheduler = container.resolve(ReconciliationScheduler);
     const latestResult = scheduler.getLatestResult();
     const alertServiceInstance = container.resolve(AlertService);
-    const activeCritical = alertServiceInstance.getActiveCriticalCount();
+    const activeCritical = await alertServiceInstance.getActiveCriticalCount();
 
     if (latestResult?.status === 'CRITICAL' || activeCritical > 0) {
       reconciliationCritical = true;
@@ -265,7 +265,7 @@ router.get('/ready', async (_req: Request, res: Response) => {
     reconciliationStatus = latestResult?.status ?? null;
 
     const alertServiceInstance = container.resolve(AlertService);
-    activeCriticalAlerts = alertServiceInstance.getActiveCriticalCount();
+    activeCriticalAlerts = await alertServiceInstance.getActiveCriticalCount();
 
     if (latestResult?.status === 'CRITICAL' || activeCriticalAlerts > 0) {
       reconciliationReady = false;

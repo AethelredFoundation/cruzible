@@ -116,7 +116,9 @@ The reconciliation scheduler starts automatically with the API process.
 
 ### Important operational caveat
 
-Alert history is in-memory in the current snapshot. Restarting the API clears the in-process alert buffer.
+Alert history is persisted in PostgreSQL when `DATABASE_URL` is configured. If
+the API is started without database-backed alert persistence, it falls back to
+an in-process buffer that is cleared on restart.
 
 ### Investigation flow when readiness fails
 
@@ -172,10 +174,11 @@ npm run db:migrate
 
 - `backend/infra/docker-compose.yml` references config directories and `backend/api/Dockerfile.indexer` that are not checked in.
 - `k8s/base/frontend.yaml` currently probes `/api/health`, but the Next.js app in this repository does not implement that route.
-- `backend/api` uses in-memory cache and in-memory alert history in the current implementation.
+- `backend/api` still uses in-memory cache in the current implementation.
 - There is no checked-in backend Kubernetes manifest matching the API gateway.
-- Production auth state requires the `AuthNonce` and `AuthRefreshSession` Prisma
-  migration to be applied before enabling the API gateway.
+- Production database-backed auth and alert state requires the `AuthNonce`,
+  `AuthRefreshSession`, and `AlertEvent` Prisma migrations to be applied before
+  enabling the API gateway.
 
 ## 9. Operator Checklist
 

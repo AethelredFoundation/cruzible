@@ -88,7 +88,7 @@ router.get(
     const severity = req.query.severity as AlertSeverity | undefined;
     const type = req.query.type as AlertType | undefined;
 
-    const result = alertService.getAlertHistory({
+    const result = await alertService.getAlertHistory({
       severity,
       type,
       limit,
@@ -128,7 +128,7 @@ router.get(
 router.get(
   '/summary',
   asyncHandler(async (_req: Request, res: Response) => {
-    const summary = alertService.getAlertSummary();
+    const summary = await alertService.getAlertSummary();
     res.json(summary);
   }),
 );

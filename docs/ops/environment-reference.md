@@ -96,7 +96,8 @@ The variables below are referenced by `backend/infra/docker-compose.yml`. They s
 
 - `REDIS_URL` is still passed through parts of the Compose scaffold, but the current `backend/api/src/services/CacheService.ts` implementation is in-memory.
 - `GRPC_URL` appears in Compose scaffolding but is not part of the API config contract enforced by `backend/api/src/config/index.ts`.
-- Protected ops endpoints require bearer JWTs, but the current route surface does not expose a token issuance route.
+- Protected ops endpoints require bearer JWTs issued through the `/v1/auth` wallet nonce/login flow.
+- Alert history uses PostgreSQL when `DATABASE_URL` is configured and falls back to in-memory history only when database-backed API state is unavailable.
 - `backend/infra/docker-compose.yml` references additional files and directories that are not checked in, including `backend/api/Dockerfile.indexer`.
 
 ## 6. Production Hygiene Rules Already Enforced In Code
@@ -116,7 +117,8 @@ greater than the warning threshold.
 
 The `/v1/auth` routes persist nonce and refresh-token rotation state in the
 `AuthNonce` and `AuthRefreshSession` database tables when `DATABASE_URL` is set.
-Apply the matching Prisma migration before enabling production traffic.
+Alert history is persisted in `AlertEvent`. Apply the matching Prisma migrations
+before enabling production traffic.
 
 Treat these checks as the baseline production contract, not a complete production
 hardening program.
