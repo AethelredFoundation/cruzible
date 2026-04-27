@@ -99,6 +99,7 @@ The variables below are referenced by `backend/infra/docker-compose.yml`. They s
 - Protected ops endpoints require bearer JWTs issued through the `/v1/auth` wallet nonce/login flow.
 - Alert history uses PostgreSQL when `DATABASE_URL` is configured and falls back to in-memory history only when database-backed API state is unavailable.
 - `backend/infra/docker-compose.yml` still references additional config directories that are not checked in.
+- `k8s/base/backend.yaml` expects non-secret runtime config in `cruzible-api-config` and secret values in `cruzible-api-secrets` with keys `database-url`, `redis-url`, `jwt-secret`, and `jwt-refresh-secret`.
 
 ## 6. Production Hygiene Rules Already Enforced In Code
 

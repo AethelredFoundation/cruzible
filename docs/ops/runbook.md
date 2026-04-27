@@ -12,7 +12,7 @@ This runbook covers the surfaces that are implemented in the current repository:
 - CosmWasm contracts in `backend/contracts`
 - Readiness and environment documentation in `docs/`
 
-This runbook does not assume that every checked-in infrastructure artifact is turnkey. In particular, `backend/infra/docker-compose.yml` and the missing backend Kubernetes manifest still have gaps called out below.
+This runbook does not assume that every checked-in infrastructure artifact is turnkey. In particular, `backend/infra/docker-compose.yml` and environment-specific Kubernetes config/secrets still have gaps called out below.
 
 ## 2. Preflight Assumptions
 
@@ -67,6 +67,24 @@ npm run build
 cd ../contracts
 cargo test --all
 ```
+
+### Kubernetes base
+
+`k8s/base/` contains frontend, API gateway, and indexer manifests. Before
+applying it, replace placeholder values in `cruzible-config` and
+`cruzible-api-config`, then create the required `cruzible-api-secrets` Secret
+with these keys:
+
+- `database-url`
+- `redis-url`
+- `jwt-secret`
+- `jwt-refresh-secret`
+- `alert-webhook-url` when alert delivery is enabled
+
+The API deployment probes `/health/live` for liveness and `/health/ready` for
+readiness. The API service and pods expose Prometheus scrape annotations for
+`/metrics`. The indexer manifest runs one `api-indexer` worker replica and does
+not expose an HTTP service.
 
 ## 4. Health and Readiness
 
@@ -179,7 +197,7 @@ npm run db:migrate:deploy
 ## 8. Known Operator Gaps In This Repo Snapshot
 
 - `backend/infra/docker-compose.yml` references config directories that are not checked in.
-- There is no checked-in backend Kubernetes manifest matching the API gateway.
+- `k8s/base/backend.yaml` contains fail-closed placeholder config and requires environment-specific values plus the `cruzible-api-secrets` Secret before rollout.
 - Production database-backed auth and alert state requires the `AuthNonce`,
   `AuthRefreshSession`, and `AlertEvent` Prisma migrations to be applied with
   `npm run db:migrate:deploy` before enabling the API gateway.

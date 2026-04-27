@@ -130,7 +130,7 @@ cargo test --all
 ## Known Repo-Reality Gaps
 
 - `backend/infra/docker-compose.yml` still references companion config directories that are not present in this workspace. Treat that Compose file as a hardened baseline, not a turnkey stack.
-- `k8s/base/frontend.yaml` is frontend-only and probes the implemented Next.js `/api/health` route; there is no checked-in backend Kubernetes manifest yet.
+- `k8s/base/` includes frontend, API gateway, and indexer manifests. The backend manifests expect environment-specific ConfigMap values and a `cruzible-api-secrets` Secret before rollout.
 - `backend/api/src/services/CacheService.ts` uses Redis when `REDIS_URL` is configured and requires Redis in production; local/test runs keep an in-memory fallback.
 - `backend/api/src/services/AlertService.ts` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.
 - Some frontend surfaces remain preview-oriented. Governance explicitly guards against simulated on-chain success, and several pages use mock or fallback data for presentation.
@@ -146,7 +146,7 @@ cruzible/
 │   ├── node/                 # Aethelred node workspace
 │   └── infra/                # Infrastructure scaffolding
 ├── docs/                     # Ops, readiness, and architecture notes
-├── k8s/                      # Checked-in frontend Kubernetes manifest
+├── k8s/                      # Checked-in Kubernetes base manifests
 ├── sdk/                      # TypeScript and Python SDKs
 └── specs/                    # Protocol/specification notes
 ```

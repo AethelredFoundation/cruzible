@@ -32,7 +32,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | API | `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{blocks,jobs,reconciliation,alerts,stablecoins}` |
 | Contracts | CosmWasm contracts for AI jobs, vault, governance, model registry, seal manager, and CW20 staking |
 | Testing | Frontend Vitest, API Vitest, contract Cargo tests |
-| Infra | Frontend Dockerfile, API Dockerfile, partial Compose scaffold, frontend-only Kubernetes manifest |
+| Infra | Frontend Dockerfile, API Dockerfile, partial Compose scaffold, frontend/API/indexer Kubernetes base manifests |
 
 ## 4. Current Readiness Assessment
 
@@ -42,7 +42,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | Config examples | Good | Frontend and backend examples now separate runtime inputs from scaffold-only values |
 | API observability | Partial | Health/readiness/docs are implemented, Prometheus-compatible `/metrics` is exposed, alert history is database-backed when `DATABASE_URL` is configured, and API cache uses Redis when `REDIS_URL` is configured |
 | Deployment scaffolding | Partial | Compose now builds API and indexer targets from the repository root; referenced config directories still need to be supplied and staged |
-| Kubernetes readiness | Partial | The frontend manifest points to the implemented `/api/health` route; a backend API manifest is still not checked in |
+| Kubernetes readiness | Partial | Frontend, API gateway, and indexer manifests are checked in with fail-closed config/secret requirements; staging validation is still required |
 | Admin/ops authentication bootstrap | Partial | Wallet-backed nonce login, refresh rotation, logout revocation, and role-gated ops routes exist; production deployments must apply the auth-state migration and configure operator/admin address lists |
 | Data persistence model | Partial | Prisma-backed database state exists for auth, reconciliation, indexer, and alert events; Redis-backed cache is required for production |
 | Migration workflow | Partial | Development and production Prisma migration scripts exist; rollback still depends on operator-managed database snapshots |
@@ -50,7 +50,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 ## 5. Launch Blockers From The Current Repo State
 
 - Supply and stage-test the config directories referenced by `backend/infra/docker-compose.yml`.
-- Add a checked-in backend Kubernetes manifest matching the API gateway readiness, metrics, and secret requirements.
+- Stage-test `k8s/base/` with real `cruzible-api-config` values and a provisioned `cruzible-api-secrets` Secret.
 - Exercise the `/v1/auth` nonce/login/refresh/logout workflow in staging and provision operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
 - Exercise `npm run db:migrate:deploy` in staging and pair it with tested database snapshot/restore procedures.
 - Track the temporary Next.js dependency exception in `docs/security/dependency-exceptions.md` until upstream stops bundling `postcss < 8.5.10`.

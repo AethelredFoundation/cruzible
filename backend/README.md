@@ -84,7 +84,7 @@ cargo test --all
 ## Infrastructure Caveats
 
 - `backend/infra/docker-compose.yml` references config directories that are not present in this workspace.
-- The checked-in Kubernetes manifest under `k8s/` is frontend-only; there is no companion backend manifest in this repo snapshot.
+- The checked-in Kubernetes base under `k8s/base/` includes frontend, API gateway, and indexer manifests.
 - Compose passes `GRPC_URL` to node-facing services and maps `INDEXER_START_HEIGHT` to the API runtime `INDEXER_START_BLOCK`.
 
 For the up-to-date operator view, prefer the runbook and environment reference over older deployment notes or aspirational architecture text.
