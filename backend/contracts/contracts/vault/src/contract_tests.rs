@@ -1,4 +1,4 @@
-/**
+/*
  * AethelVault Security Tests
  *
  * Exercises the highest-risk attack scenarios called out by the Attack Playbook.
@@ -9,14 +9,17 @@
  * 4. Overflow/underflow protection
  * 5. Access control enforcement
  */
-
 #[cfg(test)]
 mod security_tests {
+    #![allow(clippy::needless_borrows_for_generic_args)]
+
     use crate::*;
     use cosmwasm_std::testing::{
         mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
     };
-    use cosmwasm_std::{coins, from_json, Env, MessageInfo, OwnedDeps, Response, Uint128};
+    use cosmwasm_std::{
+        coins, from_json, CosmosMsg, Env, MessageInfo, OwnedDeps, Response, Uint128, WasmMsg,
+    };
 
     // ============ TEST HELPERS ============
 
@@ -70,6 +73,21 @@ mod security_tests {
             amount: Uint128::from(amount),
         };
         execute(deps.as_mut(), env.clone(), info, msg).unwrap()
+    }
+
+    fn staking_token_msg(response: &Response) -> (String, StakingTokenExecuteMsg) {
+        assert_eq!(response.messages.len(), 1);
+        match &response.messages[0].msg {
+            CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr,
+                msg,
+                funds,
+            }) => {
+                assert!(funds.is_empty());
+                (contract_addr.clone(), from_json(msg).unwrap())
+            }
+            other => panic!("unexpected message: {:?}", other),
+        }
     }
 
     // ============ ACCOUNTING ATTACK TESTS ============
@@ -213,6 +231,49 @@ mod security_tests {
             let shares: Uint128 = shares_attr.value.parse().unwrap();
             assert!(!shares.is_zero(), "Must mint at least 1 share");
         }
+    }
+
+    #[test]
+    fn test_stake_mints_staking_token() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let res = stake(&mut deps, &env, "user", 10_000_000);
+        let (contract, msg) = staking_token_msg(&res);
+
+        assert_eq!(contract, "staeth");
+        assert_eq!(
+            msg,
+            StakingTokenExecuteMsg::Mint {
+                recipient: "user".to_string(),
+                amount: Uint128::from(10_000_000u128),
+            }
+        );
+    }
+
+    #[test]
+    fn test_unstake_burns_staking_token() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "user", 10_000_000);
+        let res = unstake(&mut deps, &env, "user", 10_000_000);
+        let shares_burned: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "shares_burned")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+        let (contract, msg) = staking_token_msg(&res);
+
+        assert_eq!(contract, "staeth");
+        assert_eq!(
+            msg,
+            StakingTokenExecuteMsg::BurnFrom {
+                owner: "user".to_string(),
+                amount: shares_burned,
+            }
+        );
     }
 
     // ============ WITHDRAWAL QUEUE ATTACK TESTS ============
@@ -475,6 +536,16 @@ mod security_tests {
         let shares: Uint128 = shares_attr.value.parse().unwrap();
         assert!(!shares.is_zero());
 
+        let (contract, msg) = staking_token_msg(&res);
+        assert_eq!(contract, "staeth");
+        assert_eq!(
+            msg,
+            StakingTokenExecuteMsg::Mint {
+                recipient: "user".to_string(),
+                amount: shares,
+            }
+        );
+
         // Fast forward past unbonding period
         env.block.time = env.block.time.plus_seconds(86400 * 21 + 1);
 
@@ -502,6 +573,41 @@ mod security_tests {
         let msg = ExecuteMsg::Restake { unbonding_id: 0 };
         let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(err, ContractError::AlreadyClaimed {});
+    }
+
+    #[test]
+    fn test_compound_mints_staking_token() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "user", 10_000_000);
+
+        let info = mock_info("creator", &coins(2_000_000, "aeth"));
+        let msg = ExecuteMsg::AddRewards {};
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+        let info = mock_info("user", &[]);
+        let msg = ExecuteMsg::Compound {
+            validator: "validator1".to_string(),
+        };
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+        let shares_minted: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "shares_minted")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+        let (contract, msg) = staking_token_msg(&res);
+
+        assert_eq!(contract, "staeth");
+        assert_eq!(
+            msg,
+            StakingTokenExecuteMsg::Mint {
+                recipient: "user".to_string(),
+                amount: shares_minted,
+            }
+        );
     }
 
     // ============ FIRST DEPOSITOR PROTECTION ============

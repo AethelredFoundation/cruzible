@@ -416,6 +416,7 @@ pub fn execute(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_submit_job(
     deps: DepsMut,
     env: Env,

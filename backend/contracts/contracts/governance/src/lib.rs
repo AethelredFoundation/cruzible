@@ -927,7 +927,7 @@ fn execute_remove_feeder(
     // Check feeder exists before evaluating floor constraint
     let pos = feeders
         .iter()
-        .position(|f| f == &feeder_addr)
+        .position(|f| f.as_str() == feeder_addr.as_str())
         .ok_or(ContractError::FeederNotFound {})?;
 
     // Cannot remove below min_feeder_quorum — ensures the feeder set
@@ -1248,7 +1248,7 @@ fn query_oracle_status(deps: Deps, env: Env) -> StdResult<OracleStatusResponse> 
     let mut feeder_infos: Vec<FeederInfo> = Vec::new();
     for feeder in &feeders {
         let submission = FEEDER_SUBMISSIONS.may_load(deps.storage, feeder)?;
-        let is_fresh = submission.as_ref().map_or(false, |s| {
+        let is_fresh = submission.as_ref().is_some_and(|s| {
             env.block
                 .time
                 .seconds()

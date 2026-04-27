@@ -290,6 +290,7 @@ pub fn execute(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_create_seal(
     deps: DepsMut,
     env: Env,
@@ -439,6 +440,7 @@ fn execute_extend_expiration(
         .add_attribute("seal_id", seal_id))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_supersede_seal(
     deps: DepsMut,
     env: Env,
@@ -651,13 +653,13 @@ fn query_list_seals(
     limit: Option<u32>,
 ) -> StdResult<Vec<Seal>> {
     let limit = limit.unwrap_or(50) as usize;
-    let requester_addr = requester.map(|r| Addr::unchecked(r));
+    let requester_addr = requester.map(Addr::unchecked);
     let seals_list: Vec<Seal> = seals()
         .range(deps.storage, None, None, cosmwasm_std::Order::Descending)
         .filter_map(|r| r.ok().map(|(_, seal)| seal))
         .filter(|seal| {
             if let Some(ref req) = requester_addr {
-                if &seal.requester != req {
+                if seal.requester.as_str() != req.as_str() {
                     return false;
                 }
             }

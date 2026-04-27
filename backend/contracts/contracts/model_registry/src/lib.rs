@@ -270,6 +270,7 @@ pub fn execute(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_register_model(
     deps: DepsMut,
     env: Env,

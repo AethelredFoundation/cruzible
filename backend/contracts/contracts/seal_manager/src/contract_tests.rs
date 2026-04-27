@@ -1,9 +1,8 @@
-/**
+/*
  * Seal Manager - Comprehensive Test Suite
  *
  * Covers the core seal lifecycle, queries, and configuration paths.
  */
-
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::MockApi;

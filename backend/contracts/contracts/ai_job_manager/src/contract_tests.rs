@@ -1,9 +1,8 @@
-/**
+/*
  * AI Job Manager - Comprehensive Test Suite
  *
  * Covers the core job lifecycle, queries, stats, and config guardrails.
  */
-
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};

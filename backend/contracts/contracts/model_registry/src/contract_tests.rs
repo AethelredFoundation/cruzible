@@ -1,4 +1,4 @@
-/**
+/*
  * Model Registry Contract — Comprehensive Test Suite
  *
  * Enterprise-grade tests covering:
@@ -14,9 +14,10 @@
  * - Multi-step scenario tests
  * - Monitoring events
  */
-
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::needless_borrows_for_generic_args)]
+
     use crate::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{from_json, Coin, Env, Uint128};

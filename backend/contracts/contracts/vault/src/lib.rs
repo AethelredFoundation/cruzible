@@ -16,7 +16,7 @@
  */
 use cosmwasm_std::{
     coin, ensure, entry_point, to_json_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut,
-    Env, Event, MessageInfo, Response, StdResult, Uint128,
+    Env, Event, MessageInfo, Response, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Item, Map};
@@ -99,7 +99,8 @@ pub struct Config {
 pub struct State {
     /// Total AETHEL staked (accounted, not raw balance)
     pub total_staked: Uint128,
-    /// Total stAETHEL shares outstanding
+    /// Total vault accounting shares. This includes the seed shares used as
+    /// anti-inflation liquidity plus user-facing stAETHEL-denominated shares.
     pub total_shares: Uint128,
     /// Exchange rate numerator (for precision)
     pub exchange_rate_num: Uint128,
@@ -198,6 +199,13 @@ pub enum ExecuteMsg {
     SweepDonations {
         recipient: String,
     },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum StakingTokenExecuteMsg {
+    Mint { recipient: String, amount: Uint128 },
+    BurnFrom { owner: String, amount: Uint128 },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -397,6 +405,36 @@ fn calculate_shares_to_burn(
     Ok(shares)
 }
 
+fn mint_staking_token(
+    config: &Config,
+    recipient: &Addr,
+    amount: Uint128,
+) -> Result<CosmosMsg, ContractError> {
+    Ok(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.staking_token.clone(),
+        msg: to_json_binary(&StakingTokenExecuteMsg::Mint {
+            recipient: recipient.to_string(),
+            amount,
+        })?,
+        funds: vec![],
+    }))
+}
+
+fn burn_staking_token_from(
+    config: &Config,
+    owner: &Addr,
+    amount: Uint128,
+) -> Result<CosmosMsg, ContractError> {
+    Ok(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.staking_token.clone(),
+        msg: to_json_binary(&StakingTokenExecuteMsg::BurnFrom {
+            owner: owner.to_string(),
+            amount,
+        })?,
+        funds: vec![],
+    }))
+}
+
 fn execute_stake(
     deps: DepsMut,
     _env: Env,
@@ -490,7 +528,10 @@ fn execute_stake(
         .add_attribute("total_staked", state.total_staked.to_string())
         .add_attribute("total_shares", state.total_shares.to_string());
 
+    let mint_msg = mint_staking_token(&config, &info.sender, new_shares)?;
+
     Ok(Response::new()
+        .add_message(mint_msg)
         .add_event(stake_event)
         .add_attribute("action", "stake")
         .add_attribute("amount", amount)
@@ -584,7 +625,10 @@ fn execute_unstake(
         .add_attribute("shares_burned", shares_to_burn.to_string())
         .add_attribute("total_unbonding", state.total_unbonding.to_string());
 
+    let burn_msg = burn_staking_token_from(&config, &info.sender, shares_to_burn)?;
+
     Ok(Response::new()
+        .add_message(burn_msg)
         .add_event(unstake_event)
         .add_attribute("action", "unstake")
         .add_attribute("amount", amount)
@@ -745,7 +789,10 @@ fn execute_compound(
     USER_STAKES.save(deps.storage, &info.sender, &user_stake)?;
     STATE.save(deps.storage, &state)?;
 
+    let mint_msg = mint_staking_token(&config, &info.sender, new_shares)?;
+
     Ok(Response::new()
+        .add_message(mint_msg)
         .add_attribute("action", "compound")
         .add_attribute("rewards_compounded", rewards)
         .add_attribute("shares_minted", new_shares)
@@ -758,6 +805,7 @@ fn execute_restake(
     info: MessageInfo,
     unbonding_id: u64,
 ) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
 
     // Load and validate unbonding request
@@ -812,7 +860,10 @@ fn execute_restake(
     USER_STAKES.save(deps.storage, &info.sender, &user_stake)?;
     STATE.save(deps.storage, &state)?;
 
+    let mint_msg = mint_staking_token(&config, &info.sender, shares)?;
+
     Ok(Response::new()
+        .add_message(mint_msg)
         .add_attribute("action", "restake")
         .add_attribute("amount", unbonding.amount)
         .add_attribute("shares_minted", shares))
