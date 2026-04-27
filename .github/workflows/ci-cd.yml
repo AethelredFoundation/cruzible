@@ -128,7 +128,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: clippy,rustfmt
+          targets: wasm32-unknown-unknown
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
@@ -145,8 +146,16 @@ jobs:
           RUSTFLAGS: "-D warnings"
         run: cargo check --workspace --all-targets --locked
 
+      - name: Lint contracts with Clippy
+        working-directory: ./backend/contracts
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
       - name: Run contract tests
         working-directory: ./backend/contracts
         env:
           RUSTFLAGS: "-D warnings"
         run: cargo test --workspace --locked
+
+      - name: Build optimized CosmWasm artifacts
+        working-directory: ./backend/contracts
+        run: cargo build --workspace --release --target wasm32-unknown-unknown --locked

@@ -8,14 +8,14 @@ The current workspace includes remediations for prior critical findings and pass
 
 ## Contracts
 
-| Contract | Purpose |
-|---|---|
-| `ai_job_manager` | Manages AI job lifecycle, assignment, verification, and payment settlement. |
-| `seal_manager` | Creates and verifies seals tied to upstream job evidence. |
-| `model_registry` | Registers models, validates registration fees, and tracks authorized job usage. |
-| `governance` | Handles proposals, snapshot voting power, quorum, and execution controls. |
-| `vault` | Handles staking, unbonding, reward accounting, stAETHEL mint/burn calls, and vault accounting controls. |
-| `cw20_staking` | CW20-compatible staking token functionality. |
+| Contract         | Purpose                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------- |
+| `ai_job_manager` | Manages AI job lifecycle, assignment, verification, and payment settlement.                             |
+| `seal_manager`   | Creates and verifies seals tied to upstream job evidence.                                               |
+| `model_registry` | Registers models, validates registration fees, and tracks authorized job usage.                         |
+| `governance`     | Handles proposals, snapshot voting power, quorum, and execution controls.                               |
+| `vault`          | Handles staking, unbonding, reward accounting, stAETHEL mint/burn calls, and vault accounting controls. |
+| `cw20_staking`   | CW20-compatible staking token functionality.                                                            |
 
 ## Current Hardening Evidence
 
@@ -31,15 +31,15 @@ Vault unstake uses the staking token `BurnFrom` flow, so frontends or transactio
 
 Local `cargo test` from `backend/contracts` passes with 233 tests:
 
-| Suite | Passing tests |
-|---|---:|
-| `vault` | 24 |
-| `ai_job_manager` | 52 |
-| `cw20_staking` | 42 |
-| `governance` | 41 |
-| `model_registry` | 47 |
-| `seal_manager` | 27 |
-| Doc tests | 0 |
+| Suite            | Passing tests |
+| ---------------- | ------------: |
+| `vault`          |            24 |
+| `ai_job_manager` |            52 |
+| `cw20_staking`   |            42 |
+| `governance`     |            41 |
+| `model_registry` |            47 |
+| `seal_manager`   |            27 |
+| Doc tests        |             0 |
 
 ## Build and Test
 
@@ -57,7 +57,7 @@ Before external audit:
 
 - [x] Prior critical remediations implemented in live code.
 - [x] Local `cargo test` passes with 233 tests.
-- [ ] CI evidence captured for test, fmt, clippy, and wasm build.
+- [x] CI workflow enforces test, fmt, clippy, and wasm release build gates.
 - [ ] Known TODOs documented for auditor review.
 - [ ] Deployment assumptions and contract address wiring documented.
 

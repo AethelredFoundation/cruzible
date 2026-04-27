@@ -11,16 +11,16 @@ cargo test
 
 Observed result: **233 passing tests**.
 
-| Suite | Passing tests |
-|---|---:|
-| `vault` | 24 |
-| `ai_job_manager` | 52 |
-| `cw20_staking` | 42 |
-| `governance` | 41 |
-| `model_registry` | 47 |
-| `seal_manager` | 27 |
-| Doc tests | 0 |
-| **Total** | **233** |
+| Suite            | Passing tests |
+| ---------------- | ------------: |
+| `vault`          |            24 |
+| `ai_job_manager` |            52 |
+| `cw20_staking`   |            42 |
+| `governance`     |            41 |
+| `model_registry` |            47 |
+| `seal_manager`   |            27 |
+| Doc tests        |             0 |
+| **Total**        |       **233** |
 
 ## Covered Remediation Themes
 
@@ -43,9 +43,7 @@ This document reports observed test counts, not measured line or branch coverage
 
 Additional evidence still required before production readiness:
 
-- CI logs for the same `cargo test` result.
-- Formatting and lint checks.
-- Optimized wasm build verification.
+- Passing CI logs for the same `cargo test`, formatting, clippy, dependency audit, and wasm build gates.
 - Integration tests against deployed contracts on a staging chain.
 - External audit review of economic and cross-contract invariants.
 
@@ -59,4 +57,4 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release --target wasm32-unknown-unknown
 ```
 
-These commands should be captured in CI before the audit-candidate package is finalized.
+These commands are enforced by CI and should be archived with the audit-candidate package.
