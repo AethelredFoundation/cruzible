@@ -19,6 +19,15 @@ type ProtocolStaker = {
 
 type LiveReconciliationOptions = {
   validatorLimit: number;
+  /**
+   * Public live reads should not mutate snapshot history. Persist defaults
+   * to true so explicit operator capture paths keep writing audit evidence.
+   */
+  persist?: boolean;
+};
+
+type ControlPlaneSummaryOptions = {
+  persist?: boolean;
 };
 
 export type ReconciliationDiscrepancy = {
@@ -248,13 +257,20 @@ export class ReconciliationService {
       ...(stake_snapshot ? { stake_snapshot } : {}),
     };
 
-    await this.persistSnapshot(document);
+    if (options.persist !== false) {
+      await this.persistSnapshot(document);
+    }
 
     return document;
   }
 
-  async getControlPlaneSummary(): Promise<ReconciliationControlPlaneSummary> {
-    const document = await this.getLiveDocument({ validatorLimit: 200 });
+  async getControlPlaneSummary(
+    options: ControlPlaneSummaryOptions = {},
+  ): Promise<ReconciliationControlPlaneSummary> {
+    const document = await this.getLiveDocument({
+      validatorLimit: 200,
+      persist: options.persist,
+    });
 
     return {
       epoch: document.epoch,

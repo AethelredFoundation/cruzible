@@ -12,6 +12,8 @@ import {
   type ReconciliationCheck,
   type ReconciliationResult,
 } from '../../services/ReconciliationScheduler';
+import { authenticate, requireRoles } from '../../auth/middleware';
+import { opsRateLimiter } from '../../middleware/rateLimiter';
 import { validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 
@@ -276,7 +278,7 @@ function buildScorecard(
  * @swagger
  * /v1/reconciliation/live:
  *   get:
- *     summary: Build a live reconciliation document from current chain/indexed state
+ *     summary: Build a read-only live reconciliation document from current chain/indexed state
  *     tags: [Reconciliation]
  *     parameters:
  *       - in: query
@@ -288,7 +290,7 @@ function buildScorecard(
  *         description: Maximum number of validators to include in the live universe snapshot
  *     responses:
  *       200:
- *         description: Live reconciliation document
+ *         description: Live reconciliation document. Public reads do not persist immutable snapshot history.
  */
 router.get(
   '/live',
@@ -307,6 +309,7 @@ router.get(
 
     const result = await reconciliationService.getLiveDocument({
       validatorLimit,
+      persist: false,
     });
 
     await cacheService.set(cacheKey, result, 5);
@@ -318,7 +321,7 @@ router.get(
  * @swagger
  * /v1/reconciliation/control-plane:
  *   get:
- *     summary: Get the public reconciliation control-plane summary
+ *     summary: Get the read-only public reconciliation control-plane summary
  *     tags: [Reconciliation]
  *     responses:
  *       200:
@@ -334,7 +337,9 @@ router.get(
       return res.json(cached);
     }
 
-    const result = await reconciliationService.getControlPlaneSummary();
+    const result = await reconciliationService.getControlPlaneSummary({
+      persist: false,
+    });
     await cacheService.set(cacheKey, result, 15);
     res.json(result);
   }),
@@ -344,7 +349,7 @@ router.get(
  * @swagger
  * /v1/reconciliation/scorecard:
  *   get:
- *     summary: Get the public reconciliation trust scorecard
+ *     summary: Get the read-only public reconciliation trust scorecard
  *     tags: [Reconciliation]
  *     responses:
  *       200:
@@ -360,12 +365,58 @@ router.get(
       return res.json(cached);
     }
 
-    const summary = await reconciliationService.getControlPlaneSummary();
+    const summary = await reconciliationService.getControlPlaneSummary({
+      persist: false,
+    });
     const latestResult = reconciliationScheduler.getLatestResult();
     const result = buildScorecard(summary, latestResult);
 
     await cacheService.set(cacheKey, result, 15);
     res.json(result);
+  }),
+);
+
+/**
+ * @swagger
+ * /v1/reconciliation/capture:
+ *   post:
+ *     summary: Capture and persist an operator-authorized live reconciliation snapshot
+ *     tags: [Reconciliation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: validator_limit
+ *         schema:
+ *           type: integer
+ *           default: 200
+ *           maximum: 500
+ *         description: Maximum number of validators to include in the persisted presentation window
+ *     responses:
+ *       201:
+ *         description: Persisted live reconciliation document
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.post(
+  '/capture',
+  opsRateLimiter,
+  authenticate,
+  requireRoles('operator', 'admin'),
+  [
+    query('validator_limit').optional().isInt({ min: 1, max: 500 }).toInt(),
+    validate,
+  ],
+  asyncHandler(async (req: Request, res: Response) => {
+    const validatorLimit = Number(req.query.validator_limit ?? 200);
+    const result = await reconciliationService.getLiveDocument({
+      validatorLimit,
+      persist: true,
+    });
+
+    res.status(201).json(result);
   }),
 );
 

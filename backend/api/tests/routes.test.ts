@@ -208,6 +208,7 @@ describe('backend routes', () => {
         (reconciliation.getLiveDocument as ReturnType<typeof vi.fn>).mock.calls[0][0]
       ).toEqual({
         validatorLimit: 200,
+        persist: false,
       });
     });
   });
@@ -257,8 +258,11 @@ describe('backend routes', () => {
       expect(body.epoch_source).toBe('evm/cruzible.currentEpoch');
       expect(body.validator_universe_hash).toBe('0x1234');
       expect(
-        (reconciliation.getControlPlaneSummary as ReturnType<typeof vi.fn>).mock.calls,
-      ).toHaveLength(1);
+        (reconciliation.getControlPlaneSummary as ReturnType<typeof vi.fn>).mock
+          .calls[0][0],
+      ).toEqual({
+        persist: false,
+      });
     });
   });
 
@@ -330,6 +334,115 @@ describe('backend routes', () => {
       expect(body.freshness.epoch_lag).toBe(1);
       expect(body.evidence.validator_universe_hash).toBe('0x1234');
       expect(body.pillars.some((pillar: { key: string }) => pillar.key === 'epoch_freshness')).toBe(true);
+      expect(
+        (reconciliation.getControlPlaneSummary as ReturnType<typeof vi.fn>).mock
+          .calls[0][0],
+      ).toEqual({
+        persist: false,
+      });
+    });
+  });
+
+  it('requires an operator or admin before capturing reconciliation snapshots', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { ReconciliationService } = await import('../src/services/ReconciliationService');
+    const { ReconciliationScheduler } = await import('../src/services/ReconciliationScheduler');
+    const cache = new CacheService();
+    const reconciliation = {
+      getLiveDocument: vi.fn(),
+    } as unknown as ReconciliationService;
+    const reconciliationScheduler = {
+      getLatestResult: vi.fn().mockReturnValue(null),
+    } as unknown as ReconciliationScheduler;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(ReconciliationService, reconciliation);
+    registerTestInstance(ReconciliationScheduler, reconciliationScheduler);
+
+    const { reconciliationRouter } = await import('../src/routes/v1/reconciliation');
+    const app = express();
+    app.use('/v1/reconciliation', reconciliationRouter);
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/reconciliation/capture`, {
+        method: 'POST',
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(body.message).toContain('Authorization header missing');
+      expect(
+        reconciliation.getLiveDocument as ReturnType<typeof vi.fn>,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  it('captures and persists reconciliation snapshots for authenticated operators', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { ReconciliationService } = await import('../src/services/ReconciliationService');
+    const { ReconciliationScheduler } = await import('../src/services/ReconciliationScheduler');
+    const { generateTokens } = await import('../src/auth/service');
+    const cache = new CacheService();
+    const reconciliation = {
+      getLiveDocument: vi.fn().mockResolvedValue({
+        epoch: 42,
+        network: 'aethelred',
+        mode: 'live-snapshot',
+        captured_at: '2026-03-10T00:00:00.000Z',
+        source: {
+          epoch_source: 'evm/cruzible.currentEpoch',
+          validator_source: 'rpc/staking.validators',
+          stake_source: 'indexer.stAethelBalance+delegation',
+          validator_limit: 125,
+          validator_count: 2,
+          total_eligible_validators: 2,
+          chain_height: 42,
+        },
+        warnings: [],
+        discrepancies: [],
+        validator_selection: {
+          input: { eligible_addresses: ['aethelvaloper1abc', 'aethelvaloper1def'] },
+          observed: { universe_hash: '0x1234' },
+          meta: { validator_count: 2, total_eligible_validators: 2 },
+        },
+      }),
+    } as unknown as ReconciliationService;
+    const reconciliationScheduler = {
+      getLatestResult: vi.fn().mockReturnValue(null),
+    } as unknown as ReconciliationScheduler;
+    const { accessToken } = generateTokens({
+      address: 'aeth1operator',
+      roles: ['operator'],
+    });
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(ReconciliationService, reconciliation);
+    registerTestInstance(ReconciliationScheduler, reconciliationScheduler);
+
+    const { reconciliationRouter } = await import('../src/routes/v1/reconciliation');
+    const app = express();
+    app.use('/v1/reconciliation', reconciliationRouter);
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/reconciliation/capture?validator_limit=125`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(body.epoch).toBe(42);
+      expect(
+        (reconciliation.getLiveDocument as ReturnType<typeof vi.fn>).mock.calls[0][0],
+      ).toEqual({
+        validatorLimit: 125,
+        persist: true,
+      });
     });
   });
 
