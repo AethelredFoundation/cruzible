@@ -209,6 +209,50 @@ describe('auth routes', () => {
     });
   });
 
+  it('recomputes roles when refresh tokens rotate', async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: 'aeth1operator' }),
+        })
+      ).json();
+      const loginTokens = await (
+        await fetch(`${baseUrl}/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            address: 'aeth1operator',
+            message: challenge.message,
+            signature: 'test-signature',
+          }),
+        })
+      ).json();
+      const { config } = await import('../src/config');
+      const { verifyAccessToken } = await import('../src/auth/service');
+
+      expect(verifyAccessToken(loginTokens.accessToken).roles).toContain(
+        'operator',
+      );
+
+      (config as any).authOperatorAddresses = [];
+      (config as any).authAdminAddresses = [];
+
+      const refreshResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+      const refreshedTokens = await refreshResponse.json();
+      const refreshedPayload = verifyAccessToken(refreshedTokens.accessToken);
+
+      expect(refreshResponse.status).toBe(200);
+      expect(refreshedPayload.address).toBe('aeth1operator');
+      expect(refreshedPayload.roles).toEqual(['user']);
+    });
+  });
+
   it('revokes refresh tokens on logout', async () => {
     await withAuthRoutes(async (baseUrl) => {
       const challenge = await (

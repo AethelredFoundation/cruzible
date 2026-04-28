@@ -1,7 +1,7 @@
 # Cruzible Operations Runbook
 
 > Snapshot-aligned operator guidance for this repository.
-> Last reconciled against the workspace on 2026-04-27.
+> Last reconciled against the workspace on 2026-04-28.
 
 ## 1. Scope
 
@@ -25,6 +25,8 @@ This runbook does not assume that every checked-in infrastructure artifact is tu
 - Backend env is injected by the runtime environment. `backend/api` does not auto-load `.env` files.
 - Protected admin/ops endpoints use JWT bearer auth with wallet-backed nonce
   login, refresh-token rotation, and logout revocation.
+- Operator/admin role changes are re-evaluated during refresh-token rotation;
+  already-issued access tokens remain valid until their configured short expiry.
 
 ## 3. Startup Paths
 

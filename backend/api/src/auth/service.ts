@@ -257,10 +257,11 @@ export async function refreshAccessToken(
   try {
     const verified = verifyRefreshToken(refreshToken);
     const tokenHash = hashSecret(refreshToken);
+    const currentRoles = resolveRolesForAddress(verified.address);
     const { tokens, session: nextSession } = buildTokenSession(
       {
         address: verified.address,
-        roles: verified.roles,
+        roles: currentRoles,
       },
       context,
       verified.refreshSessionId,
