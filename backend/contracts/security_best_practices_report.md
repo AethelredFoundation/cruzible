@@ -39,6 +39,7 @@ The current code includes remediations for the previously tracked critical and h
 | Vault donation controls   | Accounted balance tracking and donation controls prevent direct-transfer share price inflation.                   |
 | AI job payment claims     | Paid-state transition prevents repeated settlement of the same verified job.                                      |
 | Governance voting         | Snapshot voting power and quorum controls replace placeholder voting and execution logic.                         |
+| Governance feeder oracle  | Multi-feeder median consensus rejects unsafe quorum, tolerance, and feeder capacity settings.                     |
 | Model registry fees       | Registration fee enforcement is active.                                                                           |
 | Model registry job counts | Job-count mutation is restricted to the authorized job manager.                                                   |
 | Seal manager provenance   | Seal creation verifies the referenced job through the configured job manager.                                     |
@@ -58,18 +59,18 @@ Passing test counts:
 | `vault`          |            24 |
 | `ai_job_manager` |            52 |
 | `cw20_staking`   |            42 |
-| `governance`     |            41 |
+| `governance`     |            45 |
 | `model_registry` |            47 |
 | `seal_manager`   |            27 |
 | Doc tests        |             0 |
-| **Total**        |       **233** |
+| **Total**        |       **237** |
 
 ## Audit-Candidate Readiness
 
 The workspace is suitable for an external audit candidate branch after the following evidence is packaged:
 
 - Current source tree and Cargo lockfile.
-- Reproducible `cargo test` output showing 233 passing tests.
+- Reproducible `cargo test` output showing 237 passing tests.
 - Commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json` from CI.
 - Detached artifact signatures generated with `RELEASE_SIGNING.md` before launch.
 - This assurance report and the related security/test coverage documents.
@@ -82,6 +83,7 @@ The following remain launch blockers:
 - Independent external security audit.
 - Deployment scripts and repeatable artifact generation.
 - Production release-key signing of wasm artifact checksums and manifests.
+- Governance v2 feeder membership election or formal long-term acceptance of the bootstrapped operator set.
 - Staging validation against a real chain environment.
 - Real cross-contract integration on the target chain.
 - Closure or explicit risk acceptance for residual review items in `AUDIT_PACKET.md`.

@@ -16,6 +16,8 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:aethelred-governance";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const BASIS_POINTS_DENOMINATOR: u64 = 10_000;
+const MAX_FEEDERS: usize = 50;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -79,6 +81,10 @@ pub enum ContractError {
     FeederMutationCooldownNotElapsed {},
     #[error("Timelock not elapsed: proposal must wait for execution_delay after voting ends")]
     TimelockNotElapsed {},
+    #[error("Invalid config: {reason}")]
+    InvalidConfig { reason: String },
+    #[error("Cannot add feeder: maximum feeder set size reached")]
+    FeederSetFull {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -205,10 +211,11 @@ const CONFIG: Item<Config> = Item::new("config");
 const PROPOSAL_COUNT: Item<u64> = Item::new("proposal_count");
 const PROPOSALS: Map<u64, Proposal> = Map::new("proposals");
 const VOTES: Map<(u64, &Addr), Vote> = Map::new("votes");
-/// Total bonded tokens across the network, updated by admin.
-/// Used as the denominator for quorum calculations.
+/// Canonical total bonded tokens across the network, updated only after
+/// registered feeders reach oracle consensus. Used as the denominator for
+/// quorum calculations.
 const TOTAL_BONDED: Item<Uint128> = Item::new("total_bonded");
-/// Timestamp of the last UpdateTotalBonded call.
+/// Timestamp of the last consensus-accepted UpdateTotalBonded call.
 /// Used to enforce a freshness constraint at proposal activation.
 const TOTAL_BONDED_UPDATED_AT: Item<Timestamp> = Item::new("total_bonded_updated_at");
 /// The last total_bonded value accepted at a proposal activation.
@@ -326,8 +333,8 @@ pub enum ExecuteMsg {
     ExecuteProposal {
         proposal_id: u64,
     },
-    /// Admin-only: update the total bonded tokens used for quorum calculation.
-    /// Must be refreshed periodically from the staking module.
+    /// Feeder-only: submit a total bonded observation used for quorum
+    /// calculation. Canonical total_bonded updates only after feeder consensus.
     UpdateTotalBonded {
         total_bonded: Uint128,
     },
@@ -386,6 +393,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+    validate_instantiate_msg(&msg)?;
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
     let config = Config {
@@ -430,6 +438,56 @@ pub fn instantiate(
     ORACLE_EPOCH.save(deps.storage, &0u64)?;
 
     Ok(Response::new().add_attribute("action", "instantiate"))
+}
+
+fn validate_instantiate_msg(msg: &InstantiateMsg) -> Result<(), ContractError> {
+    if msg.voting_period == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "voting_period must be greater than zero".to_string(),
+        });
+    }
+    if msg.snapshot_period == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "snapshot_period must be greater than zero".to_string(),
+        });
+    }
+    if msg.threshold == 0 || msg.threshold > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "threshold must be between 1 and 10000 basis points".to_string(),
+        });
+    }
+    if msg.quorum > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "quorum cannot exceed 10000 basis points".to_string(),
+        });
+    }
+    if msg.veto_threshold > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "veto_threshold cannot exceed 10000 basis points".to_string(),
+        });
+    }
+    if msg.max_delta_bps > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "max_delta_bps cannot exceed 10000 basis points".to_string(),
+        });
+    }
+    if msg.min_feeder_quorum == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_feeder_quorum must be at least 1".to_string(),
+        });
+    }
+    if msg.min_feeder_quorum as usize > MAX_FEEDERS {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_feeder_quorum exceeds max feeder capacity".to_string(),
+        });
+    }
+    if msg.feeder_tolerance_bps > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "feeder_tolerance_bps cannot exceed 10000 basis points".to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 #[entry_point]
@@ -882,11 +940,19 @@ fn execute_add_feeder(
     if feeders.contains(&feeder_addr) {
         return Err(ContractError::FeederAlreadyRegistered {});
     }
+    if feeders.len() >= MAX_FEEDERS {
+        return Err(ContractError::FeederSetFull {});
+    }
 
     feeders.push(feeder_addr.clone());
     FEEDERS.save(deps.storage, &feeders)?;
     // Record registration time — feeder is quarantined until this + quarantine_period
     FEEDER_REGISTERED_AT.save(deps.storage, &feeder_addr, &env.block.time)?;
+    // Increment oracle epoch on every membership change. This prevents
+    // pre-addition submissions from mixing with observations from the expanded
+    // feeder set; all eligible feeders must re-submit for fresh consensus.
+    let epoch = ORACLE_EPOCH.load(deps.storage)?;
+    ORACLE_EPOCH.save(deps.storage, &(epoch + 1))?;
     // Record mutation time for cooldown enforcement
     LAST_FEEDER_MUTATION_TIME.save(deps.storage, &env.block.time)?;
 
@@ -1346,6 +1412,59 @@ mod tests {
         let msg = default_init_msg();
         let info = mock_info(ADMIN, &[]);
         instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    }
+
+    #[test]
+    fn test_instantiate_rejects_zero_feeder_quorum() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            min_feeder_quorum: 0,
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_invalid_basis_points() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            feeder_tolerance_bps: BASIS_POINTS_DENOMINATOR + 1,
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn test_feeder_set_has_capacity_limit() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        for index in 1..MAX_FEEDERS {
+            execute(
+                deps.as_mut(),
+                mock_env(),
+                mock_info(ADMIN, &[]),
+                ExecuteMsg::AddFeeder {
+                    address: format!("feeder_{index}"),
+                },
+            )
+            .unwrap();
+        }
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::AddFeeder {
+                address: "feeder_overflow".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::FeederSetFull {});
     }
 
     /// Configure mock staking state: one validator with delegations.
@@ -3130,7 +3249,9 @@ mod tests {
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
         assert_eq!(bonded, Uint128::from(10_050_000u128));
 
-        // Admin removes FEEDER_1 (the dissenter) → epoch increments to 1
+        let epoch_before_remove = ORACLE_EPOCH.load(deps.as_ref().storage).unwrap();
+
+        // Admin removes FEEDER_1 (the dissenter) → epoch increments
         let info = mock_info(ADMIN, &[]);
         execute(
             deps.as_mut(),
@@ -3144,7 +3265,7 @@ mod tests {
 
         // Verify epoch incremented
         let epoch = ORACLE_EPOCH.load(deps.as_ref().storage).unwrap();
-        assert_eq!(epoch, 1);
+        assert_eq!(epoch, epoch_before_remove + 1);
 
         // Admin resubmits 20.1M at epoch 1 (to align with FEEDER_2)
         let info = mock_info(ADMIN, &[]);
@@ -3200,6 +3321,107 @@ mod tests {
         );
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
         assert_eq!(bonded, Uint128::from(20_050_000u128));
+    }
+
+    #[test]
+    fn test_add_feeder_invalidates_prior_oracle_submissions() {
+        let mut deps = mock_dependencies();
+
+        let msg = InstantiateMsg {
+            min_feeder_quorum: 2,
+            feeder_tolerance_bps: 500,
+            ..default_init_msg()
+        };
+        instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap();
+
+        // Add FEEDER_1 so the initial two-feeder set can reach consensus.
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_1.to_string(),
+            },
+        )
+        .unwrap();
+
+        let t0 = 1_000_000u64;
+        execute(
+            deps.as_mut(),
+            env_at(t0),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::UpdateTotalBonded {
+                total_bonded: Uint128::from(10_000_000u128),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            env_at(t0 + 1),
+            mock_info(FEEDER_1, &[]),
+            ExecuteMsg::UpdateTotalBonded {
+                total_bonded: Uint128::from(10_100_000u128),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            TOTAL_BONDED.load(deps.as_ref().storage).unwrap(),
+            Uint128::from(10_050_000u128)
+        );
+
+        // Adding FEEDER_2 changes membership and increments the oracle epoch.
+        let epoch_before_add = ORACLE_EPOCH.load(deps.as_ref().storage).unwrap();
+        execute(
+            deps.as_mut(),
+            env_at(t0 + 2),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_2.to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ORACLE_EPOCH.load(deps.as_ref().storage).unwrap(),
+            epoch_before_add + 1
+        );
+
+        // A new feeder submission cannot combine with pre-addition submissions.
+        let res = execute(
+            deps.as_mut(),
+            env_at(t0 + 3),
+            mock_info(FEEDER_2, &[]),
+            ExecuteMsg::UpdateTotalBonded {
+                total_bonded: Uint128::from(20_000_000u128),
+            },
+        )
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "false"));
+        assert_eq!(
+            TOTAL_BONDED.load(deps.as_ref().storage).unwrap(),
+            Uint128::from(10_050_000u128)
+        );
+
+        // Current-epoch submissions from enough feeders are required.
+        let res = execute(
+            deps.as_mut(),
+            env_at(t0 + 4),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::UpdateTotalBonded {
+                total_bonded: Uint128::from(20_100_000u128),
+            },
+        )
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "true"));
+        assert_eq!(
+            TOTAL_BONDED.load(deps.as_ref().storage).unwrap(),
+            Uint128::from(20_050_000u128)
+        );
     }
 
     // ── Test: oracle status query ────────────────────────────────────────

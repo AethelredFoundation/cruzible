@@ -19,6 +19,7 @@ The live code includes remediations for the previously tracked critical issues, 
 | Vault donation controls      | Implemented with accounted balance and donation handling.                      |
 | AI job Paid state            | Implemented to prevent repeated settlement of the same verified job.           |
 | Governance snapshots         | Implemented to avoid mutable or placeholder vote weight.                       |
+| Governance feeder oracle     | Multi-feeder median consensus with tolerance, cooldown, quarantine, and caps.  |
 | Governance quorum            | Implemented to gate proposal execution.                                        |
 | Model registry fees          | Implemented registration fee enforcement.                                      |
 | Model registry authorization | Implemented job-manager authorization for job-count updates.                   |
@@ -26,14 +27,14 @@ The live code includes remediations for the previously tracked critical issues, 
 
 ## Test Evidence
 
-Local `cargo test` from `backend/contracts` passes with 233 total tests:
+Local `cargo test` from `backend/contracts` passes with 237 total tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
 | `vault`          |            24 |
 | `ai_job_manager` |            52 |
 | `cw20_staking`   |            42 |
-| `governance`     |            41 |
+| `governance`     |            45 |
 | `model_registry` |            47 |
 | `seal_manager`   |            27 |
 | Doc tests        |             0 |
@@ -45,15 +46,16 @@ Completed for audit-candidate state:
 - [x] Prior vault criticals remediated.
 - [x] Vault stAETHEL mint/burn lifecycle covered by tests.
 - [x] AI job payment double-claim guard remediated.
-- [x] Governance snapshot and quorum controls remediated.
+- [x] Governance snapshot, quorum, and feeder-oracle controls remediated.
 - [x] Model registry fee and job-manager authorization remediated.
 - [x] Seal manager cross-contract job check remediated.
-- [x] Local `cargo test` evidence passes with 233 tests.
+- [x] Local `cargo test` evidence passes with 237 tests.
 - [x] CI workflow enforces contract fmt, clippy, tests, dependency audit, and wasm release build.
 - [x] CI workflow uploads commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json`.
 - [x] Residual review items and deployment assumptions are documented in `AUDIT_PACKET.md`.
 - [x] Release manifest template is checked in and validated in CI.
 - [x] Artifact signing and verification scripts are checked in and syntax-checked by CI.
+- [x] Governance feeder oracle config rejects unsafe quorum, tolerance, and capacity settings.
 
 Required before production readiness:
 

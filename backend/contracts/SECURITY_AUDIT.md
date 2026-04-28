@@ -43,11 +43,11 @@ Local `cargo test` from `backend/contracts` passes:
 | `vault`          |            24 |
 | `ai_job_manager` |            52 |
 | `cw20_staking`   |            42 |
-| `governance`     |            41 |
+| `governance`     |            45 |
 | `model_registry` |            47 |
 | `seal_manager`   |            27 |
 | Doc tests        |             0 |
-| **Total**        |       **233** |
+| **Total**        |       **237** |
 
 ## Residual Review Focus
 

@@ -24,6 +24,8 @@ EXPECTED_ARTIFACTS = {
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TX_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
+BASIS_POINTS_DENOMINATOR = 10_000
+MAX_GOVERNANCE_FEEDERS = 50
 
 
 def fail(message: str) -> None:
@@ -53,6 +55,63 @@ def require_int(value: Any, path: str) -> int:
     if not isinstance(value, int) or value <= 0:
         fail(f"{path} must be a positive integer")
     return value
+
+
+def validate_basis_points(value: Any, path: str, *, allow_zero: bool = True) -> int:
+    if allow_zero:
+        if not isinstance(value, int) or value < 0:
+            fail(f"{path} must be a non-negative integer")
+        amount = value
+    else:
+        amount = require_int(value, path)
+    if amount > BASIS_POINTS_DENOMINATOR:
+        fail(f"{path} cannot exceed {BASIS_POINTS_DENOMINATOR}")
+    return amount
+
+
+def validate_governance_contract(
+    roles: dict[str, Any],
+    config: dict[str, Any],
+    contract_path: str,
+) -> None:
+    feeders = require_list(roles.get("total_bonded_feeders"), f"{contract_path}.roles.total_bonded_feeders")
+    feeder_addresses: set[str] = set()
+    for feeder_index, feeder in enumerate(feeders):
+        address = require_string(
+            feeder,
+            f"{contract_path}.roles.total_bonded_feeders[{feeder_index}]",
+        )
+        if address in feeder_addresses:
+            fail(f"{contract_path}.roles.total_bonded_feeders contains duplicate {address}")
+        feeder_addresses.add(address)
+
+    if len(feeder_addresses) < 3:
+        fail(f"{contract_path}.roles.total_bonded_feeders must contain at least 3 feeders")
+
+    for key in ("quorum_bps", "threshold_bps", "veto_threshold_bps", "feeder_tolerance_bps"):
+        validate_basis_points(config.get(key), f"{contract_path}.config.{key}", allow_zero=False)
+
+    min_feeder_quorum = require_int(
+        config.get("min_feeder_quorum"),
+        f"{contract_path}.config.min_feeder_quorum",
+    )
+    if min_feeder_quorum > len(feeder_addresses):
+        fail(f"{contract_path}.config.min_feeder_quorum cannot exceed configured feeder count")
+
+    max_feeders = require_int(config.get("max_feeders"), f"{contract_path}.config.max_feeders")
+    if max_feeders > MAX_GOVERNANCE_FEEDERS:
+        fail(f"{contract_path}.config.max_feeders cannot exceed {MAX_GOVERNANCE_FEEDERS}")
+    if len(feeder_addresses) > max_feeders:
+        fail(f"{contract_path}.roles.total_bonded_feeders exceeds max_feeders")
+
+    require_int(
+        config.get("feeder_mutation_cooldown_seconds"),
+        f"{contract_path}.config.feeder_mutation_cooldown_seconds",
+    )
+    require_int(
+        config.get("feeder_quarantine_period_seconds"),
+        f"{contract_path}.config.feeder_quarantine_period_seconds",
+    )
 
 
 def validate_manifest(path: Path) -> None:
@@ -135,8 +194,10 @@ def validate_manifest(path: Path) -> None:
         if not TX_RE.fullmatch(instantiate_tx_hash):
             fail(f"contract {name} instantiate_tx_hash must be 64 hex characters")
         require_string(contract.get("admin"), f"$.contracts[{index}].admin")
-        require_mapping(contract.get("roles"), f"$.contracts[{index}].roles")
-        require_mapping(contract.get("config"), f"$.contracts[{index}].config")
+        roles = require_mapping(contract.get("roles"), f"$.contracts[{index}].roles")
+        config = require_mapping(contract.get("config"), f"$.contracts[{index}].config")
+        if name == "governance":
+            validate_governance_contract(roles, config, f"$.contracts[{index}]")
 
     missing_contracts = set(EXPECTED_ARTIFACTS) - contract_names
     if missing_contracts:

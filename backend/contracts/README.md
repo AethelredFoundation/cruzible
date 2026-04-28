@@ -23,20 +23,20 @@ Implemented remediation areas:
 
 - Vault reward index, double-claim protection, stAETHEL mint/burn lifecycle, rounding controls, and donation/accounted-balance controls.
 - AI job Paid-state guard to prevent repeated settlement.
-- Governance snapshot and quorum controls.
+- Governance snapshot, quorum, and multi-feeder total-bonded oracle controls.
 - Model registry registration fee enforcement and job-manager authorization.
 - Seal manager cross-contract job check.
 
 Vault unstake uses the staking token `BurnFrom` flow, so frontends or transaction builders must obtain user allowance for the vault before unstaking. The web vault flow checks stAETHEL allowance and requests exact approval before submitting an unstake transaction.
 
-Local `cargo test` from `backend/contracts` passes with 233 tests:
+Local `cargo test` from `backend/contracts` passes with 237 tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
 | `vault`          |            24 |
 | `ai_job_manager` |            52 |
 | `cw20_staking`   |            42 |
-| `governance`     |            41 |
+| `governance`     |            45 |
 | `model_registry` |            47 |
 | `seal_manager`   |            27 |
 | Doc tests        |             0 |
@@ -66,13 +66,14 @@ release artifacts.
 Before external audit:
 
 - [x] Prior critical remediations implemented in live code.
-- [x] Local `cargo test` passes with 233 tests.
+- [x] Local `cargo test` passes with 237 tests.
 - [x] CI workflow enforces test, fmt, clippy, and wasm release build gates.
 - [x] CI workflow uploads commit-scoped wasm artifacts, checksums, and manifest.
 - [x] Known residual review items documented for auditor review.
 - [x] Deployment assumptions and contract address wiring documented.
 - [x] Release manifest template is checked in and validated in CI.
 - [x] Release artifact signing and verification scripts are checked in.
+- [x] Governance feeder quorum, tolerance, mutation, quarantine, and capacity config is validated.
 - [ ] Staging release manifest captured with code IDs, addresses, checksums, and role owners.
 
 Before production readiness:

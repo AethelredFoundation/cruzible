@@ -63,8 +63,10 @@ checksums and manifest.
   the vault before unstaking.
 - Operator, pauser, verifier, feeder, and admin roles are controlled by
   production key management outside this repository.
-- Governance total-bonded feeder submissions must be sourced from trusted
-  staking-module observations until decentralized feeder election is deployed.
+- Governance total-bonded feeder submissions must come from independent
+  staking-module observers. The contract enforces multi-feeder consensus,
+  bounded tolerance, mutation cooldown, quarantine, and epoch invalidation; the
+  remaining decentralization residual is feeder membership governance.
 - Seal creation depends on the configured AI job manager address returning
   canonical job state.
 - Model registry job-count updates depend on the configured AI job manager
@@ -76,16 +78,16 @@ checksums and manifest.
 
 These are not hidden TODOs. They are explicit pre-production review items:
 
-| Item                               | Status  | Required action                                                                                    |
-| ---------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
-| External audit                     | Open    | Complete independent review and remediate or accept findings.                                      |
-| Artifact manifest                  | Ready   | `scripts/prepare-audit-artifacts.sh` generates `manifest.json` and `SHA256SUMS`.                   |
-| Deployment manifest template       | Ready   | `deployments/release-manifest.example.json` is validated in CI.                                    |
-| Staging deployment manifest        | Open    | Record real code IDs, contract addresses, admins, operators, and artifact checksums.               |
-| Staging deployment                 | Open    | Instantiate all contracts on a real chain and exercise core cross-contract flows.                  |
-| Governance feeder decentralization | Open    | Define governance v2 feeder election or formally accept the bootstrapped feeder model.             |
-| Frontend allowance flow            | Ready   | Vault unstake checks stAETHEL allowance and obtains exact approval before submission.              |
-| Release artifact signing           | Partial | Signing and verification scripts are checked in; production signatures still require release keys. |
+| Item                               | Status  | Required action                                                                                                         |
+| ---------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| External audit                     | Open    | Complete independent review and remediate or accept findings.                                                           |
+| Artifact manifest                  | Ready   | `scripts/prepare-audit-artifacts.sh` generates `manifest.json` and `SHA256SUMS`.                                        |
+| Deployment manifest template       | Ready   | `deployments/release-manifest.example.json` is validated in CI.                                                         |
+| Staging deployment manifest        | Open    | Record real code IDs, contract addresses, admins, operators, and artifact checksums.                                    |
+| Staging deployment                 | Open    | Instantiate all contracts on a real chain and exercise core cross-contract flows.                                       |
+| Governance feeder decentralization | Partial | Multi-feeder consensus is implemented and config-validated; feeder membership remains admin-governed until v2 election. |
+| Frontend allowance flow            | Ready   | Vault unstake checks stAETHEL allowance and obtains exact approval before submission.                                   |
+| Release artifact signing           | Partial | Signing and verification scripts are checked in; production signatures still require release keys.                      |
 
 ## Minimum Staging Drill
 
