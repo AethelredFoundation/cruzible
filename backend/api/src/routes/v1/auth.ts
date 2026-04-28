@@ -2,7 +2,7 @@
  * Wallet-backed authentication routes.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import {
   createLoginChallenge,
@@ -11,7 +11,7 @@ import {
   verifyLoginAndIssueTokens,
 } from '../../auth/service';
 import {
-  AuthNonceQuerySchema,
+  AuthNonceBodySchema,
   LoginBodySchema,
   RefreshTokenBodySchema,
 } from '../../validation/schemas';
@@ -21,6 +21,11 @@ import { ApiError } from '../../utils/ApiError';
 
 const router = Router();
 
+router.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
 router.use(authRateLimiter);
 
 function parseRequest<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
@@ -38,10 +43,18 @@ function sessionContext(req: Request) {
   };
 }
 
-router.get(
+router.get('/nonce', (_req: Request, res: Response) => {
+  res.setHeader('Allow', 'POST');
+  res.status(405).json({
+    error: 'Method Not Allowed',
+    message: 'Use POST /v1/auth/nonce with a JSON body to create a login challenge',
+  });
+});
+
+router.post(
   '/nonce',
   asyncHandler(async (req: Request, res: Response) => {
-    const { address } = parseRequest(AuthNonceQuerySchema, req.query);
+    const { address } = parseRequest(AuthNonceBodySchema, req.body);
     const challenge = await createLoginChallenge(address);
     res.json(challenge);
   }),

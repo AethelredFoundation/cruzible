@@ -115,9 +115,11 @@ describe('auth routes', () => {
 
   it('issues operator tokens from a one-time login challenge', async () => {
     await withAuthRoutes(async (baseUrl) => {
-      const challengeResponse = await fetch(
-        `${baseUrl}/v1/auth/nonce?address=aeth1operator`,
-      );
+      const challengeResponse = await fetch(`${baseUrl}/v1/auth/nonce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: 'aeth1operator' }),
+      });
       const challenge = await challengeResponse.json();
 
       const loginResponse = await fetch(`${baseUrl}/v1/auth/login`, {
@@ -132,6 +134,8 @@ describe('auth routes', () => {
       const tokens = await loginResponse.json();
 
       expect(challengeResponse.status).toBe(200);
+      expect(challengeResponse.headers.get('cache-control')).toBe('no-store');
+      expect(loginResponse.headers.get('cache-control')).toBe('no-store');
       expect(loginResponse.status).toBe(200);
       expect(tokens.accessToken).toEqual(expect.any(String));
       expect(tokens.refreshToken).toEqual(expect.any(String));
@@ -151,10 +155,28 @@ describe('auth routes', () => {
     });
   });
 
+  it('rejects GET nonce issuance because challenges mutate auth state', async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/auth/nonce?address=aeth1operator`,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(405);
+      expect(response.headers.get('allow')).toBe('POST');
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(body.message).toContain('Use POST /v1/auth/nonce');
+    });
+  });
+
   it('rotates refresh tokens and rejects replay of the old token', async () => {
     await withAuthRoutes(async (baseUrl) => {
       const challenge = await (
-        await fetch(`${baseUrl}/v1/auth/nonce?address=aeth1operator`)
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: 'aeth1operator' }),
+        })
       ).json();
       const loginTokens = await (
         await fetch(`${baseUrl}/v1/auth/login`, {
@@ -190,7 +212,11 @@ describe('auth routes', () => {
   it('revokes refresh tokens on logout', async () => {
     await withAuthRoutes(async (baseUrl) => {
       const challenge = await (
-        await fetch(`${baseUrl}/v1/auth/nonce?address=aeth1operator`)
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: 'aeth1operator' }),
+        })
       ).json();
       const loginTokens = await (
         await fetch(`${baseUrl}/v1/auth/login`, {

@@ -361,7 +361,7 @@ export const RefreshTokenBodySchema = z.object({
   refresh_token: z.string().min(1),
 });
 
-export const AuthNonceQuerySchema = z.object({
+export const AuthNonceBodySchema = z.object({
   address: AddressSchema,
 });
 
