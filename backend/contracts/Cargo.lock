@@ -39,6 +39,7 @@ dependencies = [
  "cw-utils",
  "cw2",
  "hex",
+ "model-registry",
  "schemars",
  "serde",
  "sha2 0.10.9",

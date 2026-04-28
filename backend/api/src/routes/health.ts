@@ -19,6 +19,7 @@ import { ReconciliationScheduler } from '../services/ReconciliationScheduler';
 import { AlertService } from '../services/AlertService';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { requireOperationalAccess } from '../middleware/operationalAccess';
 
 const router = Router();
 
@@ -46,6 +47,34 @@ interface ProbeResult {
   status: 'ok' | 'degraded' | 'error';
   latencyMs?: number;
   message?: string;
+}
+
+interface ReadinessChecks {
+  database: ProbeResult;
+  blockchainRpc: ProbeResult;
+  indexer?: { lag: number | null; ready: boolean };
+  reconciliation: {
+    epoch: number | null;
+    epochSource: string | null;
+    status: string;
+    lastRun: string | null;
+    activeCriticalAlerts: number;
+    ready: boolean;
+  };
+}
+
+const PRODUCTION_PROBE_FAILURE_MESSAGE = 'Probe failed; see server logs for details.';
+
+function toClientProbeResult(result: ProbeResult): ProbeResult {
+  if (!config.isProduction || result.status !== 'error') {
+    return result;
+  }
+
+  return {
+    status: result.status,
+    latencyMs: result.latencyMs,
+    message: PRODUCTION_PROBE_FAILURE_MESSAGE,
+  };
 }
 
 async function checkDatabase(): Promise<ProbeResult> {
@@ -103,6 +132,26 @@ function getUptime(): { seconds: number; human: string } {
   return { seconds: uptimeSeconds, human: parts.join(' ') };
 }
 
+function readinessResponseBody(
+  ready: boolean,
+  checks: ReadinessChecks,
+): Record<string, unknown> {
+  const body = {
+    ready,
+    status: ready ? 'ready' : 'not_ready',
+    timestamp: new Date().toISOString(),
+  };
+
+  if (config.isProduction) {
+    return body;
+  }
+
+  return {
+    ...body,
+    checks,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -113,7 +162,7 @@ function getUptime(): { seconds: number; human: string } {
  * degraded, 503 when any critical system (DB, RPC, indexer lag >500, or
  * reconciliation CRITICAL) is failing.
  */
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', requireOperationalAccess, async (_req: Request, res: Response) => {
   // Run probes in parallel
   const [dbResult, rpcResult] = await Promise.allSettled([
     checkDatabase(),
@@ -122,6 +171,8 @@ router.get('/', async (_req: Request, res: Response) => {
 
   const db = dbResult.status === 'fulfilled' ? dbResult.value : { status: 'error' as const, message: 'probe threw' };
   const rpc = rpcResult.status === 'fulfilled' ? rpcResult.value : { status: 'error' as const, message: 'probe threw' };
+  const clientDb = toClientProbeResult(db);
+  const clientRpc = toClientProbeResult(rpc);
 
   // Indexer metrics (optional)
   let indexer: Record<string, unknown> | null = null;
@@ -163,7 +214,7 @@ router.get('/', async (_req: Request, res: Response) => {
     const scheduler = container.resolve(ReconciliationScheduler);
     const latestResult = scheduler.getLatestResult();
     const alertServiceInstance = container.resolve(AlertService);
-    const activeCritical = alertServiceInstance.getActiveCriticalCount();
+    const activeCritical = await alertServiceInstance.getActiveCriticalCount();
 
     if (latestResult?.status === 'CRITICAL' || activeCritical > 0) {
       reconciliationCritical = true;
@@ -173,7 +224,10 @@ router.get('/', async (_req: Request, res: Response) => {
 
     reconciliation = {
       lastRun: latestResult?.timestamp ?? null,
+      epoch: latestResult?.epoch ?? null,
+      epochSource: latestResult?.epochSource ?? null,
       status: latestResult?.status ?? 'UNKNOWN',
+      lastDurationMs: latestResult?.durationMs ?? null,
       activeCriticalAlerts: activeCritical,
     };
   } catch {
@@ -201,8 +255,8 @@ router.get('/', async (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     uptime,
     checks: {
-      database: db,
-      blockchainRpc: rpc,
+      database: clientDb,
+      blockchainRpc: clientRpc,
     },
     memory: getMemoryUsage(),
     ...(indexer ? { indexer } : {}),
@@ -232,6 +286,8 @@ router.get('/ready', async (_req: Request, res: Response) => {
 
   const db = dbResult.status === 'fulfilled' ? dbResult.value : { status: 'error' as const, message: 'probe threw' };
   const rpc = rpcResult.status === 'fulfilled' ? rpcResult.value : { status: 'error' as const, message: 'probe threw' };
+  const clientDb = toClientProbeResult(db);
+  const clientRpc = toClientProbeResult(rpc);
 
   const coreReady = db.status === 'ok' && rpc.status === 'ok';
 
@@ -255,13 +311,14 @@ router.get('/ready', async (_req: Request, res: Response) => {
   let reconciliationReady = true;
   let reconciliationStatus: string | null = null;
   let activeCriticalAlerts = 0;
+  let latestResult: { epoch?: number; epochSource?: string; status?: string; timestamp?: string } | null = null;
   try {
     const scheduler = container.resolve(ReconciliationScheduler);
-    const latestResult = scheduler.getLatestResult();
+    latestResult = scheduler.getLatestResult();
     reconciliationStatus = latestResult?.status ?? null;
 
     const alertServiceInstance = container.resolve(AlertService);
-    activeCriticalAlerts = alertServiceInstance.getActiveCriticalCount();
+    activeCriticalAlerts = await alertServiceInstance.getActiveCriticalCount();
 
     if (latestResult?.status === 'CRITICAL' || activeCriticalAlerts > 0) {
       reconciliationReady = false;
@@ -271,21 +328,23 @@ router.get('/ready', async (_req: Request, res: Response) => {
   }
 
   const ready = coreReady && indexerReady && reconciliationReady;
-
-  res.status(ready ? 200 : 503).json({
-    ready,
-    checks: {
-      database: db,
-      blockchainRpc: rpc,
-      ...(config.indexerEnabled ? { indexer: { lag: indexerLag, ready: indexerReady } } : {}),
-      reconciliation: {
-        status: reconciliationStatus ?? 'UNKNOWN',
-        activeCriticalAlerts,
-        ready: reconciliationReady,
-      },
+  const checks: ReadinessChecks = {
+    database: clientDb,
+    blockchainRpc: clientRpc,
+    ...(config.indexerEnabled
+      ? { indexer: { lag: indexerLag, ready: indexerReady } }
+      : {}),
+    reconciliation: {
+      epoch: latestResult?.epoch ?? null,
+      epochSource: latestResult?.epochSource ?? null,
+      status: reconciliationStatus ?? 'UNKNOWN',
+      lastRun: latestResult?.timestamp ?? null,
+      activeCriticalAlerts,
+      ready: reconciliationReady,
     },
-    timestamp: new Date().toISOString(),
-  });
+  };
+
+  res.status(ready ? 200 : 503).json(readinessResponseBody(ready, checks));
 });
 
 export { router };

@@ -7,7 +7,8 @@
  */
 use cosmwasm_std::{
     entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, Event,
-    MessageInfo, Response, StdResult, Timestamp, Uint128,
+    MessageInfo, Reply, ReplyOn, Response, StdError, StdResult, SubMsg, SubMsgResult, Timestamp,
+    Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
@@ -18,6 +19,7 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:ai-job-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MODEL_REGISTRY_INCREMENT_REPLY_ID: u64 = 1;
 
 // ============ ERRORS ============
 
@@ -298,6 +300,23 @@ pub enum ExecuteMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+enum ModelRegistryExecuteMsg {
+    IncrementJobCount { model_hash: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum ModelRegistryQueryMsg {
+    Model { model_hash: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+struct ModelRegistryModelResponse {
+    verified: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     /// Get contract config
     Config {},
@@ -416,6 +435,33 @@ pub fn execute(
     }
 }
 
+fn ensure_model_accepts_jobs(
+    deps: Deps,
+    model_registry: &Addr,
+    model_hash: &str,
+) -> Result<(), ContractError> {
+    if model_hash.is_empty() || model_hash.len() > 128 {
+        return Err(ContractError::InvalidModel {});
+    }
+
+    let model: ModelRegistryModelResponse = deps
+        .querier
+        .query_wasm_smart(
+            model_registry,
+            &ModelRegistryQueryMsg::Model {
+                model_hash: model_hash.to_string(),
+            },
+        )
+        .map_err(|_| ContractError::InvalidModel {})?;
+
+    if !model.verified {
+        return Err(ContractError::InvalidModel {});
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn execute_submit_job(
     deps: DepsMut,
     env: Env,
@@ -447,6 +493,8 @@ fn execute_submit_job(
     if payment < config.min_payment {
         return Err(ContractError::InsufficientPayment {});
     }
+
+    ensure_model_accepts_jobs(deps.as_ref(), &config.model_registry, &model_hash)?;
 
     // Generate job ID
     let count = JOB_COUNT.load(deps.storage)?;
@@ -710,10 +758,43 @@ fn execute_verify_job(
             job.actual_payment.unwrap_or_default().to_string(),
         );
 
+    let registry_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.model_registry.to_string(),
+        msg: to_json_binary(&ModelRegistryExecuteMsg::IncrementJobCount {
+            model_hash: job.model_hash.clone(),
+        })?,
+        funds: vec![],
+    });
+
+    let registry_submsg = SubMsg {
+        id: MODEL_REGISTRY_INCREMENT_REPLY_ID,
+        msg: registry_msg,
+        gas_limit: None,
+        reply_on: ReplyOn::Error,
+    };
+
     Ok(Response::new()
+        .add_submessage(registry_submsg)
         .add_event(verify_event)
         .add_attribute("action", "verify_job")
         .add_attribute("job_id", job_id))
+}
+
+#[entry_point]
+pub fn reply(_deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
+    match msg.id {
+        MODEL_REGISTRY_INCREMENT_REPLY_ID => match msg.result {
+            SubMsgResult::Ok(_) => Ok(Response::new()),
+            SubMsgResult::Err(error) => Ok(Response::new().add_event(
+                Event::new("model_registry_job_count_increment_failed")
+                    .add_attribute("error", error),
+            )),
+        },
+        _ => Err(ContractError::Std(StdError::generic_err(format!(
+            "unknown reply id: {}",
+            msg.id
+        )))),
+    }
 }
 
 fn execute_fail_job(

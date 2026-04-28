@@ -21,6 +21,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "typecheck": "prisma generate && npm --prefix ../../sdk/typescript run build && tsc --noEmit -p tsconfig.json",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
@@ -60,13 +62,12 @@
     "pino": "^8.17.0",
     "pino-pretty": "^10.3.0",
     "prom-client": "^15.1.0",
-    "protobufjs": "^7.2.5",
+    "protobufjs": "^7.5.5",
     "reflect-metadata": "^0.2.1",
     "socket.io": "^4.7.0",
     "superjson": "^2.2.0",
     "swagger-ui-express": "^5.0.0",
     "tsyringe": "^4.8.0",
-    "uuid": "^9.0.1",
     "ws": "^8.16.0",
     "zod": "^3.22.4"
   },
@@ -79,7 +80,6 @@
     "@types/jsonwebtoken": "^9.0.5",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.10.0",
-    "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
     "@typescript-eslint/parser": "^8.57.2",
@@ -101,8 +101,9 @@
     "flatted": "3.4.2",
     "lodash": "4.18.1",
     "path-to-regexp": "0.1.13",
+    "postcss": "8.5.10",
     "socket.io-parser": "4.2.6",
-    "vite": "8.0.7",
+    "hyperid": "4.0.0",
     "micromatch": {
       "picomatch": "2.3.2"
     },
@@ -110,6 +111,7 @@
       "picomatch": "4.0.4"
     },
     "vite": {
+      ".": "8.0.7",
       "picomatch": "4.0.4"
     },
     "vitest": {

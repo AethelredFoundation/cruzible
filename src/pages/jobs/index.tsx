@@ -14,9 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
+import { getApiUrl } from "@/config/api";
 
 interface Job {
   id: string;
@@ -43,7 +41,7 @@ async function fetchJobs(
   });
   if (status) params.set("status", status);
 
-  const response = await fetch(`${API_URL}/v1/jobs?${params}`);
+  const response = await fetch(getApiUrl(`/jobs?${params}`));
   if (!response.ok) throw new Error("Failed to fetch jobs");
   return response.json();
 }
@@ -224,13 +222,8 @@ export default function JobsPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {job.proofType.replace("PROOF_TYPE_", "")}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Link
-                          href={`/address/${job.creator}`}
-                          className="text-sm text-indigo-600 hover:text-indigo-700 font-mono"
-                        >
-                          {truncateHash(job.creator)}
-                        </Link>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+                        {truncateHash(job.creator)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
                         {truncateHash(job.modelHash)}

@@ -6,6 +6,8 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { SEOHead } from "@/components/SEOHead";
 import {
   AreaChart,
@@ -85,8 +87,14 @@ import {
   useWithdraw,
   useClaimRewards,
   useUserWithdrawals,
+  type VaultState,
 } from "@/hooks/useVault";
 import { formatEther } from "viem";
+import {
+  fetchReconciliationControlPlane,
+  type ReconciliationControlPlaneSummary,
+} from "@/lib/reconciliation";
+import { getApiUrl } from "@/config/api";
 
 // ============================================================================
 // TYPES
@@ -148,6 +156,57 @@ function fmtNum(n: number, d = 0): string {
 function fmtAddr(a: string): string {
   if (a.length <= 14) return a;
   return `${a.slice(0, 8)}...${a.slice(-4)}`;
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return "Unavailable";
+  return new Date(value).toLocaleString();
+}
+
+function getLiveVaultSnapshot(vaultState: VaultState) {
+  const tvl =
+    vaultState.totalPooledAethel > 0n
+      ? parseFloat(formatEther(vaultState.totalPooledAethel))
+      : null;
+  const exchangeRate =
+    vaultState.exchangeRate > 0n
+      ? parseFloat(formatEther(vaultState.exchangeRate))
+      : null;
+  const apy =
+    vaultState.effectiveAPY > 0n ? Number(vaultState.effectiveAPY) / 100 : null;
+  const epoch =
+    vaultState.currentEpoch > 0n ? Number(vaultState.currentEpoch) : null;
+
+  return {
+    tvl,
+    exchangeRate,
+    apy,
+    epoch,
+    hasAuthoritativeState:
+      tvl !== null && exchangeRate !== null && apy !== null && epoch !== null,
+  };
+}
+
+function VaultTruthNotice({
+  title,
+  body,
+  tone = "neutral",
+}: {
+  title: string;
+  body: string;
+  tone?: "neutral" | "warning";
+}) {
+  const styles =
+    tone === "warning"
+      ? "border-amber-500/20 bg-amber-500/10 text-amber-50"
+      : "border-slate-800 bg-slate-900/70 text-slate-300";
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${styles}`}>
+      <p className="font-medium text-white">{title}</p>
+      <p className="mt-1">{body}</p>
+    </div>
+  );
 }
 
 function generateDayLabel(daysAgo: number): string {
@@ -549,32 +608,24 @@ function ExpandedActivity({
 // HERO SECTION
 // ============================================================================
 
-function HeroSection() {
-  const { wallet, realTime } = useApp();
+function HeroSection({
+  controlPlane,
+}: {
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const { wallet } = useApp();
   const vaultState = useVaultState();
+  const snapshot = getLiveVaultSnapshot(vaultState);
+  const epoch = snapshot.epoch ?? controlPlane?.epoch ?? null;
 
-  // Derive human-readable values from on-chain data, with mock fallbacks
-  const tvlRaw =
-    vaultState.totalPooledAethel > 0n
-      ? parseFloat(formatEther(vaultState.totalPooledAethel))
-      : TVL_TOTAL;
   const tvlDisplay =
-    tvlRaw >= 1e6
-      ? { value: tvlRaw / 1e6, suffix: "M" }
-      : tvlRaw >= 1e3
-        ? { value: tvlRaw / 1e3, suffix: "K" }
-        : { value: tvlRaw, suffix: "" };
-
-  const exchangeRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-
-  // effectiveAPY is stored as basis points (e.g., 842 = 8.42%)
-  const apy =
-    vaultState.effectiveAPY > 0n
-      ? Number(vaultState.effectiveAPY) / 100
-      : CURRENT_APY;
+    snapshot.tvl == null
+      ? null
+      : snapshot.tvl >= 1e6
+        ? { value: snapshot.tvl / 1e6, suffix: "M" }
+        : snapshot.tvl >= 1e3
+          ? { value: snapshot.tvl / 1e3, suffix: "K" }
+          : { value: snapshot.tvl, suffix: "" };
 
   return (
     <div className="relative overflow-hidden">
@@ -598,14 +649,11 @@ function HeroSection() {
               </Badge>
               <Badge variant="success">
                 <LiveDot />
-                Live
+                {snapshot.hasAuthoritativeState
+                  ? "Live vault state"
+                  : "Awaiting live state"}
               </Badge>
-              <Badge variant="neutral">
-                Epoch #
-                {vaultState.currentEpoch > 0n
-                  ? Number(vaultState.currentEpoch)
-                  : realTime.epoch}
-              </Badge>
+              <Badge variant="neutral">Epoch #{epoch ?? "n/a"}</Badge>
             </div>
             <h1 className="text-4xl lg:text-5xl font-bold text-white tracking-tight mb-2">
               AethelVault
@@ -622,6 +670,8 @@ function HeroSection() {
               <p className="text-2xl font-bold text-white tabular-nums">
                 {vaultState.isLoading ? (
                   "..."
+                ) : !tvlDisplay ? (
+                  "Unavailable"
                 ) : (
                   <>
                     <AnimatedNumber value={tvlDisplay.value} decimals={2} />
@@ -639,16 +689,19 @@ function HeroSection() {
               <p className="text-2xl font-bold text-emerald-400 tabular-nums">
                 {vaultState.isLoading ? (
                   "..."
+                ) : snapshot.apy == null ? (
+                  "Unavailable"
                 ) : (
                   <>
-                    <AnimatedNumber value={apy} decimals={2} />%
+                    <AnimatedNumber value={snapshot.apy} decimals={2} />%
                   </>
                 )}
               </p>
-              <div className="flex items-center gap-1 text-xs text-emerald-400">
-                <ArrowUpRight className="w-3 h-3" />
-                +0.3% vs last epoch
-              </div>
+              <p className="text-xs text-slate-500">
+                {controlPlane
+                  ? `Captured ${formatDateTime(controlPlane.captured_at)}`
+                  : "Control plane not yet available"}
+              </p>
             </div>
             <div className="w-px bg-slate-700/50" />
             <div>
@@ -658,13 +711,26 @@ function HeroSection() {
               <p className="text-2xl font-bold text-white tabular-nums">
                 {vaultState.isLoading ? (
                   "..."
+                ) : snapshot.exchangeRate == null ? (
+                  "Unavailable"
                 ) : (
-                  <AnimatedNumber value={exchangeRate} decimals={4} />
+                  <AnimatedNumber value={snapshot.exchangeRate} decimals={4} />
                 )}
               </p>
               <p className="text-xs text-slate-500">AETHEL per stAETHEL</p>
             </div>
           </div>
+        </div>
+        <div className="mt-6 max-w-3xl">
+          <VaultTruthNotice
+            title="Truth-first vault surface"
+            body={
+              snapshot.hasAuthoritativeState
+                ? "The vault hero only shows live contract-backed TVL, exchange rate, APY, and epoch. Historical or synthetic overlays stay hidden until indexed proofs are live."
+                : "Live vault telemetry is incomplete, so Cruzible is failing closed instead of rendering invented TVL, APY, or exchange-rate numbers."
+            }
+            tone={snapshot.hasAuthoritativeState ? "neutral" : "warning"}
+          />
         </div>
       </div>
     </div>
@@ -675,26 +741,30 @@ function HeroSection() {
 // TAB 1: OVERVIEW
 // ============================================================================
 
-function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
-  const { wallet, connectWallet, addNotification, realTime } = useApp();
+function OverviewTab({
+  switchTab,
+  controlPlane,
+}: {
+  switchTab: (t: VaultTab) => void;
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const { wallet, connectWallet, addNotification } = useApp();
   const vaultState = useVaultState();
   const { claimRewards } = useClaimRewards();
-  const [chartToggle, setChartToggle] = useState<ChartToggle>("value");
-  const [expandedActivity, setExpandedActivity] = useState<string | null>(null);
   const [showCalcModal, setShowCalcModal] = useState(false);
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claimConfirm, setClaimConfirm] = useState(false);
   const [claiming, setClaiming] = useState(false);
-
-  // Use live exchange rate / APY from contract when available
-  const liveRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-  const liveApy =
-    vaultState.effectiveAPY > 0n
-      ? Number(vaultState.effectiveAPY) / 100
-      : CURRENT_APY;
+  const snapshot = getLiveVaultSnapshot(vaultState);
+  const liveRate = snapshot.exchangeRate;
+  const liveApy = snapshot.apy;
+  const protocolEpoch = snapshot.epoch ?? controlPlane?.epoch ?? null;
+  const positionValue =
+    wallet.connected && liveRate != null ? wallet.stBalance * liveRate : null;
+  const annualizedRewards =
+    positionValue != null && liveApy != null
+      ? (positionValue * liveApy) / 100
+      : null;
 
   const handleClaim = useCallback(async () => {
     if (!wallet.connected || !wallet.address) {
@@ -714,10 +784,8 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
     );
 
     try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
       const res = await fetch(
-        `${API_BASE}/vault/reward-proof?address=${wallet.address}`,
+        getApiUrl(`/vault/reward-proof?address=${wallet.address}`),
       );
       if (!res.ok) {
         const body = await res
@@ -751,21 +819,6 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
       setClaiming(false);
     }
   }, [wallet.connected, wallet.address, addNotification, claimRewards]);
-
-  const portfolioChartData = useMemo(() => {
-    if (chartToggle === "value")
-      return PORTFOLIO_DATA.map((d) => ({ date: d.date, value: d.value }));
-    if (chartToggle === "apy")
-      return PORTFOLIO_DATA.map((d) => ({ date: d.date, value: d.apy }));
-    return PORTFOLIO_DATA.map((d) => ({ date: d.date, value: d.rate }));
-  }, [chartToggle]);
-
-  const chartLabel =
-    chartToggle === "value"
-      ? "Value (AETHEL)"
-      : chartToggle === "apy"
-        ? "APY (%)"
-        : "Exchange Rate";
 
   return (
     <div className="space-y-8">
@@ -804,25 +857,33 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
             <div>
               <p className="text-xs text-slate-500 mb-1">Current Value</p>
               <p className="text-xl font-bold text-emerald-400 tabular-nums">
-                {fmtNum(wallet.stBalance * liveRate, 2)}
+                {positionValue == null
+                  ? "Unavailable"
+                  : fmtNum(positionValue, 2)}
               </p>
               <p className="text-xs text-slate-500">AETHEL</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-1">USD Value</p>
+              <p className="text-xs text-slate-500 mb-1">Annualized Yield</p>
               <p className="text-xl font-bold text-white tabular-nums">
-                ${fmtNum(wallet.stBalance * liveRate * realTime.aethelPrice, 2)}
+                {annualizedRewards == null
+                  ? "Unavailable"
+                  : `+${fmtNum(annualizedRewards, 2)}`}
+              </p>
+              <p className="text-xs text-slate-500">
+                Derived from the live effective APY
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-1">Daily Earnings Est.</p>
+              <p className="text-xs text-slate-500 mb-1">Proof Status</p>
               <p className="text-xl font-bold text-emerald-400 tabular-nums">
-                +
-                {((wallet.stBalance * liveRate * liveApy) / 100 / 365).toFixed(
-                  2,
-                )}
+                {controlPlane ? "Live" : "Pending"}
               </p>
-              <p className="text-xs text-slate-500">AETHEL/day</p>
+              <p className="text-xs text-slate-500">
+                {controlPlane
+                  ? `Captured ${formatDateTime(controlPlane.captured_at)}`
+                  : "Waiting for the public control plane"}
+              </p>
             </div>
           </div>
         ) : (
@@ -841,79 +902,6 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
         )}
       </GlassCard>
 
-      {/* Portfolio Performance Chart */}
-      <GlassCard className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">
-            Portfolio Performance
-          </h3>
-          <div className="flex bg-slate-700/50 rounded-lg p-0.5">
-            {(["value", "apy", "rate"] as ChartToggle[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setChartToggle(t)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${chartToggle === t ? "bg-red-600 text-white" : "text-slate-400 hover:text-white"}`}
-              >
-                {t === "value" ? "Value" : t === "apy" ? "APY" : "Rate"}
-              </button>
-            ))}
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={240}>
-          <AreaChart data={portfolioChartData}>
-            <defs>
-              <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={BRAND.red} stopOpacity={0.2} />
-                <stop offset="100%" stopColor={BRAND.red} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="rgba(100,116,139,0.15)"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              tickLine={false}
-              axisLine={false}
-              interval={4}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              tickLine={false}
-              axisLine={false}
-              width={60}
-              tickFormatter={(v: number) =>
-                chartToggle === "apy"
-                  ? `${v}%`
-                  : chartToggle === "rate"
-                    ? v.toFixed(4)
-                    : fmtNum(v)
-              }
-            />
-            <RTooltip
-              contentStyle={chartTooltipStyle}
-              formatter={(value: number) => [
-                chartToggle === "apy"
-                  ? `${value}%`
-                  : chartToggle === "rate"
-                    ? value.toFixed(6)
-                    : `${fmtNum(value, 2)} AETHEL`,
-                chartLabel,
-              ]}
-            />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke={BRAND.red}
-              strokeWidth={2}
-              fill="url(#portfolioGrad)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </GlassCard>
-
       {/* Quick Actions */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <button
@@ -925,7 +913,11 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
           </div>
           <div className="text-left">
             <p className="text-sm font-semibold text-white">Stake AETHEL</p>
-            <p className="text-xs text-slate-400">Earn {CURRENT_APY}% APY</p>
+            <p className="text-xs text-slate-400">
+              {liveApy == null
+                ? "Live APY unavailable"
+                : `Earn ${liveApy.toFixed(2)}% APY`}
+            </p>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-500 ml-auto group-hover:text-red-400 transition-colors" />
         </button>
@@ -951,7 +943,7 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
           </div>
           <div className="text-left">
             <p className="text-sm font-semibold text-white">Claim Rewards</p>
-            <p className="text-xs text-slate-400">234.56 AETHEL</p>
+            <p className="text-xs text-slate-400">Fetch a live Merkle proof</p>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-500 ml-auto group-hover:text-emerald-400 transition-colors" />
         </button>
@@ -973,29 +965,31 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
       {/* Protocol Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
-          label="Total Stakers"
-          value={fmtNum(TOTAL_STAKERS)}
-          change="+2.3%"
-          up
-          icon={<Users className="w-5 h-5" />}
-          sub="Unique addresses"
-        />
-        <StatCard
-          label="Total Staked"
-          value={`${fmtNum(TVL_TOTAL)}`}
-          sub="AETHEL"
+          label="Live TVL"
+          value={snapshot.tvl == null ? "Unavailable" : fmtNum(snapshot.tvl)}
           icon={<Lock className="w-5 h-5" />}
+          sub="Contract-backed AETHEL"
         />
         <StatCard
-          label="Average Stake"
-          value="3,712"
-          sub="AETHEL per staker"
-          icon={<Target className="w-5 h-5" />}
+          label="Effective APY"
+          value={liveApy == null ? "Unavailable" : `${liveApy.toFixed(2)}%`}
+          sub="Vault effective APY"
+          icon={<TrendingUp className="w-5 h-5" />}
         />
         <StatCard
-          label="Validators Backing"
-          value={`${VALIDATORS_BACKING}/${TOTAL_VALIDATORS}`}
-          sub="Active / Total"
+          label="Exchange Rate"
+          value={liveRate == null ? "Unavailable" : liveRate.toFixed(6)}
+          sub="AETHEL per stAETHEL"
+          icon={<Activity className="w-5 h-5" />}
+        />
+        <StatCard
+          label="Protocol Epoch"
+          value={protocolEpoch == null ? "Unavailable" : String(protocolEpoch)}
+          sub={
+            controlPlane?.epoch_source?.includes("fallback")
+              ? "Fallback source"
+              : "Authoritative source"
+          }
           icon={<Server className="w-5 h-5" />}
         />
         <GlassCard className="p-5">
@@ -1004,160 +998,194 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
               <Timer className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-xs text-slate-400 mb-1">Next Epoch</p>
-          <CountdownTimer epoch={realTime.epoch} />
+          <p className="text-xs text-slate-400 mb-1">Stake Snapshot</p>
+          <p className="text-xl font-bold text-white">
+            {controlPlane?.stake_snapshot_complete == null
+              ? "Unavailable"
+              : controlPlane.stake_snapshot_complete
+                ? "Complete"
+                : "Partial"}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            Indexed solvency evidence for the public control plane
+          </p>
         </GlassCard>
         <StatCard
-          label="Protocol Revenue (30d)"
-          value={fmtNum(847293)}
-          sub="AETHEL"
-          icon={<Coins className="w-5 h-5" />}
-          change="+5.1%"
-          up
+          label="Control-Plane Warnings"
+          value={String(controlPlane?.warning_count ?? 0)}
+          sub="Warnings in the latest capture"
+          icon={<AlertCircle className="w-5 h-5" />}
         />
       </div>
 
-      {/* Recent Activity + Exchange Rate */}
-      <div className="grid lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3">
-          <GlassCard className="overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
-              <h3 className="font-semibold text-white">Recent Activity</h3>
-              <span className="text-xs text-slate-500">Last 10 events</span>
+      <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+        <GlassCard className="p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-white">
+                Live Proof Surface
+              </h3>
+              <p className="text-sm text-slate-400 mt-1">
+                Public trust anchors sourced from the reconciliation control
+                plane and live vault contract reads.
+              </p>
             </div>
-            <div className="divide-y divide-slate-700/30 max-h-[480px] overflow-y-auto">
-              {RECENT_ACTIVITY.map((item) => (
-                <div key={item.id}>
-                  <button
-                    onClick={() =>
-                      setExpandedActivity(
-                        expandedActivity === item.id ? null : item.id,
-                      )
-                    }
-                    className="w-full px-6 py-3.5 flex items-center justify-between hover:bg-slate-700/20 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                          item.type === "stake"
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : item.type === "unstake"
-                              ? "bg-amber-500/10 text-amber-400"
-                              : item.type === "claim"
-                                ? "bg-blue-500/10 text-blue-400"
-                                : item.type === "epoch"
-                                  ? "bg-purple-500/10 text-purple-400"
-                                  : "bg-red-500/10 text-red-400"
-                        }`}
-                      >
-                        {item.type === "stake" ? (
-                          <ArrowDown className="w-4 h-4" />
-                        ) : item.type === "unstake" ? (
-                          <ArrowUp className="w-4 h-4" />
-                        ) : item.type === "claim" ? (
-                          <Gift className="w-4 h-4" />
-                        ) : item.type === "epoch" ? (
-                          <Clock className="w-4 h-4" />
-                        ) : (
-                          <Server className="w-4 h-4" />
-                        )}
-                      </div>
-                      <div className="text-left">
-                        <p className="text-sm font-medium text-white capitalize">
-                          {item.type === "epoch" ? "Epoch End" : item.type}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {item.address === "system"
-                            ? "Protocol"
-                            : fmtAddr(item.address)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {item.amount > 0 && (
-                        <p
-                          className={`text-sm font-medium tabular-nums ${
-                            item.type === "stake"
-                              ? "text-emerald-400"
-                              : item.type === "unstake"
-                                ? "text-amber-400"
-                                : "text-white"
-                          }`}
-                        >
-                          {item.type === "stake"
-                            ? "+"
-                            : item.type === "unstake"
-                              ? "-"
-                              : ""}
-                          {fmtNum(item.amount)} AETHEL
-                        </p>
-                      )}
-                      <p className="text-xs text-slate-500">{item.timestamp}</p>
-                    </div>
-                  </button>
-                  {expandedActivity === item.id && (
-                    <div className="px-6 pb-3">
-                      <ExpandedActivity
-                        item={item}
-                        onClose={() => setExpandedActivity(null)}
-                      />
-                    </div>
-                  )}
+            <button
+              onClick={() => switchTab("analytics")}
+              className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-100 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/15"
+            >
+              Analytics
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <VaultTruthNotice
+              title="Control-plane capture"
+              body={
+                controlPlane
+                  ? `Captured ${formatDateTime(controlPlane.captured_at)} from ${controlPlane.epoch_source}.`
+                  : "Public reconciliation capture is not yet available."
+              }
+              tone={
+                controlPlane?.epoch_source?.includes("fallback")
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+            <VaultTruthNotice
+              title="Validator universe"
+              body={
+                controlPlane
+                  ? `${controlPlane.validator_count}/${controlPlane.total_eligible_validators} eligible validators are represented in the public snapshot.`
+                  : "Validator-universe coverage will appear here once the control plane is reachable."
+              }
+            />
+            <VaultTruthNotice
+              title="Stake snapshot status"
+              body={
+                controlPlane?.stake_snapshot_complete == null
+                  ? "Stake solvency coverage has not been published yet."
+                  : controlPlane.stake_snapshot_complete
+                    ? "Stake snapshot is complete for the current public capture."
+                    : "Stake snapshot is partial, so solvency evidence should be treated as incomplete."
+              }
+              tone={
+                controlPlane?.stake_snapshot_complete === false
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+            <VaultTruthNotice
+              title="Warnings"
+              body={
+                controlPlane
+                  ? controlPlane.warning_count === 0
+                    ? "No public control-plane warnings are active in the latest snapshot."
+                    : `${controlPlane.warning_count} warning(s) were emitted in the latest public snapshot.`
+                  : "Warning posture will appear once the control plane is reachable."
+              }
+              tone={
+                controlPlane && controlPlane.warning_count > 0
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+          </div>
+
+          <div className="mt-6 space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Validator Universe Hash
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-100">
+                  {controlPlane?.validator_universe_hash ?? "Unavailable"}
+                </p>
+              </div>
+              {controlPlane?.validator_universe_hash ? (
+                <CopyBtn text={controlPlane.validator_universe_hash} />
+              ) : null}
+            </div>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Stake Snapshot Hash
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-100">
+                  {controlPlane?.stake_snapshot_hash ?? "Unavailable"}
+                </p>
+              </div>
+              {controlPlane?.stake_snapshot_hash ? (
+                <CopyBtn text={controlPlane.stake_snapshot_hash} />
+              ) : null}
+            </div>
+            {controlPlane?.warnings?.length ? (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-amber-200">
+                  Latest Warnings
+                </p>
+                <div className="mt-3 space-y-2 text-sm text-amber-50">
+                  {controlPlane.warnings.map((warning, index) => (
+                    <p key={`${warning}-${index}`}>{warning}</p>
+                  ))}
                 </div>
-              ))}
+              </div>
+            ) : null}
+          </div>
+        </GlassCard>
+
+        <div className="space-y-6">
+          <GlassCard className="p-6">
+            <h3 className="text-lg font-semibold text-white">
+              Historical surfaces are gated
+            </h3>
+            <p className="mt-2 text-sm leading-7 text-slate-300">
+              Cruzible no longer renders seeded activity feeds, fake
+              exchange-rate charts, or fabricated reward balances inside the
+              vault. Those surfaces will return only after the indexed history
+              pipeline is live and publicly defensible.
+            </p>
+            <div className="mt-5 space-y-3">
+              <VaultTruthNotice
+                title="What is live right now"
+                body="TVL, effective APY, exchange rate, epoch, staking, unstaking, and live proof fetches."
+              />
+              <VaultTruthNotice
+                title="What remains gated"
+                body="Historical portfolio curves, recent protocol activity, reward-history ledgers, and leaderboard-style analytics."
+                tone="warning"
+              />
             </div>
           </GlassCard>
-        </div>
 
-        <div className="lg:col-span-2">
           <GlassCard className="p-6">
-            <h3 className="font-semibold text-white mb-1">
-              Exchange Rate History
+            <h3 className="text-lg font-semibold text-white">
+              Next best actions
             </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              90-day trend: 1.0000 to {EXCHANGE_RATE.toFixed(4)}
-            </p>
-            <ResponsiveContainer width="100%" height={340}>
-              <AreaChart data={RATE_DATA}>
-                <defs>
-                  <linearGradient id="rateGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity={0.2} />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(100,116,139,0.15)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={14}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "#64748b" }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={55}
-                  domain={["dataMin - 0.005", "dataMax + 0.005"]}
-                  tickFormatter={(v: number) => v.toFixed(4)}
-                />
-                <RTooltip
-                  contentStyle={chartTooltipStyle}
-                  formatter={(v: number) => [v.toFixed(6), "Rate"]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="rate"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  fill="url(#rateGrad)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <div className="mt-4 space-y-3">
+              <button
+                onClick={() => switchTab("stake")}
+                className="flex w-full items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-left text-sm text-white transition-colors hover:border-slate-700"
+              >
+                Fund a live staking position
+                <ArrowRight className="h-4 w-4 text-slate-500" />
+              </button>
+              <button
+                onClick={() => switchTab("rewards")}
+                className="flex w-full items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-left text-sm text-white transition-colors hover:border-slate-700"
+              >
+                Review live reward projections
+                <ArrowRight className="h-4 w-4 text-slate-500" />
+              </button>
+              <Link
+                href="/reconciliation"
+                className="flex w-full items-center justify-between rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-left text-sm text-cyan-100 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/15"
+              >
+                Open the full reconciliation console
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           </GlassCard>
         </div>
       </div>
@@ -1177,23 +1205,18 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
               Claim Rewards
             </h3>
             <div className="bg-slate-700/50 rounded-xl p-4 mb-4 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">Pending Rewards</span>
-                <span className="text-white font-semibold">234.56 AETHEL</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">USD Value</span>
-                <span className="text-white font-semibold">
-                  ${(234.56 * 2.47).toFixed(2)}
-                </span>
-              </div>
+              <p className="text-sm leading-6 text-slate-300">
+                Rewards are claimed only after Cruzible fetches a live Merkle
+                proof from the backend. This modal does not pre-render a reward
+                amount because the amount must come from the proof pipeline.
+              </p>
             </div>
             {!claimConfirm ? (
               <button
                 onClick={() => setClaimConfirm(true)}
                 className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors"
               >
-                Claim All Rewards
+                Fetch Live Reward Proof
               </button>
             ) : claiming ? (
               <div className="flex items-center justify-center py-3 gap-2 text-white">
@@ -1203,7 +1226,8 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-slate-300">
-                  Confirm claiming 234.56 AETHEL in rewards?
+                  Confirm fetching the latest live reward proof and claiming the
+                  amount returned by the backend?
                 </p>
                 <div className="flex gap-3">
                   <button
@@ -1244,6 +1268,9 @@ function CalculatorModal({
   onClose: () => void;
   isOpen?: boolean;
 }) {
+  const vaultState = useVaultState();
+  const snapshot = getLiveVaultSnapshot(vaultState);
+  const effectiveApy = snapshot.apy ?? 0;
   const [calcAmount, setCalcAmount] = useState(10000);
   const [calcMonths, setCalcMonths] = useState(12);
   const [autoCompound, setAutoCompound] = useState(true);
@@ -1252,9 +1279,9 @@ function CalculatorModal({
     const periods = [1, 3, 6, 12, calcMonths];
     const unique = Array.from(new Set(periods)).sort((a, b) => a - b);
     return unique.map((m) => {
-      const simple = calcAmount * (CURRENT_APY / 100) * (m / 12);
+      const simple = calcAmount * (effectiveApy / 100) * (m / 12);
       const compound =
-        calcAmount * Math.pow(1 + CURRENT_APY / 100 / 12, m) - calcAmount;
+        calcAmount * Math.pow(1 + effectiveApy / 100 / 12, m) - calcAmount;
       return {
         label:
           m === 1
@@ -1270,19 +1297,19 @@ function CalculatorModal({
         earned: parseFloat((autoCompound ? compound : simple).toFixed(2)),
       };
     });
-  }, [calcAmount, calcMonths, autoCompound]);
+  }, [autoCompound, calcAmount, calcMonths, effectiveApy]);
 
   const chartData = useMemo(() => {
     return Array.from({ length: Math.min(calcMonths, 60) + 1 }, (_, i) => {
-      const simple = calcAmount + calcAmount * (CURRENT_APY / 100) * (i / 12);
-      const compound = calcAmount * Math.pow(1 + CURRENT_APY / 100 / 12, i);
+      const simple = calcAmount + calcAmount * (effectiveApy / 100) * (i / 12);
+      const compound = calcAmount * Math.pow(1 + effectiveApy / 100 / 12, i);
       return {
         month: i,
         simple: parseFloat(simple.toFixed(2)),
         compound: parseFloat(compound.toFixed(2)),
       };
     });
-  }, [calcAmount, calcMonths]);
+  }, [calcAmount, calcMonths, effectiveApy]);
 
   return (
     <Modal isOpen={isOpen} title="Staking Calculator" onClose={onClose}>
@@ -1291,6 +1318,12 @@ function CalculatorModal({
           <Calculator className="w-5 h-5 text-red-400" />
           Staking Calculator
         </h3>
+        <p className="mb-5 text-sm leading-6 text-slate-400">
+          Projections use the current live effective APY when available.
+          {snapshot.apy == null
+            ? " Live APY is unavailable right now, so projections are currently conservative."
+            : ` Current live APY: ${snapshot.apy.toFixed(2)}%.`}
+        </p>
         <div className="space-y-5">
           <div>
             <label className="text-sm text-slate-400 mb-2 block">
@@ -1427,24 +1460,21 @@ function StakeTab() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [success, setSuccess] = useState(false);
   const [showCalc, setShowCalc] = useState(false);
+  const snapshot = getLiveVaultSnapshot(vaultState);
 
   const numAmt = parseFloat(amount) || 0;
   const maxBalance = wallet.connected ? wallet.balance : 0;
 
-  // Use real exchange rate from contract when available
-  const liveRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-  const liveApy =
-    vaultState.effectiveAPY > 0n
-      ? Number(vaultState.effectiveAPY) / 100
-      : CURRENT_APY;
-
-  const receiveSt = numAmt / liveRate;
+  const liveRate = snapshot.exchangeRate;
+  const liveApy = snapshot.apy;
+  const receiveSt = liveRate != null && liveRate > 0 ? numAmt / liveRate : null;
   const fee = numAmt * 0.001;
-  const projected30d = (numAmt * liveApy) / 100 / 12;
-  const isValid = wallet.connected && numAmt >= 1 && numAmt <= maxBalance;
+  const projected30d = liveApy != null ? (numAmt * liveApy) / 100 / 12 : null;
+  const isValid =
+    wallet.connected &&
+    !wallet.isWrongNetwork &&
+    numAmt >= 1 &&
+    numAmt <= maxBalance;
   const processing = stakeIsPending;
 
   const handleQuick = (pct: number) => {
@@ -1536,13 +1566,17 @@ function StakeTab() {
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">You will receive</span>
                 <span className="font-semibold text-white tabular-nums">
-                  ~{numAmt > 0 ? receiveSt.toFixed(4) : "0.0000"} stAETHEL
+                  {receiveSt == null
+                    ? "Unavailable until live exchange rate loads"
+                    : `~${numAmt > 0 ? receiveSt.toFixed(4) : "0.0000"} stAETHEL`}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Exchange rate</span>
                 <span className="text-slate-300 tabular-nums">
-                  1 AETHEL = {(1 / liveRate).toFixed(4)} stAETHEL
+                  {liveRate == null
+                    ? "Unavailable"
+                    : `1 AETHEL = ${(1 / liveRate).toFixed(4)} stAETHEL`}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
@@ -1555,13 +1589,15 @@ function StakeTab() {
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Estimated APY</span>
                 <span className="font-medium text-emerald-400">
-                  {liveApy.toFixed(2)}%
+                  {liveApy == null ? "Unavailable" : `${liveApy.toFixed(2)}%`}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Projected earnings (30d)</span>
                 <span className="font-medium text-emerald-400 tabular-nums">
-                  +{numAmt > 0 ? projected30d.toFixed(2) : "0.00"} AETHEL
+                  {projected30d == null
+                    ? "Unavailable"
+                    : `+${numAmt > 0 ? projected30d.toFixed(2) : "0.00"} AETHEL`}
                 </span>
               </div>
             </div>
@@ -1593,7 +1629,9 @@ function StakeTab() {
                   Successfully staked {fmtNum(numAmt, 2)} AETHEL!
                 </p>
                 <p className="text-sm text-slate-400 mt-1">
-                  You received {receiveSt.toFixed(4)} stAETHEL
+                  {receiveSt == null
+                    ? "The receive preview was unavailable at submission time."
+                    : `You received ${receiveSt.toFixed(4)} stAETHEL`}
                 </p>
               </div>
             ) : processing ? (
@@ -1614,7 +1652,9 @@ function StakeTab() {
                     ?
                   </p>
                   <p className="text-xs text-amber-300/70 mt-1">
-                    You will receive {receiveSt.toFixed(4)} stAETHEL
+                    {receiveSt == null
+                      ? "Live exchange rate is unavailable, so the receive preview is withheld."
+                      : `You will receive ${receiveSt.toFixed(4)} stAETHEL`}
                   </p>
                 </div>
                 <div className="flex gap-3">
@@ -1663,25 +1703,13 @@ function StakeTab() {
             Current APY
           </h3>
           <p className="text-3xl font-bold text-emerald-400 mb-3">
-            {liveApy.toFixed(2)}%
+            {liveApy == null ? "Unavailable" : `${liveApy.toFixed(2)}%`}
           </p>
-          <ResponsiveContainer width="100%" height={80}>
-            <AreaChart data={APY_DATA.slice(-30)}>
-              <defs>
-                <linearGradient id="apyMini" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Area
-                type="monotone"
-                dataKey="apy"
-                stroke="#10b981"
-                strokeWidth={1.5}
-                fill="url(#apyMini)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <p className="text-sm leading-6 text-slate-400">
+            This staking preview only uses the live effective APY exposed by the
+            vault contract. Historical APY charts remain hidden until indexed
+            time-series data is live.
+          </p>
         </GlassCard>
 
         {/* Staking Info */}
@@ -1694,7 +1722,10 @@ function StakeTab() {
             {[
               { l: "Minimum stake", v: "1 AETHEL" },
               { l: "Unbonding period", v: "21 days" },
-              { l: "Validators", v: "47 validators" },
+              {
+                l: "Validator source",
+                v: "Published in reconciliation and validator intelligence",
+              },
               { l: "TEE Protection", v: "Hardware-verified" },
               { l: "Commission", v: "5% on rewards" },
             ].map((r, i) => (
@@ -1776,18 +1807,22 @@ function UnstakeTab() {
   const [amount, setAmount] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [success, setSuccess] = useState(false);
+  const snapshot = getLiveVaultSnapshot(vaultState);
+  const [withdrawalClock, setWithdrawalClock] = useState(
+    () => Date.now() / 1000,
+  );
 
   const numAmt = parseFloat(amount) || 0;
   const maxBal = wallet.connected ? wallet.stBalance : 0;
+  const liveRate = snapshot.exchangeRate;
 
-  const liveRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-
-  const receiveAethel = numAmt * liveRate;
-  const earlyFee = receiveAethel * 0.005;
-  const isValid = wallet.connected && numAmt > 0 && numAmt <= maxBal;
+  const receiveAethel = liveRate == null ? null : numAmt * liveRate;
+  const earlyFee = receiveAethel == null ? null : receiveAethel * 0.005;
+  const isValid =
+    wallet.connected &&
+    !wallet.isWrongNetwork &&
+    numAmt > 0 &&
+    numAmt <= maxBal;
   const processing = unstakeIsPending;
 
   const completionDate = useMemo(() => {
@@ -1800,45 +1835,44 @@ function UnstakeTab() {
     });
   }, []);
 
+  useEffect(() => {
+    setWithdrawalClock(Date.now() / 1000);
+  }, [onChainWithdrawals]);
+
   // Merge on-chain withdrawals with mock fallback for display
   const requests: UnstakeRequest[] = useMemo(() => {
-    if (onChainWithdrawals.length > 0) {
-      return onChainWithdrawals.map((w, i) => {
-        const now = Date.now() / 1000;
-        const completion = Number(w.completionTime);
-        const start = Number(w.requestTime);
-        const totalSecs = completion - start;
-        const elapsedSecs = now - start;
-        const daysRemaining = Math.max(
-          0,
-          Math.ceil((completion - now) / 86400),
-        );
-        const totalDays = Math.ceil(totalSecs / 86400);
-        return {
-          id: `w${w.id.toString()}`,
-          amount: parseFloat(formatEther(w.aethelAmount)),
-          stAethelAmount: parseFloat(formatEther(w.shares)),
-          startDate: new Date(start * 1000).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          }),
-          completionDate: new Date(completion * 1000).toLocaleDateString(
-            "en-US",
-            { month: "short", day: "numeric", year: "numeric" },
-          ),
-          status: w.claimed
-            ? ("claimed" as const)
-            : daysRemaining === 0
-              ? ("ready" as const)
-              : ("pending" as const),
-          daysRemaining,
-          totalDays: Math.max(totalDays, 1),
-        };
-      });
-    }
-    return PENDING_UNSTAKES;
-  }, [onChainWithdrawals]);
+    return onChainWithdrawals.map((w) => {
+      const completion = Number(w.completionTime);
+      const start = Number(w.requestTime);
+      const totalSecs = completion - start;
+      const daysRemaining = Math.max(
+        0,
+        Math.ceil((completion - withdrawalClock) / 86400),
+      );
+      const totalDays = Math.ceil(totalSecs / 86400);
+      return {
+        id: `w${w.id.toString()}`,
+        amount: parseFloat(formatEther(w.aethelAmount)),
+        stAethelAmount: parseFloat(formatEther(w.shares)),
+        startDate: new Date(start * 1000).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+        completionDate: new Date(completion * 1000).toLocaleDateString(
+          "en-US",
+          { month: "short", day: "numeric", year: "numeric" },
+        ),
+        status: w.claimed
+          ? ("claimed" as const)
+          : daysRemaining === 0
+            ? ("ready" as const)
+            : ("pending" as const),
+        daysRemaining,
+        totalDays: Math.max(totalDays, 1),
+      };
+    });
+  }, [onChainWithdrawals, withdrawalClock]);
 
   const handleQuick = (pct: number) =>
     setAmount(((maxBal * pct) / 100).toFixed(2));
@@ -1938,13 +1972,17 @@ function UnstakeTab() {
                     You will receive (after cooldown)
                   </span>
                   <span className="font-semibold text-white tabular-nums">
-                    ~{numAmt > 0 ? receiveAethel.toFixed(4) : "0.0000"} AETHEL
+                    {receiveAethel == null
+                      ? "Unavailable until live exchange rate loads"
+                      : `~${numAmt > 0 ? receiveAethel.toFixed(4) : "0.0000"} AETHEL`}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Exchange rate</span>
                   <span className="text-slate-300 tabular-nums">
-                    1 stAETHEL = {liveRate.toFixed(4)} AETHEL
+                    {liveRate == null
+                      ? "Unavailable"
+                      : `1 stAETHEL = ${liveRate.toFixed(4)} AETHEL`}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -1961,7 +1999,9 @@ function UnstakeTab() {
                     Early exit fee (if applicable)
                   </span>
                   <span className="text-amber-400 tabular-nums">
-                    0.5% ({numAmt > 0 ? earlyFee.toFixed(2) : "0.00"} AETHEL)
+                    {earlyFee == null
+                      ? "Unavailable"
+                      : `0.5% (${numAmt > 0 ? earlyFee.toFixed(2) : "0.00"} AETHEL)`}
                   </span>
                 </div>
               </div>
@@ -2006,8 +2046,9 @@ function UnstakeTab() {
                       ?
                     </p>
                     <p className="text-xs text-amber-300/70 mt-1">
-                      You will receive {receiveAethel.toFixed(2)} AETHEL after
-                      21-day cooldown
+                      {receiveAethel == null
+                        ? "Live exchange rate is unavailable, so the receive preview is withheld."
+                        : `You will receive ${receiveAethel.toFixed(2)} AETHEL after 21-day cooldown`}
                     </p>
                   </div>
                   <div className="flex gap-3">
@@ -2078,114 +2119,124 @@ function UnstakeTab() {
           <h3 className="font-semibold text-white">Active Unstaking Queue</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-700/30">
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Request ID
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Amount
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Start Date
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Completion
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Progress
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Status
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/20">
-              {requests.map((req) => (
-                <tr
-                  key={req.id}
-                  className="hover:bg-slate-700/20 transition-colors"
-                >
-                  <td className="px-6 py-4 text-slate-300 font-mono text-xs">
-                    {req.id.toUpperCase()}
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-white font-medium tabular-nums">
-                      {fmtNum(req.amount, 2)} AETHEL
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {fmtNum(req.stAethelAmount, 2)} stAETHEL
-                    </p>
-                  </td>
-                  <td className="px-6 py-4 text-slate-300">{req.startDate}</td>
-                  <td className="px-6 py-4 text-slate-300">
-                    {req.completionDate}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="w-32">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-slate-400">
-                          {req.daysRemaining > 0
-                            ? `${req.daysRemaining}d left`
-                            : "Complete"}
-                        </span>
-                        <span className="text-slate-400">
-                          {Math.round(
-                            ((req.totalDays - req.daysRemaining) /
-                              req.totalDays) *
-                              100,
-                          )}
-                          %
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${req.status === "ready" ? "bg-emerald-500" : "bg-amber-500"}`}
-                          style={{
-                            width: `${((req.totalDays - req.daysRemaining) / req.totalDays) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        req.status === "ready"
-                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                          : req.status === "claimed"
-                            ? "bg-slate-600/30 text-slate-400"
-                            : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                      }`}
-                    >
-                      {req.status === "ready" && (
-                        <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                      )}
-                      {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {req.status === "ready" ? (
-                      <button
-                        onClick={() => handleClaim(req.id)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
-                      >
-                        Claim
-                      </button>
-                    ) : req.status === "claimed" ? (
-                      <span className="text-xs text-slate-500">Claimed</span>
-                    ) : (
-                      <span className="text-xs text-slate-500">Waiting</span>
-                    )}
-                  </td>
+          {requests.length === 0 ? (
+            <div className="px-6 py-8 text-sm text-slate-400">
+              No live withdrawal requests were found for the connected wallet.
+              Cruzible no longer seeds placeholder unstake rows.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700/30">
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Request ID
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Amount
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Start Date
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Completion
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Progress
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Status
+                  </th>
+                  <th className="text-right text-slate-400 px-6 py-3 font-medium">
+                    Action
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-700/20">
+                {requests.map((req) => (
+                  <tr
+                    key={req.id}
+                    className="hover:bg-slate-700/20 transition-colors"
+                  >
+                    <td className="px-6 py-4 text-slate-300 font-mono text-xs">
+                      {req.id.toUpperCase()}
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-white font-medium tabular-nums">
+                        {fmtNum(req.amount, 2)} AETHEL
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {fmtNum(req.stAethelAmount, 2)} stAETHEL
+                      </p>
+                    </td>
+                    <td className="px-6 py-4 text-slate-300">
+                      {req.startDate}
+                    </td>
+                    <td className="px-6 py-4 text-slate-300">
+                      {req.completionDate}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="w-32">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-400">
+                            {req.daysRemaining > 0
+                              ? `${req.daysRemaining}d left`
+                              : "Complete"}
+                          </span>
+                          <span className="text-slate-400">
+                            {Math.round(
+                              ((req.totalDays - req.daysRemaining) /
+                                req.totalDays) *
+                                100,
+                            )}
+                            %
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${req.status === "ready" ? "bg-emerald-500" : "bg-amber-500"}`}
+                            style={{
+                              width: `${((req.totalDays - req.daysRemaining) / req.totalDays) * 100}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                          req.status === "ready"
+                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                            : req.status === "claimed"
+                              ? "bg-slate-600/30 text-slate-400"
+                              : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                        }`}
+                      >
+                        {req.status === "ready" && (
+                          <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                        )}
+                        {req.status.charAt(0).toUpperCase() +
+                          req.status.slice(1)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {req.status === "ready" ? (
+                        <button
+                          onClick={() => handleClaim(req.id)}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
+                        >
+                          Claim
+                        </button>
+                      ) : req.status === "claimed" ? (
+                        <span className="text-xs text-slate-500">Claimed</span>
+                      ) : (
+                        <span className="text-xs text-slate-500">Waiting</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </GlassCard>
     </div>
@@ -2196,47 +2247,51 @@ function UnstakeTab() {
 // TAB 4: REWARDS
 // ============================================================================
 
-function RewardsTab() {
+function RewardsTab({
+  controlPlane,
+}: {
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
   const { wallet, connectWallet, addNotification } = useApp();
   const vaultState = useVaultState();
   const { claimRewards } = useClaimRewards();
-  const [rewardView, setRewardView] = useState<RewardView>("daily");
   const [autoCompound, setAutoCompound] = useState(true);
-  const [compoundFreq, setCompoundFreq] = useState<CompoundFreq>("epoch");
   const [claimProcessing, setClaimProcessing] = useState(false);
-  const [page, setPage] = useState(0);
+  const snapshot = getLiveVaultSnapshot(vaultState);
+  const liveRate = snapshot.exchangeRate;
+  const liveApy = snapshot.apy;
+  const stakeValue =
+    wallet.connected && liveRate != null ? wallet.stBalance * liveRate : null;
 
-  const pageSize = 10;
-  const totalPages = Math.ceil(REWARD_HISTORY.length / pageSize);
-  const pagedRewards = REWARD_HISTORY.slice(
-    page * pageSize,
-    (page + 1) * pageSize,
-  );
+  const projectionRows = useMemo(() => {
+    const principal = stakeValue ?? 0;
+    const apy = liveApy ?? 0;
+    return [7, 30, 90, 365].map((days) => {
+      const years = days / 365;
+      const simple = principal * (apy / 100) * years;
+      const compound =
+        principal * (Math.pow(1 + apy / 100 / 12, years * 12) - 1);
+      return {
+        period:
+          days === 365 ? "1 year" : days === 30 ? "30 days" : `${days} days`,
+        projected: parseFloat((autoCompound ? compound : simple).toFixed(2)),
+      };
+    });
+  }, [autoCompound, liveApy, stakeValue]);
 
-  const chartData = useMemo(() => {
-    if (rewardView === "daily") return REWARD_HISTORY;
-    if (rewardView === "weekly") {
-      const weeks: { date: string; amount: number }[] = [];
-      for (let i = 0; i < REWARD_HISTORY.length; i += 7) {
-        const slice = REWARD_HISTORY.slice(i, i + 7);
-        weeks.push({
-          date: slice[0].date,
-          amount: parseFloat(
-            slice.reduce((s, r) => s + r.amount, 0).toFixed(2),
-          ),
-        });
-      }
-      return weeks;
-    }
-    return [
-      {
-        date: REWARD_HISTORY[0].date,
-        amount: parseFloat(
-          REWARD_HISTORY.reduce((s, r) => s + r.amount, 0).toFixed(2),
-        ),
-      },
-    ];
-  }, [rewardView]);
+  const growthChartData = useMemo(() => {
+    const principal = stakeValue ?? 0;
+    const apy = liveApy ?? 0;
+    return Array.from({ length: 13 }, (_, month) => {
+      const simple = principal + principal * (apy / 100) * (month / 12);
+      const compound = principal * Math.pow(1 + apy / 100 / 12, month);
+      return {
+        month: month === 0 ? "Now" : `M${month}`,
+        simple: parseFloat(simple.toFixed(2)),
+        compound: parseFloat(compound.toFixed(2)),
+      };
+    });
+  }, [liveApy, stakeValue]);
 
   const handleClaimAll = useCallback(async () => {
     if (!wallet.connected || !wallet.address) {
@@ -2256,10 +2311,8 @@ function RewardsTab() {
     );
 
     try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
       const res = await fetch(
-        `${API_BASE}/vault/reward-proof?address=${wallet.address}`,
+        getApiUrl(`/vault/reward-proof?address=${wallet.address}`),
       );
       if (!res.ok) {
         const body = await res
@@ -2291,51 +2344,43 @@ function RewardsTab() {
     }
   }, [wallet.connected, wallet.address, addNotification, claimRewards]);
 
-  const liveRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-  const liveApy =
-    vaultState.effectiveAPY > 0n
-      ? Number(vaultState.effectiveAPY) / 100
-      : CURRENT_APY;
-
-  const totalAllTime = 12847.32;
-  const pending = 234.56;
-  const stakeAmt = wallet.connected ? wallet.stBalance * liveRate : 100000;
-
   return (
     <div className="space-y-8">
-      {/* Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <GlassCard className="p-6">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-            Total Rewards Earned
+            Effective APY
           </p>
           <p className="text-2xl font-bold text-white tabular-nums">
-            <AnimatedNumber value={totalAllTime} decimals={2} />
+            {liveApy == null ? "Unavailable" : `${liveApy.toFixed(2)}%`}
           </p>
-          <p className="text-xs text-slate-400">AETHEL (all-time)</p>
+          <p className="text-xs text-slate-400">
+            Live effective APY from the vault contract
+          </p>
         </GlassCard>
         <GlassCard className="p-6">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-            Pending Rewards
+            Staked Value
           </p>
           <p className="text-2xl font-bold text-emerald-400 tabular-nums">
-            <AnimatedNumber value={pending} decimals={2} />
+            {stakeValue == null ? "Unavailable" : fmtNum(stakeValue, 2)}
           </p>
-          <p className="text-xs text-emerald-400/70">Claimable now</p>
+          <p className="text-xs text-emerald-400/70">AETHEL equivalent</p>
         </GlassCard>
         <GlassCard className="p-6">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-            Last Claim
+            Reward Projection
           </p>
-          <p className="text-2xl font-bold text-white">3 days ago</p>
-          <p className="text-xs text-slate-400">Mar 4, 2026</p>
+          <p className="text-2xl font-bold text-white">
+            {stakeValue == null || liveApy == null
+              ? "Unavailable"
+              : `+${fmtNum((stakeValue * liveApy) / 100, 2)}`}
+          </p>
+          <p className="text-xs text-slate-400">Annualized AETHEL rewards</p>
         </GlassCard>
         <GlassCard className="p-6 flex flex-col justify-between">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">
-            Quick Action
+            Live Claim
           </p>
           <button
             onClick={handleClaimAll}
@@ -2350,273 +2395,149 @@ function RewardsTab() {
             ) : (
               <>
                 <Gift className="w-4 h-4" />
-                Claim All Rewards
+                Fetch & Claim Proof
               </>
             )}
           </button>
         </GlassCard>
       </div>
 
-      {/* Chart */}
-      <GlassCard className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Rewards History</h3>
-          <div className="flex bg-slate-700/50 rounded-lg p-0.5">
-            {(["daily", "weekly", "monthly"] as RewardView[]).map((v) => (
-              <button
-                key={v}
-                onClick={() => setRewardView(v)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors capitalize ${rewardView === v ? "bg-red-600 text-white" : "text-slate-400 hover:text-white"}`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={chartData}>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="rgba(100,116,139,0.15)"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              tickLine={false}
-              axisLine={false}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              tickLine={false}
-              axisLine={false}
-              width={50}
-            />
-            <RTooltip
-              contentStyle={chartTooltipStyle}
-              formatter={(v: number) => [`${v.toFixed(2)} AETHEL`, "Reward"]}
-            />
-            <Bar dataKey="amount" fill={BRAND.red} radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-        <p className="text-xs text-slate-500 mt-2 text-center">
-          Total ({rewardView}):{" "}
-          {fmtNum(
-            chartData.reduce((s: number, d: any) => s + d.amount, 0),
-            2,
-          )}{" "}
-          AETHEL
-        </p>
-      </GlassCard>
-
-      {/* Breakdown Table */}
-      <GlassCard className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
-          <h3 className="font-semibold text-white">Rewards Breakdown</h3>
-          <button className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition-colors">
-            <Download className="w-3 h-3" />
-            Export
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-700/30">
-                <th className="text-left text-slate-400 px-6 py-3 font-medium cursor-pointer hover:text-white">
-                  Date
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium cursor-pointer hover:text-white">
-                  Epoch
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium cursor-pointer hover:text-white">
-                  Amount
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Type
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  Cumulative
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/20">
-              {pagedRewards.map((r, i) => (
-                <tr key={i} className="hover:bg-slate-700/20 transition-colors">
-                  <td className="px-6 py-3 text-slate-300">{r.date}</td>
-                  <td className="px-6 py-3 text-slate-300">#{r.epoch}</td>
-                  <td className="px-6 py-3 text-right text-emerald-400 font-medium tabular-nums">
-                    +{r.amount.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-3">
-                    <span
-                      className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                        r.type === "staking"
-                          ? "bg-blue-500/10 text-blue-400"
-                          : r.type === "mev"
-                            ? "bg-red-500/10 text-red-400"
-                            : "bg-purple-500/10 text-purple-400"
-                      }`}
-                    >
-                      {r.type === "mev"
-                        ? "MEV"
-                        : r.type.charAt(0).toUpperCase() + r.type.slice(1)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3 text-right text-slate-300 tabular-nums">
-                    {fmtNum(r.cumulative, 2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-6 py-3 border-t border-slate-700/30 flex items-center justify-between">
-          <span className="text-xs text-slate-500">
-            Page {page + 1} of {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <button
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-              className="px-3 py-1 text-xs bg-slate-700/50 text-slate-300 rounded-lg disabled:opacity-30 hover:bg-slate-700 transition-colors"
-            >
-              Prev
-            </button>
-            <button
-              disabled={page >= totalPages - 1}
-              onClick={() => setPage((p) => p + 1)}
-              className="px-3 py-1 text-xs bg-slate-700/50 text-slate-300 rounded-lg disabled:opacity-30 hover:bg-slate-700 transition-colors"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </GlassCard>
-
-      {/* Auto-Compound + Projections */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-[1.35fr_1fr] gap-6">
         <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
-            <Settings className="w-4 h-4 text-red-400" />
-            Auto-Compound Settings
-          </h3>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm text-white font-medium">Auto-compound</p>
-              <p className="text-xs text-slate-400">
-                {autoCompound
-                  ? "Rewards automatically restaked every epoch"
-                  : "Manual claiming required"}
+              <h3 className="text-lg font-semibold text-white">
+                Live reward projections
+              </h3>
+              <p className="text-sm text-slate-400 mt-1">
+                Forward-looking curves derived from the live effective APY, not
+                a seeded reward ledger.
               </p>
             </div>
             <button
-              onClick={() => setAutoCompound(!autoCompound)}
-              className={`relative w-11 h-6 rounded-full transition-colors ${autoCompound ? "bg-emerald-600" : "bg-slate-600"}`}
+              onClick={() => setAutoCompound((value) => !value)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors ${
+                autoCompound
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                  : "border-slate-700 bg-slate-900/80 text-slate-300"
+              }`}
             >
-              <div
-                className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${autoCompound ? "left-[22px]" : "left-0.5"}`}
-              />
+              {autoCompound ? "Auto-compound on" : "Auto-compound off"}
             </button>
           </div>
-          {autoCompound && (
-            <div>
-              <p className="text-xs text-slate-400 mb-2">Compound Frequency</p>
-              <div className="flex gap-2">
-                {(["epoch", "daily", "weekly"] as CompoundFreq[]).map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setCompoundFreq(f)}
-                    className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors capitalize ${compoundFreq === f ? "bg-red-600 text-white" : "bg-slate-700/50 text-slate-400 hover:text-white"}`}
-                  >
-                    {f === "epoch" ? "Every Epoch" : f}
-                  </button>
-                ))}
+
+          {stakeValue == null || liveApy == null ? (
+            <div className="mt-6">
+              <VaultTruthNotice
+                title="Reward projections are gated"
+                body="Projected rewards appear only when the wallet balance, live exchange rate, and live effective APY are all available."
+                tone="warning"
+              />
+            </div>
+          ) : (
+            <div className="mt-6 space-y-6">
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={growthChartData}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(100,116,139,0.15)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={55}
+                    tickFormatter={(value: number) => fmtNum(value)}
+                  />
+                  <RTooltip contentStyle={chartTooltipStyle} />
+                  <Line
+                    type="monotone"
+                    dataKey="simple"
+                    stroke="#64748b"
+                    strokeWidth={1.5}
+                    dot={false}
+                    name="Simple"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="compound"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Compound"
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
+                </LineChart>
+              </ResponsiveContainer>
+
+              <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-950/80">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                        Horizon
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                        Projected Rewards
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {projectionRows.map((row) => (
+                      <tr key={row.period}>
+                        <td className="px-4 py-3 text-slate-300">
+                          {row.period}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium text-emerald-400">
+                          +{fmtNum(row.projected, 2)} AETHEL
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <p className="text-xs text-emerald-400 mt-3">
-                Projected additional earnings from compounding: +
-                {(
-                  stakeAmt * (Math.pow(1 + CURRENT_APY / 100 / 365, 365) - 1) -
-                  (stakeAmt * CURRENT_APY) / 100
-                ).toFixed(2)}{" "}
-                AETHEL/year
-              </p>
             </div>
           )}
         </GlassCard>
 
         <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            Rewards Projection
+          <h3 className="text-lg font-semibold text-white mb-4">
+            Proof and history posture
           </h3>
-          <div className="space-y-3 mb-4">
-            {[
-              {
-                period: "7 days",
-                val: ((stakeAmt * CURRENT_APY) / 100 / 365) * 7,
-              },
-              { period: "30 days", val: (stakeAmt * CURRENT_APY) / 100 / 12 },
-              { period: "90 days", val: (stakeAmt * CURRENT_APY) / 100 / 4 },
-              {
-                period: "1 year",
-                val: autoCompound
-                  ? stakeAmt * (Math.pow(1 + CURRENT_APY / 100 / 12, 12) - 1)
-                  : (stakeAmt * CURRENT_APY) / 100,
-              },
-            ].map((p, i) => (
-              <div key={i} className="flex justify-between items-center">
-                <span className="text-sm text-slate-400">{p.period}</span>
-                <span className="text-sm font-semibold text-emerald-400 tabular-nums">
-                  +{fmtNum(p.val, 2)} AETHEL
-                </span>
-              </div>
-            ))}
+          <div className="space-y-3">
+            <VaultTruthNotice
+              title="Claim pipeline"
+              body="Claims fetch a live reward proof from the backend right before submission. Cruzible no longer pre-renders a synthetic claimable balance."
+            />
+            <VaultTruthNotice
+              title="Historical reward ledger"
+              body="Reward history is withheld until the protocol publishes an indexed, user-addressable reward ledger with defensible provenance."
+              tone="warning"
+            />
+            <VaultTruthNotice
+              title="Control-plane capture"
+              body={
+                controlPlane
+                  ? `Latest public capture: ${formatDateTime(controlPlane.captured_at)}. Warning count: ${controlPlane.warning_count}.`
+                  : "Public control-plane capture is not available yet."
+              }
+            />
+            {!wallet.connected ? (
+              <button
+                onClick={connectWallet}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+              >
+                Connect Wallet
+              </button>
+            ) : null}
           </div>
-          <ResponsiveContainer width="100%" height={120}>
-            <AreaChart
-              data={Array.from({ length: 13 }, (_, i) => ({
-                month: i,
-                projected: autoCompound
-                  ? stakeAmt * (Math.pow(1 + CURRENT_APY / 100 / 12, i) - 1)
-                  : ((stakeAmt * CURRENT_APY) / 100 / 12) * i,
-              }))}
-            >
-              <defs>
-                <linearGradient id="projGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis
-                dataKey="month"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v: number) => `${v}m`}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => fmtNum(v)}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [
-                  `${fmtNum(v, 2)} AETHEL`,
-                  "Projected",
-                ]}
-              />
-              <Area
-                type="monotone"
-                dataKey="projected"
-                stroke="#10b981"
-                strokeWidth={2}
-                fill="url(#projGrad)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
         </GlassCard>
       </div>
     </div>
@@ -2627,479 +2548,208 @@ function RewardsTab() {
 // TAB 5: ANALYTICS
 // ============================================================================
 
-function AnalyticsTab() {
+function AnalyticsTab({
+  controlPlane,
+}: {
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const vaultState = useVaultState();
+  const snapshot = getLiveVaultSnapshot(vaultState);
+  const statusLabel =
+    !controlPlane && !snapshot.hasAuthoritativeState
+      ? "Unavailable"
+      : controlPlane?.warning_count ||
+          controlPlane?.epoch_source?.includes("fallback")
+        ? "Attention"
+        : "Healthy";
+
   return (
     <div className="space-y-8">
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Total Value Locked"
-          value={`${fmtNum(TVL_TOTAL)}`}
+          label="Live TVL"
+          value={snapshot.tvl == null ? "Unavailable" : fmtNum(snapshot.tvl)}
           sub="AETHEL"
-          change="+18.2%"
-          up
           icon={<Lock className="w-5 h-5" />}
         />
         <StatCard
-          label="Total Rewards Distributed"
-          value={fmtNum(14_260_000)}
-          sub="AETHEL"
-          icon={<Gift className="w-5 h-5" />}
-        />
-        <StatCard
-          label="Average APY (30d)"
-          value={`${CURRENT_APY}%`}
-          change="+0.3%"
-          up
+          label="Effective APY"
+          value={
+            snapshot.apy == null ? "Unavailable" : `${snapshot.apy.toFixed(2)}%`
+          }
+          sub="Vault contract"
           icon={<TrendingUp className="w-5 h-5" />}
         />
         <StatCard
-          label="Protocol Revenue"
-          value={fmtNum(847000)}
-          sub="AETHEL (30d)"
-          change="+5.1%"
-          up
-          icon={<Coins className="w-5 h-5" />}
+          label="Exchange Rate"
+          value={
+            snapshot.exchangeRate == null
+              ? "Unavailable"
+              : snapshot.exchangeRate.toFixed(6)
+          }
+          sub="AETHEL / stAETHEL"
+          icon={<Activity className="w-5 h-5" />}
+        />
+        <StatCard
+          label="Control-Plane Status"
+          value={statusLabel}
+          sub={
+            controlPlane
+              ? `${controlPlane.warning_count} warning(s)`
+              : "Awaiting public capture"
+          }
+          icon={<ShieldCheck className="w-5 h-5" />}
         />
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
         <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">TVL History</h3>
-          <p className="text-xs text-slate-500 mb-4">90-day trend</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={TVL_DATA}>
-              <defs>
-                <linearGradient id="tvlGradA" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={BRAND.red} stopOpacity={0.2} />
-                  <stop offset="100%" stopColor={BRAND.red} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => `${(v / 1e6).toFixed(0)}M`}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [`${fmtNum(v)} AETHEL`, "TVL"]}
-              />
-              <Area
-                type="monotone"
-                dataKey="tvl"
-                stroke={BRAND.red}
-                strokeWidth={2}
-                fill="url(#tvlGradA)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </GlassCard>
-
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">Staker Growth</h3>
-          <p className="text-xs text-slate-500 mb-4">
-            Cumulative unique stakers
+          <h3 className="text-lg font-semibold text-white">
+            Reconciliation scorecard
+          </h3>
+          <p className="mt-2 text-sm leading-7 text-slate-300">
+            This analytics surface now prioritizes public trust evidence: latest
+            epoch capture, warning posture, stake snapshot completeness, and
+            hash lineage. Decorative charts stay hidden until indexed history
+            becomes auditable.
           </p>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={TVL_DATA}>
-              <defs>
-                <linearGradient id="stakersGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => fmtNum(v)}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [fmtNum(v), "Stakers"]}
-              />
-              <Area
-                type="monotone"
-                dataKey="stakers"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                fill="url(#stakersGrad)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </GlassCard>
-      </div>
 
-      {/* Charts Row 2 */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">APY Trend</h3>
-          <p className="text-xs text-slate-500 mb-4">
-            90-day history with base + MEV breakdown
-          </p>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={APY_DATA}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={40}
-                domain={["dataMin - 0.5", "dataMax + 0.5"]}
-                tickFormatter={(v: number) => `${v}%`}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number, name: string) => [
-                  `${v}%`,
-                  name === "apy"
-                    ? "Total APY"
-                    : name === "baseApy"
-                      ? "Base"
-                      : "MEV",
-                ]}
-              />
-              <Line
-                type="monotone"
-                dataKey="apy"
-                stroke="#10b981"
-                strokeWidth={2}
-                dot={false}
-                name="apy"
-              />
-              <Line
-                type="monotone"
-                dataKey="baseApy"
-                stroke="#3b82f6"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                dot={false}
-                name="baseApy"
-              />
-              <Line
-                type="monotone"
-                dataKey="mevBoost"
-                stroke={BRAND.red}
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                dot={false}
-                name="mevBoost"
-              />
-              <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </GlassCard>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <VaultTruthNotice
+              title="Epoch source"
+              body={
+                controlPlane
+                  ? `Epoch ${controlPlane.epoch} sourced from ${controlPlane.epoch_source}.`
+                  : "The public control plane has not published an epoch yet."
+              }
+              tone={
+                controlPlane?.epoch_source?.includes("fallback")
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+            <VaultTruthNotice
+              title="Capture time"
+              body={
+                controlPlane
+                  ? formatDateTime(controlPlane.captured_at)
+                  : "Unavailable"
+              }
+            />
+            <VaultTruthNotice
+              title="Stake snapshot"
+              body={
+                controlPlane?.stake_snapshot_complete == null
+                  ? "Unavailable"
+                  : controlPlane.stake_snapshot_complete
+                    ? "Complete"
+                    : "Partial"
+              }
+              tone={
+                controlPlane?.stake_snapshot_complete === false
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+            <VaultTruthNotice
+              title="Validator set coverage"
+              body={
+                controlPlane
+                  ? `${controlPlane.validator_count}/${controlPlane.total_eligible_validators} validators in public snapshot.`
+                  : "Unavailable"
+              }
+            />
+          </div>
 
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">
-            Exchange Rate History
-          </h3>
-          <p className="text-xs text-slate-500 mb-4">Detailed 90-day view</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={RATE_DATA}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={55}
-                domain={["dataMin - 0.005", "dataMax + 0.005"]}
-                tickFormatter={(v: number) => v.toFixed(4)}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [v.toFixed(6), "Rate"]}
-              />
-              <Line
-                type="monotone"
-                dataKey="rate"
-                stroke="#f59e0b"
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </GlassCard>
-      </div>
-
-      {/* Charts Row 3 */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">
-            Protocol Revenue by Epoch
-          </h3>
-          <p className="text-xs text-slate-500 mb-4">
-            30-day revenue distribution
-          </p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={REVENUE_DATA}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={5}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => fmtNum(v)}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [`${fmtNum(v)} AETHEL`, "Revenue"]}
-              />
-              <Bar dataKey="revenue" fill={BRAND.red} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </GlassCard>
-
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">
-            Stake/Unstake Volume
-          </h3>
-          <p className="text-xs text-slate-500 mb-4">Daily in/out flows</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={VOLUME_DATA}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={5}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => fmtNum(v)}
-              />
-              <RTooltip contentStyle={chartTooltipStyle} />
-              <Bar
-                dataKey="stakeVol"
-                fill="#10b981"
-                radius={[3, 3, 0, 0]}
-                name="Stake"
-                stackId="vol"
-              />
-              <Bar
-                dataKey="unstakeVol"
-                fill="#f59e0b"
-                radius={[3, 3, 0, 0]}
-                name="Unstake"
-                stackId="vol"
-              />
-              <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
-            </BarChart>
-          </ResponsiveContainer>
-        </GlassCard>
-      </div>
-
-      {/* Top Stakers Leaderboard */}
-      <GlassCard className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/50">
-          <h3 className="font-semibold text-white flex items-center gap-2">
-            <Award className="w-4 h-4 text-amber-400" />
-            Top Stakers Leaderboard
-          </h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-700/30">
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Rank
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Address
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  Staked Amount
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  % of Pool
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  First Stake
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/20">
-              {TOP_STAKERS.map((s) => (
-                <tr
-                  key={s.rank}
-                  className="hover:bg-slate-700/20 transition-colors"
-                >
-                  <td className="px-6 py-3">
-                    <span
-                      className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold ${
-                        s.rank === 1
-                          ? "bg-amber-500/20 text-amber-400"
-                          : s.rank === 2
-                            ? "bg-slate-400/20 text-slate-300"
-                            : s.rank === 3
-                              ? "bg-orange-500/20 text-orange-400"
-                              : "bg-slate-700/50 text-slate-400"
-                      }`}
-                    >
-                      #{s.rank}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-300 font-mono text-xs">
-                        {fmtAddr(s.address)}
-                      </span>
-                      <CopyBtn text={s.address} />
-                    </div>
-                  </td>
-                  <td className="px-6 py-3 text-right text-white font-medium tabular-nums">
-                    {fmtNum(s.staked)}
-                  </td>
-                  <td className="px-6 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-red-500 rounded-full"
-                          style={{
-                            width: `${Math.min(s.pctOfPool * 8, 100)}%`,
-                          }}
-                        />
-                      </div>
-                      <span className="text-slate-300 tabular-nums text-xs">
-                        {s.pctOfPool}%
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-3 text-right text-slate-400">
-                    {s.firstStake}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </GlassCard>
-
-      {/* How AethelVault Works */}
-      <GlassCard className="p-8">
-        <h3 className="text-lg font-semibold text-white text-center mb-8">
-          How AethelVault Works
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {[
-            {
-              step: 1,
-              icon: <Coins className="w-6 h-6" />,
-              title: "Deposit AETHEL",
-              desc: "Send your AETHEL tokens to the AethelVault smart contract",
-            },
-            {
-              step: 2,
-              icon: <ShieldCheck className="w-6 h-6" />,
-              title: "TEE-Verified Selection",
-              desc: "Hardware enclaves select optimal validators for your stake",
-            },
-            {
-              step: 3,
-              icon: <Sparkles className="w-6 h-6" />,
-              title: "Earn Staking Rewards",
-              desc: "Receive rewards every epoch with MEV redistribution",
-            },
-            {
-              step: 4,
-              icon: <Zap className="w-6 h-6" />,
-              title: "Receive stAETHEL",
-              desc: "Hold liquid stAETHEL tokens usable across DeFi",
-            },
-          ].map((s, i) => (
-            <div key={i} className="relative">
-              <div className="text-center">
-                <div className="w-14 h-14 bg-red-500/10 rounded-2xl flex items-center justify-center text-red-400 mx-auto mb-3 border border-red-500/20">
-                  {s.icon}
-                </div>
-                <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                  {s.step}
-                </div>
-                <h4 className="text-sm font-semibold text-white mb-1">
-                  {s.title}
-                </h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {s.desc}
+          <div className="mt-6 space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Universe Hash
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-100">
+                  {controlPlane?.validator_universe_hash ?? "Unavailable"}
                 </p>
               </div>
-              {i < 3 && (
-                <div className="hidden md:block absolute top-7 -right-3 z-10">
-                  <ArrowRight className="w-5 h-5 text-slate-600" />
-                </div>
-              )}
+              {controlPlane?.validator_universe_hash ? (
+                <CopyBtn text={controlPlane.validator_universe_hash} />
+              ) : null}
             </div>
-          ))}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Stake Snapshot Hash
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-100">
+                  {controlPlane?.stake_snapshot_hash ?? "Unavailable"}
+                </p>
+              </div>
+              {controlPlane?.stake_snapshot_hash ? (
+                <CopyBtn text={controlPlane.stake_snapshot_hash} />
+              ) : null}
+            </div>
+            {controlPlane?.warnings?.length ? (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-amber-200">
+                  Active warnings
+                </p>
+                <div className="mt-3 space-y-2 text-sm text-amber-50">
+                  {controlPlane.warnings.map((warning, index) => (
+                    <p key={`${warning}-${index}`}>{warning}</p>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <VaultTruthNotice
+                title="Warning posture"
+                body="No public control-plane warnings are active in the latest snapshot."
+              />
+            )}
+          </div>
+        </GlassCard>
+
+        <div className="space-y-6">
+          <GlassCard className="p-6">
+            <h3 className="text-lg font-semibold text-white">
+              Historical analytics are gated
+            </h3>
+            <p className="mt-2 text-sm leading-7 text-slate-300">
+              TVL history, reward ledgers, revenue charts, flow charts, and
+              staker leaderboards are withheld until Cruzible has a verifiable,
+              indexed history pipeline for each of those claims.
+            </p>
+            <div className="mt-5 space-y-3">
+              <VaultTruthNotice
+                title="What we will not do"
+                body="Render seeded charts or guessed rankings to make the page feel complete."
+                tone="warning"
+              />
+              <VaultTruthNotice
+                title="What comes next"
+                body="Public reconciliation scorecards, proof coverage, and addressable historical analytics once the indexer can defend them."
+              />
+            </div>
+          </GlassCard>
+
+          <GlassCard className="p-6">
+            <h3 className="text-lg font-semibold text-white">
+              World-class moat direction
+            </h3>
+            <div className="mt-4 space-y-3 text-sm leading-6 text-slate-300">
+              <p>
+                Cruzible’s moat should be provable trust: public freshness,
+                solvency evidence, validator-universe lineage, and downloadable
+                audit trails.
+              </p>
+              <p>
+                Once historical pipelines are live, they should inherit the same
+                rule: every user-visible metric must map back to a testable,
+                explainable backend source.
+              </p>
+            </div>
+          </GlassCard>
         </div>
-      </GlassCard>
+      </div>
     </div>
   );
 }
@@ -3110,7 +2760,12 @@ function AnalyticsTab() {
 
 export default function VaultPage() {
   const [activeTab, setActiveTab] = useState<VaultTab>("overview");
-  const { realTime } = useApp();
+  const controlPlaneQuery = useQuery({
+    queryKey: ["vault-control-plane"],
+    queryFn: fetchReconciliationControlPlane,
+    refetchInterval: 30000,
+  });
+  const controlPlane = controlPlaneQuery.data ?? null;
 
   const tabs = [
     { id: "overview" as VaultTab, label: "Overview" },
@@ -3131,7 +2786,7 @@ export default function VaultPage() {
       <div className="min-h-screen bg-slate-950 text-white font-[Inter,system-ui,sans-serif]">
         <TopNav activePage="vault" />
 
-        <HeroSection />
+        <HeroSection controlPlane={controlPlane} />
 
         {/* Tab Navigation */}
         <div className="sticky top-16 z-40 bg-slate-900/80 backdrop-blur-xl border-b border-slate-700/50">
@@ -3156,11 +2811,17 @@ export default function VaultPage() {
 
         {/* Tab Content */}
         <main className="max-w-[1400px] mx-auto px-6 py-8">
-          {activeTab === "overview" && <OverviewTab switchTab={setActiveTab} />}
+          {activeTab === "overview" && (
+            <OverviewTab switchTab={setActiveTab} controlPlane={controlPlane} />
+          )}
           {activeTab === "stake" && <StakeTab />}
           {activeTab === "unstake" && <UnstakeTab />}
-          {activeTab === "rewards" && <RewardsTab />}
-          {activeTab === "analytics" && <AnalyticsTab />}
+          {activeTab === "rewards" && (
+            <RewardsTab controlPlane={controlPlane} />
+          )}
+          {activeTab === "analytics" && (
+            <AnalyticsTab controlPlane={controlPlane} />
+          )}
         </main>
 
         <Footer />

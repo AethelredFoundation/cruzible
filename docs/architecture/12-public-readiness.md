@@ -1,198 +1,86 @@
-# Track 12: Documentation & Public Readiness
+# Public Readiness Register
 
-## Overview
+> Repo-backed readiness register for the current Cruzible workspace.
+> Last reconciled on 2026-04-22.
 
-This document outlines the documentation deliverables, deployment checklist, and public readiness requirements for Cruzible's mainnet launch.
+## 1. Purpose
 
----
+This document is not a launch promise. It is a snapshot-aligned record of:
 
-## 1. Documentation Deliverables
+- what is actually implemented in this repository
+- which operator documents now match that implementation
+- which gaps still block a clean production or public rollout
 
-### 1.1 Architecture Documentation (Completed)
+## 2. Repo-Backed Deliverables
 
-| Document | Status | Location |
-|----------|--------|----------|
-| Storage & Oracle Scoping | Done | `docs/architecture/09-storage-oracle-scoping.md` |
-| Security Trust Model & Threat Model | Done | `docs/architecture/10-security-trust-model.md` |
-| Benchmarking & SLOs | Done | `docs/architecture/11-benchmarking-slos.md` |
-| Public Readiness (this doc) | Done | `docs/architecture/12-public-readiness.md` |
+| Deliverable                                                                           | Status      | Evidence                            |
+| ------------------------------------------------------------------------------------- | ----------- | ----------------------------------- |
+| Top-level repo guide aligned to current route and startup surface                     | Ready       | `README.md`                         |
+| Backend/operator entry point aligned to current backend surface                       | Ready       | `backend/README.md`                 |
+| Frontend env example aligned to current `src/` usage                                  | Ready       | `.env.example`                      |
+| Backend env example aligned to API runtime and Compose scaffold                       | Ready       | `backend/.env.example`              |
+| Operator runbook aligned to implemented health, reconciliation, and rollback surfaces | Ready       | `docs/ops/runbook.md`               |
+| Environment reference describing loading behavior and config boundaries               | Ready       | `docs/ops/environment-reference.md` |
+| API docs from checked-in Swagger annotations                                          | Partial     | `/docs` once API is running         |
+| Health, liveness, and readiness endpoints                                             | Implemented | `backend/api/src/routes/health.ts`  |
 
-### 1.2 API Documentation
+## 3. Supported Surface In This Workspace
 
-| Item | Status | Tool |
-|------|--------|------|
-| REST API OpenAPI spec | Partial (swagger.ts exists) | swagger-jsdoc |
-| WebSocket event docs | Needed | Manual |
-| Error code reference | Needed | From ApiError |
-| Rate limit documentation | Needed | From rateLimiter |
-| Authentication flow | Partial (auth service exists) | Manual |
+| Area      | Current state                                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend  | Next.js pages for explorer, vault, validators, jobs, models, seals, stablecoins, reconciliation, developer tools, and governance preview    |
+| API       | `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{blocks,jobs,reconciliation,alerts,stablecoins}`                              |
+| Contracts | CosmWasm contracts for AI jobs, vault, governance, model registry, seal manager, and CW20 staking                                           |
+| Testing   | Frontend Vitest, API Vitest, contract Cargo tests                                                                                           |
+| Infra     | Frontend Dockerfile, API Dockerfile, contract artifact Dockerfile, partial Compose scaffold, frontend/API/indexer Kubernetes base manifests |
 
-### 1.3 SDK Documentation
+## 4. Current Readiness Assessment
 
-| SDK | API Docs | Examples | Conformance Tests |
-|-----|----------|----------|-------------------|
-| TypeScript | Types exported | `src/` | `test/conformance.test.ts` |
-| Python | Docstrings | `examples/` | `tests/test_conformance.py` |
-| Go (keeper) | GoDoc comments | Benchmark tests | Keeper unit tests |
-| Rust (TEE) | Inline docs | Integration tests | Cross-layer hash tests |
+| Area                               | Assessment | Notes                                                                                                                                                                                                                              |
+| ---------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Documentation baseline             | Good       | Core README, backend README, runbook, env reference, and readiness docs now describe checked-in surfaces instead of inferred ones                                                                                                  |
+| Config examples                    | Good       | Frontend and backend examples now separate runtime inputs from scaffold-only values                                                                                                                                                |
+| API observability                  | Partial    | Public liveness/readiness probes are implemented, full `/health`, `/metrics`, and `/docs` are token-gated in production, alert history is database-backed when `DATABASE_URL` is configured, and API cache uses Redis when `REDIS_URL` is configured |
+| Deployment scaffolding             | Partial    | Compose now builds API and indexer targets from the repository root; referenced config directories still need to be supplied and staged                                                                                            |
+| Kubernetes readiness               | Partial    | Frontend, API gateway, and indexer manifests are checked in with fail-closed config/secret requirements; staging validation is still required                                                                                      |
+| Admin/ops authentication bootstrap | Partial    | Wallet-backed nonce login, context-bound refresh rotation, logout revocation, refresh-session incident endpoints, and role-gated ops routes exist; production startup now requires at least one configured operator/admin wallet and deployments must apply the auth-state migration |
+| Data persistence model             | Partial    | Prisma-backed database state exists for auth, reconciliation, indexer, and alert events; Redis-backed cache is required for production                                                                                             |
+| Migration workflow                 | Partial    | Development and production Prisma migration scripts exist; rollback still depends on operator-managed database snapshots                                                                                                           |
 
-### 1.4 Operator Documentation
+## 5. Launch Blockers From The Current Repo State
 
-| Item | Priority | Status |
-|------|----------|--------|
-| Validator onboarding guide | P0 | Needed |
-| TEE enclave setup (SGX) | P0 | Needed |
-| TEE enclave setup (Nitro) | P0 | Needed |
-| Relayer deployment guide | P0 | Needed |
-| Emergency procedures runbook | P0 | Covered in Track 10 |
-| Monitoring setup guide | P1 | Covered in Track 11 |
+- Supply and stage-test the config directories referenced by `backend/infra/docker-compose.yml`.
+- Capture a contract staging release manifest with wasm checksums, code IDs, contract addresses, and role owners.
+- Stage-test `k8s/base/` with real `cruzible-api-config` values and a provisioned `cruzible-api-secrets` Secret.
+- Configure `NEXT_PUBLIC_API_URL` for the selected `NEXT_PUBLIC_CHAIN_ENV`; frontend public-data requests now fail closed when the API URL is missing or obviously points at the wrong network.
+- Exercise the `/v1/auth` nonce/login/refresh/logout and session revocation workflow in staging, then provision validated operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
+- Exercise `npm run db:migrate:deploy` in staging and pair it with tested database snapshot/restore procedures.
+- Track the temporary Next.js dependency exception in `docs/security/dependency-exceptions.md` until upstream stops bundling `postcss < 8.5.10`.
 
----
+## 6. Operator Assumptions That Should Be Treated As Explicit
 
-## 2. Pre-Launch Checklist
+- Secrets are provisioned externally and rotated outside version control.
+- PostgreSQL and RPC endpoints are operator-managed dependencies.
+- Compose and Kubernetes artifacts in this repository are scaffolding, not complete deployment truth.
+- Full operational diagnostics require `OPERATIONAL_ENDPOINTS_TOKEN`; protected
+  `/v1` operational endpoints require externally provisioned JWTs.
+- Some frontend surfaces are still preview-oriented and should not be mistaken for proof of live on-chain wiring.
+- `/devtools` is hidden in production unless `NEXT_PUBLIC_ENABLE_DEVTOOLS=true` is explicitly configured.
 
-### 2.1 Smart Contracts
+## 7. Exit Criteria Before Public Or Production Use
 
-- [ ] All contracts deployed to testnet
-- [ ] External audit completed (2 independent auditors recommended)
-- [ ] Invariant/fuzz tests passing (Track 1)
-- [ ] Gas optimization verified against budgets (Track 11)
-- [ ] Timelock controller deployed and configured
-- [ ] Proxy upgrade pattern tested
-- [ ] Emergency pause tested on testnet
-- [ ] Contract verification on block explorer
+- All missing deployment assets are supplied or the incomplete scaffolding is replaced with a supported path.
+- Health probes in manifests match real application endpoints.
+- JWT issuance/admin bootstrap is documented and testable.
+- Production secret, CORS, and signature-verification settings are verified in the target environment.
+- Migration application and rollback procedures are approved for the target deployment platform.
+- Operators validate the repo-backed docs against the exact deployment artifact and commit being released.
 
-### 2.2 Cosmos Module
+## 8. Cross-References
 
-- [ ] Keeper unit tests passing (91+ tests)
-- [ ] Benchmarks baseline established
-- [ ] Emergency pause mechanism verified (Track 2)
-- [ ] Circuit breaker tested with realistic thresholds
-- [ ] TEE attestation verification tested for all platforms
-- [ ] Validator selection flow end-to-end tested
-- [ ] Genesis state initialization tested
-- [ ] State migration tested (for future upgrades)
-
-### 2.3 Backend
-
-- [ ] API hardening complete (Track 6)
-- [ ] Reconciliation scheduler deployed (Track 7)
-- [ ] Alert webhook configured
-- [ ] Rate limiting tuned for expected traffic
-- [ ] Database migrations applied
-- [ ] Index creation for high-traffic queries
-- [ ] Redis deployed for production caching
-- [ ] Sentry error tracking configured
-- [ ] Health check endpoint monitored
-
-### 2.4 Frontend
-
-- [ ] Wallet integration tested with MetaMask, WalletConnect, Coinbase (Track 4)
-- [ ] Real contract interactions verified on testnet
-- [ ] Error states handled (wallet disconnect, tx rejection, network error)
-- [ ] Mobile responsive design verified
-- [ ] Lighthouse scores > 90 for all pages
-- [ ] CSP headers configured
-- [ ] Analytics/telemetry integrated
-- [ ] Terms of service page
-- [ ] Privacy policy page
-
-### 2.5 Infrastructure
-
-- [ ] Multi-region deployment (at least 2 regions)
-- [ ] CDN configured for static assets
-- [ ] DDoS protection enabled
-- [ ] SSL certificates (Let's Encrypt or managed)
-- [ ] DNS configured with DNSSEC
-- [ ] Monitoring dashboards deployed (Track 11)
-- [ ] On-call rotation established
-- [ ] Incident response channel (Discord/Slack)
-
-### 2.6 Security
-
-- [ ] External smart contract audit report published
-- [ ] Bug bounty program launched (Immunefi recommended)
-- [ ] Penetration test completed on API
-- [ ] CORS origins restricted to production domains
-- [ ] JWT secrets rotated from development values
-- [ ] API keys provisioned for partners
-- [ ] OFAC screening integration (for large stakes)
-
----
-
-## 3. Launch Sequence
-
-### Phase 1: Private Testnet (Week 1-2)
-- Deploy all contracts to private testnet
-- Onboard 10-20 validators
-- Run end-to-end staking flow
-- Verify TEE attestation across platforms
-- Load test with synthetic traffic
-
-### Phase 2: Public Testnet (Week 3-4)
-- Open testnet to public
-- Bug bounty on testnet contracts
-- Community validator onboarding
-- SDK integration testing by partners
-- Documentation review by community
-
-### Phase 3: Mainnet Soft Launch (Week 5-6)
-- Deploy to mainnet with deposit cap (e.g., 10M AETHEL)
-- Whitelist initial validator set
-- Monitor for 48 hours before removing cap
-- Gradual cap increases (10M → 50M → 100M → unlimited)
-
-### Phase 4: Full Launch (Week 7+)
-- Remove deposit caps
-- Enable circuit breaker with production thresholds
-- Open validator onboarding
-- Publish audit reports
-- Launch bug bounty on mainnet
-
----
-
-## 4. Post-Launch Monitoring
-
-### First 24 Hours
-- 15-minute reconciliation checks
-- Manual review of every vault state change
-- Core team on-call 24/7
-- Real-time TVL and exchange rate monitoring
-
-### First Week
-- Daily reconciliation summary
-- Review all circuit breaker near-misses
-- Monitor validator telemetry freshness
-- Track gas costs against budgets
-
-### Ongoing
-- Weekly performance reviews
-- Monthly security reviews
-- Quarterly audit refreshes
-- Continuous benchmark regression testing
-
----
-
-## 5. Communication Plan
-
-| Channel | Purpose | Frequency |
-|---------|---------|-----------|
-| Discord | Community support, announcements | Real-time |
-| Twitter/X | Launch announcements, milestones | As needed |
-| Blog/Medium | Technical deep dives, audit reports | Weekly pre-launch, monthly post |
-| GitHub | Release notes, changelogs | Per release |
-| Email | Critical security notices | Emergency only |
-
----
-
-## 6. Rollback Plan
-
-If a critical issue is discovered post-launch:
-
-1. **Immediate**: Trigger `PauseVault` to halt all operations
-2. **Assess**: Determine if funds are at risk
-3. **Communicate**: Notify community via Discord + Twitter within 1 hour
-4. **Fix**: Deploy contract upgrade via timelock (24h delay) or keeper governance proposal
-5. **Verify**: Run full test suite + reconciliation on the fix
-6. **Resume**: `UnpauseVault` after fix is deployed and verified
-7. **Report**: Publish post-mortem within 72 hours
+- [README.md](../../README.md)
+- [backend/README.md](../../backend/README.md)
+- [docs/ops/runbook.md](../ops/runbook.md)
+- [docs/ops/environment-reference.md](../ops/environment-reference.md)
+- [docs/security/dependency-exceptions.md](../security/dependency-exceptions.md)
+- [docs/architecture/11-benchmarking-slos.md](11-benchmarking-slos.md)

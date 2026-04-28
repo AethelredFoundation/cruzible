@@ -1,8 +1,6 @@
 # Aethelred Blockchain Infrastructure
 # Production-grade Docker Compose configuration
 
-version: '3.8'
-
 services:
   # ============ AETHELRED NODE ============
   aethelred-node:
@@ -53,24 +51,26 @@ services:
   # ============ API GATEWAY ============
   api-gateway:
     build:
-      context: ../api
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: backend/api/Dockerfile
       target: production
-    container_name: aethelred-api
     restart: unless-stopped
     ports:
       - "3000:3000"
-      - "3001:3001"     # Metrics
     environment:
       - NODE_ENV=production
       - PORT=3000
       - RPC_URL=http://aethelred-node:26657
       - GRPC_URL=http://aethelred-node:9090
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/aethelred?schema=public
+      - DATABASE_URL=postgresql://${DB_USER:-aethelred}:${DB_PASSWORD:-changeme}@postgres:5432/${DB_NAME:-aethelred}?schema=public
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - RATE_LIMIT_ENABLED=true
-      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
+      - API_DOCS_ENABLED=${API_DOCS_ENABLED:-false}
+      - OPERATIONAL_ENDPOINTS_TOKEN=${OPERATIONAL_ENDPOINTS_TOKEN:?set OPERATIONAL_ENDPOINTS_TOKEN}
+      - INDEXER_ENABLED=false
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,7 +81,7 @@ services:
     networks:
       - aethelred-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -100,17 +100,28 @@ services:
   # ============ INDEXER ============
   indexer:
     build:
-      context: ../api
-      dockerfile: Dockerfile.indexer
+      context: ../..
+      dockerfile: backend/api/Dockerfile
+      target: indexer
     container_name: aethelred-indexer
     restart: unless-stopped
     environment:
       - NODE_ENV=production
       - RPC_URL=http://aethelred-node:26657
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/aethelred?schema=public
+      - DATABASE_URL=postgresql://${DB_USER:-aethelred}:${DB_PASSWORD:-changeme}@postgres:5432/${DB_NAME:-aethelred}?schema=public
       - REDIS_URL=redis://redis:6379
-      - START_HEIGHT=${INDEXER_START_HEIGHT:-0}
-      - BATCH_SIZE=${INDEXER_BATCH_SIZE:-100}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - METRICS_ENABLED=false
+      - API_DOCS_ENABLED=false
+      - INDEXER_ENABLED=true
+      - INDEXER_RPC_URL=${INDEXER_RPC_URL:?set INDEXER_RPC_URL}
+      - INDEXER_WS_URL=${INDEXER_WS_URL:?set INDEXER_WS_URL}
+      - INDEXER_START_BLOCK=${INDEXER_START_HEIGHT:-0}
+      - CRUZIBLE_VAULT_ADDRESS=${CRUZIBLE_VAULT_ADDRESS:?set CRUZIBLE_VAULT_ADDRESS}
+      - STAETHEL_ADDRESS=${STAETHEL_ADDRESS:?set STAETHEL_ADDRESS}
+      - STABLECOIN_BRIDGE_ADDRESS=${STABLECOIN_BRIDGE_ADDRESS:?set STABLECOIN_BRIDGE_ADDRESS}
     depends_on:
       postgres:
         condition: service_healthy

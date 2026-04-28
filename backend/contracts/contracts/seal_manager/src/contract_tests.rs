@@ -1,16 +1,14 @@
-/**
+/*
  * Seal Manager - Comprehensive Test Suite
  *
- * Test Coverage: 100%
+ * Covers the core seal lifecycle, queries, and configuration paths.
  */
-
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::MockApi;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockQuerier};
     use cosmwasm_std::{
         from_json, to_json_binary, Addr, ContractResult, MemoryStorage, OwnedDeps, SystemResult,
-        Timestamp, Uint128,
     };
 
     use crate::*;

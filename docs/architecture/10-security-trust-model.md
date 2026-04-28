@@ -20,15 +20,15 @@ Layer 0:   Hardware TEE (Intel SGX / AWS Nitro / AMD SEV)
                            └─ Layer 5: Frontend dApp (React/Next.js)
 ```
 
-| Layer | Trust Level | Compromise Impact | Recovery |
-|-------|------------|-------------------|----------|
-| L0: TEE Hardware | Root of trust | Total protocol compromise | Vendor root key rotation |
+| Layer                   | Trust Level           | Compromise Impact                           | Recovery                                                                          |
+| ----------------------- | --------------------- | ------------------------------------------- | --------------------------------------------------------------------------------- |
+| L0: TEE Hardware        | Root of trust         | Total protocol compromise                   | Vendor root key rotation                                                          |
 | L0.5: Attestation Relay | High (trusted bridge) | Forged platform keys, enclave impersonation | Governance revocation (`revokeRelay`), 48h rotation timelock, liveness challenges |
-| L1: Enclave App | High (attested) | Validator selection manipulation | Enclave revocation + re-attestation |
-| L2: Cosmos Keeper | High (consensus) | State corruption, fund theft | Governance halt + state rollback |
-| L3: EVM Contracts | High (immutable) | Fund theft, reward manipulation | Timelock + upgrade proxy |
-| L4: Backend API | Medium (auxiliary) | Data inconsistency, DoS | Redundancy, no fund access |
-| L5: Frontend | Low (untrusted) | Phishing, UI manipulation | User verification, wallet confirmation |
+| L1: Enclave App         | High (attested)       | Validator selection manipulation            | Enclave revocation + re-attestation                                               |
+| L2: Cosmos Keeper       | High (consensus)      | State corruption, fund theft                | Governance halt + state rollback                                                  |
+| L3: EVM Contracts       | High (immutable)      | Fund theft, reward manipulation             | Timelock + upgrade proxy                                                          |
+| L4: Backend API         | Medium (auxiliary)    | Data inconsistency, DoS                     | Redundancy, no fund access                                                        |
+| L5: Frontend            | Low (untrusted)       | Phishing, UI manipulation                   | User verification, wallet confirmation                                            |
 
 ### 1.2 Trust Assumptions
 
@@ -54,83 +54,83 @@ Layer 0:   Hardware TEE (Intel SGX / AWS Nitro / AMD SEV)
 
 ### 2.1 Smart Contract Threats (EVM)
 
-| Threat | Severity | Likelihood | Mitigation |
-|--------|----------|------------|------------|
-| Reentrancy on stake/unstake | Critical | Low | CEI pattern, ReentrancyGuard |
-| Exchange rate manipulation | Critical | Medium | Oracle-independent rate (shares/pooled), no external price feeds |
-| Flash loan attack on governance | High | Medium | Timelock on parameter changes, no same-block voting |
-| Overflow/underflow | High | Low | Solidity 0.8+ built-in checks |
-| Front-running of validator selection | Medium | Medium | Attestation payload binding prevents manipulation |
-| Denial of service (gas griefing) | Medium | Medium | Gas limits, batch size caps |
+| Threat                               | Severity | Likelihood | Mitigation                                                       |
+| ------------------------------------ | -------- | ---------- | ---------------------------------------------------------------- |
+| Reentrancy on stake/unstake          | Critical | Low        | CEI pattern, ReentrancyGuard                                     |
+| Exchange rate manipulation           | Critical | Medium     | Oracle-independent rate (shares/pooled), no external price feeds |
+| Flash loan attack on governance      | High     | Medium     | Timelock on parameter changes, no same-block voting              |
+| Overflow/underflow                   | High     | Low        | Solidity 0.8+ built-in checks                                    |
+| Front-running of validator selection | Medium   | Medium     | Attestation payload binding prevents manipulation                |
+| Denial of service (gas griefing)     | Medium   | Medium     | Gas limits, batch size caps                                      |
 
 ### 2.2 Cosmos Keeper Threats
 
-| Threat | Severity | Likelihood | Mitigation |
-|--------|----------|------------|------------|
-| Unauthorized pause/unpause | Critical | Low | Authority-gated, audit log |
-| Malicious parameter update | High | Low | Governance-only, parameter validation |
-| Stale telemetry injection | High | Medium | Timestamp freshness checks, quorum requirement |
-| Selective telemetry omission | High | Medium | MinTelemetryQuorumPct (67%), universe hash |
-| Nonce replay on attestation | High | Low | UsedNonces dedup map, 5-minute freshness |
-| State corruption via JSON | Medium | Low | Validated deserialization, type safety |
-| Epoch skipping | Medium | Low | Sequential epoch enforcement |
-| Circuit breaker evasion | Medium | Low | Atomic threshold checks in same transaction |
+| Threat                       | Severity | Likelihood | Mitigation                                     |
+| ---------------------------- | -------- | ---------- | ---------------------------------------------- |
+| Unauthorized pause/unpause   | Critical | Low        | Authority-gated, audit log                     |
+| Malicious parameter update   | High     | Low        | Governance-only, parameter validation          |
+| Stale telemetry injection    | High     | Medium     | Timestamp freshness checks, quorum requirement |
+| Selective telemetry omission | High     | Medium     | MinTelemetryQuorumPct (67%), universe hash     |
+| Nonce replay on attestation  | High     | Low        | UsedNonces dedup map, 5-minute freshness       |
+| State corruption via JSON    | Medium   | Low        | Validated deserialization, type safety         |
+| Epoch skipping               | Medium   | Low        | Sequential epoch enforcement                   |
+| Circuit breaker evasion      | Medium   | Low        | Atomic threshold checks in same transaction    |
 
 ### 2.3 TEE Enclave Threats
 
-| Threat | Severity | Likelihood | Mitigation |
-|--------|----------|------------|------------|
-| Enclave key extraction (side channel) | Critical | Very Low | Hardware mitigations, attestation freshness |
-| Fake enclave registration | Critical | Low | Vendor root key attestation (P-256 chain) |
-| Operator key compromise | High | Low | Per-operator binding, revocation support |
-| Stale attestation replay | High | Medium | 5-minute freshness, nonce uniqueness |
-| Platform-specific bypass | Medium | Low | Multi-platform verification (SGX, Nitro, SEV) |
+| Threat                                | Severity | Likelihood | Mitigation                                    |
+| ------------------------------------- | -------- | ---------- | --------------------------------------------- |
+| Enclave key extraction (side channel) | Critical | Very Low   | Hardware mitigations, attestation freshness   |
+| Fake enclave registration             | Critical | Low        | Vendor root key attestation (P-256 chain)     |
+| Operator key compromise               | High     | Low        | Per-operator binding, revocation support      |
+| Stale attestation replay              | High     | Medium     | 5-minute freshness, nonce uniqueness          |
+| Platform-specific bypass              | Medium   | Low        | Multi-platform verification (SGX, Nitro, SEV) |
 
 ### 2.4 Attestation Relay Threats
 
 The attestation relay is part of the trusted computing base (see Trust Assumption #2). It verifies hardware evidence off-chain and signs platform key bindings. The following threats are specific to this trust boundary:
 
-| Threat | Severity | Likelihood | Mitigation |
-|--------|----------|------------|------------|
-| Relay key compromise (forged attestations) | Critical | Low | 48h rotation timelock, governance revocation, liveness challenges |
-| Relay certifies arbitrary platform keys | Critical | Low | Attestation counting/audit trail, liveness challenges with P-256 proof-of-possession |
-| Relay liveness failure (stale attestations) | High | Medium | On-chain liveness challenges (1h window), emergency revocation |
-| Relay key rotation hijack | High | Low | 48h timelock on `finalizeRelayRotation`, governance cancel |
+| Threat                                      | Severity | Likelihood | Mitigation                                                                           |
+| ------------------------------------------- | -------- | ---------- | ------------------------------------------------------------------------------------ |
+| Relay key compromise (forged attestations)  | Critical | Low        | 48h rotation timelock, governance revocation, liveness challenges                    |
+| Relay certifies arbitrary platform keys     | Critical | Low        | Attestation counting/audit trail, liveness challenges with P-256 proof-of-possession |
+| Relay liveness failure (stale attestations) | High     | Medium     | On-chain liveness challenges (1h window), emergency revocation                       |
+| Relay key rotation hijack                   | High     | Low        | 48h timelock on `finalizeRelayRotation`, governance cancel                           |
 
 ### 2.5 Telemetry Relayer/Bridge Threats
 
 The telemetry relayer (which submits validator telemetry and triggers selection) is treated as untrusted:
 
-| Threat | Severity | Likelihood | Mitigation |
-|--------|----------|------------|------------|
-| Malicious validator set proposal | Critical | Medium | TEE attestation binding, on-chain verification |
-| Selective data withholding | High | Medium | Quorum checks, universe hash |
-| Eclipse attack on relayer | High | Low | Multiple RPC endpoints, peer diversity |
-| Transaction censorship | Medium | Medium | Multiple relayer operators, public mempool |
+| Threat                           | Severity | Likelihood | Mitigation                                     |
+| -------------------------------- | -------- | ---------- | ---------------------------------------------- |
+| Malicious validator set proposal | Critical | Medium     | TEE attestation binding, on-chain verification |
+| Selective data withholding       | High     | Medium     | Quorum checks, universe hash                   |
+| Eclipse attack on relayer        | High     | Low        | Multiple RPC endpoints, peer diversity         |
+| Transaction censorship           | Medium   | Medium     | Multiple relayer operators, public mempool     |
 
 ### 2.6 Frontend/API Threats
 
-| Threat | Severity | Likelihood | Mitigation |
-|--------|----------|------------|------------|
-| XSS injection | High | Medium | CSP headers, React auto-escaping, input sanitization |
-| CSRF | Medium | Low | SameSite cookies, CORS whitelist |
-| API abuse/DDoS | Medium | High | Rate limiting, per-user throttling |
-| JWT token theft | Medium | Medium | Short expiry (15m access), HttpOnly refresh |
-| DNS hijacking | High | Low | DNSSEC, HSTS preload |
+| Threat          | Severity | Likelihood | Mitigation                                           |
+| --------------- | -------- | ---------- | ---------------------------------------------------- |
+| XSS injection   | High     | Medium     | CSP headers, React auto-escaping, input sanitization |
+| CSRF            | Medium   | Low        | SameSite cookies, CORS whitelist                     |
+| API abuse/DDoS  | Medium   | High       | Rate limiting, per-user throttling                   |
+| JWT token theft | Medium   | Medium     | Short expiry (15m access), HttpOnly refresh          |
+| DNS hijacking   | High     | Low        | DNSSEC, HSTS preload                                 |
 
 ### 2.7 Stablecoin Bridge Threats (InstitutionalStablecoinBridge)
 
 The stablecoin bridge enables cross-chain USDC/USDT transfers via CCTP and TEE-attested minting. It introduces additional threat surfaces beyond the core vault:
 
-| Threat | Severity | Likelihood | Mitigation |
-|--------|----------|------------|------------|
-| Circuit breaker bypass (rate limit evasion) | Critical | Low | Atomic per-transaction checks in `bridgeOutViaCCTP`, hourly/daily BPS caps enforced in same call |
-| CCTP relay failure (stuck funds) | High | Medium | Frontend displays pending status; CCTP nonce tracking; manual relay fallback |
-| Proof-of-reserve oracle stale/manipulated | High | Medium | `porHeartbeatSeconds` staleness check, `porDeviationBps` tolerance, `ReserveCheckPerformed` event audit trail |
-| Daily limit exhaustion (DoS via many small burns) | Medium | Medium | Per-epoch `mintCeilingPerEpoch` + `dailyTxLimit` caps; reconciliation alert at 80% usage |
-| Unauthorized config change | Critical | Low | `configureStablecoin` restricted to bridge admin role; governance timelock recommended |
-| Indexer misses bridge events | Medium | Low | Idempotent upserts `@@unique([txHash, logIndex])`; reconciliation scheduler detects config drift |
-| Decimal mismatch (6 vs 18) | High | Low | Asset registry enforces `decimals: 6` for USDC/USDT; `parseUnits(amount, asset.decimals)` used everywhere |
+| Threat                                            | Severity | Likelihood | Mitigation                                                                                                    |
+| ------------------------------------------------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| Circuit breaker bypass (rate limit evasion)       | Critical | Low        | Atomic per-transaction checks in `bridgeOutViaCCTP`, hourly/daily BPS caps enforced in same call              |
+| CCTP relay failure (stuck funds)                  | High     | Medium     | Frontend displays pending status; CCTP nonce tracking; manual relay fallback                                  |
+| Proof-of-reserve oracle stale/manipulated         | High     | Medium     | `porHeartbeatSeconds` staleness check, `porDeviationBps` tolerance, `ReserveCheckPerformed` event audit trail |
+| Daily limit exhaustion (DoS via many small burns) | Medium   | Medium     | Per-epoch `mintCeilingPerEpoch` + `dailyTxLimit` caps; reconciliation alert at 80% usage                      |
+| Unauthorized config change                        | Critical | Low        | `configureStablecoin` restricted to bridge admin role; governance timelock recommended                        |
+| Indexer misses bridge events                      | Medium   | Low        | Idempotent upserts `@@unique([txHash, logIndex])`; reconciliation scheduler detects config drift              |
+| Decimal mismatch (6 vs 18)                        | High     | Low        | Asset registry enforces `decimals: 6` for USDC/USDT; `parseUnits(amount, asset.decimals)` used everywhere     |
 
 ---
 
@@ -138,12 +138,12 @@ The stablecoin bridge enables cross-chain USDC/USDT transfers via CCTP and TEE-a
 
 ### 3.1 Severity Levels
 
-| Level | Definition | Response Time | Authority |
-|-------|-----------|---------------|-----------|
-| SEV-0 | Active fund theft or total protocol compromise | Immediate | Any team member can trigger PauseVault |
-| SEV-1 | Potential exploit discovered, no active theft | < 1 hour | Security team triggers PauseVault |
-| SEV-2 | Data inconsistency, non-critical bug | < 24 hours | Engineering team investigates |
-| SEV-3 | Minor issue, no user impact | Next sprint | Standard development workflow |
+| Level | Definition                                     | Response Time | Authority                              |
+| ----- | ---------------------------------------------- | ------------- | -------------------------------------- |
+| SEV-0 | Active fund theft or total protocol compromise | Immediate     | Any team member can trigger PauseVault |
+| SEV-1 | Potential exploit discovered, no active theft  | < 1 hour      | Security team triggers PauseVault      |
+| SEV-2 | Data inconsistency, non-critical bug           | < 24 hours    | Engineering team investigates          |
+| SEV-3 | Minor issue, no user impact                    | Next sprint   | Standard development workflow          |
 
 ### 3.2 Emergency Pause Procedure
 
@@ -156,6 +156,7 @@ The stablecoin bridge enables cross-chain USDC/USDT transfers via CCTP and TEE-a
 ### 3.3 Circuit Breaker Auto-Pause
 
 The circuit breaker automatically pauses the vault when:
+
 - Unstake volume exceeds `MaxUnstakePerEpochPct` of TVL in a single epoch
 - Slash count exceeds `MaxSlashesPerEpoch` in a single epoch
 
@@ -195,20 +196,20 @@ Recovery requires governance `UnpauseVault` after the triggering condition is in
 
 ## 5. Key Management
 
-| Key Type | Purpose | Storage | Rotation |
-|----------|---------|---------|----------|
-| Attestation relay P-256 | Signs platform key bindings after verifying hardware evidence | On-chain via `registerAttestationRelay()` | 48h timelock via `initiateRelayRotation` / `finalizeRelayRotation`; emergency revocation via `revokeRelay` |
-| Vendor root P-256 (legacy) | Direct TEE hardware attestation (fallback when no relay is active) | On-chain via `setVendorRootKey()` (blocked while relay active) | On vendor key compromise |
-| Platform P-256 | Per-enclave signing | Inside TEE enclave | On enclave upgrade |
-| Operator secp256k1 | Attestation signing | Operator HSM/enclave | On operator rotation |
-| JWT signing key | API authentication | Environment variable | Every 90 days |
-| Governance multisig | Parameter changes | Hardware wallets | On member rotation |
+| Key Type                   | Purpose                                                            | Storage                                                        | Rotation                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Attestation relay P-256    | Signs platform key bindings after verifying hardware evidence      | On-chain via `registerAttestationRelay()`                      | 48h timelock via `initiateRelayRotation` / `finalizeRelayRotation`; emergency revocation via `revokeRelay` |
+| Vendor root P-256 (legacy) | Direct TEE hardware attestation (fallback when no relay is active) | On-chain via `setVendorRootKey()` (blocked while relay active) | On vendor key compromise                                                                                   |
+| Platform P-256             | Per-enclave signing                                                | Inside TEE enclave                                             | On enclave upgrade                                                                                         |
+| Operator secp256k1         | Attestation signing                                                | Operator HSM/enclave                                           | On operator rotation                                                                                       |
+| JWT signing key            | API authentication                                                 | Environment variable                                           | Every 90 days                                                                                              |
+| Governance multisig        | Parameter changes                                                  | Hardware wallets                                               | On member rotation                                                                                         |
 
 ---
 
 ## 6. Accepted Architectural Residuals
 
-The following are **known trust dependencies** that have been reviewed and accepted for the current architecture. Each residual is classified as either *temporary* (to be removed before or shortly after mainnet) or *permanent* (an inherent property of the architecture).
+The following are **known trust dependencies** that have been reviewed and accepted for the current architecture. Each residual is classified as either _temporary_ (to be removed before or shortly after mainnet) or _permanent_ (an inherent property of the architecture).
 
 ### 6.1 Trusted Attestation Relay (Permanent)
 
@@ -217,6 +218,7 @@ The following are **known trust dependencies** that have been reviewed and accep
 **Justification**: On-chain verification of raw vendor attestation evidence is infeasible due to gas costs, platform diversity (three vendors), and the need for access to vendor CRL/OCSP endpoints. The relay centralizes this complexity in a single auditable component.
 
 **Mitigations in place**:
+
 - 48-hour rotation timelock prevents silent key swaps
 - On-chain liveness challenges with P-256 proof-of-possession detect relay compromise
 - Governance revocation zeroes the relay key and blocks new registrations
@@ -231,25 +233,30 @@ The following are **known trust dependencies** that have been reviewed and accep
 **Justification**: Cross-layer verification is by design — the Cosmos module and EVM contracts form a layered security model where each layer validates its own invariants. Full cross-layer proofs would require an on-chain light client, which is not yet feasible.
 
 **Mitigations in place**:
+
 - Validator set hash is compared across layers at every epoch boundary
 - Circuit breaker halts the vault on anomalous unstake/slash volume
 - Reconciliation scheduler detects TVL drift, exchange rate anomalies, and epoch staleness
 
 **Acceptance**: Permanent — inherent to the cross-chain architecture. External audit should verify the cross-layer hash agreement logic.
 
-### 6.3 Governance Feeder-Set Admin Control (Temporary)
+### 6.3 Governance Feeder Membership Control (Config-Gated)
 
-**Description**: The governance oracle's feeder set (the 3-of-5 quorum that submits price/parameter data) is currently managed by admin-only `add_feeder` / `remove_feeder` operations. There is no on-chain mechanism for the community to elect or remove feeders.
+**Description**: The governance oracle uses multi-feeder total-bonded consensus and supports a production mode where feeder membership changes must be executed by the governance contract itself, normally through a passed proposal self-call. Admin-managed membership remains available only as an explicit bootstrap/test authority mode.
 
-**Justification**: Pre-mainnet simplification. The feeder set must be tightly controlled during initial deployment to prevent manipulation of governance parameters. Decentralized feeder election will be introduced in a governance v2 upgrade.
+**Justification**: Production deployments need feeder-set changes to follow the same snapshot, quorum, threshold, and timelock controls as other governance decisions. Bootstrap deployments may still need admin authority before the initial independent feeder set exists, so the authority mode is explicit and release-manifest validated.
 
 **Mitigations in place**:
+
+- Production release manifests require `feeder_mutation_authority = governance`
 - Oracle epoch invalidation prevents stale feeder submissions after rotation
-- Ambiguity guard rejects submissions where 2+ feeders report identical values
+- Ambiguity guard rejects split-brain feeder clusters with different medians
 - Sliding window consensus with true median is resistant to single-feeder manipulation
 - 3-of-5 quorum ensures no single feeder can drive consensus
+- Feeder mutation cooldown and quarantine limit rapid cohort reshaping
+- Instantiation rejects zero quorum, out-of-range tolerance, undersized governance-mode initial feeder sets, duplicate initial feeders, and oversized feeder capacity
 
-**Acceptance**: Temporary — to be replaced with on-chain feeder election before or during Phase 4 (full launch). Tracked in governance contract TODO.
+**Acceptance**: Production deployments must use governance-controlled feeder membership. Admin-managed feeder mutation is accepted only for bootstrap/local testing and must not appear in a production release manifest.
 
 ---
 

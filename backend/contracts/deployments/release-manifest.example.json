@@ -1,0 +1,290 @@
+{
+  "schema": "cruzible.contract_release_manifest.v1",
+  "release_id": "staging-2026-04-27-example",
+  "environment": "staging",
+  "chain": {
+    "chain_id": "aethelred-staging-1",
+    "rpc_url": "https://rpc.staging.aethelred.example",
+    "explorer_url": "https://explorer.staging.aethelred.example"
+  },
+  "source": {
+    "git_commit": "0000000000000000000000000000000000000000",
+    "artifact_manifest": "cosmwasm-contracts-${GIT_SHA}/manifest.json",
+    "checksum_file": "cosmwasm-contracts-${GIT_SHA}/SHA256SUMS",
+    "signatures_file": "cosmwasm-contracts-${GIT_SHA}/signatures.json",
+    "signer_id": "aethelred-contracts-release"
+  },
+  "artifacts": [
+    {
+      "name": "vault",
+      "file": "aethel_vault.wasm",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "bytes": 342503,
+      "code_id": 1001,
+      "upload_tx_hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "uploaded_by": "aethel1uploader000000000000000000000000000000000"
+    },
+    {
+      "name": "ai_job_manager",
+      "file": "ai_job_manager.wasm",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "bytes": 385202,
+      "code_id": 1002,
+      "upload_tx_hash": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "uploaded_by": "aethel1uploader000000000000000000000000000000000"
+    },
+    {
+      "name": "cw20_staking",
+      "file": "cw20_staking.wasm",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "bytes": 309971,
+      "code_id": 1003,
+      "upload_tx_hash": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "uploaded_by": "aethel1uploader000000000000000000000000000000000"
+    },
+    {
+      "name": "governance",
+      "file": "governance.wasm",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "bytes": 424111,
+      "code_id": 1004,
+      "upload_tx_hash": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+      "uploaded_by": "aethel1uploader000000000000000000000000000000000"
+    },
+    {
+      "name": "model_registry",
+      "file": "model_registry.wasm",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+      "bytes": 304695,
+      "code_id": 1005,
+      "upload_tx_hash": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+      "uploaded_by": "aethel1uploader000000000000000000000000000000000"
+    },
+    {
+      "name": "seal_manager",
+      "file": "seal_manager.wasm",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000006",
+      "bytes": 350103,
+      "code_id": 1006,
+      "upload_tx_hash": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+      "uploaded_by": "aethel1uploader000000000000000000000000000000000"
+    }
+  ],
+  "contracts": [
+    {
+      "name": "cw20_staking",
+      "code_id": 1003,
+      "address": "aethel1cw20staking0000000000000000000000000000000",
+      "instantiate_tx_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "admin": "aethel1admin00000000000000000000000000000000000",
+      "instantiate_msg": {
+        "name": "Staked AETHEL",
+        "symbol": "stAETHEL",
+        "decimals": 6,
+        "initial_supply": "0",
+        "minter": "aethel1admin00000000000000000000000000000000000",
+        "cap": "1000000000000000"
+      },
+      "instantiate_funds": [],
+      "roles": {
+        "initial_minter": "aethel1admin00000000000000000000000000000000000",
+        "minter": "aethel1vault0000000000000000000000000000000000"
+      },
+      "config": {
+        "symbol": "stAETHEL",
+        "decimals": 6,
+        "cap": "1000000000000000"
+      }
+    },
+    {
+      "name": "vault",
+      "code_id": 1001,
+      "address": "aethel1vault0000000000000000000000000000000000",
+      "instantiate_tx_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "admin": "aethel1admin00000000000000000000000000000000000",
+      "instantiate_msg": {
+        "unbonding_period": 1814400,
+        "denom": "uaethel",
+        "staking_token": "aethel1cw20staking0000000000000000000000000000000",
+        "validators": [
+          "aethel1validator100000000000000000000000000000",
+          "aethel1validator200000000000000000000000000000",
+          "aethel1validator300000000000000000000000000000"
+        ],
+        "fee_bps": 500,
+        "min_stake": "1000000",
+        "max_stake": "1000000000000",
+        "operator": "aethel1operator0000000000000000000000000000000",
+        "pauser": "aethel1pauser00000000000000000000000000000000"
+      },
+      "instantiate_funds": [
+        {
+          "denom": "uaethel",
+          "amount": "1000000"
+        }
+      ],
+      "roles": {
+        "operator": "aethel1operator0000000000000000000000000000000",
+        "pauser": "aethel1pauser00000000000000000000000000000000"
+      },
+      "config": {
+        "staking_token": "aethel1cw20staking0000000000000000000000000000000",
+        "denom": "uaethel",
+        "unbonding_period_seconds": 1814400
+      }
+    },
+    {
+      "name": "ai_job_manager",
+      "code_id": 1002,
+      "address": "aethel1aijobs000000000000000000000000000000000",
+      "instantiate_tx_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "admin": "aethel1admin00000000000000000000000000000000000",
+      "instantiate_msg": {
+        "payment_denom": "uaethel",
+        "min_timeout": 10,
+        "max_timeout": 100000,
+        "min_payment": "1000000",
+        "platform_fee_bps": 250,
+        "fee_collector": "aethel1treasury000000000000000000000000000000",
+        "required_tee_type": 0,
+        "model_registry": "aethel1models00000000000000000000000000000000"
+      },
+      "instantiate_funds": [],
+      "roles": {
+        "fee_collector": "aethel1treasury000000000000000000000000000000"
+      },
+      "config": {
+        "model_registry": "aethel1models00000000000000000000000000000000",
+        "payment_denom": "uaethel"
+      }
+    },
+    {
+      "name": "model_registry",
+      "code_id": 1005,
+      "address": "aethel1models00000000000000000000000000000000",
+      "instantiate_tx_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+      "admin": "aethel1admin00000000000000000000000000000000000",
+      "instantiate_msg": {
+        "registration_fee": "1000000",
+        "registration_fee_denom": "uaethel",
+        "verification_required": true,
+        "verifiers": [
+          "aethel1verifier100000000000000000000000000000",
+          "aethel1verifier200000000000000000000000000000"
+        ]
+      },
+      "instantiate_funds": [],
+      "roles": {
+        "ai_job_manager": "aethel1aijobs000000000000000000000000000000000"
+      },
+      "config": {
+        "registration_fee": "1000000",
+        "registration_fee_denom": "uaethel"
+      }
+    },
+    {
+      "name": "seal_manager",
+      "code_id": 1006,
+      "address": "aethel1seals0000000000000000000000000000000000",
+      "instantiate_tx_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+      "admin": "aethel1admin00000000000000000000000000000000000",
+      "instantiate_msg": {
+        "ai_job_manager": "aethel1aijobs000000000000000000000000000000000",
+        "min_validators": 1,
+        "max_validators": 10,
+        "default_expiration": 2592000,
+        "max_expiration": 31536000
+      },
+      "instantiate_funds": [],
+      "roles": {
+        "ai_job_manager": "aethel1aijobs000000000000000000000000000000000"
+      },
+      "config": {
+        "min_validators": 1,
+        "max_validators": 10
+      }
+    },
+    {
+      "name": "governance",
+      "code_id": 1004,
+      "address": "aethel1governance000000000000000000000000000000",
+      "instantiate_tx_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+      "admin": "aethel1admin00000000000000000000000000000000000",
+      "instantiate_msg": {
+        "voting_period": 604800,
+        "min_deposit": "1000000000",
+        "quorum": 3340,
+        "threshold": 5000,
+        "veto_threshold": 3340,
+        "execution_delay": 86400,
+        "deposit_denom": "uaethel",
+        "snapshot_period": 3600,
+        "max_staleness": 3600,
+        "max_delta_bps": 500,
+        "min_activation_gap": 86400,
+        "min_feeder_quorum": 3,
+        "feeder_tolerance_bps": 500,
+        "feeder_mutation_cooldown": 86400,
+        "feeder_quarantine_period": 3600,
+        "initial_feeders": [
+          "aethel1feeder100000000000000000000000000000000",
+          "aethel1feeder200000000000000000000000000000000",
+          "aethel1feeder300000000000000000000000000000000"
+        ],
+        "feeder_mutation_authority": "governance"
+      },
+      "instantiate_funds": [],
+      "roles": {
+        "total_bonded_feeders": [
+          "aethel1feeder100000000000000000000000000000000",
+          "aethel1feeder200000000000000000000000000000000",
+          "aethel1feeder300000000000000000000000000000000"
+        ]
+      },
+      "config": {
+        "quorum_bps": 3340,
+        "threshold_bps": 5000,
+        "veto_threshold_bps": 3340,
+        "feeder_mutation_authority": "governance",
+        "min_feeder_quorum": 3,
+        "feeder_tolerance_bps": 500,
+        "feeder_mutation_cooldown_seconds": 86400,
+        "feeder_quarantine_period_seconds": 3600,
+        "max_feeders": 50
+      }
+    }
+  ],
+  "post_instantiate_actions": [
+    {
+      "name": "cw20_staking_set_vault_minter",
+      "contract": "cw20_staking",
+      "contract_address": "aethel1cw20staking0000000000000000000000000000000",
+      "actor": "aethel1admin00000000000000000000000000000000000",
+      "tx_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+      "message": {
+        "update_minter": {
+          "new_minter": "aethel1vault0000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "name": "model_registry_set_ai_job_manager",
+      "contract": "model_registry",
+      "contract_address": "aethel1models00000000000000000000000000000000",
+      "actor": "aethel1admin00000000000000000000000000000000000",
+      "tx_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+      "message": {
+        "update_config": {
+          "registration_fee": null,
+          "registration_fee_denom": null,
+          "ai_job_manager": "aethel1aijobs000000000000000000000000000000000"
+        }
+      }
+    }
+  ],
+  "operator_signoff": {
+    "prepared_by": "Ramesh Tamilselvan",
+    "prepared_at": "2026-04-27T00:00:00Z",
+    "notes": "Example manifest. Replace every value with staging deployment evidence before use."
+  }
+}

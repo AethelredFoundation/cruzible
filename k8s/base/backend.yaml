@@ -1,0 +1,362 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cruzible-api-config
+  labels:
+    app.kubernetes.io/name: cruzible
+    app.kubernetes.io/component: api-config
+data:
+  auth.admin.addresses: ""
+  auth.operator.addresses: ""
+  cors.origins: "https://app.cruzible.example"
+  cruzible.vault.address: "REPLACE_WITH_CRUZIBLE_VAULT_ADDRESS"
+  api.docs.enabled: "false"
+  indexer.rpc.url: "REPLACE_WITH_EVM_RPC_URL"
+  indexer.start.block: "0"
+  indexer.ws.url: "REPLACE_WITH_EVM_WS_URL"
+  metrics.enabled: "true"
+  rpc.url: "REPLACE_WITH_AETHELRED_RPC_URL"
+  stablecoin.bridge.address: "REPLACE_WITH_STABLECOIN_BRIDGE_ADDRESS"
+  staethel.address: "REPLACE_WITH_STAETHEL_ADDRESS"
+  trust.proxy: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cruzible-api
+  labels:
+    app: cruzible-api
+    tier: backend
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: cruzible-api
+  template:
+    metadata:
+      labels:
+        app: cruzible-api
+        tier: backend
+      annotations:
+        cruzible.io/metrics-auth: "bearer-token-required"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "3000"
+        prometheus.io/scrape: "false"
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/aethelred/cruzible/api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: INDEXER_ENABLED
+              value: "false"
+            - name: TRUST_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: trust.proxy
+            - name: RPC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: rpc.url
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cors.origins
+            - name: METRICS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: metrics.enabled
+            - name: API_DOCS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: api.docs.enabled
+            - name: AUTH_OPERATOR_ADDRESSES
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: auth.operator.addresses
+            - name: AUTH_ADMIN_ADDRESSES
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: auth.admin.addresses
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: redis-url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: jwt-secret
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: jwt-refresh-secret
+            - name: OPERATIONAL_ENDPOINTS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: operational-endpoints-token
+            - name: ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: alert-webhook-url
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cruzible-api
+  labels:
+    app: cruzible-api
+    tier: backend
+  annotations:
+    cruzible.io/metrics-auth: "bearer-token-required"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "80"
+    prometheus.io/scrape: "false"
+spec:
+  selector:
+    app: cruzible-api
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  type: ClusterIP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cruzible-api-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: cruzible-api
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: cruzible-api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cruzible-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cruzible-indexer
+  labels:
+    app: cruzible-indexer
+    tier: backend
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cruzible-indexer
+  template:
+    metadata:
+      labels:
+        app: cruzible-indexer
+        tier: backend
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: indexer
+          image: ghcr.io/aethelred/cruzible/api-indexer:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: INDEXER_ENABLED
+              value: "true"
+            - name: TRUST_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: trust.proxy
+            - name: RPC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: rpc.url
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cors.origins
+            - name: INDEXER_RPC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.rpc.url
+            - name: INDEXER_WS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.ws.url
+            - name: INDEXER_START_BLOCK
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.start.block
+            - name: CRUZIBLE_VAULT_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cruzible.vault.address
+            - name: STAETHEL_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: staethel.address
+            - name: STABLECOIN_BRIDGE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: stablecoin.bridge.address
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: redis-url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: jwt-secret
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: jwt-refresh-secret
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cruzible-indexer-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cruzible-indexer

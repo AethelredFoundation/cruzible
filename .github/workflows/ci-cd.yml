@@ -1,26 +1,35 @@
-name: Cruzible CI/CD
+name: Cruzible CI
 
 permissions:
   contents: read
 
 on:
   push:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
+      - ramesh/**
   pull_request:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
-  RUST_VERSION: 'stable'
+  CI: "true"
+  NODE_VERSION: "20"
   CARGO_TERM_COLOR: always
+  NEXT_TELEMETRY_DISABLED: "1"
 
 jobs:
-  # ===========================================================================
-  # LINT & FORMAT
-  # ===========================================================================
-  lint-format:
-    name: Lint & Format
+  frontend-quality:
+    name: Frontend Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -28,64 +37,150 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install --no-fund --no-audit
+        run: npm ci
 
-      - name: Run ESLint
+      - name: Lint frontend
         run: npm run lint
 
       - name: Check formatting
         run: npm run format:check
 
-      - name: Install Rust
+      - name: Type-check frontend and tests
+        run: npm run type-check
+
+      - name: Run frontend unit tests with coverage
+        run: npm run test:ci
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    needs: frontend-quality
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+  backend-api:
+    name: Backend API
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            backend/api/package-lock.json
+            sdk/typescript/package-lock.json
+
+      - name: Install SDK dependencies
+        working-directory: ./sdk/typescript
+        run: npm ci
+
+      - name: Build and test SDK
+        working-directory: ./sdk/typescript
+        run: |
+          npm run build
+          npm test
+
+      - name: Install backend dependencies
+        working-directory: ./backend/api
+        run: npm ci
+
+      - name: Lint backend API
+        working-directory: ./backend/api
+        run: npm run lint
+
+      - name: Type-check backend API
+        working-directory: ./backend/api
+        run: npm run typecheck
+
+      - name: Run backend API tests with coverage
+        working-directory: ./backend/api
+        run: npm run test:coverage
+
+  contracts:
+    name: Contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend/contracts -> target
 
       - name: Check Rust formatting
         working-directory: ./backend/contracts
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
-  # ===========================================================================
-  # UNIT TESTS
-  # ===========================================================================
-  test-frontend:
-    name: Frontend Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - run: npm install --no-fund --no-audit
-      - run: npm run test:ci
-
-  test-backend:
-    name: Backend Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - name: Build SDK
-        working-directory: ./sdk/typescript
-        run: npm install --ignore-scripts && npm run build
-      - name: Install backend deps
-        working-directory: ./backend/api
-        run: npm install --no-fund --no-audit
-      - name: Generate Prisma client
-        working-directory: ./backend/api
-        run: npx prisma generate
-      - name: Run tests
-        working-directory: ./backend/api
-        run: npm run test
-
-  test-contracts:
-    name: Contract Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run tests
+      - name: Validate release manifest template
         working-directory: ./backend/contracts
-        run: cargo test --all
+        run: |
+          python3 scripts/validate-release-manifest.py deployments/release-manifest.example.json
+          python3 scripts/test-validate-release-manifest.py
+
+      - name: Check audit artifact scripts
+        working-directory: ./backend/contracts
+        run: |
+          bash -n scripts/prepare-audit-artifacts.sh
+          bash -n scripts/sign-audit-artifacts.sh
+          bash -n scripts/verify-audit-artifact-signatures.sh
+
+      - name: Check contracts compile without warnings
+        working-directory: ./backend/contracts
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo check --workspace --all-targets --locked
+
+      - name: Lint contracts with Clippy
+        working-directory: ./backend/contracts
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Run contract tests
+        working-directory: ./backend/contracts
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo test --workspace --locked
+
+      - name: Build optimized CosmWasm artifacts
+        working-directory: ./backend/contracts
+        run: cargo build --workspace --release --target wasm32-unknown-unknown --locked
+
+      - name: Collect CosmWasm artifact checksums
+        working-directory: ./backend/contracts
+        run: bash scripts/prepare-audit-artifacts.sh
+
+      - name: Upload CosmWasm audit artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosmwasm-contracts-${{ github.sha }}
+          path: backend/contracts/audit-artifacts/contracts
+          if-no-files-found: error
+          retention-days: 30

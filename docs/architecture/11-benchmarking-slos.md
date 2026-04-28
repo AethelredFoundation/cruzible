@@ -1,289 +1,84 @@
-# Track 11: Benchmarking & Service Level Objectives (SLOs)
+# Benchmarking and Service Objectives
 
-## Overview
+> Workspace-aligned performance notes for the current Cruzible snapshot.
+> Last reconciled on 2026-04-22.
 
-This document defines performance benchmarks, SLO targets, and monitoring requirements for the Cruzible liquid staking protocol across all layers.
+## 1. Scope
 
----
+This document only covers measurement paths that are backed by code or scripts present in this repository today. Where deployment automation is still incomplete, treat the targets below as operator goals rather than already-enforced release gates.
 
-## 1. Service Level Objectives
+## 2. What Can Be Measured From This Repo Now
 
-### 1.1 Frontend (dApp)
+| Area | Available measurement path | Backing artifact |
+| --- | --- | --- |
+| Frontend build health | `npm run build` | root `package.json` |
+| Frontend bundle analysis | `npm run analyze` | root `package.json` |
+| Frontend test coverage | `npm run test:coverage` | root `package.json` |
+| API latency smoke test scaffold | `cd backend/api && npm run benchmark` | `backend/api/package.json` |
+| API readiness | `GET /health` and `GET /health/ready` | `backend/api/src/routes/health.ts` |
+| API route documentation | `GET /docs` | `backend/api/src/config/swagger.ts` and route annotations |
+| Contract test coverage baseline | `cd backend/contracts && cargo test --all` | `backend/contracts` |
 
-| Metric | Target | Measurement | Alert Threshold |
-|--------|--------|-------------|-----------------|
-| First Contentful Paint (FCP) | < 1.5s | Lighthouse CI | > 2.5s |
-| Largest Contentful Paint (LCP) | < 2.5s | Lighthouse CI | > 4.0s |
-| Cumulative Layout Shift (CLS) | < 0.1 | Lighthouse CI | > 0.25 |
-| Time to Interactive (TTI) | < 3.5s | Lighthouse CI | > 5.0s |
-| Bundle size (gzipped) | < 300 KB | Webpack analyzer | > 400 KB |
-| Wallet connect success rate | > 99% | Custom telemetry | < 95% |
-| Page load success rate | > 99.9% | Uptime monitoring | < 99.5% |
+## 3. Service Objectives
 
-### 1.2 Backend API
+### Frontend
 
-| Metric | Target | Measurement | Alert Threshold |
-|--------|--------|-------------|-----------------|
-| p50 response time | < 50ms | Prometheus histogram | > 100ms |
-| p95 response time | < 200ms | Prometheus histogram | > 500ms |
-| p99 response time | < 500ms | Prometheus histogram | > 1s |
-| Error rate (5xx) | < 0.1% | Prometheus counter | > 1% |
-| Request throughput | > 1000 rps | Prometheus gauge | < 500 rps |
-| Availability | > 99.9% | Uptime monitor | < 99.5% |
-| Cache hit rate | > 80% | CacheService metrics | < 60% |
+| Metric | Target | How to measure |
+| --- | --- | --- |
+| Production build succeeds | 100% | `npm run build` |
+| Landing and vault pages remain usable on desktop/mobile | manual smoke plus page review | local run or deployed preview |
+| Initial page performance stays within a normal modern app envelope | LCP under 2.5s when tested on representative infra | Lighthouse/manual testing |
+| Regressions in bundle growth are investigated | analyze on meaningful changes | `npm run analyze` |
 
-### 1.3 Blockchain (Cosmos SDK)
+### API
 
-| Metric | Target | Measurement | Alert Threshold |
-|--------|--------|-------------|-----------------|
-| Block time | ~6s | Chain metrics | > 10s |
-| Transaction finality | < 7s | Block confirmation | > 15s |
-| Stake transaction gas | < 200K gas | Gas profiling | > 300K |
-| Unstake transaction gas | < 250K gas | Gas profiling | > 400K |
-| Validator selection gas | < 500K gas | Gas profiling | > 1M |
-| Epoch advancement latency | < 30s after epoch end | Monitoring | > 5 minutes |
+| Metric | Target | How to measure |
+| --- | --- | --- |
+| `/health` remains fast enough for probes | p95 under 250ms on representative infra | `npm run benchmark` or external probe |
+| `/health/ready` only returns 200 when core dependencies are healthy | 100% correctness | direct curl / monitoring checks |
+| Public route surface remains documented | `/docs` renders and matches route annotations | local run of API |
+| Global rate limiter behaves predictably | default 120 requests per 60s unless overridden | automated tests + env review |
 
-### 1.4 EVM Contracts
+### Operational signals already encoded in code
 
-| Metric | Target | Measurement | Alert Threshold |
-|--------|--------|-------------|-----------------|
-| Stake gas cost | < 150K gas | Foundry gas report | > 200K |
-| Unstake gas cost | < 120K gas | Foundry gas report | > 180K |
-| Withdraw gas cost | < 80K gas | Foundry gas report | > 120K |
-| ClaimRewards gas cost | < 100K gas (per claim) | Foundry gas report | > 150K |
-| ApplyValidatorSelection gas | < 500K (200 validators) | Foundry gas report | > 800K |
+| Signal | Warning threshold | Critical threshold | Source |
+| --- | --- | --- | --- |
+| Indexer lag | `>100` blocks degrades health | `>500` blocks makes service unready | `backend/api/src/routes/health.ts` |
+| Reconciliation status | `WARNING` degrades health | `CRITICAL` makes service unready | `backend/api/src/routes/health.ts` |
+| Exchange rate drift | `1%` warning by default | `5%` critical by default | `backend/api/src/services/ReconciliationScheduler.ts` |
+| TVL drift | n/a | `2%` threshold by default | `backend/api/src/services/ReconciliationScheduler.ts` |
 
-### 1.5 TEE Worker
-
-| Metric | Target | Measurement | Alert Threshold |
-|--------|--------|-------------|-----------------|
-| Validator selection latency | < 2s | TEE service metrics | > 5s |
-| Attestation generation time | < 500ms | TEE service metrics | > 1s |
-| Attestation verification time | < 100ms | Keeper benchmarks | > 500ms |
-| Enclave boot time | < 10s | Deployment metrics | > 30s |
-
-### 1.6 Indexer
-
-| Metric | Target | Measurement | Alert Threshold |
-|--------|--------|-------------|-----------------|
-| Block indexing lag | < 3 blocks | IndexerService metrics | > 10 blocks |
-| Event processing latency | < 1s per block | Prometheus histogram | > 5s |
-| Reorg detection accuracy | 100% | Integration tests | Any miss |
-| Database write throughput | > 100 events/s | Prisma metrics | < 50 events/s |
-
----
-
-## 2. Benchmarking Infrastructure
-
-### 2.1 Keeper Benchmarks (Go)
+## 4. Recommended Measurement Commands
 
 ```bash
-# Run keeper benchmarks
-cd /path/to/aethelred
-go test ./x/vault/keeper/ -bench=. -benchmem -count=5
+# Frontend
+npm run build
+npm run analyze
+npm run test:coverage
+
+# API
+cd backend/api
+npm run build
+npm run test:coverage
+
+# Runtime probes
+curl -s http://localhost:3001/health | jq
+curl -s http://localhost:3001/health/ready | jq
+
+# Contracts
+cd ../contracts
+cargo test --all
 ```
 
-Recommended benchmark functions to add:
+## 5. Notes For Operators
 
-```go
-func BenchmarkStake(b *testing.B) {
-    k, ctx := setupKeeper(b)
-    // Setup validator
-    for i := 0; i < b.N; i++ {
-        k.Stake(ctx, fmt.Sprintf("addr%d", i), 100_000_000, "val1", 0)
-    }
-}
+- The current API benchmark script targets a stale path, `http://localhost:3000/v1/health`. Update that target locally before using it as a meaningful latency measurement.
+- Some frontend pages still include preview or mock fallback data. User-perceived performance should be interpreted in that context.
+- The API exposes Prometheus-compatible process and HTTP metrics at `/metrics`, but the checked-in Compose monitoring stack is incomplete because referenced config assets are missing from `backend/infra/`.
+- `CacheService` uses Redis when `REDIS_URL` is configured and production startup requires Redis. Alert history is database-backed when `DATABASE_URL` is configured.
 
-func BenchmarkUnstake(b *testing.B) { ... }
-func BenchmarkComputeValidatorSetHash(b *testing.B) { ... }
-func BenchmarkVerifyAttestation(b *testing.B) { ... }
-func BenchmarkBuildValidatorSelectionRequest(b *testing.B) { ... }
-```
+## 6. Known Measurement Gaps
 
-### 2.2 API Load Testing
-
-```bash
-# Using autocannon (already in devDependencies)
-npx autocannon -c 100 -d 30 http://localhost:3001/health
-npx autocannon -c 50 -d 30 http://localhost:3001/v1/blocks
-npx autocannon -c 50 -d 30 http://localhost:3001/v1/reconciliation/live
-```
-
-Target results:
-- `/health`: > 10,000 rps, p99 < 10ms
-- `/v1/blocks`: > 2,000 rps, p99 < 100ms
-- `/v1/reconciliation/live`: > 500 rps, p99 < 500ms
-
-### 2.3 Smart Contract Gas Profiling
-
-```bash
-# Using Foundry
-cd contracts/
-forge test --gas-report
-forge snapshot  # Creates .gas-snapshot for regression detection
-```
-
-### 2.4 Frontend Performance Testing
-
-```bash
-# Lighthouse CI
-npx lighthouse http://localhost:3000/vault --output=json --output-path=lighthouse-vault.json
-npx lighthouse http://localhost:3000/ --output=json --output-path=lighthouse-home.json
-```
-
-Integration with CI:
-```yaml
-# .github/workflows/lighthouse.yml
-- name: Lighthouse CI
-  uses: treosh/lighthouse-ci-action@v10
-  with:
-    urls: |
-      http://localhost:3000/
-      http://localhost:3000/vault
-    budgetPath: ./lighthouse-budget.json
-```
-
----
-
-## 3. Monitoring Stack
-
-### 3.1 Recommended Stack
-
-| Component | Tool | Purpose |
-|-----------|------|---------|
-| Metrics collection | Prometheus | Time-series metrics |
-| Metrics visualization | Grafana | Dashboards, alerting |
-| Log aggregation | Loki or ELK | Structured log search |
-| Uptime monitoring | UptimeRobot or Pingdom | External availability |
-| Error tracking | Sentry | Runtime error capture |
-| APM | Datadog or New Relic | Full-stack observability |
-
-### 3.2 Key Dashboards
-
-1. **Protocol Health Dashboard**
-   - TVL (total pooled AETHEL)
-   - Exchange rate over time
-   - Active staker count
-   - Pending withdrawals
-   - Epoch progression
-   - Circuit breaker status
-
-2. **API Performance Dashboard**
-   - Request rate by endpoint
-   - Response time percentiles (p50, p95, p99)
-   - Error rate by status code
-   - Cache hit/miss ratio
-   - Active connections
-
-3. **Indexer Dashboard**
-   - Block lag (head vs indexed)
-   - Events processed per minute
-   - Reorg events
-   - Database write latency
-   - WebSocket connection status
-
-4. **Validator Health Dashboard**
-   - Active validator count
-   - Telemetry freshness distribution
-   - Slash events
-   - TEE attestation success rate
-   - Validator selection frequency
-
----
-
-## 4. Performance Budget
-
-### 4.1 Frontend Bundle Budget
-
-| Chunk | Max Size (gzipped) | Current Estimate |
-|-------|-------------------|------------------|
-| vendor (node_modules) | 150 KB | ~120 KB |
-| common (shared code) | 50 KB | ~30 KB |
-| recharts | 80 KB | ~70 KB |
-| page chunks (each) | 30 KB | ~15-25 KB |
-| **Total initial load** | **200 KB** | **~150 KB** |
-
-### 4.2 API Response Size Budget
-
-| Endpoint | Max Response Size | Pagination |
-|----------|------------------|------------|
-| GET /v1/blocks | 50 KB (100 blocks) | limit=100, offset |
-| GET /v1/blocks/:height | 5 KB | N/A |
-| GET /v1/jobs | 100 KB (50 jobs) | limit=50, offset |
-| GET /v1/reconciliation/live | 200 KB (200 validators) | N/A |
-| GET /v1/alerts | 20 KB (50 alerts) | limit=50, offset |
-
----
-
-## 5. SLO Alerting Rules
-
-### 5.1 Prometheus Alert Rules
-
-```yaml
-groups:
-  - name: cruzible-slos
-    rules:
-      # API latency SLO breach
-      - alert: HighAPILatency
-        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.5
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "p95 API latency exceeds 500ms"
-
-      # Error rate SLO breach
-      - alert: HighErrorRate
-        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "5xx error rate exceeds 1%"
-
-      # Indexer lag
-      - alert: IndexerLagging
-        expr: cruzible_indexer_block_lag > 10
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Indexer is more than 10 blocks behind"
-
-      # Circuit breaker tripped
-      - alert: CircuitBreakerTripped
-        expr: cruzible_vault_paused == 1
-        labels:
-          severity: critical
-        annotations:
-          summary: "Vault circuit breaker has been tripped"
-
-      # Exchange rate anomaly
-      - alert: ExchangeRateAnomaly
-        expr: abs(cruzible_exchange_rate - cruzible_exchange_rate offset 1h) / cruzible_exchange_rate > 0.05
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Exchange rate changed more than 5% in 1 hour"
-```
-
----
-
-## 6. Continuous Performance Regression
-
-### 6.1 CI Integration
-
-Every PR should run:
-1. `forge snapshot --check` — Contract gas regression
-2. `go test -bench=. -benchmem` — Keeper performance regression
-3. `npx autocannon` — API throughput regression (against staging)
-4. Lighthouse CI — Frontend performance regression
-
-### 6.2 Performance Gate
-
-PRs are blocked if:
-- Any gas cost increases > 10%
-- Keeper benchmark regresses > 20%
-- Lighthouse score drops below 90
-- API p95 latency increases > 50ms
+- There is no checked-in Lighthouse budget or automated frontend performance gate.
+- There is no checked-in Prometheus or Grafana configuration bundle matching the Compose references.
+- The repository does not currently include a complete turnkey deployment that can be treated as the canonical performance environment.

@@ -1,7 +1,11 @@
 import '@testing-library/jest-dom/vitest';
 import { TextDecoder, TextEncoder } from 'node:util';
-import { fetch, Headers, Request, Response } from 'cross-fetch';
 import { afterAll, beforeAll, vi } from 'vitest';
+
+const webFetch = globalThis.fetch?.bind(globalThis);
+const WebHeaders = globalThis.Headers;
+const WebRequest = globalThis.Request;
+const WebResponse = globalThis.Response;
 
 if (typeof globalThis.TextEncoder === 'undefined') {
   Object.defineProperty(globalThis, 'TextEncoder', { value: TextEncoder });
@@ -12,19 +16,19 @@ if (typeof globalThis.TextDecoder === 'undefined') {
 }
 
 if (typeof globalThis.fetch === 'undefined') {
-  Object.defineProperty(globalThis, 'fetch', { value: fetch });
+  Object.defineProperty(globalThis, 'fetch', { value: webFetch });
 }
 
-if (typeof globalThis.Headers === 'undefined') {
-  Object.defineProperty(globalThis, 'Headers', { value: Headers });
+if (typeof globalThis.Headers === 'undefined' && WebHeaders) {
+  Object.defineProperty(globalThis, 'Headers', { value: WebHeaders });
 }
 
-if (typeof globalThis.Request === 'undefined') {
-  Object.defineProperty(globalThis, 'Request', { value: Request });
+if (typeof globalThis.Request === 'undefined' && WebRequest) {
+  Object.defineProperty(globalThis, 'Request', { value: WebRequest });
 }
 
-if (typeof globalThis.Response === 'undefined') {
-  Object.defineProperty(globalThis, 'Response', { value: Response });
+if (typeof globalThis.Response === 'undefined' && WebResponse) {
+  Object.defineProperty(globalThis, 'Response', { value: WebResponse });
 }
 
 vi.mock('next/router', () => ({

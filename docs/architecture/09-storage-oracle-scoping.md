@@ -171,7 +171,7 @@ Drift alerts fire when values diverge beyond configurable thresholds.
 
 2. **Medium-term (post-launch)**:
    - Integrate Chainlink price feed for AETHEL/USD display
-   - Add Redis as CacheService backend (replace in-memory map)
+   - Continue hardening Redis-backed `CacheService` operations and cache observability
    - Implement withdrawal pruning cronjob
 
 3. **Long-term**:

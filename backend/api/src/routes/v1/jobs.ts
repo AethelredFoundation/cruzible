@@ -15,6 +15,17 @@ const router = Router();
 const jobsService = container.resolve(JobsService);
 const cacheService = container.resolve(CacheService);
 
+const JOB_SORT_FIELDS = ['created_at', 'completed_at', 'priority', 'verification_score'] as const;
+
+function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolean {
+  if (typeof value !== 'string' || value.length === 0) {
+    return false;
+  }
+
+  const [field, direction = 'desc'] = value.split(':');
+  return allowedFields.includes(field) && ['asc', 'desc'].includes(direction);
+}
+
 /**
  * @swagger
  * /v1/jobs:
@@ -65,7 +76,12 @@ router.get('/',
     ]),
     query('model_hash').optional().isString().trim(),
     query('creator').optional().isString().trim(),
-    query('sort').optional().isString(),
+    query('sort')
+      .optional()
+      .custom((value) => isAllowedSort(value, JOB_SORT_FIELDS))
+      .withMessage(
+        `sort must be one of: ${JOB_SORT_FIELDS.join(', ')} with :asc or :desc`,
+      ),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -168,6 +184,31 @@ router.get('/pricing',
 
 /**
  * @swagger
+ * /v1/jobs/queue:
+ *   get:
+ *     summary: Get current job queue
+ *     tags: [AI Jobs]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Job queue
+ */
+router.get('/queue',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { limit = 50 } = req.query;
+
+    const queue = await jobsService.getJobQueue(Number(limit));
+    res.json(queue);
+  })
+);
+
+/**
+ * @swagger
  * /v1/jobs/{id}:
  *   get:
  *     summary: Get job by ID
@@ -232,31 +273,6 @@ router.get('/:id/verifications',
     
     const verifications = await jobsService.getJobVerifications(id);
     res.json(verifications);
-  })
-);
-
-/**
- * @swagger
- * /v1/jobs/queue:
- *   get:
- *     summary: Get current job queue
- *     tags: [AI Jobs]
- *     parameters:
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 50
- *     responses:
- *       200:
- *         description: Job queue
- */
-router.get('/queue',
-  asyncHandler(async (req: Request, res: Response) => {
-    const { limit = 50 } = req.query;
-    
-    const queue = await jobsService.getJobQueue(Number(limit));
-    res.json(queue);
   })
 );
 

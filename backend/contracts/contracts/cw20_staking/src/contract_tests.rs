@@ -1,4 +1,4 @@
-/**
+/*
  * CW20 Staking Token — Comprehensive Test Suite
  *
  * Enterprise-grade tests covering:
@@ -14,7 +14,6 @@
  * - Migration
  * - Edge cases and security boundaries
  */
-
 #[cfg(test)]
 mod tests {
     use crate::*;

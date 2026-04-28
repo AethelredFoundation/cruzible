@@ -26,17 +26,19 @@ import {
   useChainId,
   useConnect,
   useDisconnect,
+  useReadContracts,
   useSwitchChain,
   useBlockNumber,
 } from "wagmi";
 
-import { formatUnits } from "viem";
+import { formatUnits, zeroAddress } from "viem";
 import { activeChain } from "@/config/wagmi";
+import { ERC20ABI } from "@/config/abis";
+import { getContractAddress } from "@/config/contracts";
 import {
-  CONTRACT_ADDRESSES,
-  STABLECOIN_TOKEN_ADDRESS_KEYS,
-} from "@/config/chains";
-import { getAllStablecoins } from "@/lib/constants";
+  fetchReconciliationControlPlane,
+  type ReconciliationControlPlaneSummary,
+} from "@/lib/reconciliation";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,9 +68,14 @@ export interface RealTimeState {
   tps: number;
   gasPrice: number;
   epoch: number;
+  epochSource: string;
   networkLoad: number;
   aethelPrice: number;
   lastBlockTime: number;
+  protocolCapturedAt: string | null;
+  validatorUniverseHash: string;
+  reconciliationWarnings: number;
+  reconciliationComplete: boolean | null;
 }
 
 export interface Notification {
@@ -133,9 +140,14 @@ const DEFAULT_REALTIME: RealTimeState = {
   tps: 0,
   gasPrice: 0,
   epoch: 0,
+  epochSource: "rpc/block-height-estimate",
   networkLoad: 0,
   aethelPrice: 0,
   lastBlockTime: 0,
+  protocolCapturedAt: null,
+  validatorUniverseHash: "",
+  reconciliationWarnings: 0,
+  reconciliationComplete: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -162,41 +174,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     query: { enabled: isConnected, refetchInterval: 12_000 },
   });
 
-  // Query stAETHEL token balance (ERC-20)
-  const { data: stAethelBalance } = useBalance({
-    address: address,
-    token: CONTRACT_ADDRESSES.stAethel
-      ? (CONTRACT_ADDRESSES.stAethel as `0x${string}`)
-      : undefined,
-    query: {
-      enabled: isConnected && !!CONTRACT_ADDRESSES.stAethel,
-      refetchInterval: 12_000,
+  const trackedTokenContracts = [
+    {
+      symbol: "stAETHEL",
+      address: getContractAddress("stAethel"),
+      decimals: 18,
     },
-  });
-
-  // --- Stablecoin balances ---------------------------------------------------
-  // Build balance queries for every registered stablecoin.
-  // Each useBalance call is keyed by the token address from CONTRACT_ADDRESSES.
-  const stablecoins = getAllStablecoins();
-
-  const { data: usdcBalance } = useBalance({
-    address: address,
-    token: CONTRACT_ADDRESSES.usdcToken
-      ? (CONTRACT_ADDRESSES.usdcToken as `0x${string}`)
-      : undefined,
-    query: {
-      enabled: isConnected && !!CONTRACT_ADDRESSES.usdcToken,
-      refetchInterval: 15_000,
+    {
+      symbol: "USDC",
+      address: getContractAddress("usdcToken"),
+      decimals: 6,
     },
-  });
+    {
+      symbol: "USDT",
+      address: getContractAddress("usdtToken"),
+      decimals: 6,
+    },
+  ] as const;
 
-  const { data: usdtBalance } = useBalance({
-    address: address,
-    token: CONTRACT_ADDRESSES.usdtToken
-      ? (CONTRACT_ADDRESSES.usdtToken as `0x${string}`)
-      : undefined,
+  const { data: tokenBalances } = useReadContracts({
+    contracts: trackedTokenContracts.map((token) => ({
+      address: token.address ?? zeroAddress,
+      abi: ERC20ABI,
+      functionName: "balanceOf",
+      args: [address ?? "0x0000000000000000000000000000000000000000"],
+    })),
     query: {
-      enabled: isConnected && !!CONTRACT_ADDRESSES.usdtToken,
+      enabled:
+        isConnected &&
+        !!address &&
+        trackedTokenContracts.every((token) => Boolean(token.address)),
       refetchInterval: 15_000,
     },
   });
@@ -213,15 +220,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Build stablecoin balance map from wagmi query results.
     // Each balance entry uses the token's native decimals (6 for USDC/USDT).
     const stablecoinBalances: Record<string, number> = {};
-    if (usdcBalance) {
-      stablecoinBalances.USDC = parseFloat(
-        formatUnits(usdcBalance.value, usdcBalance.decimals),
-      );
+    const stAethelBalance = tokenBalances?.[0]?.result as bigint | undefined;
+    const usdcBalance = tokenBalances?.[1]?.result as bigint | undefined;
+    const usdtBalance = tokenBalances?.[2]?.result as bigint | undefined;
+
+    if (usdcBalance !== undefined) {
+      stablecoinBalances.USDC = parseFloat(formatUnits(usdcBalance, 6));
     }
-    if (usdtBalance) {
-      stablecoinBalances.USDT = parseFloat(
-        formatUnits(usdtBalance.value, usdtBalance.decimals),
-      );
+    if (usdtBalance !== undefined) {
+      stablecoinBalances.USDT = parseFloat(formatUnits(usdtBalance, 6));
     }
 
     return {
@@ -230,11 +237,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       balance: nativeBalance
         ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
         : 0,
-      stBalance: stAethelBalance
-        ? parseFloat(
-            formatUnits(stAethelBalance.value, stAethelBalance.decimals),
-          )
-        : 0,
+      stBalance:
+        stAethelBalance !== undefined
+          ? parseFloat(formatUnits(stAethelBalance, 18))
+          : 0,
       stablecoinBalances,
       isConnecting: false,
       isWrongNetwork,
@@ -244,9 +250,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isConnected,
     address,
     nativeBalance,
-    stAethelBalance,
-    usdcBalance,
-    usdtBalance,
+    tokenBalances,
     wagmiConnecting,
     isWrongNetwork,
     chainId,
@@ -293,18 +297,70 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [realTime, setRealTime] = useState<RealTimeState>(DEFAULT_REALTIME);
+  const [controlPlane, setControlPlane] =
+    useState<ReconciliationControlPlaneSummary | null>(null);
 
   useEffect(() => {
-    if (blockNumber !== undefined) {
-      setRealTime((prev) => ({
+    let cancelled = false;
+
+    const refreshControlPlane = async () => {
+      try {
+        const summary = await fetchReconciliationControlPlane();
+        if (!cancelled) {
+          setControlPlane(summary);
+        }
+      } catch {
+        // Keep the last known control-plane snapshot and let block height
+        // remain as the fallback source when public reconciliation is unavailable.
+      }
+    };
+
+    void refreshControlPlane();
+    const intervalId = window.setInterval(() => {
+      void refreshControlPlane();
+    }, 15_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    setRealTime((prev) => {
+      const nextBlockHeight =
+        blockNumber !== undefined
+          ? Number(blockNumber)
+          : (controlPlane?.chain_height ?? prev.blockHeight);
+      const fallbackEpoch =
+        blockNumber !== undefined
+          ? Math.floor(Number(blockNumber) / 1000)
+          : prev.epoch;
+
+      return {
         ...prev,
-        blockHeight: Number(blockNumber),
-        lastBlockTime: Date.now(),
-        // Epoch estimate: blockHeight / 1000 (actual epoch should come from contract)
-        epoch: Math.floor(Number(blockNumber) / 1000),
-      }));
-    }
-  }, [blockNumber]);
+        blockHeight: nextBlockHeight,
+        lastBlockTime:
+          blockNumber !== undefined || controlPlane
+            ? Date.now()
+            : prev.lastBlockTime,
+        epoch: controlPlane?.epoch ?? fallbackEpoch,
+        epochSource:
+          controlPlane?.epoch_source ??
+          (blockNumber !== undefined
+            ? "rpc/block-height-estimate"
+            : prev.epochSource),
+        protocolCapturedAt:
+          controlPlane?.captured_at ?? prev.protocolCapturedAt,
+        validatorUniverseHash:
+          controlPlane?.validator_universe_hash ?? prev.validatorUniverseHash,
+        reconciliationWarnings:
+          controlPlane?.warning_count ?? prev.reconciliationWarnings,
+        reconciliationComplete:
+          controlPlane?.stake_snapshot_complete ?? prev.reconciliationComplete,
+      };
+    });
+  }, [blockNumber, controlPlane]);
 
   // --- Notifications --------------------------------------------------------
   const [notifications, setNotifications] = useState<Notification[]>([]);

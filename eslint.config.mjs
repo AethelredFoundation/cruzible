@@ -13,13 +13,19 @@ const reactHooksRules = reactHooks.configs.flat.recommended.rules;
 export default [
   {
     ignores: [
-      ".claude/**",
       ".next/**",
       "coverage/**",
       "node_modules/**",
       "out/**",
       "reports/**",
     ],
+  },
+  {
+    plugins: {
+      "@next/next": nextPlugin,
+      "react-hooks": reactHooks,
+    },
+    rules: {},
   },
   {
     files: ["src/**/*.{ts,tsx}"],
@@ -36,10 +42,6 @@ export default [
         },
         sourceType: "module",
       },
-    },
-    plugins: {
-      "@next/next": nextPlugin,
-      "react-hooks": reactHooks,
     },
     rules: {
       ...nextRules,

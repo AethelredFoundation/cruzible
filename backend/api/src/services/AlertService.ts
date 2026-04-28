@@ -8,11 +8,14 @@
  *  - Enforce alert severity levels: INFO, WARNING, CRITICAL
  *  - Categorize alerts by type (reconciliation mismatch, exchange rate drift, etc.)
  *  - Rate-limit alerts so the same alert type is not spammed within a configurable window
- *  - Maintain an in-memory ring buffer of the last N alerts for API consumption
+ *  - Persist alert history when DATABASE_URL is configured
+ *  - Maintain an in-memory fallback ring buffer for local/test operation
  */
 
 import { injectable } from 'tsyringe';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,9 +62,6 @@ export interface AlertSummary {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Default rate-limit window in milliseconds (5 minutes). */
-const DEFAULT_RATE_LIMIT_MS = 5 * 60 * 1000;
-
 /** Maximum number of alerts to keep in the ring buffer. */
 const MAX_ALERT_HISTORY = 100;
 
@@ -71,11 +71,14 @@ const MAX_ALERT_HISTORY = 100;
 
 @injectable()
 export class AlertService {
-  /** In-memory ring buffer of recent alerts. */
+  /** In-memory ring buffer of recent alerts. Used as fallback and hot cache. */
   private readonly history: Alert[] = [];
 
   /** Tracks the last time an alert was sent for each type (for rate limiting). */
   private readonly lastAlertAt = new Map<string, number>();
+
+  /** Prisma client for durable alert history in production deployments. */
+  private readonly prisma: PrismaClient | null;
 
   /** Webhook URL for forwarding alerts (optional). */
   private readonly webhookUrl: string | undefined;
@@ -84,8 +87,9 @@ export class AlertService {
   private readonly rateLimitMs: number;
 
   constructor() {
-    this.webhookUrl = process.env.ALERT_WEBHOOK_URL || undefined;
-    this.rateLimitMs = Number(process.env.ALERT_RATE_LIMIT_MS) || DEFAULT_RATE_LIMIT_MS;
+    this.webhookUrl = config.alertWebhookUrl;
+    this.rateLimitMs = config.alertRateLimitMs;
+    this.prisma = config.databaseUrl ? new PrismaClient() : null;
   }
 
   // -----------------------------------------------------------------------
@@ -140,6 +144,7 @@ export class AlertService {
 
     // Store in ring buffer
     this.pushHistory(alert);
+    await this.persistAlert(alert);
 
     return alert;
   }
@@ -148,12 +153,39 @@ export class AlertService {
    * Return the most recent alerts, newest first.
    * Optionally filter by severity or type.
    */
-  getAlertHistory(options?: {
+  async getAlertHistory(options?: {
     severity?: AlertSeverity;
     type?: AlertType;
     limit?: number;
     offset?: number;
-  }): { data: Alert[]; total: number } {
+  }): Promise<{ data: Alert[]; total: number }> {
+    if (this.prisma) {
+      const where: Prisma.AlertEventWhereInput = {};
+      if (options?.severity) {
+        where.severity = options.severity;
+      }
+      if (options?.type) {
+        where.type = options.type;
+      }
+
+      const offset = options?.offset ?? 0;
+      const limit = options?.limit ?? 50;
+      const [events, total] = await Promise.all([
+        this.prisma.alertEvent.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip: offset,
+          take: limit,
+        }),
+        this.prisma.alertEvent.count({ where }),
+      ]);
+
+      return {
+        data: events.map((event) => this.mapAlertEvent(event)),
+        total,
+      };
+    }
+
     let filtered = [...this.history];
 
     if (options?.severity) {
@@ -179,7 +211,28 @@ export class AlertService {
   /**
    * Return a summary of current alert counts by severity and type.
    */
-  getAlertSummary(): AlertSummary {
+  async getAlertSummary(): Promise<AlertSummary> {
+    if (this.prisma) {
+      const events = await this.prisma.alertEvent.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: MAX_ALERT_HISTORY,
+      });
+
+      return this.summarizeAlerts(events.map((event) => this.mapAlertEvent(event)));
+    }
+
+    return this.summarizeAlerts(this.history);
+  }
+
+  /**
+   * Return the count of active CRITICAL alerts (used by health check).
+   */
+  async getActiveCriticalCount(): Promise<number> {
+    const summary = await this.getAlertSummary();
+    return summary.activeCritical;
+  }
+
+  private summarizeAlerts(alerts: Alert[]): AlertSummary {
     const bySeverity = {
       [AlertSeverity.INFO]: 0,
       [AlertSeverity.WARNING]: 0,
@@ -196,24 +249,17 @@ export class AlertService {
       [AlertType.STABLECOIN_CONFIG_MISMATCH]: 0,
     };
 
-    for (const alert of this.history) {
+    for (const alert of alerts) {
       bySeverity[alert.severity]++;
       byType[alert.type]++;
     }
 
     return {
-      total: this.history.length,
+      total: alerts.length,
       bySeverity,
       byType,
       activeCritical: bySeverity[AlertSeverity.CRITICAL],
     };
-  }
-
-  /**
-   * Return the count of active CRITICAL alerts (used by health check).
-   */
-  getActiveCriticalCount(): number {
-    return this.history.filter((a) => a.severity === AlertSeverity.CRITICAL).length;
   }
 
   // -----------------------------------------------------------------------
@@ -278,5 +324,52 @@ export class AlertService {
     while (this.history.length > MAX_ALERT_HISTORY) {
       this.history.shift();
     }
+  }
+
+  private async persistAlert(alert: Alert): Promise<void> {
+    if (!this.prisma) {
+      return;
+    }
+
+    try {
+      await this.prisma.alertEvent.upsert({
+        where: { id: alert.id },
+        update: {
+          delivered: alert.delivered,
+          metadata: alert.metadata as Prisma.InputJsonValue,
+        },
+        create: {
+          id: alert.id,
+          severity: alert.severity,
+          type: alert.type,
+          message: alert.message,
+          metadata: alert.metadata as Prisma.InputJsonValue,
+          delivered: alert.delivered,
+          createdAt: new Date(alert.timestamp),
+        },
+      });
+    } catch (error) {
+      logger.error('Failed to persist alert event', { error, alertId: alert.id });
+    }
+  }
+
+  private mapAlertEvent(event: {
+    id: string;
+    severity: string;
+    type: string;
+    message: string;
+    metadata: Prisma.JsonValue;
+    delivered: boolean;
+    createdAt: Date;
+  }): Alert {
+    return {
+      id: event.id,
+      severity: event.severity as AlertSeverity,
+      type: event.type as AlertType,
+      message: event.message,
+      metadata: event.metadata as AlertMetadata,
+      timestamp: event.createdAt.toISOString(),
+      delivered: event.delivered,
+    };
   }
 }

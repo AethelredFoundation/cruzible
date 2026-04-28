@@ -1,0 +1,2 @@
+ALTER TABLE "VaultState"
+ADD COLUMN "currentEpoch" BIGINT NOT NULL DEFAULT 0;

@@ -1,6 +1,7 @@
 /**
- * Jest Configuration for Cruzible
- * Comprehensive testing setup with 80%+ coverage target
+ * Legacy Jest compatibility config.
+ * Vitest is the primary CI runner; keep this aligned with the same
+ * unit-test surface and truthful coverage floor.
  */
 
 const nextJest = require("next/jest");
@@ -28,31 +29,27 @@ const customJestConfig = {
     "<rootDir>/src/**/?(*.)+(test|spec).(ts|tsx)",
   ],
   collectCoverageFrom: [
-    "src/**/*.(ts|tsx)",
+    "src/components/**/*.(ts|tsx)",
+    "src/hooks/**/*.(ts|tsx)",
+    "src/lib/**/*.(ts|tsx)",
     "!src/**/*.d.ts",
     "!src/**/*.stories.(ts|tsx)",
+    "!src/**/__tests__/**",
     "!src/types/**/*",
     "!src/mocks/**/*",
     "!src/**/index.ts",
   ],
   coverageThreshold: {
     global: {
-      branches: 2,
-      functions: 1,
-      lines: 2,
-      statements: 2,
+      branches: 5,
+      functions: 10,
+      lines: 10,
+      statements: 10,
     },
   },
+  coverageProvider: "v8",
   coverageReporters: ["text", "text-summary", "lcov", "html"],
   coverageDirectory: "<rootDir>/coverage",
-  transform: {
-    "^.+\\.(ts|tsx)$": [
-      "ts-jest",
-      {
-        tsconfig: "<rootDir>/tsconfig.json",
-      },
-    ],
-  },
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
   testPathIgnorePatterns: [
     "<rootDir>/node_modules/",

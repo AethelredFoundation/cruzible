@@ -48,6 +48,7 @@ pub struct Config {
     /// SECURITY: Only this contract address (AI Job Manager) can call IncrementJobCount
     pub ai_job_manager: Option<Addr>,
     pub registration_fee: Uint128,
+    pub registration_fee_denom: String,
     pub verification_required: bool,
     pub verifiers: Vec<Addr>,
 }
@@ -133,6 +134,7 @@ fn models<'a>() -> IndexedMap<'a, String, Model, ModelIndexes<'a>> {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub registration_fee: Uint128,
+    pub registration_fee_denom: String,
     pub verification_required: bool,
     pub verifiers: Vec<String>,
 }
@@ -167,6 +169,7 @@ pub enum ExecuteMsg {
     },
     UpdateConfig {
         registration_fee: Option<Uint128>,
+        registration_fee_denom: Option<String>,
         ai_job_manager: Option<String>,
     },
 }
@@ -198,6 +201,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    validate_registration_fee_denom(&msg.registration_fee_denom)?;
 
     let verifiers: Result<Vec<Addr>, _> = msg
         .verifiers
@@ -209,6 +213,7 @@ pub fn instantiate(
         admin: info.sender,
         ai_job_manager: None, // Set via UpdateConfig after AI Job Manager is deployed
         registration_fee: msg.registration_fee,
+        registration_fee_denom: msg.registration_fee_denom,
         verification_required: msg.verification_required,
         verifiers: verifiers?,
     };
@@ -265,11 +270,19 @@ pub fn execute(
         }
         ExecuteMsg::UpdateConfig {
             registration_fee,
+            registration_fee_denom,
             ai_job_manager,
-        } => execute_update_config(deps, info, registration_fee, ai_job_manager),
+        } => execute_update_config(
+            deps,
+            info,
+            registration_fee,
+            registration_fee_denom,
+            ai_job_manager,
+        ),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_register_model(
     deps: DepsMut,
     env: Env,
@@ -344,14 +357,14 @@ fn execute_register_model(
         let paid = info
             .funds
             .iter()
-            .find(|c| c.denom == "uaeth")
+            .find(|c| c.denom == config.registration_fee_denom)
             .map(|c| c.amount)
             .unwrap_or_default();
         if paid < config.registration_fee {
             return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
                 format!(
-                    "Insufficient registration fee: required {}, got {}",
-                    config.registration_fee, paid
+                    "Insufficient registration fee: required {} {}, got {}",
+                    config.registration_fee, config.registration_fee_denom, paid
                 ),
             )));
         }
@@ -530,10 +543,20 @@ fn execute_increment_job_count(
 /// MED-3 fix: enforce a maximum registration fee to prevent admin abuse.
 const MAX_REGISTRATION_FEE: u128 = 1_000_000_000_000; // 1M tokens with 6 decimals
 
+fn validate_registration_fee_denom(denom: &str) -> StdResult<()> {
+    if denom.trim().is_empty() || denom.chars().any(char::is_whitespace) {
+        return Err(cosmwasm_std::StdError::generic_err(
+            "registration_fee_denom must not be empty or contain whitespace",
+        ));
+    }
+    Ok(())
+}
+
 fn execute_update_config(
     deps: DepsMut,
     info: MessageInfo,
     registration_fee: Option<Uint128>,
+    registration_fee_denom: Option<String>,
     ai_job_manager: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
@@ -551,6 +574,10 @@ fn execute_update_config(
         }
         config.registration_fee = fee;
     }
+    if let Some(denom) = registration_fee_denom {
+        validate_registration_fee_denom(&denom)?;
+        config.registration_fee_denom = denom;
+    }
 
     if let Some(jm) = ai_job_manager {
         config.ai_job_manager = Some(deps.api.addr_validate(&jm)?);
@@ -562,6 +589,10 @@ fn execute_update_config(
     let config_event = Event::new("config_updated")
         .add_attribute("updated_by", info.sender.as_str())
         .add_attribute("registration_fee", config.registration_fee.to_string())
+        .add_attribute(
+            "registration_fee_denom",
+            config.registration_fee_denom.clone(),
+        )
         .add_attribute(
             "ai_job_manager",
             config
@@ -653,19 +684,44 @@ pub struct ModelStats {
 // L-04 FIX: Migration entry point for on-chain contract upgrades.
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MigrateMsg {}
+struct LegacyConfig {
+    pub admin: Addr,
+    pub ai_job_manager: Option<Addr>,
+    pub registration_fee: Uint128,
+    pub verification_required: bool,
+    pub verifiers: Vec<Addr>,
+}
+
+const LEGACY_CONFIG: Item<LegacyConfig> = Item::new("config");
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct MigrateMsg {
+    pub registration_fee_denom: String,
+}
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> StdResult<Response> {
     let version = cw2::get_contract_version(deps.storage)?;
     if version.contract != CONTRACT_NAME {
         return Err(cosmwasm_std::StdError::generic_err(
             "Cannot migrate from a different contract",
         ));
     }
+    validate_registration_fee_denom(&msg.registration_fee_denom)?;
+    let legacy = LEGACY_CONFIG.load(deps.storage)?;
+    let config = Config {
+        admin: legacy.admin,
+        ai_job_manager: legacy.ai_job_manager,
+        registration_fee: legacy.registration_fee,
+        registration_fee_denom: msg.registration_fee_denom.clone(),
+        verification_required: legacy.verification_required,
+        verifiers: legacy.verifiers,
+    };
+    CONFIG.save(deps.storage, &config)?;
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     Ok(Response::new()
         .add_attribute("action", "migrate")
+        .add_attribute("registration_fee_denom", msg.registration_fee_denom)
         .add_attribute("from_version", version.version)
         .add_attribute("to_version", CONTRACT_VERSION))
 }

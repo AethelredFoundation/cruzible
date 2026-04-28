@@ -112,6 +112,28 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
 
     expect(scheduler.getLatestResult()).not.toBeNull();
     expect(scheduler.getLatestResult()!.status).toBeDefined();
+    expect(scheduler.getLatestResult()!.epochSource).toBeDefined();
+
+    scheduler.stop();
+  });
+
+  it('records epoch source and warns when it falls back to chain height', async () => {
+    const { scheduler } = createScheduler();
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const result = scheduler.getLatestResult();
+    expect(result).not.toBeNull();
+    expect(result!.epoch).toBe(100);
+    expect(result!.epochSource).toBe('rpc/tendermint.latestHeight (fallback)');
+    expect(result!.status).toBe('WARNING');
+    expect(
+      result!.checks.some(
+        (check) =>
+          check.name === 'epoch_resolution' && check.status === 'WARNING',
+      ),
+    ).toBe(true);
 
     scheduler.stop();
   });

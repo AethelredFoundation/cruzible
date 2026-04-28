@@ -7,6 +7,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { SEOHead } from "@/components/SEOHead";
+import { LaunchReadinessPage } from "@/components/LaunchReadinessPage";
 import {
   AreaChart,
   Area,
@@ -2753,189 +2754,23 @@ function HowGovernanceWorks() {
 // =============================================================================
 
 export default function GovernancePage() {
-  const { wallet, connectWallet, addNotification } = useApp();
-
-  // -- State --
-  const [userVotes, setUserVotes] = useState<Record<number, VoteChoice>>({});
-  const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(
-    null,
-  );
-  const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [delegationModalOpen, setDelegationModalOpen] = useState(false);
-  const [delegationPrefill, setDelegationPrefill] = useState("");
-  const [voteConfirm, setVoteConfirm] = useState<{
-    aip: number;
-    choice: VoteChoice;
-  } | null>(null);
-  const [voteProcessing, setVoteProcessing] = useState(false);
-
-  const activeProposals = PROPOSALS.filter((p) => p.status === "Voting");
-
-  // -- Vote Flow --
-  const initiateVote = useCallback(
-    (aip: number, choice: VoteChoice) => {
-      if (!wallet.connected) {
-        addNotification(
-          "warning",
-          "Wallet Required",
-          "Connect your wallet to vote on proposals.",
-        );
-        return;
-      }
-      setVoteConfirm({ aip, choice });
-    },
-    [wallet.connected, addNotification],
-  );
-
-  const confirmVote = useCallback(() => {
-    if (!voteConfirm) return;
-    // Governance contract is not yet deployed — prevent simulated vote.
-    addNotification(
-      "warning",
-      "Not Yet Available",
-      "On-chain voting is under development. Votes will be enabled once the governance contract is deployed.",
-    );
-    setVoteConfirm(null);
-  }, [voteConfirm, addNotification]);
-
-  // -- Delegation --
-  const openDelegation = useCallback((prefill = "") => {
-    setDelegationPrefill(prefill);
-    setDelegationModalOpen(true);
-  }, []);
-
-  // -- Proposal Detail --
-  const openProposalDetail = useCallback((proposal: Proposal) => {
-    setSelectedProposal(proposal);
-    setDetailModalOpen(true);
-  }, []);
-
   return (
-    <>
-      <SEOHead
-        title="Governance"
-        description="Shape the future of Aethelred through decentralized protocol governance. Submit proposals, vote, and manage the community treasury."
-        path="/governance"
-      />
-
-      <div className="min-h-screen bg-slate-950 text-white">
-        <TopNav activePage="governance" />
-        <HeroSection />
-
-        <main className="max-w-[1400px] mx-auto px-6 py-10">
-          {/* Your Governance Power */}
-          <GovernancePowerCard onDelegateClick={() => openDelegation("")} />
-
-          {/* Active Proposals */}
-          <section className="mb-12">
-            <SectionHeader
-              title="Active Proposals"
-              subtitle={`${activeProposals.length} proposals currently in voting`}
-              size="sm"
-              action={
-                <button
-                  onClick={() => setCreateModalOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium text-sm transition-colors"
-                >
-                  <Plus className="w-4 h-4" /> Create Proposal
-                </button>
-              }
-            />
-            <div className="space-y-6">
-              {activeProposals.map((p) => (
-                <ActiveProposalCard
-                  key={p.aip}
-                  proposal={p}
-                  userVote={userVotes[p.aip] || null}
-                  onVote={initiateVote}
-                  onCardClick={openProposalDetail}
-                />
-              ))}
-            </div>
-          </section>
-
-          {/* All Proposals */}
-          <ProposalListSection
-            userVotes={userVotes}
-            onProposalClick={openProposalDetail}
-          />
-
-          {/* Activity Feed */}
-          <ActivityFeedSection />
-
-          {/* Treasury */}
-          <TreasurySection />
-
-          {/* Delegate Leaderboard */}
-          <DelegateLeaderboard
-            onDelegateSelect={(addr) => openDelegation(addr)}
-          />
-
-          {/* Analytics */}
-          <GovernanceAnalytics />
-
-          {/* Health Indicators */}
-          <GovernanceHealth />
-
-          {/* Parameters */}
-          <GovernanceParameters />
-
-          {/* How It Works */}
-          <HowGovernanceWorks />
-        </main>
-
-        <Footer />
-      </div>
-
-      {/* Modals */}
-      <ProposalDetailModal
-        proposal={selectedProposal}
-        isOpen={detailModalOpen}
-        onClose={() => setDetailModalOpen(false)}
-        userVote={
-          selectedProposal ? userVotes[selectedProposal.aip] || null : null
-        }
-        onVote={initiateVote}
-      />
-
-      <CreateProposalModal
-        isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-      />
-
-      <DelegationModal
-        isOpen={delegationModalOpen}
-        onClose={() => setDelegationModalOpen(false)}
-        prefillAddress={delegationPrefill}
-      />
-
-      {/* Vote Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={!!voteConfirm && !voteProcessing}
-        onConfirm={confirmVote}
-        onCancel={() => setVoteConfirm(null)}
-        title={`Confirm Your Vote on AIP-${voteConfirm ? String(voteConfirm.aip).padStart(3, "0") : ""}`}
-        message={
-          voteConfirm
-            ? `You are voting ${voteConfirm.choice.toUpperCase()} on AIP-${String(voteConfirm.aip).padStart(3, "0")}. Your voting power: ${formatFullNumber(wallet.stBalance)} stAETHEL. This action will be recorded on-chain.`
-            : ""
-        }
-        confirmText={voteConfirm ? `Vote ${voteConfirm.choice}` : "Confirm"}
-      />
-
-      {/* Vote Processing Overlay */}
-      {voteProcessing && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-900 rounded-2xl border border-slate-700/50 p-8 text-center shadow-2xl">
-            <div className="w-12 h-12 border-3 border-red-500/30 border-t-red-500 rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-white font-medium">Processing your vote...</p>
-            <p className="text-sm text-slate-400 mt-1">
-              Submitting transaction to the network
-            </p>
-          </div>
-        </div>
-      )}
-    </>
+    <LaunchReadinessPage
+      activePage="governance"
+      path="/governance"
+      eyebrow="Governance Hardening"
+      title="Governance stays gated until on-chain execution is real"
+      description="Cruzible is not presenting proposal analytics, treasury actions, or delegation workflows as live governance until the contract deployment, wallet flow, and audit evidence are in place."
+      reasons={[
+        "The current governance experience mixes illustrative proposal data with undeployed contract flows, which is not acceptable for a production launch surface.",
+        "Users should never be able to mistake a mock vote, treasury metric, or delegate leaderboard for authoritative protocol governance state.",
+        "Tier-1 auditors expect the governance UI, contracts, privileged roles, and incident process to line up precisely with deployed reality.",
+      ]}
+      nextSteps={[
+        "Deploy and verify governance contracts, then bind the UI to contract-backed proposals, votes, and execution state.",
+        "Document role ownership, pause powers, treasury controls, and proposal lifecycle assumptions in the repo and runbooks.",
+        "Add end-to-end tests for proposal creation, voting, execution, and failure paths before governance returns to the primary navigation.",
+      ]}
+    />
   );
 }

@@ -31,6 +31,7 @@ import {
 } from 'ethers';
 import { logger } from '../utils/logger';
 import { BlockchainService } from './BlockchainService';
+import { config } from '../config';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -84,6 +85,7 @@ const VAULT_VIEW_ABI = [
   'function getTotalShares() view returns (uint256)',
   'function getExchangeRate() view returns (uint256)',
   'function getActiveValidatorCount() view returns (uint256)',
+  'function currentEpoch() view returns (uint256)',
 ];
 
 /**
@@ -252,14 +254,13 @@ export class IndexerService {
   async initialize(): Promise<void> {
     logger.info('IndexerService initializing...');
 
-    // Load config from environment
     this.cfg = {
-      wsUrl: process.env.INDEXER_WS_URL || process.env.WS_URL || 'ws://127.0.0.1:8546',
-      rpcUrl: process.env.INDEXER_RPC_URL || process.env.RPC_URL || 'http://127.0.0.1:8545',
-      cruzibleVaultAddress: process.env.CRUZIBLE_VAULT_ADDRESS || '',
-      staethelAddress: process.env.STAETHEL_ADDRESS || '',
-      stablecoinBridgeAddress: process.env.STABLECOIN_BRIDGE_ADDRESS || '',
-      startBlock: parseInt(process.env.INDEXER_START_BLOCK || '0', 10),
+      wsUrl: config.indexerWsUrl,
+      rpcUrl: config.indexerRpcUrl,
+      cruzibleVaultAddress: config.cruzibleVaultAddress,
+      staethelAddress: config.staethelAddress,
+      stablecoinBridgeAddress: config.stablecoinBridgeAddress,
+      startBlock: config.indexerStartBlock,
     };
 
     if (!this.cfg.cruzibleVaultAddress) {
@@ -1887,12 +1888,13 @@ export class IndexerService {
         provider,
       );
 
-      const [totalPooled, totalShares, exchangeRate, activeValidators] =
+      const [totalPooled, totalShares, exchangeRate, activeValidators, currentEpoch] =
         await Promise.all([
           vault.getTotalPooledAethel() as Promise<bigint>,
           vault.getTotalShares() as Promise<bigint>,
           vault.getExchangeRate() as Promise<bigint>,
           vault.getActiveValidatorCount() as Promise<bigint>,
+          vault.currentEpoch() as Promise<bigint>,
         ]);
 
       // Count current stakers from the derived balance table
@@ -1913,6 +1915,7 @@ export class IndexerService {
           totalStaked: totalPooled.toString(),
           totalShares: totalShares.toString(),
           exchangeRate: exchangeRateDecimal,
+          currentEpoch,
           currentApy: 0, // APY requires multi-epoch tracking — left for a future enhancement
           totalStakers: BigInt(totalStakers),
           validatorsBacking: Number(activeValidators),
@@ -1923,6 +1926,7 @@ export class IndexerService {
           totalStaked: totalPooled.toString(),
           totalShares: totalShares.toString(),
           exchangeRate: exchangeRateDecimal,
+          currentEpoch,
           currentApy: 0,
           totalStakers: BigInt(totalStakers),
           validatorsBacking: Number(activeValidators),
@@ -1932,7 +1936,7 @@ export class IndexerService {
 
       logger.info(
         `VaultState refreshed: totalStaked=${totalPooled} totalShares=${totalShares} ` +
-        `exchangeRate=${exchangeRateDecimal} validators=${activeValidators} stakers=${totalStakers}`,
+        `exchangeRate=${exchangeRateDecimal} epoch=${currentEpoch} validators=${activeValidators} stakers=${totalStakers}`,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

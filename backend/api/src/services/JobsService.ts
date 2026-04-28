@@ -5,8 +5,17 @@
  */
 
 import { injectable } from 'tsyringe';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { BlockchainService } from './BlockchainService';
+
+const JOB_SORT_FIELDS = {
+  created_at: 'createdAt',
+  completed_at: 'completedAt',
+  priority: 'priority',
+  verification_score: 'verificationScore',
+} as const;
+
+type JobSortField = keyof typeof JOB_SORT_FIELDS;
 
 @injectable()
 export class JobsService {
@@ -26,11 +35,6 @@ export class JobsService {
   }): Promise<any> {
     const { limit, offset, status, modelHash, creator, sort } = options;
 
-    // Parse sort
-    const [sortField, sortOrder] = sort.split(':');
-    const orderBy: any = {};
-    orderBy[sortField] = sortOrder === 'desc' ? 'desc' : 'asc';
-
     // Build where clause
     const where: any = {};
     if (status) {
@@ -40,17 +44,31 @@ export class JobsService {
       where.modelHash = modelHash;
     }
     if (creator) {
-      where.creator = creator;
+      where.creator = {
+        is: {
+          address: creator,
+        },
+      };
     }
 
     // Query database
     const [jobs, total] = await Promise.all([
       this.prisma.aIJob.findMany({
         where,
-        orderBy,
+        orderBy: this.parseSort(sort),
         skip: offset,
         take: limit,
         include: {
+          creator: {
+            select: {
+              address: true,
+            },
+          },
+          validator: {
+            select: {
+              address: true,
+            },
+          },
           computeMetrics: true,
           teeAttestation: true,
         },
@@ -70,6 +88,16 @@ export class JobsService {
     const job = await this.prisma.aIJob.findUnique({
       where: { id },
       include: {
+        creator: {
+          select: {
+            address: true,
+          },
+        },
+        validator: {
+          select: {
+            address: true,
+          },
+        },
         computeMetrics: true,
         teeAttestation: true,
         verificationProof: {
@@ -195,14 +223,26 @@ export class JobsService {
       select: {
         id: true,
         modelHash: true,
-        creator: true,
+        creator: {
+          select: {
+            address: true,
+          },
+        },
         priority: true,
         maxCost: true,
         createdAt: true,
       },
     });
 
-    return queue;
+    return queue.map((job) => ({
+      id: job.id,
+      modelHash: job.modelHash,
+      creator: job.creator.address,
+      creatorAddress: job.creator.address,
+      priority: job.priority,
+      maxCost: job.maxCost,
+      createdAt: job.createdAt,
+    }));
   }
 
   private mapJobToResponse(job: any): any {
@@ -212,8 +252,10 @@ export class JobsService {
       modelHash: job.modelHash,
       inputHash: job.inputHash,
       outputHash: job.outputHash,
-      creator: job.creator,
-      validator: job.validator,
+      creator: job.creator?.address ?? null,
+      creatorAddress: job.creator?.address ?? null,
+      validator: job.validator?.address ?? null,
+      validatorAddress: job.validator?.address ?? null,
       proofType: job.proofType,
       priority: job.priority,
       maxCost: job.maxCost,
@@ -268,5 +310,19 @@ export class JobsService {
     const totalCapacity = Math.max(activeValidators * capacityPerValidator, 1);
     
     return Math.min(pendingCount / totalCapacity, 1.0);
+  }
+
+  private parseSort(sort: string): Prisma.AIJobOrderByWithRelationInput {
+    const [requestedField = 'created_at', requestedDirection = 'desc'] = sort.split(':');
+    const sortField = this.isJobSortField(requestedField) ? requestedField : 'created_at';
+    const direction: Prisma.SortOrder = requestedDirection === 'asc' ? 'asc' : 'desc';
+
+    return {
+      [JOB_SORT_FIELDS[sortField]]: direction,
+    } as Prisma.AIJobOrderByWithRelationInput;
+  }
+
+  private isJobSortField(value: string): value is JobSortField {
+    return Object.prototype.hasOwnProperty.call(JOB_SORT_FIELDS, value);
   }
 }

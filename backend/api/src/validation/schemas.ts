@@ -353,12 +353,16 @@ export const ReconciliationLiveQuerySchema = z.object({
 
 export const LoginBodySchema = z.object({
   address: AddressSchema,
-  signature: z.string().min(1).max(256),
-  message: z.string().min(1).max(256),
+  signature: z.string().min(1).max(4096),
+  message: z.string().min(1).max(1000),
 });
 
 export const RefreshTokenBodySchema = z.object({
   refresh_token: z.string().min(1),
+});
+
+export const AuthNonceBodySchema = z.object({
+  address: AddressSchema,
 });
 
 // =============================================================================

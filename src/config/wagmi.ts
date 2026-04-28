@@ -5,8 +5,9 @@
  * for the Cruzible dApp frontend.
  */
 
-import { http, createConfig, createStorage } from "wagmi";
-import { injected, walletConnect, coinbaseWallet } from "wagmi/connectors";
+import { http, createConfig, createStorage, injected } from "wagmi";
+import { coinbaseWallet } from "@cruzible/wagmi-connector-coinbase";
+import { walletConnect } from "@cruzible/wagmi-connector-walletconnect";
 import {
   aethelredMainnet,
   aethelredTestnet,

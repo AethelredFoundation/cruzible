@@ -3,7 +3,7 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "installCommand": "npm ci --no-fund",
-  "regions": ["iad1", "sfo1", "lhr1"],
+  "regions": ["iad1"],
   "headers": [
     {
       "source": "/api/(.*)",

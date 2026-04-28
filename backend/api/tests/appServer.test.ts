@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { withHttpServer } from './helpers/http';
 
 // ---------------------------------------------------------------------------
 // Mocks — hoisted by vitest before any imports
@@ -133,6 +134,88 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     expect(api.app).toBeDefined();
     expect(api.httpServer).toBeDefined();
     expect(api.httpServer.listening).toBe(false);
+  }, 10_000);
+
+  it('refuses to expose production operational routes without a token', async () => {
+    await registerMockServices();
+    const { config } = await import('../src/config');
+    const originalConfig = {
+      isProduction: config.isProduction,
+      metricsEnabled: config.metricsEnabled,
+      apiDocsEnabled: config.apiDocsEnabled,
+      operationalEndpointsToken: config.operationalEndpointsToken,
+    };
+
+    (config as any).isProduction = true;
+    (config as any).metricsEnabled = true;
+    (config as any).apiDocsEnabled = false;
+    (config as any).operationalEndpointsToken = undefined;
+
+    try {
+      const { createAppServer } = await import('../src/server');
+
+      expect(() => createAppServer()).toThrow(
+        'Refusing to expose operational endpoints in production without OPERATIONAL_ENDPOINTS_TOKEN',
+      );
+    } finally {
+      Object.assign(config as any, originalConfig);
+    }
+  });
+
+  it('protects production metrics and docs with the operational token', async () => {
+    await registerMockServices();
+    const { config } = await import('../src/config');
+    const originalConfig = {
+      isProduction: config.isProduction,
+      metricsEnabled: config.metricsEnabled,
+      apiDocsEnabled: config.apiDocsEnabled,
+      operationalEndpointsToken: config.operationalEndpointsToken,
+    };
+    const operationalToken = '12345678901234567890123456789012';
+
+    (config as any).isProduction = true;
+    (config as any).metricsEnabled = true;
+    (config as any).apiDocsEnabled = true;
+    (config as any).operationalEndpointsToken = operationalToken;
+
+    try {
+      const { createAppServer } = await import('../src/server');
+      const api = createAppServer();
+
+      await withHttpServer(api.app, async (baseUrl) => {
+        const unauthorizedHealth = await fetch(`${baseUrl}/health`);
+        const authorizedHealth = await fetch(`${baseUrl}/health`, {
+          headers: { authorization: `Bearer ${operationalToken}` },
+        });
+        const publicLive = await fetch(`${baseUrl}/health/live`);
+        const publicReady = await fetch(`${baseUrl}/health/ready`);
+        const publicReadyBody = await publicReady.json();
+        const unauthorizedMetrics = await fetch(`${baseUrl}/metrics`);
+        const authorizedMetrics = await fetch(`${baseUrl}/metrics`, {
+          headers: { authorization: `Bearer ${operationalToken}` },
+        });
+        const unauthorizedDocs = await fetch(`${baseUrl}/docs/`);
+        const authorizedDocs = await fetch(`${baseUrl}/docs/`, {
+          headers: { authorization: `Bearer ${operationalToken}` },
+        });
+
+        expect(unauthorizedHealth.status).toBe(401);
+        expect(authorizedHealth.status).toBe(200);
+        expect(publicLive.status).toBe(200);
+        expect(publicReady.status).toBe(200);
+        expect(publicReadyBody.ready).toBe(true);
+        expect(publicReadyBody.checks).toBeUndefined();
+        expect(unauthorizedMetrics.status).toBe(401);
+        expect(authorizedMetrics.status).toBe(200);
+        expect(authorizedMetrics.headers.get('content-type')).toContain(
+          'text/plain',
+        );
+        expect(unauthorizedDocs.status).toBe(401);
+        expect(authorizedDocs.status).toBe(200);
+      });
+    } finally {
+      Object.assign(config as any, originalConfig);
+    }
   });
 
   it('start() binds to a port, wires up the scheduler, and health responds', async () => {

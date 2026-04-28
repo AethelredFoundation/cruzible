@@ -12,9 +12,11 @@ WORKDIR /app
 # ============ DEPENDENCIES ============
 FROM base AS dependencies
 
-# Copy package files
-COPY package*.json ./
-COPY prisma ./prisma/
+WORKDIR /app/backend/api
+
+# Copy package files from the repository-root build context.
+COPY backend/api/package*.json ./
+COPY backend/api/prisma ./prisma/
 
 # Install all dependencies (including dev)
 RUN npm ci
@@ -22,11 +24,19 @@ RUN npm ci
 # Generate Prisma client
 RUN npx prisma generate
 
+# Install SDK build dependencies used by the API prebuild step.
+WORKDIR /app/sdk/typescript
+COPY sdk/typescript/package*.json ./
+RUN npm ci
+
+WORKDIR /app/backend/api
+
 # ============ BUILDER ============
 FROM dependencies AS builder
 
-# Copy source code
-COPY . .
+# Copy source code required for API + shared SDK builds.
+COPY backend/api/ ./
+COPY sdk/typescript/ /app/sdk/typescript/
 
 # Build TypeScript
 RUN npm run build
@@ -41,17 +51,18 @@ FROM base AS production
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
-WORKDIR /app
+WORKDIR /app/backend/api
 
 # Copy package files
-COPY package*.json ./
+COPY backend/api/package*.json ./
 
 # Copy production dependencies
-COPY --from=dependencies /app/node_modules ./node_modules
-COPY --from=dependencies /app/prisma ./prisma
+COPY --from=builder /app/backend/api/node_modules ./node_modules
+COPY --from=builder /app/backend/api/prisma ./prisma
 
 # Copy built application
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/backend/api/dist ./dist
+COPY --from=builder /app/sdk/typescript/dist /app/sdk/typescript/dist
 
 # Set permissions
 RUN chown -R nodejs:nodejs /app
@@ -71,3 +82,8 @@ ENTRYPOINT ["dumb-init", "--"]
 
 # Start the application
 CMD ["node", "dist/index.js"]
+
+# ============ INDEXER ============
+FROM production AS indexer
+
+CMD ["node", "dist/indexer.js"]

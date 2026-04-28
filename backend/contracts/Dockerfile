@@ -1,28 +1,28 @@
-# Aethelred Cruzible Smart Contracts Dockerfile
-# Multi-stage build for Rust contracts
+# syntax=docker/dockerfile:1
 
-FROM rust:1.85-alpine AS builder
+FROM rust:1.85-bookworm AS builder
 
-RUN apk add --no-cache musl-dev
+WORKDIR /workspace
 
-WORKDIR /app
+RUN rustup target add wasm32-unknown-unknown
 
 COPY Cargo.toml Cargo.lock ./
-COPY src/ ./src/
+COPY contracts ./contracts
+COPY scripts ./scripts
 
-RUN cargo build --release
+RUN cargo build --workspace --release --target wasm32-unknown-unknown --locked
 
-FROM alpine:3.20 AS production
+RUN bash scripts/prepare-audit-artifacts.sh /artifacts/contracts
 
-RUN addgroup -g 1001 -S contracts && \
-    adduser -S contracts -u 1001
+FROM alpine:3.20 AS artifacts
 
-WORKDIR /app
+RUN addgroup -g 1001 -S contracts \
+    && adduser -S contracts -u 1001 -G contracts
 
-COPY --from=builder /app/target/release/cruzible-contracts ./
+WORKDIR /artifacts/contracts
 
-RUN chown -R contracts:contracts /app
+COPY --from=builder --chown=contracts:contracts /artifacts/contracts/ ./
 
 USER contracts
 
-CMD ["./cruzible-contracts"]
+CMD ["cat", "SHA256SUMS"]

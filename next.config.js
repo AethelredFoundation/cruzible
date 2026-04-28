@@ -1,3 +1,9 @@
+const path = require("path");
+
+const wagmiConnectorsRoot = path.dirname(
+  require.resolve("@wagmi/connectors/package.json"),
+);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -27,11 +33,6 @@ const nextConfig = {
   // TypeScript
   typescript: {
     ignoreBuildErrors: false,
-  },
-
-  // Linting runs as a dedicated CI step, so builds don't need to invoke it again.
-  eslint: {
-    ignoreDuringBuilds: true,
   },
 
   // Headers for security and caching
@@ -72,6 +73,18 @@ const nextConfig = {
 
   // Webpack optimization
   webpack: (config, { isServer, dev }) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@cruzible/wagmi-connector-coinbase": path.join(
+        wagmiConnectorsRoot,
+        "dist/esm/coinbaseWallet.js",
+      ),
+      "@cruzible/wagmi-connector-walletconnect": path.join(
+        wagmiConnectorsRoot,
+        "dist/esm/walletConnect.js",
+      ),
+    };
+
     if (!isServer) {
       config.resolve.alias = {
         ...config.resolve.alias,
