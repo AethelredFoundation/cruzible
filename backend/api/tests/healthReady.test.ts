@@ -56,6 +56,22 @@ describe('/health/ready readiness gating', () => {
     } as any);
   }
 
+  /** Register a mock BlockchainService that fails with a sensitive upstream detail. */
+  async function setupFailingBlockchainRpc(message: string) {
+    const { BlockchainService } = await import(
+      '../src/services/BlockchainService'
+    );
+    container.registerInstance(BlockchainService, {
+      getLatestHeight: vi.fn().mockRejectedValue(new Error(message)),
+    } as any);
+  }
+
+  /** Force the health route down its production-only response path. */
+  async function setProductionMode(enabled: boolean) {
+    const { config } = await import('../src/config');
+    (config as unknown as { isProduction: boolean }).isProduction = enabled;
+  }
+
   /** Register mock ReconciliationScheduler and AlertService. */
   async function registerReconciliation(
     status: string | null,
@@ -115,6 +131,40 @@ describe('/health/ready readiness gating', () => {
       expect(res.status).toBe(200);
       expect(body.ready).toBe(true);
       expect(body.checks.reconciliation.ready).toBe(true);
+    });
+  });
+
+  it('redacts production probe failure details from readiness responses', async () => {
+    await setProductionMode(true);
+    await setupFailingBlockchainRpc('dial tcp secret-rpc.internal:26657 refused');
+    await registerReconciliation('OK', 0);
+    await registerIndexer(10);
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+      const serializedBody = JSON.stringify(body);
+      const fullHealthRes = await fetch(`${baseUrl}/health`);
+      const fullHealthBody = await fullHealthRes.json();
+      const serializedFullHealthBody = JSON.stringify(fullHealthBody);
+
+      expect(res.status).toBe(503);
+      expect(body.ready).toBe(false);
+      expect(body.checks.blockchainRpc.status).toBe('error');
+      expect(body.checks.blockchainRpc.message).toBe(
+        'Probe failed; see server logs for details.',
+      );
+      expect(serializedBody).not.toContain('secret-rpc.internal');
+      expect(serializedBody).not.toContain('26657');
+
+      expect(fullHealthRes.status).toBe(503);
+      expect(fullHealthBody.checks.blockchainRpc.status).toBe('error');
+      expect(fullHealthBody.checks.blockchainRpc.message).toBe(
+        'Probe failed; see server logs for details.',
+      );
+      expect(serializedFullHealthBody).not.toContain('secret-rpc.internal');
+      expect(serializedFullHealthBody).not.toContain('26657');
     });
   });
 

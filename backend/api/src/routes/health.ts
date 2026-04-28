@@ -48,6 +48,20 @@ interface ProbeResult {
   message?: string;
 }
 
+const PRODUCTION_PROBE_FAILURE_MESSAGE = 'Probe failed; see server logs for details.';
+
+function toClientProbeResult(result: ProbeResult): ProbeResult {
+  if (!config.isProduction || result.status !== 'error') {
+    return result;
+  }
+
+  return {
+    status: result.status,
+    latencyMs: result.latencyMs,
+    message: PRODUCTION_PROBE_FAILURE_MESSAGE,
+  };
+}
+
 async function checkDatabase(): Promise<ProbeResult> {
   const start = Date.now();
   try {
@@ -122,6 +136,8 @@ router.get('/', async (_req: Request, res: Response) => {
 
   const db = dbResult.status === 'fulfilled' ? dbResult.value : { status: 'error' as const, message: 'probe threw' };
   const rpc = rpcResult.status === 'fulfilled' ? rpcResult.value : { status: 'error' as const, message: 'probe threw' };
+  const clientDb = toClientProbeResult(db);
+  const clientRpc = toClientProbeResult(rpc);
 
   // Indexer metrics (optional)
   let indexer: Record<string, unknown> | null = null;
@@ -204,8 +220,8 @@ router.get('/', async (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     uptime,
     checks: {
-      database: db,
-      blockchainRpc: rpc,
+      database: clientDb,
+      blockchainRpc: clientRpc,
     },
     memory: getMemoryUsage(),
     ...(indexer ? { indexer } : {}),
@@ -235,6 +251,8 @@ router.get('/ready', async (_req: Request, res: Response) => {
 
   const db = dbResult.status === 'fulfilled' ? dbResult.value : { status: 'error' as const, message: 'probe threw' };
   const rpc = rpcResult.status === 'fulfilled' ? rpcResult.value : { status: 'error' as const, message: 'probe threw' };
+  const clientDb = toClientProbeResult(db);
+  const clientRpc = toClientProbeResult(rpc);
 
   const coreReady = db.status === 'ok' && rpc.status === 'ok';
 
@@ -279,8 +297,8 @@ router.get('/ready', async (_req: Request, res: Response) => {
   res.status(ready ? 200 : 503).json({
     ready,
     checks: {
-      database: db,
-      blockchainRpc: rpc,
+      database: clientDb,
+      blockchainRpc: clientRpc,
       ...(config.indexerEnabled ? { indexer: { lag: indexerLag, ready: indexerReady } } : {}),
       reconciliation: {
         epoch: latestResult?.epoch ?? null,
