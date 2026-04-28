@@ -7,6 +7,7 @@
 
 import React, {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -20,13 +21,11 @@ import {
   X,
   ChevronDown,
   ExternalLink,
-  Wallet,
   LogOut,
   CheckCircle2,
   AlertCircle,
   AlertTriangle,
   Info,
-  Clock,
   Blocks,
   UserCheck,
   ArrowRight,
@@ -34,6 +33,13 @@ import {
   Twitter,
 } from "lucide-react";
 import { useApp } from "@/contexts/AppContext";
+import { fetchValidators } from "@/lib/validators";
+import {
+  SEARCH_NAVIGATION_TARGETS,
+  buildSearchResults,
+  type SearchResultKind,
+  type SearchableValidator,
+} from "@/lib/search";
 
 // ============================================================================
 // Utility
@@ -594,106 +600,12 @@ export function ToastContainer() {
 // SearchOverlay
 // ============================================================================
 
-interface SearchResult {
-  category: string;
-  icon: React.ReactNode;
-  items: { label: string; href: string }[];
-}
+const SEARCH_RESULT_ICONS: Record<SearchResultKind, React.ReactNode> = {
+  navigation: <Blocks size={14} className="text-slate-500" />,
+  validator: <UserCheck size={14} className="text-slate-500" />,
+};
 
-const MOCK_VALIDATORS = [
-  "Aethelred Foundation",
-  "Paradigm Stake",
-  "Polychain Capital",
-  "Coinbase Cloud",
-  "a16z Validator",
-  "Figment Networks",
-  "Chorus One",
-  "Everstake",
-];
-
-function buildSearchResults(query: string): SearchResult[] {
-  if (!query.trim()) return [];
-  const q = query.toLowerCase();
-  const results: SearchResult[] = [];
-
-  // Blocks
-  if (/^\d+$/.test(q) || q.startsWith("block") || q.startsWith("#")) {
-    const blockNum = q.replace(/\D/g, "") || "2847391";
-    results.push({
-      category: "Blocks",
-      icon: <Blocks size={14} className="text-slate-500" />,
-      items: [
-        { label: `Block #${Number(blockNum).toLocaleString()}`, href: "/" },
-        {
-          label: `Block #${(Number(blockNum) + 1).toLocaleString()}`,
-          href: "/",
-        },
-      ],
-    });
-  }
-
-  // Transactions
-  if (q.startsWith("0x") || q.includes("tx")) {
-    const hash = q.startsWith("0x") ? q : "0x" + q.replace(/\s/g, "");
-    results.push({
-      category: "Transactions",
-      icon: <ArrowRight size={14} className="text-slate-500" />,
-      items: [
-        {
-          label: `${hash.slice(0, 10)}...${hash.slice(-6).padEnd(6, "0")}`,
-          href: "/",
-        },
-      ],
-    });
-  }
-
-  // Validators
-  const matchedValidators = MOCK_VALIDATORS.filter((v) =>
-    v.toLowerCase().includes(q),
-  );
-  if (matchedValidators.length > 0) {
-    results.push({
-      category: "Validators",
-      icon: <UserCheck size={14} className="text-slate-500" />,
-      items: matchedValidators.slice(0, 4).map((v) => ({
-        label: v,
-        href: "/validators",
-      })),
-    });
-  }
-
-  // Addresses
-  if (q.startsWith("aeth") || q.length > 8) {
-    const addr = q.startsWith("aeth") ? q : `aeth1${q}`;
-    results.push({
-      category: "Addresses",
-      icon: <Wallet size={14} className="text-slate-500" />,
-      items: [
-        {
-          label: `${addr.slice(0, 12)}...${addr.slice(-6).padEnd(6, "0")}`,
-          href: "/",
-        },
-      ],
-    });
-  }
-
-  // Fallback: search everywhere
-  if (results.length === 0) {
-    const matched = MOCK_VALIDATORS.filter((v) => v.toLowerCase().includes(q));
-    if (matched.length > 0) {
-      results.push({
-        category: "Validators",
-        icon: <UserCheck size={14} className="text-slate-500" />,
-        items: matched.slice(0, 4).map((v) => ({
-          label: v,
-          href: "/validators",
-        })),
-      });
-    }
-  }
-
-  return results;
-}
+type ValidatorSearchStatus = "idle" | "loading" | "ready" | "error";
 
 export function SearchOverlay() {
   const { searchOpen, setSearchOpen } = useApp();
@@ -701,18 +613,45 @@ export function SearchOverlay() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [recentSearches] = useState<string[]>([
-    "Block #2847390",
-    "aeth1qz7x...9n2",
-    "Aethelred Foundation",
-  ]);
+  const [validators, setValidators] = useState<SearchableValidator[]>([]);
+  const [validatorSearchStatus, setValidatorSearchStatus] =
+    useState<ValidatorSearchStatus>("idle");
+  const deferredQuery = useDeferredValue(query);
 
-  const results = useMemo(() => buildSearchResults(query), [query]);
+  const results = useMemo(
+    () => buildSearchResults(deferredQuery, validators),
+    [deferredQuery, validators],
+  );
 
   // Flatten results for keyboard nav
   const flatItems = useMemo(() => {
     return results.flatMap((r) => r.items);
   }, [results]);
+
+  useEffect(() => {
+    if (!searchOpen) {
+      return;
+    }
+
+    let cancelled = false;
+    setValidatorSearchStatus("loading");
+
+    fetchValidators({ limit: 100 })
+      .then((response) => {
+        if (cancelled) return;
+        setValidators(response.data);
+        setValidatorSearchStatus("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setValidators([]);
+        setValidatorSearchStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchOpen]);
 
   // Focus input on open
   useEffect(() => {
@@ -723,6 +662,12 @@ export function SearchOverlay() {
     }
   }, [searchOpen]);
 
+  useEffect(() => {
+    setActiveIndex((current) =>
+      flatItems.length === 0 ? 0 : Math.min(current, flatItems.length - 1),
+    );
+  }, [flatItems.length]);
+
   // Keyboard nav
   useEffect(() => {
     if (!searchOpen) return;
@@ -731,10 +676,14 @@ export function SearchOverlay() {
         setSearchOpen(false);
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        setActiveIndex((prev) => Math.min(prev + 1, flatItems.length - 1));
+        if (flatItems.length > 0) {
+          setActiveIndex((prev) => Math.min(prev + 1, flatItems.length - 1));
+        }
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setActiveIndex((prev) => Math.max(prev - 1, 0));
+        if (flatItems.length > 0) {
+          setActiveIndex((prev) => Math.max(prev - 1, 0));
+        }
       } else if (e.key === "Enter" && flatItems[activeIndex]) {
         setSearchOpen(false);
         router.push(flatItems[activeIndex].href);
@@ -785,7 +734,7 @@ export function SearchOverlay() {
               setQuery(e.target.value);
               setActiveIndex(0);
             }}
-            placeholder="Search blocks, transactions, validators, addresses..."
+            placeholder="Search live validators or Cruzible pages..."
             className="flex-1 bg-transparent text-sm text-white placeholder-slate-500 outline-none"
           />
           <kbd className="hidden rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs text-slate-500 sm:inline-block">
@@ -799,7 +748,7 @@ export function SearchOverlay() {
             results.map((group) => (
               <div key={group.category} className="mb-2">
                 <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-                  {group.icon}
+                  {SEARCH_RESULT_ICONS[group.kind]}
                   {group.category}
                 </div>
                 {group.items.map((item) => {
@@ -818,8 +767,13 @@ export function SearchOverlay() {
                           : "text-slate-300 hover:bg-slate-800/50"
                       }`}
                     >
-                      <span className="flex-1 truncate text-left font-mono text-sm">
-                        {item.label}
+                      <span className="min-w-0 flex-1 text-left">
+                        <span className="block truncate text-sm font-medium">
+                          {item.label}
+                        </span>
+                        <span className="block truncate text-xs text-slate-500">
+                          {item.description}
+                        </span>
                       </span>
                       {idx === activeIndex && (
                         <ArrowRight size={14} className="text-slate-500" />
@@ -831,23 +785,46 @@ export function SearchOverlay() {
             ))
           ) : query.trim() ? (
             <div className="px-4 py-8 text-center text-sm text-slate-500">
-              No results found for &ldquo;{query}&rdquo;
+              <p>No live results found for &ldquo;{query}&rdquo;.</p>
+              {validatorSearchStatus === "loading" ? (
+                <p className="mt-2 text-xs text-slate-600">
+                  Loading validator index from the configured API.
+                </p>
+              ) : validatorSearchStatus === "error" ? (
+                <p className="mt-2 text-xs text-amber-400">
+                  Live validator search is unavailable, so no mock results are
+                  shown.
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="px-3 py-2">
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-                Recent Searches
+                Searchable Surfaces
               </p>
-              {recentSearches.map((s) => (
+              {SEARCH_NAVIGATION_TARGETS.slice(0, 5).map((item) => (
                 <button
-                  key={s}
-                  onClick={() => setQuery(s)}
+                  key={item.href}
+                  onClick={() => {
+                    setSearchOpen(false);
+                    router.push(item.href);
+                  }}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-slate-800/50 hover:text-white"
                 >
-                  <Clock size={14} className="text-slate-600" />
-                  <span className="truncate">{s}</span>
+                  <ArrowRight size={14} className="text-slate-600" />
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate">{item.label}</span>
+                    <span className="block truncate text-xs text-slate-600">
+                      {item.description}
+                    </span>
+                  </span>
                 </button>
               ))}
+              <p className="px-3 pb-2 pt-3 text-xs leading-relaxed text-slate-600">
+                Validator names and addresses are loaded from the configured
+                API. Cruzible does not show canned validator, block, or
+                transaction results in production search.
+              </p>
             </div>
           )}
         </div>
