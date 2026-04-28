@@ -30,6 +30,10 @@ bash scripts/sign-audit-artifacts.sh
 COSIGN_PUBLIC_KEY_FILE=./release-cosign.pub \
 SIGNING_BACKEND=cosign \
 bash scripts/verify-audit-artifact-signatures.sh
+
+python3 scripts/validate-release-manifest.py \
+  --strict deployments/staging-release-manifest.json \
+  --artifact-dir audit-artifacts/contracts
 ```
 
 ## GPG
@@ -44,6 +48,10 @@ bash scripts/sign-audit-artifacts.sh
 
 SIGNING_BACKEND=gpg \
 bash scripts/verify-audit-artifact-signatures.sh
+
+python3 scripts/validate-release-manifest.py \
+  --strict deployments/staging-release-manifest.json \
+  --artifact-dir audit-artifacts/contracts
 ```
 
 ## Launch Policy
@@ -52,5 +60,7 @@ bash scripts/verify-audit-artifact-signatures.sh
 - Sign only after the release wasm build and checksum manifest are complete.
 - Store detached signatures, `signatures.json`, `SHA256SUMS`, `manifest.json`,
   and wasm artifacts together in the release record.
+- Reconcile the completed staging release manifest against the signed artifact
+  directory before operator sign-off.
 - Rotate signer keys through the same operator sign-off process used for
   contract admins and emergency roles.

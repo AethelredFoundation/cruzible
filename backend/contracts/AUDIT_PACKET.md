@@ -57,6 +57,9 @@ checksums and manifest.
 - Release manifests must conform to
   `deployments/release-manifest.example.json` and pass
   `python3 scripts/validate-release-manifest.py <manifest>`.
+- Completed staging manifests must also pass
+  `python3 scripts/validate-release-manifest.py --strict <manifest> --artifact-dir audit-artifacts/contracts`
+  after release artifacts are signed.
 - The CW20 staking token is instantiated with the vault contract as minter.
 - The vault `staking_token` config points to the deployed CW20 staking token.
 - Vault unstake uses the staking token `BurnFrom` flow, so users must approve
@@ -104,4 +107,4 @@ Before production readiness can be claimed, run a staging drill that covers:
 - Sign and verify `SHA256SUMS` and `manifest.json` using the production
   artifact signer.
 - Validate the completed release manifest with
-  `python3 scripts/validate-release-manifest.py`.
+  `python3 scripts/validate-release-manifest.py --strict <manifest> --artifact-dir audit-artifacts/contracts`.

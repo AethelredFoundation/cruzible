@@ -142,7 +142,9 @@ jobs:
 
       - name: Validate release manifest template
         working-directory: ./backend/contracts
-        run: python3 scripts/validate-release-manifest.py deployments/release-manifest.example.json
+        run: |
+          python3 scripts/validate-release-manifest.py deployments/release-manifest.example.json
+          python3 scripts/test-validate-release-manifest.py
 
       - name: Check audit artifact scripts
         working-directory: ./backend/contracts

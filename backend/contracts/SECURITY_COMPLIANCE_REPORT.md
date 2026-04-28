@@ -55,6 +55,7 @@ Completed for audit-candidate state:
 - [x] CI workflow uploads commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json`.
 - [x] Residual review items and deployment assumptions are documented in `AUDIT_PACKET.md`.
 - [x] Release manifest template is checked in and validated in CI.
+- [x] Strict release manifest validation reconciles staging records with signed artifact evidence.
 - [x] Artifact signing and verification scripts are checked in and syntax-checked by CI.
 - [x] Governance feeder oracle config rejects unsafe quorum, tolerance, capacity, and production authority settings.
 

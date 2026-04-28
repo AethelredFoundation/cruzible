@@ -10,7 +10,9 @@
   "source": {
     "git_commit": "0000000000000000000000000000000000000000",
     "artifact_manifest": "cosmwasm-contracts-${GIT_SHA}/manifest.json",
-    "checksum_file": "cosmwasm-contracts-${GIT_SHA}/SHA256SUMS"
+    "checksum_file": "cosmwasm-contracts-${GIT_SHA}/SHA256SUMS",
+    "signatures_file": "cosmwasm-contracts-${GIT_SHA}/signatures.json",
+    "signer_id": "aethelred-contracts-release"
   },
   "artifacts": [
     {

@@ -50,6 +50,7 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release --target wasm32-unknown-unknown
 python3 scripts/validate-release-manifest.py deployments/release-manifest.example.json
+python3 scripts/test-validate-release-manifest.py
 bash -n scripts/sign-audit-artifacts.sh
 bash -n scripts/verify-audit-artifact-signatures.sh
 ```
@@ -59,7 +60,9 @@ commit-scoped audit artifact. `scripts/prepare-audit-artifacts.sh` also writes
 `manifest.json` with file sizes and checksums. The local Dockerfile mirrors
 that artifact build path and prints the generated checksums by default.
 `RELEASE_SIGNING.md` defines the cosign and GPG detached-signature process for
-release artifacts.
+release artifacts. Completed staging manifests should be checked with
+`python3 scripts/validate-release-manifest.py --strict <manifest> --artifact-dir audit-artifacts/contracts`
+after signatures are generated.
 
 ## Audit-Candidate Checklist
 
@@ -72,6 +75,7 @@ Before external audit:
 - [x] Known residual review items documented for auditor review.
 - [x] Deployment assumptions and contract address wiring documented.
 - [x] Release manifest template is checked in and validated in CI.
+- [x] Release manifest validator reconciles strict staging manifests with signed artifact evidence.
 - [x] Release artifact signing and verification scripts are checked in.
 - [x] Governance feeder quorum, tolerance, mutation, quarantine, capacity, and production authority config is validated.
 - [ ] Staging release manifest captured with code IDs, addresses, checksums, and role owners.
