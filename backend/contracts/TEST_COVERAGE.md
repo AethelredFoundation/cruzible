@@ -34,7 +34,7 @@ The passing test set includes coverage for the current hardening work:
 - AI job Paid-state double-claim guard.
 - Governance snapshot, quorum, feeder oracle, and governance-controlled feeder membership controls.
 - Model registry registration fee amount and denom enforcement.
-- Model registry job-manager authorization for job-count updates.
+- Model registry job-manager authorization and AI job manager verified-job count updates.
 - Seal manager cross-contract job verification.
 
 ## Coverage Limits

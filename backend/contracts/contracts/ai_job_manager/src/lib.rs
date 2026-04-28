@@ -7,7 +7,7 @@
  */
 use cosmwasm_std::{
     entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, Event,
-    MessageInfo, Response, StdResult, Timestamp, Uint128,
+    MessageInfo, Response, StdResult, Timestamp, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
@@ -294,6 +294,12 @@ pub enum ExecuteMsg {
 
     /// Cleanup expired jobs (anyone)
     CleanupExpired { limit: Option<u32> },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum ModelRegistryExecuteMsg {
+    IncrementJobCount { model_hash: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -711,7 +717,16 @@ fn execute_verify_job(
             job.actual_payment.unwrap_or_default().to_string(),
         );
 
+    let registry_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.model_registry.to_string(),
+        msg: to_json_binary(&ModelRegistryExecuteMsg::IncrementJobCount {
+            model_hash: job.model_hash.clone(),
+        })?,
+        funds: vec![],
+    });
+
     Ok(Response::new()
+        .add_message(registry_msg)
         .add_event(verify_event)
         .add_attribute("action", "verify_job")
         .add_attribute("job_id", job_id))

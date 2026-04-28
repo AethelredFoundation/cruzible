@@ -24,7 +24,7 @@ Implemented remediation areas:
 - Vault reward index, double-claim protection, stAETHEL mint/burn lifecycle, rounding controls, and donation/accounted-balance controls.
 - AI job Paid-state guard to prevent repeated settlement.
 - Governance snapshot, quorum, multi-feeder total-bonded oracle, and governance-controlled feeder membership controls.
-- Model registry registration fee amount/denom enforcement and job-manager authorization.
+- Model registry registration fee amount/denom enforcement, job-manager authorization, and verified-job count updates from the AI job manager.
 - Seal manager cross-contract job check.
 
 Vault unstake uses the staking token `BurnFrom` flow, so frontends or transaction builders must obtain user allowance for the vault before unstaking. The web vault flow checks stAETHEL allowance and requests exact approval before submitting an unstake transaction.

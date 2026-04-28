@@ -32,7 +32,7 @@ Contracts reviewed:
 | Governance voting           | Placeholder voting power and quorum allowed capture.                | Remediated with snapshot/quorum controls.                                         |
 | Governance feeder control   | Admin-only feeder membership could centralize oracle control.       | Remediated for production mode with governance-authorized feeder mutations.       |
 | Model registry fees         | Registration fee was not enforced.                                  | Remediated with fee amount and denom validation.                                  |
-| Model registry usage counts | Public job-count mutation could corrupt metrics.                    | Remediated with job-manager authorization.                                        |
+| Model registry usage counts | Public job-count mutation could corrupt metrics.                    | Remediated with job-manager authorization and verified-job count updates.         |
 | Seal provenance             | Seals could be created without verified upstream job evidence.      | Remediated with cross-contract job verification.                                  |
 
 ## Current Test Evidence

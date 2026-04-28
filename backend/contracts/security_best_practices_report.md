@@ -41,7 +41,7 @@ The current code includes remediations for the previously tracked critical and h
 | Governance voting         | Snapshot voting power and quorum controls replace placeholder voting and execution logic.                         |
 | Governance feeder oracle  | Multi-feeder median consensus rejects unsafe quorum, tolerance, feeder capacity, and authority settings.          |
 | Model registry fees       | Registration fee amount and denom enforcement is active.                                                          |
-| Model registry job counts | Job-count mutation is restricted to the authorized job manager.                                                   |
+| Model registry job counts | Job-count mutation is restricted to and emitted by the authorized job manager.                                    |
 | Seal manager provenance   | Seal creation verifies the referenced job through the configured job manager.                                     |
 
 ## Current Test Evidence

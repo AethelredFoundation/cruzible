@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coins, from_json, Addr, Timestamp, Uint128};
+    use cosmwasm_std::{coins, from_json, Addr, CosmosMsg, Timestamp, Uint128, WasmMsg};
 
     use crate::*;
 
@@ -543,6 +543,25 @@ mod tests {
             .attributes
             .iter()
             .any(|a| a.key == "action" && a.value == "verify_job"));
+        assert_eq!(res.messages.len(), 1);
+        match &res.messages[0].msg {
+            CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr,
+                msg,
+                funds,
+            }) => {
+                assert_eq!(contract_addr, MODEL_REGISTRY);
+                assert!(funds.is_empty());
+                let registry_msg: ModelRegistryExecuteMsg = from_json(msg).unwrap();
+                assert_eq!(
+                    registry_msg,
+                    ModelRegistryExecuteMsg::IncrementJobCount {
+                        model_hash: "model123".to_string(),
+                    }
+                );
+            }
+            other => panic!("expected model registry execute message, got {other:?}"),
+        }
 
         let job = jobs().load(&deps.storage, job_id).unwrap();
         assert_eq!(job.status, JobStatus::Verified);

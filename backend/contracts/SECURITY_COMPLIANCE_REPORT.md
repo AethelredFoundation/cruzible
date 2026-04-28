@@ -23,7 +23,7 @@ The live code includes remediations for the previously tracked critical issues, 
 | Governance feeder control    | Production-mode feeder membership changes require governance self-execution.   |
 | Governance quorum            | Implemented to gate proposal execution.                                        |
 | Model registry fees          | Implemented registration fee amount and denom enforcement.                     |
-| Model registry authorization | Implemented job-manager authorization for job-count updates.                   |
+| Model registry authorization | Implemented job-manager authorization and verified-job count updates.          |
 | Seal manager job provenance  | Implemented cross-contract job checks before seal creation.                    |
 
 ## Test Evidence
@@ -48,7 +48,7 @@ Completed for audit-candidate state:
 - [x] Vault stAETHEL mint/burn lifecycle covered by tests.
 - [x] AI job payment double-claim guard remediated.
 - [x] Governance snapshot, quorum, and feeder-oracle controls remediated.
-- [x] Model registry fee amount/denom and job-manager authorization remediated.
+- [x] Model registry fee amount/denom, job-manager authorization, and verified-job count updates remediated.
 - [x] Seal manager cross-contract job check remediated.
 - [x] Local `cargo test` evidence passes with 244 tests.
 - [x] CI workflow enforces contract fmt, clippy, tests, dependency audit, and wasm release build.

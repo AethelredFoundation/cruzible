@@ -77,8 +77,8 @@ checksums and manifest.
   production-mode governance-controlled feeder membership.
 - Seal creation depends on the configured AI job manager address returning
   canonical job state.
-- Model registry job-count updates depend on the configured AI job manager
-  address after deployment.
+- Verified AI jobs emit a model registry `IncrementJobCount` call from the
+  configured AI job manager address after deployment.
 - The model registry is instantiated before the AI job manager address is
   known, so the staging manifest must record the post-instantiate
   `UpdateConfig` transaction that sets the final AI job manager role.
