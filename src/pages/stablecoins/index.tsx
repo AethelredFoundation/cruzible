@@ -116,12 +116,13 @@ function BridgeTab() {
     }
   }, [selectedSymbol, amount, destDomain, bridgeOut, config]);
 
-  // Disable submission when on-chain config says asset is disabled or paused
+  // Disable submission until the live on-chain bridge config has loaded.
+  const onChainLoading = config.isLoading;
   const onChainBlocked =
-    !config.isLoading &&
-    (config.enabled === false || config.mintPaused === true);
+    !onChainLoading && (config.enabled === false || config.mintPaused === true);
   const isDisabled =
     isPending ||
+    onChainLoading ||
     !wallet.connected ||
     wallet.isWrongNetwork ||
     !amount ||
@@ -132,6 +133,16 @@ function BridgeTab() {
   return (
     <div className="space-y-6">
       {/* Status Banner */}
+      {onChainLoading && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>
+            Verifying live on-chain bridge configuration before enabling
+            approvals.
+          </span>
+        </div>
+      )}
+
       {onChainBlocked && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
           <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -236,7 +247,11 @@ function BridgeTab() {
                 : "bg-gradient-to-r from-red-600 to-red-500 text-white hover:from-red-500 hover:to-red-400 shadow-lg shadow-red-500/20"
             }`}
           >
-            {isPending ? "Processing..." : `Bridge ${selectedSymbol}`}
+            {isPending
+              ? "Processing..."
+              : onChainLoading
+                ? "Verifying Bridge Config..."
+                : `Bridge ${selectedSymbol}`}
           </button>
         </div>
       </GlassCard>

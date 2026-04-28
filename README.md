@@ -24,22 +24,22 @@ Some UI surfaces are production-leaning, while others still contain preview or m
 
 ## Current Repo Surface
 
-| Area | What exists in this repository now |
-| --- | --- |
-| Frontend | Next.js 15 app under `src/` with routes including `/`, `/vault`, `/validators`, `/jobs`, `/models`, `/seals`, `/stablecoins`, `/reconciliation`, `/devtools`, and `/governance` |
-| API | Express/TypeScript service under `backend/api` with `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{blocks,jobs,reconciliation,alerts,stablecoins}` |
-| Contracts | CosmWasm workspace under `backend/contracts/contracts/{ai_job_manager,cw20_staking,governance,model_registry,seal_manager,vault}` |
-| Infra scaffolding | Frontend Dockerfile at repo root, API Dockerfile at `backend/api/Dockerfile`, `backend/infra/docker-compose.yml`, and `k8s/base/frontend.yaml` |
-| Docs | README, backend README, ops runbook, env reference, readiness register, benchmarking/SLO notes, and contract audit/test reports |
+| Area              | What exists in this repository now                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend          | Next.js 15 app under `src/` with routes including `/`, `/vault`, `/validators`, `/jobs`, `/models`, `/seals`, `/stablecoins`, `/reconciliation`, `/devtools`, and `/governance` |
+| API               | Express/TypeScript service under `backend/api` with `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{blocks,jobs,reconciliation,alerts,stablecoins}`              |
+| Contracts         | CosmWasm workspace under `backend/contracts/contracts/{ai_job_manager,cw20_staking,governance,model_registry,seal_manager,vault}`                                               |
+| Infra scaffolding | Frontend Dockerfile at repo root, API Dockerfile at `backend/api/Dockerfile`, `backend/infra/docker-compose.yml`, and `k8s/base/frontend.yaml`                                  |
+| Docs              | README, backend README, ops runbook, env reference, readiness register, benchmarking/SLO notes, and contract audit/test reports                                                 |
 
 ## Prerequisites
 
-| Tool | Version |
-| --- | --- |
-| Node.js | `>=20.0.0` |
-| npm | `>=10.0.0` |
-| Rust | Needed for contract builds/tests |
-| PostgreSQL | Needed for API indexing/reconciliation flows |
+| Tool          | Version                                             |
+| ------------- | --------------------------------------------------- |
+| Node.js       | `>=20.0.0`                                          |
+| npm           | `>=10.0.0`                                          |
+| Rust          | Needed for contract builds/tests                    |
+| PostgreSQL    | Needed for API indexing/reconciliation flows        |
 | Aethelred RPC | Needed for API health, indexing, and reconciliation |
 
 ## Local Development
@@ -131,6 +131,7 @@ cargo test --all
 
 - `backend/infra/docker-compose.yml` still references companion config directories that are not present in this workspace. Treat that Compose file as a hardened baseline, not a turnkey stack.
 - `k8s/base/` includes frontend, API gateway, and indexer manifests. The backend manifests expect environment-specific ConfigMap values and a `cruzible-api-secrets` Secret before rollout.
+- Frontend public-data requests require an explicit `NEXT_PUBLIC_API_URL` in production and reject obvious chain/API environment mismatches.
 - `backend/api/src/services/CacheService.ts` uses Redis when `REDIS_URL` is configured and requires Redis in production; local/test runs keep an in-memory fallback.
 - `backend/api/src/services/AlertService.ts` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.
 - Some frontend surfaces remain preview-oriented. Governance explicitly guards against simulated on-chain success, and several pages use mock or fallback data for presentation.

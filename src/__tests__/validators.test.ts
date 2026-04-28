@@ -153,7 +153,7 @@ describe("validator API helpers", () => {
 
     expect(response.data).toEqual([]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.mainnet.aethelred.org/v1/validators?limit=10&offset=5&status=active",
+      "http://localhost:3001/v1/validators?limit=10&offset=5&status=active",
     );
   });
 

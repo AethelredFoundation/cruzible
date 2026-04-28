@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { GetServerSideProps } from "next";
 import { useMemo } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -20,6 +21,7 @@ import {
   fetchLiveReconciliation,
   type LiveReconciliationDocument,
 } from "@/lib/reconciliation";
+import { getApiV1BaseUrl } from "@/config/api";
 
 const FASTAPI_URL =
   process.env.NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL || "http://127.0.0.1:8000";
@@ -27,6 +29,17 @@ const NEXTJS_URL =
   process.env.NEXT_PUBLIC_DEVTOOLS_NEXTJS_URL || "http://127.0.0.1:3000";
 const RPC_URL =
   process.env.NEXT_PUBLIC_DEVTOOLS_RPC_URL || "http://127.0.0.1:26657";
+
+export const getServerSideProps: GetServerSideProps = async () => {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.NEXT_PUBLIC_ENABLE_DEVTOOLS !== "true"
+  ) {
+    return { notFound: true };
+  }
+
+  return { props: {} };
+};
 
 type HealthCheck = {
   name: string;
@@ -301,7 +314,7 @@ export default function DeveloperToolsDashboard() {
                 `Mock RPC: ${RPC_URL}`,
                 `FastAPI Verifier: ${FASTAPI_URL}`,
                 `Next.js Verifier: ${NEXTJS_URL}`,
-                `Backend API: ${process.env.NEXT_PUBLIC_API_URL || "/api"}`,
+                `Backend API: ${getApiV1BaseUrl()}`,
                 `Dashboard: http://127.0.0.1:3101/devtools`,
               ]}
             />

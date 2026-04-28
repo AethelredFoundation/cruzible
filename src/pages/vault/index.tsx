@@ -94,6 +94,7 @@ import {
   fetchReconciliationControlPlane,
   type ReconciliationControlPlaneSummary,
 } from "@/lib/reconciliation";
+import { getApiUrl } from "@/config/api";
 
 // ============================================================================
 // TYPES
@@ -783,10 +784,8 @@ function OverviewTab({
     );
 
     try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
       const res = await fetch(
-        `${API_BASE}/vault/reward-proof?address=${wallet.address}`,
+        getApiUrl(`/vault/reward-proof?address=${wallet.address}`),
       );
       if (!res.ok) {
         const body = await res
@@ -2312,10 +2311,8 @@ function RewardsTab({
     );
 
     try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
       const res = await fetch(
-        `${API_BASE}/vault/reward-proof?address=${wallet.address}`,
+        getApiUrl(`/vault/reward-proof?address=${wallet.address}`),
       );
       if (!res.ok) {
         const body = await res

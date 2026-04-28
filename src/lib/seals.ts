@@ -1,5 +1,4 @@
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
+import { getApiUrl } from "@/config/api";
 
 export type SealLifecycleStatus =
   | "active"
@@ -313,7 +312,7 @@ export async function fetchSeals(options?: {
     params.set("job_id", options.jobId);
   }
 
-  const response = await fetch(`${API_URL}/v1/seals?${params.toString()}`);
+  const response = await fetch(getApiUrl(`/seals?${params.toString()}`));
   if (!response.ok) {
     throw new Error("Failed to fetch seals");
   }
@@ -363,9 +362,7 @@ export async function fetchSeal(id: string): Promise<SealDetailRecord> {
   let detailError: Error | null = null;
 
   try {
-    const response = await fetch(
-      `${API_URL}/v1/seals/${encodeURIComponent(id)}`,
-    );
+    const response = await fetch(getApiUrl(`/seals/${encodeURIComponent(id)}`));
     if (response.ok) {
       const payload = (await response.json()) as {
         seal?: unknown;

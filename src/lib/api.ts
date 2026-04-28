@@ -4,9 +4,7 @@
  */
 
 import { BRAND } from "./constants";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
+import { getApiUrl } from "@/config/api";
 
 // =============================================================================
 // TYPES
@@ -263,7 +261,7 @@ async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<ApiResponse<T>> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = getApiUrl(endpoint);
 
   const defaultOptions: RequestInit = {
     headers: {

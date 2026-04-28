@@ -1,5 +1,4 @@
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
+import { getApiUrl } from "@/config/api";
 
 export type ValidatorLifecycleStatus = "active" | "inactive" | "jailed";
 export type ValidatorRiskLevel = "low" | "guarded" | "elevated" | "high";
@@ -119,7 +118,7 @@ export async function fetchValidators(options?: {
     params.set("status", options.status);
   }
 
-  const response = await fetch(`${API_URL}/v1/validators?${params.toString()}`);
+  const response = await fetch(getApiUrl(`/validators?${params.toString()}`));
   if (!response.ok) {
     throw new Error("Failed to fetch validators");
   }
@@ -131,7 +130,7 @@ export async function fetchValidator(
   address: string,
 ): Promise<ValidatorDetailResponse> {
   const detailResponse = await fetch(
-    `${API_URL}/v1/validators/${encodeURIComponent(address)}`,
+    getApiUrl(`/validators/${encodeURIComponent(address)}`),
   );
 
   if (detailResponse.ok) {

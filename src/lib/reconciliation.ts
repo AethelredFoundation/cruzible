@@ -1,3 +1,5 @@
+import { getApiUrl } from "@/config/api";
+
 export type ReconciliationCheckStatus =
   | "PASS"
   | "WARNING"
@@ -149,14 +151,11 @@ export type ReconciliationScorecard = {
   };
 };
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org/v1";
-
 export async function fetchLiveReconciliation(
   validatorLimit = 200,
 ): Promise<LiveReconciliationDocument> {
   const response = await fetch(
-    `${API_URL}/reconciliation/live?validator_limit=${validatorLimit}`,
+    getApiUrl(`/reconciliation/live?validator_limit=${validatorLimit}`),
   );
   if (!response.ok) {
     throw new Error(
@@ -167,7 +166,7 @@ export async function fetchLiveReconciliation(
 }
 
 export async function fetchReconciliationControlPlane(): Promise<ReconciliationControlPlaneSummary> {
-  const response = await fetch(`${API_URL}/reconciliation/control-plane`);
+  const response = await fetch(getApiUrl("/reconciliation/control-plane"));
   if (!response.ok) {
     throw new Error(
       `Failed to load reconciliation control plane: HTTP ${response.status}`,
@@ -177,7 +176,7 @@ export async function fetchReconciliationControlPlane(): Promise<ReconciliationC
 }
 
 export async function fetchReconciliationScorecard(): Promise<ReconciliationScorecard> {
-  const response = await fetch(`${API_URL}/reconciliation/scorecard`);
+  const response = await fetch(getApiUrl("/reconciliation/scorecard"));
   if (!response.ok) {
     throw new Error(
       `Failed to load reconciliation scorecard: HTTP ${response.status}`,
@@ -190,7 +189,7 @@ export async function fetchReconciliationHistory(
   limit = 10,
 ): Promise<ReconciliationHistoryEntry[]> {
   const response = await fetch(
-    `${API_URL}/reconciliation/history?limit=${limit}`,
+    getApiUrl(`/reconciliation/history?limit=${limit}`),
   );
   if (!response.ok) {
     throw new Error(
@@ -203,7 +202,7 @@ export async function fetchReconciliationHistory(
 export async function fetchHistoricalReconciliationSnapshot(
   epoch: number,
 ): Promise<HistoricalReconciliationSnapshot> {
-  const response = await fetch(`${API_URL}/reconciliation/${epoch}`);
+  const response = await fetch(getApiUrl(`/reconciliation/${epoch}`));
   if (!response.ok) {
     throw new Error(
       `Failed to load reconciliation snapshot for epoch ${epoch}: HTTP ${response.status}`,

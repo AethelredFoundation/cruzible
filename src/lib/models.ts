@@ -1,5 +1,4 @@
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
+import { getApiUrl } from "@/config/api";
 
 const MODELS_PAGE_SIZE = 100;
 
@@ -261,7 +260,7 @@ export async function fetchModelsPage(
     params.set("owner", owner);
   }
 
-  const response = await fetch(`${API_URL}/v1/models?${params.toString()}`, {
+  const response = await fetch(getApiUrl(`/models?${params.toString()}`), {
     headers: { accept: "application/json" },
   });
 
@@ -328,7 +327,7 @@ export async function fetchModelDetail(
   modelHash: string,
 ): Promise<ModelDetailRecord> {
   const response = await fetch(
-    `${API_URL}/v1/models/${encodeURIComponent(modelHash)}`,
+    getApiUrl(`/models/${encodeURIComponent(modelHash)}`),
     {
       headers: { accept: "application/json" },
     },

@@ -198,24 +198,32 @@ export function useBridgeOut() {
         return undefined;
       }
 
-      // Gate on live on-chain config — prevents submitting a tx that will revert
-      if (onChainConfig && !onChainConfig.isLoading) {
-        if (!onChainConfig.enabled) {
-          addNotification(
-            "error",
-            "Bridge Disabled",
-            `${symbol} bridging is currently disabled on-chain. Please try again later.`,
-          );
-          return undefined;
-        }
-        if (onChainConfig.mintPaused) {
-          addNotification(
-            "error",
-            "Bridge Paused",
-            `${symbol} minting is currently paused on-chain. Bridge-out operations are unavailable.`,
-          );
-          return undefined;
-        }
+      // Fail closed on live on-chain config before requesting any approval.
+      if (!onChainConfig || onChainConfig.isLoading) {
+        addNotification(
+          "error",
+          "Bridge Configuration Loading",
+          `${symbol} bridge configuration has not been verified on-chain yet. Please wait and try again.`,
+        );
+        return undefined;
+      }
+
+      if (!onChainConfig.enabled) {
+        addNotification(
+          "error",
+          "Bridge Disabled",
+          `${symbol} bridging is currently disabled on-chain. Please try again later.`,
+        );
+        return undefined;
+      }
+
+      if (onChainConfig.mintPaused) {
+        addNotification(
+          "error",
+          "Bridge Paused",
+          `${symbol} minting is currently paused on-chain. Bridge-out operations are unavailable.`,
+        );
+        return undefined;
       }
 
       if (!bridgeAddr) {
@@ -247,16 +255,14 @@ export function useBridgeOut() {
         return undefined;
       }
 
-      if (onChainConfig && !onChainConfig.isLoading && onChainConfig.enabled) {
-        const onChainToken = normalizeContractAddress(onChainConfig.token);
-        if (!onChainToken || onChainToken !== tokenAddr) {
-          addNotification(
-            "error",
-            "Token Configuration Mismatch",
-            `${symbol} token address does not match the bridge's on-chain configuration.`,
-          );
-          return undefined;
-        }
+      const onChainToken = normalizeContractAddress(onChainConfig.token);
+      if (!onChainToken || onChainToken !== tokenAddr) {
+        addNotification(
+          "error",
+          "Token Configuration Mismatch",
+          `${symbol} token address does not match the bridge's on-chain configuration.`,
+        );
+        return undefined;
       }
 
       try {

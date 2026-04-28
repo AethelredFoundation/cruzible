@@ -4,13 +4,13 @@ This directory contains the backend-side pieces of the Cruzible workspace: the A
 
 ## Directory Map
 
-| Path | Purpose |
-| --- | --- |
-| `backend/api` | Express/TypeScript API gateway with health, docs, blocks, jobs, reconciliation, alerts, and stablecoin routes |
-| `backend/contracts` | CosmWasm contracts plus audit/test documentation |
-| `backend/node` | Aethelred node workspace and Dockerfile |
-| `backend/infra` | Docker Compose scaffold for a fuller deployment footprint |
-| `backend/.env.example` | Backend env template and operator reference input |
+| Path                   | Purpose                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `backend/api`          | Express/TypeScript API gateway with health, docs, blocks, jobs, reconciliation, alerts, and stablecoin routes |
+| `backend/contracts`    | CosmWasm contracts plus audit/test documentation                                                              |
+| `backend/node`         | Aethelred node workspace and Dockerfile                                                                       |
+| `backend/infra`        | Docker Compose scaffold for a fuller deployment footprint                                                     |
+| `backend/.env.example` | Backend env template and operator reference input                                                             |
 
 ## API Gateway Surface
 
@@ -40,8 +40,9 @@ Additional route details are available from the checked-in Swagger annotations o
 
 These routes require a bearer JWT with the `operator` or `admin` role. Operators
 obtain tokens through the wallet-backed `/v1/auth` nonce/login flow. Configure
-`AUTH_OPERATOR_ADDRESSES` and `AUTH_ADMIN_ADDRESSES` before relying on protected
-ops routes in a shared environment.
+at least one `AUTH_OPERATOR_ADDRESSES` or `AUTH_ADMIN_ADDRESSES` value before
+relying on protected ops routes; production startup fails closed when both are
+empty or malformed.
 
 ### Runtime characteristics
 

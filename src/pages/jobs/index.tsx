@@ -14,9 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
+import { getApiUrl } from "@/config/api";
 
 interface Job {
   id: string;
@@ -43,7 +41,7 @@ async function fetchJobs(
   });
   if (status) params.set("status", status);
 
-  const response = await fetch(`${API_URL}/v1/jobs?${params}`);
+  const response = await fetch(getApiUrl(`/jobs?${params}`));
   if (!response.ok) throw new Error("Failed to fetch jobs");
   return response.json();
 }

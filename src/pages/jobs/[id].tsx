@@ -4,9 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, Clock, Cpu, RefreshCw, XCircle } from "lucide-react";
 import { SEOHead } from "@/components/SEOHead";
 import { CopyButton } from "@/components/PagePrimitives";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.mainnet.aethelred.org";
+import { getApiUrl } from "@/config/api";
 
 interface Job {
   id: string;
@@ -23,7 +21,7 @@ interface Job {
 }
 
 async function fetchJob(id: string): Promise<Job> {
-  const response = await fetch(`${API_URL}/v1/jobs/${encodeURIComponent(id)}`);
+  const response = await fetch(getApiUrl(`/jobs/${encodeURIComponent(id)}`));
   if (!response.ok) {
     throw new Error(
       response.status === 404 ? "Job not found" : "Failed to fetch job",

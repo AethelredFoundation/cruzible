@@ -16,7 +16,7 @@ data:
   rpc.url: "REPLACE_WITH_AETHELRED_RPC_URL"
   stablecoin.bridge.address: "REPLACE_WITH_STABLECOIN_BRIDGE_ADDRESS"
   staethel.address: "REPLACE_WITH_STAETHEL_ADDRESS"
-  trust.proxy: "true"
+  trust.proxy: "1"
 ---
 apiVersion: apps/v1
 kind: Deployment
