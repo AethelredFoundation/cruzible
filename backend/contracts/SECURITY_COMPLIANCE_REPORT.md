@@ -56,7 +56,7 @@ Completed for audit-candidate state:
 - [x] Residual review items and deployment assumptions are documented in `AUDIT_PACKET.md`.
 - [x] Release manifest template is checked in and validated in CI.
 - [x] Strict release manifest validation reconciles staging records with signed artifact evidence.
-- [x] Release manifest validation requires final post-instantiate role wiring evidence.
+- [x] Release manifest validation requires final post-instantiate CW20 minter and model registry role wiring evidence.
 - [x] Artifact signing and verification scripts are checked in and syntax-checked by CI.
 - [x] Governance feeder oracle config rejects unsafe quorum, tolerance, capacity, and production authority settings.
 
@@ -80,6 +80,6 @@ The current evidence supports an audit-candidate designation. It does not suppor
 - CI job that runs tests, formatting, clippy, dependency audit, schema generation, and wasm optimization.
 - Release checklist with artifact hashes and deployment parameters.
 - Detached signatures for artifact checksums and manifests.
-- Staging drill for instantiate, execute, query, pause, migration, and recovery flows.
+- Staging drill for instantiate, post-instantiate role wiring, execute, query, pause, migration, and recovery flows.
 - External audit report linked to final remediation commits.
 - Monitoring thresholds for vault solvency, reward distribution, payment claims, governance execution, and seal creation.

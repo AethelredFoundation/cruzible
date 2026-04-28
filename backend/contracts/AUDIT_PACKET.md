@@ -60,7 +60,9 @@ checksums and manifest.
 - Completed staging manifests must also pass
   `python3 scripts/validate-release-manifest.py --strict <manifest> --artifact-dir audit-artifacts/contracts`
   after release artifacts are signed.
-- The CW20 staking token is instantiated with the vault contract as minter.
+- The CW20 staking token manifest records the bootstrap minter and the
+  post-instantiate `UpdateMinter` transaction that makes the vault the final
+  minter.
 - The vault `staking_token` config points to the deployed CW20 staking token.
 - Vault unstake uses the staking token `BurnFrom` flow, so users must approve
   the vault before unstaking.
@@ -77,6 +79,10 @@ checksums and manifest.
 - The model registry is instantiated before the AI job manager address is
   known, so the staging manifest must record the post-instantiate
   `UpdateConfig` transaction that sets the final AI job manager role.
+- The CW20 staking token is instantiated before the vault address can be
+  wired into token config, so the staging manifest must record the
+  post-instantiate `UpdateMinter` transaction that hands mint authority to the
+  deployed vault.
 - Contract instantiation, migration, and address wiring must be recorded in a
   release manifest before any production deployment.
 
@@ -99,7 +105,11 @@ These are not hidden TODOs. They are explicit pre-production review items:
 
 Before production readiness can be claimed, run a staging drill that covers:
 
-- Instantiate CW20 staking token and vault with correct minter/address wiring.
+- Instantiate CW20 staking token with the bootstrap minter, instantiate the
+  vault with the deployed token address, then rotate CW20 mint authority to the
+  deployed vault.
+- Record and verify the CW20 staking token post-instantiate `UpdateMinter`
+  action that authorizes the deployed vault as final minter.
 - Stake, compound, unstake, approve, burn, unbond, and claim flows.
 - Submit, assign, complete, verify, pay, and seal an AI job.
 - Register a model and increment job counts through the authorized job manager.

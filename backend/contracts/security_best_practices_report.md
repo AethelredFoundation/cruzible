@@ -75,7 +75,8 @@ The workspace is suitable for an external audit candidate branch after the follo
 - Detached artifact signatures generated with `RELEASE_SIGNING.md` before launch.
 - Strict release manifest reconciliation against the signed artifact directory.
 - Post-instantiate role wiring evidence for contract relationships that cannot
-  be final at first instantiation.
+  be final at first instantiation, including CW20 minter handoff and model
+  registry job-manager authorization.
 - This assurance report and the related security/test coverage documents.
 - `AUDIT_PACKET.md` with residual review items, deployment assumptions, staging drill, and release manifest template.
 

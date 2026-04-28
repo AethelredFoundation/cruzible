@@ -168,6 +168,7 @@ def validate_contract_wiring(contracts: dict[str, dict[str, Any]]) -> None:
     model_registry_config = require_mapping(model_registry.get("config"), f"{model_registry_path}.config")
     seal_manager_config = require_mapping(seal_manager.get("config"), f"{seal_manager_path}.config")
 
+    validate_required_role(cw20_roles, "initial_minter", cw20_path)
     if validate_required_role(cw20_roles, "minter", cw20_path) != vault["address"]:
         fail(f"{cw20_path}.roles.minter must match vault address")
 
@@ -197,9 +198,12 @@ def validate_contract_wiring(contracts: dict[str, dict[str, Any]]) -> None:
 
 def validate_post_instantiate_actions(root: dict[str, Any], contracts: dict[str, dict[str, Any]]) -> None:
     actions = require_list(root.get("post_instantiate_actions"), "$.post_instantiate_actions")
+    cw20 = contracts["cw20_staking"]
+    vault = contracts["vault"]
     model_registry = contracts["model_registry"]
     ai_jobs = contracts["ai_job_manager"]
 
+    cw20_minter_action = None
     model_registry_action = None
     for index, raw_action in enumerate(actions):
         action = require_mapping(raw_action, f"$.post_instantiate_actions[{index}]")
@@ -211,6 +215,13 @@ def validate_post_instantiate_actions(root: dict[str, Any], contracts: dict[str,
         require_string(action.get("actor"), f"$.post_instantiate_actions[{index}].actor")
         require_mapping(action.get("message"), f"$.post_instantiate_actions[{index}].message")
 
+        if name == "cw20_staking_set_vault_minter":
+            if cw20_minter_action is not None:
+                fail("$.post_instantiate_actions contains duplicate cw20_staking_set_vault_minter")
+            if contract != "cw20_staking":
+                fail("cw20_staking_set_vault_minter must target cw20_staking")
+            cw20_minter_action = (index, action)
+
         if name == "model_registry_set_ai_job_manager":
             if model_registry_action is not None:
                 fail("$.post_instantiate_actions contains duplicate model_registry_set_ai_job_manager")
@@ -218,8 +229,31 @@ def validate_post_instantiate_actions(root: dict[str, Any], contracts: dict[str,
                 fail("model_registry_set_ai_job_manager must target model_registry")
             model_registry_action = (index, action)
 
+    if cw20_minter_action is None:
+        fail("$.post_instantiate_actions must include cw20_staking_set_vault_minter")
     if model_registry_action is None:
         fail("$.post_instantiate_actions must include model_registry_set_ai_job_manager")
+
+    index, action = cw20_minter_action
+    cw20_roles = require_mapping(cw20.get("roles"), "$.contracts[cw20_staking].roles")
+    if require_string(
+        action.get("contract_address"),
+        f"$.post_instantiate_actions[{index}].contract_address",
+    ) != cw20["address"]:
+        fail("cw20_staking_set_vault_minter contract_address must match cw20_staking address")
+    if action["actor"] != cw20_roles["initial_minter"]:
+        fail("cw20_staking_set_vault_minter actor must match cw20_staking initial_minter")
+
+    message = require_mapping(action.get("message"), f"$.post_instantiate_actions[{index}].message")
+    update_minter = require_mapping(
+        message.get("update_minter"),
+        f"$.post_instantiate_actions[{index}].message.update_minter",
+    )
+    if require_string(
+        update_minter.get("new_minter"),
+        f"$.post_instantiate_actions[{index}].message.update_minter.new_minter",
+    ) != vault["address"]:
+        fail("cw20_staking_set_vault_minter message must set the vault as final minter")
 
     index, action = model_registry_action
     if require_string(

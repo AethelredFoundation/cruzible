@@ -78,6 +78,7 @@
       "instantiate_tx_hash": "1111111111111111111111111111111111111111111111111111111111111111",
       "admin": "aethel1admin00000000000000000000000000000000000",
       "roles": {
+        "initial_minter": "aethel1admin00000000000000000000000000000000000",
         "minter": "aethel1vault0000000000000000000000000000000000"
       },
       "config": {
@@ -171,11 +172,23 @@
   ],
   "post_instantiate_actions": [
     {
+      "name": "cw20_staking_set_vault_minter",
+      "contract": "cw20_staking",
+      "contract_address": "aethel1cw20staking0000000000000000000000000000000",
+      "actor": "aethel1admin00000000000000000000000000000000000",
+      "tx_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+      "message": {
+        "update_minter": {
+          "new_minter": "aethel1vault0000000000000000000000000000000000"
+        }
+      }
+    },
+    {
       "name": "model_registry_set_ai_job_manager",
       "contract": "model_registry",
       "contract_address": "aethel1models00000000000000000000000000000000",
       "actor": "aethel1admin00000000000000000000000000000000000",
-      "tx_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+      "tx_hash": "8888888888888888888888888888888888888888888888888888888888888888",
       "message": {
         "update_config": {
           "registration_fee": null,

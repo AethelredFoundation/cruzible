@@ -42,6 +42,9 @@ class ReleaseManifestValidationTests(unittest.TestCase):
         path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return path
 
+    def action_by_name(self, manifest: dict, name: str) -> dict:
+        return next(action for action in manifest["post_instantiate_actions"] if action["name"] == name)
+
     def strict_manifest(self) -> dict:
         manifest = self.load_example()
         git_commit = "1234567890abcdef1234567890abcdef12345678"
@@ -140,7 +143,11 @@ class ReleaseManifestValidationTests(unittest.TestCase):
     def test_post_instantiate_action_required_for_model_registry_role(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = self.load_example()
-            manifest["post_instantiate_actions"] = []
+            manifest["post_instantiate_actions"] = [
+                action
+                for action in manifest["post_instantiate_actions"]
+                if action["name"] != "model_registry_set_ai_job_manager"
+            ]
             manifest_path = self.write_manifest(Path(temp_dir), manifest)
 
             self.assert_manifest_fails(manifest_path)
@@ -148,8 +155,29 @@ class ReleaseManifestValidationTests(unittest.TestCase):
     def test_post_instantiate_action_must_set_ai_job_manager(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = self.load_example()
-            action = manifest["post_instantiate_actions"][0]
+            action = self.action_by_name(manifest, "model_registry_set_ai_job_manager")
             action["message"]["update_config"]["ai_job_manager"] = "aethel1wrongjobs00000000000000000000000000000000"
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_post_instantiate_action_required_for_cw20_minter_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            manifest["post_instantiate_actions"] = [
+                action
+                for action in manifest["post_instantiate_actions"]
+                if action["name"] != "cw20_staking_set_vault_minter"
+            ]
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_post_instantiate_action_must_set_vault_minter(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            action = self.action_by_name(manifest, "cw20_staking_set_vault_minter")
+            action["message"]["update_minter"]["new_minter"] = "aethel1wrongvault0000000000000000000000000000000"
             manifest_path = self.write_manifest(Path(temp_dir), manifest)
 
             self.assert_manifest_fails(manifest_path)

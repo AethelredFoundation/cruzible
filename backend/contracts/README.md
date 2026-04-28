@@ -64,8 +64,9 @@ release artifacts. Completed staging manifests should be checked with
 `python3 scripts/validate-release-manifest.py --strict <manifest> --artifact-dir audit-artifacts/contracts`
 after signatures are generated.
 The manifest also records required post-instantiate actions, including the
-model registry `UpdateConfig` transaction that authorizes the deployed AI job
-manager.
+CW20 staking token `UpdateMinter` transaction that hands mint authority to the
+vault and the model registry `UpdateConfig` transaction that authorizes the
+deployed AI job manager.
 
 ## Audit-Candidate Checklist
 
@@ -79,7 +80,7 @@ Before external audit:
 - [x] Deployment assumptions and contract address wiring documented.
 - [x] Release manifest template is checked in and validated in CI.
 - [x] Release manifest validator reconciles strict staging manifests with signed artifact evidence.
-- [x] Release manifest validator checks required post-instantiate role wiring actions.
+- [x] Release manifest validator checks required post-instantiate CW20 minter and model registry role wiring actions.
 - [x] Release artifact signing and verification scripts are checked in.
 - [x] Governance feeder quorum, tolerance, mutation, quarantine, capacity, and production authority config is validated.
 - [ ] Staging release manifest captured with code IDs, addresses, checksums, and role owners.
