@@ -34,6 +34,7 @@ const CONFIG_ENV_KEYS = [
   "CRUZIBLE_VAULT_ADDRESS",
   "STAETHEL_ADDRESS",
   "STABLECOIN_BRIDGE_ADDRESS",
+  "INDEXER_EXPECTED_CHAIN_ID",
   "ALERT_WEBHOOK_URL",
   "ALERT_RATE_LIMIT_MS",
   "RECONCILIATION_INTERVAL_MS",
@@ -276,10 +277,36 @@ describe("backend config hardening", () => {
         INDEXER_ENABLED: "true",
         INDEXER_RPC_URL: "http://127.0.0.1:8545",
         INDEXER_WS_URL: "ws://127.0.0.1:8546",
+        INDEXER_EXPECTED_CHAIN_ID: "31337",
       }),
     ).rejects.toThrow(
       "Refusing to start production indexer without CRUZIBLE_VAULT_ADDRESS",
     );
+  });
+
+  it("rejects production indexer startup without expected chain id", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        INDEXER_ENABLED: "true",
+        INDEXER_RPC_URL: "http://127.0.0.1:8545",
+        INDEXER_WS_URL: "ws://127.0.0.1:8546",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start production indexer without INDEXER_EXPECTED_CHAIN_ID",
+    );
+  });
+
+  it("rejects invalid production indexer expected chain ids", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        INDEXER_ENABLED: "true",
+        INDEXER_RPC_URL: "http://127.0.0.1:8545",
+        INDEXER_WS_URL: "ws://127.0.0.1:8546",
+        INDEXER_EXPECTED_CHAIN_ID: "0",
+      }),
+    ).rejects.toThrow(/INDEXER_EXPECTED_CHAIN_ID/);
   });
 
   it("accepts production indexer configuration with non-zero contract addresses", async () => {
@@ -288,6 +315,7 @@ describe("backend config hardening", () => {
       INDEXER_ENABLED: "true",
       INDEXER_RPC_URL: "http://127.0.0.1:8545",
       INDEXER_WS_URL: "ws://127.0.0.1:8546",
+      INDEXER_EXPECTED_CHAIN_ID: "31337",
       CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
       STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222",
       STABLECOIN_BRIDGE_ADDRESS: "0x3333333333333333333333333333333333333333",
@@ -300,5 +328,6 @@ describe("backend config hardening", () => {
     expect(config.stablecoinBridgeAddress).toBe(
       "0x3333333333333333333333333333333333333333",
     );
+    expect(config.indexerExpectedChainId).toBe("31337");
   });
 });

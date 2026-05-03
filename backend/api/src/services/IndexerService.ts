@@ -205,6 +205,7 @@ interface IndexerConfig {
   staethelAddress: string;
   stablecoinBridgeAddress: string;
   startBlock: number;
+  expectedChainId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +231,7 @@ export class IndexerService {
     staethelAddress: '',
     stablecoinBridgeAddress: '',
     startBlock: 0,
+    expectedChainId: undefined,
   };
 
   // Metrics (in-memory, exposed via getMetrics())
@@ -261,6 +263,7 @@ export class IndexerService {
       staethelAddress: config.staethelAddress,
       stablecoinBridgeAddress: config.stablecoinBridgeAddress,
       startBlock: config.indexerStartBlock,
+      expectedChainId: config.indexerExpectedChainId,
     };
 
     if (!this.cfg.cruzibleVaultAddress) {
@@ -284,6 +287,7 @@ export class IndexerService {
 
     // Create HTTP provider (always available as fallback)
     this.httpProvider = new JsonRpcProvider(this.cfg.rpcUrl);
+    await this.assertExpectedChainId();
 
     // Recover sync state
     await this.ensureCursor();
@@ -307,6 +311,26 @@ export class IndexerService {
       staethel: this.cfg.staethelAddress || '(disabled)',
       stablecoinBridge: this.cfg.stablecoinBridgeAddress || '(disabled)',
       indexedHead: this._indexedHead,
+      expectedChainId: this.cfg.expectedChainId ?? '(not enforced)',
+    });
+  }
+
+  private async assertExpectedChainId(): Promise<void> {
+    if (!this.httpProvider || !this.cfg.expectedChainId) {
+      return;
+    }
+
+    const network = await this.httpProvider.getNetwork();
+    const actualChainId = network.chainId.toString();
+    if (actualChainId !== this.cfg.expectedChainId) {
+      throw new Error(
+        `Refusing to start indexer on chain ${actualChainId}; expected ${this.cfg.expectedChainId}`,
+      );
+    }
+
+    logger.info('Indexer chain ID verified', {
+      expectedChainId: this.cfg.expectedChainId,
+      actualChainId,
     });
   }
 

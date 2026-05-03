@@ -81,6 +81,7 @@ These variables are validated or consumed by `backend/api` in the current snapsh
 | `INDEXER_RPC_URL`                 | Required if production indexer enabled | `http://127.0.0.1:8545`               | JSON-RPC endpoint used by the indexer service                                                                                                            |
 | `INDEXER_WS_URL`                  | Required if production indexer enabled | `ws://127.0.0.1:8546`                 | WebSocket endpoint used by the indexer service                                                                                                           |
 | `INDEXER_START_BLOCK`             | No                                     | `0`                                   | API-side indexer start height                                                                                                                            |
+| `INDEXER_EXPECTED_CHAIN_ID`       | Required if production indexer enabled | blank                                 | EVM chain ID the indexer must observe before startup; production refuses to index if RPC returns a different chain                                       |
 | `CRUZIBLE_VAULT_ADDRESS`          | Required if production indexer enabled | blank                                 | Must be blank or a non-zero EVM address                                                                                                                  |
 | `STAETHEL_ADDRESS`                | Required if production indexer enabled | blank                                 | Must be blank or a non-zero EVM address                                                                                                                  |
 | `STABLECOIN_BRIDGE_ADDRESS`       | Required if production indexer enabled | blank                                 | Must be blank or a non-zero EVM address                                                                                                                  |
@@ -141,7 +142,7 @@ When `NODE_ENV=production`, API startup refuses to run with:
 - no configured `AUTH_OPERATOR_ADDRESSES` or `AUTH_ADMIN_ADDRESSES`
 - unbounded `TRUST_PROXY=true`
 - exposed `/metrics` or `/docs` endpoints without `OPERATIONAL_ENDPOINTS_TOKEN`
-- `INDEXER_ENABLED=true` without explicit indexer RPC/WebSocket URLs and all contract addresses
+- `INDEXER_ENABLED=true` without explicit indexer RPC/WebSocket URLs, expected chain ID, and all contract addresses
 
 Environment validation also rejects malformed URLs, malformed or zero EVM addresses,
 malformed auth role wallet addresses, and reconciliation thresholds where the

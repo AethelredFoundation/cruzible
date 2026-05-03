@@ -23,6 +23,13 @@ const optionalSecretSchema = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z.string().min(32).optional(),
 );
+const optionalPositiveIntegerStringSchema = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z
+    .string()
+    .regex(/^[1-9]\d*$/, "must be a positive integer string")
+    .optional(),
+);
 
 const evmAddressSchema = z
   .string()
@@ -80,6 +87,7 @@ const envSchema = z.object({
   STAETHEL_ADDRESS: evmAddressSchema,
   STABLECOIN_BRIDGE_ADDRESS: evmAddressSchema,
   INDEXER_START_BLOCK: z.coerce.number().int().min(0).default(0),
+  INDEXER_EXPECTED_CHAIN_ID: optionalPositiveIntegerStringSchema,
   INDEXER_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -206,6 +214,10 @@ if (isProduction) {
       "Refusing to start production indexer without INDEXER_WS_URL",
     );
     requireProductionConfig(
+      parsedEnv.INDEXER_EXPECTED_CHAIN_ID,
+      "Refusing to start production indexer without INDEXER_EXPECTED_CHAIN_ID",
+    );
+    requireProductionConfig(
       parsedEnv.CRUZIBLE_VAULT_ADDRESS,
       "Refusing to start production indexer without CRUZIBLE_VAULT_ADDRESS",
     );
@@ -281,6 +293,7 @@ export const config = {
   staethelAddress: parsedEnv.STAETHEL_ADDRESS,
   stablecoinBridgeAddress: parsedEnv.STABLECOIN_BRIDGE_ADDRESS,
   indexerStartBlock: parsedEnv.INDEXER_START_BLOCK,
+  indexerExpectedChainId: parsedEnv.INDEXER_EXPECTED_CHAIN_ID,
   indexerEnabled: parsedEnv.INDEXER_ENABLED,
 
   // Alerting

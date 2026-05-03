@@ -104,3 +104,37 @@ describe('IndexerService.refreshStablecoinConfig', () => {
     });
   });
 });
+
+describe('IndexerService chain id guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('allows startup when the RPC chain id matches the configured chain', async () => {
+    const { IndexerService } = await import('../src/services/IndexerService');
+
+    const service = new IndexerService({} as any);
+    (service as any).cfg.expectedChainId = '31337';
+    (service as any).httpProvider = {
+      getNetwork: vi.fn().mockResolvedValue({ chainId: 31337n }),
+    };
+
+    await expect(
+      (service as any).assertExpectedChainId(),
+    ).resolves.toBeUndefined();
+  });
+
+  it('fails closed before indexing when the RPC chain id is unexpected', async () => {
+    const { IndexerService } = await import('../src/services/IndexerService');
+
+    const service = new IndexerService({} as any);
+    (service as any).cfg.expectedChainId = '31337';
+    (service as any).httpProvider = {
+      getNetwork: vi.fn().mockResolvedValue({ chainId: 1n }),
+    };
+
+    await expect((service as any).assertExpectedChainId()).rejects.toThrow(
+      'Refusing to start indexer on chain 1; expected 31337',
+    );
+  });
+});
