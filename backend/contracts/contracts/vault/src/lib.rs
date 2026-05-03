@@ -505,14 +505,18 @@ fn execute_stake(
         .staked_amount
         .checked_add(amount)
         .map_err(|_| ContractError::Overflow {})?;
-    // HIGH-1: Set reward_debt to current index × new total shares so new deposits
-    // don't get retroactive rewards from before they staked
-    user_stake.reward_debt = state
+    // New shares should not receive past rewards, but existing shares must
+    // keep their accrued pending rewards.
+    let new_share_reward_debt = state
         .reward_index
-        .checked_mul(user_stake.shares)
+        .checked_mul(new_shares)
         .map_err(|_| ContractError::Overflow {})?
         .checked_div(Uint128::from(REWARD_INDEX_SCALE))
         .map_err(|_| ContractError::Underflow {})?;
+    user_stake.reward_debt = user_stake
+        .reward_debt
+        .checked_add(new_share_reward_debt)
+        .map_err(|_| ContractError::Overflow {})?;
 
     USER_STAKES.save(deps.storage, &info.sender, &user_stake)?;
     STATE.save(deps.storage, &state)?;
@@ -849,13 +853,18 @@ fn execute_restake(
         .staked_amount
         .checked_add(unbonding.amount)
         .map_err(|_| ContractError::Overflow {})?;
-    // Update reward_debt to prevent restaked shares from earning retroactive rewards
-    user_stake.reward_debt = state
+    // Restaked shares should not receive past rewards, but existing shares
+    // must keep their accrued pending rewards.
+    let restaked_share_reward_debt = state
         .reward_index
-        .checked_mul(user_stake.shares)
+        .checked_mul(shares)
         .map_err(|_| ContractError::Overflow {})?
         .checked_div(Uint128::from(REWARD_INDEX_SCALE))
         .map_err(|_| ContractError::Underflow {})?;
+    user_stake.reward_debt = user_stake
+        .reward_debt
+        .checked_add(restaked_share_reward_debt)
+        .map_err(|_| ContractError::Overflow {})?;
 
     USER_STAKES.save(deps.storage, &info.sender, &user_stake)?;
     STATE.save(deps.storage, &state)?;

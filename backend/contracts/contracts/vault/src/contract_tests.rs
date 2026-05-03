@@ -251,6 +251,31 @@ mod security_tests {
     }
 
     #[test]
+    fn test_staking_more_preserves_accrued_rewards() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "user", 10_000_000);
+
+        let info = mock_info("creator", &coins(2_000_000, "aeth"));
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::AddRewards {}).unwrap();
+
+        let _ = stake(&mut deps, &env, "user", 10_000_000);
+
+        let info = mock_info("user", &[]);
+        let res = execute(deps.as_mut(), env, info, ExecuteMsg::ClaimRewards {}).unwrap();
+        let rewards: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "rewards")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+
+        assert!(!rewards.is_zero(), "staking more must not erase rewards");
+    }
+
+    #[test]
     fn test_unstake_burns_staking_token() {
         let (mut deps, env, _) = proper_instantiate();
 
@@ -553,6 +578,39 @@ mod security_tests {
         let msg = ExecuteMsg::Claim {};
         let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(err, ContractError::NothingToClaim {});
+    }
+
+    #[test]
+    fn test_restake_preserves_accrued_rewards() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "user", 50_000_000);
+        let _ = unstake(&mut deps, &env, "user", 20_000_000);
+
+        let info = mock_info("creator", &coins(2_000_000, "aeth"));
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::AddRewards {}).unwrap();
+
+        let info = mock_info("user", &[]);
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::Restake { unbonding_id: 0 },
+        )
+        .unwrap();
+
+        let info = mock_info("user", &[]);
+        let res = execute(deps.as_mut(), env, info, ExecuteMsg::ClaimRewards {}).unwrap();
+        let rewards: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "rewards")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+
+        assert!(!rewards.is_zero(), "restake must not erase rewards");
     }
 
     #[test]
