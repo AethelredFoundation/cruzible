@@ -13,7 +13,7 @@ No active production dependency exceptions are accepted in this branch.
 - The application resolves `postcss@8.5.10`, including the Next.js dependency path.
 - Unused telemetry packages were removed so the production audit surface is limited to the framework itself instead of framework-adjacent packages.
 - Frontend wallet dependencies were upgraded to current safe versions, clearing the prior `wagmi`, `@wagmi/connectors`, `axios`, and Coinbase SDK audit path.
-- CI and local validation continue to run `npm audit --omit=dev --audit-level=high` at the repository root and in `backend/api`.
+- CI and local validation continue to run root/backend API production npm audits, TypeScript SDK npm audits, and contract Cargo audits without hidden RustSec suppressions.
 
 ## Exit Criteria
 
