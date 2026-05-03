@@ -104,3 +104,41 @@ export function isHttpUrl(value?: string | null): boolean {
     return false;
   }
 }
+
+const TRUSTED_MODEL_STORAGE_HOSTS = new Set([
+  "arweave.net",
+  "cloudflare-ipfs.com",
+  "gateway.pinata.cloud",
+  "ipfs.io",
+]);
+
+export function getTrustedModelStorageUrl(
+  value?: string | null,
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+
+    if (url.protocol === "https:" && TRUSTED_MODEL_STORAGE_HOSTS.has(host)) {
+      return url.toString();
+    }
+
+    if (url.protocol === "ipfs:") {
+      const cidPath = `${url.hostname}${url.pathname}`.replace(/^\/+/, "");
+      return cidPath ? `https://ipfs.io/ipfs/${cidPath}` : null;
+    }
+
+    if (url.protocol === "ar:") {
+      const txPath = `${url.hostname}${url.pathname}`.replace(/^\/+/, "");
+      return txPath ? `https://arweave.net/${txPath}` : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}

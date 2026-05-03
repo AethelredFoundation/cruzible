@@ -5,6 +5,7 @@
 import {
   formatFullNumber,
   formatNumber,
+  getTrustedModelStorageUrl,
   isHttpUrl,
   seededAddress,
   seededHex,
@@ -103,5 +104,29 @@ describe("isHttpUrl", () => {
     expect(isHttpUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
     expect(isHttpUrl("not a url")).toBe(false);
     expect(isHttpUrl("")).toBe(false);
+  });
+});
+
+describe("getTrustedModelStorageUrl", () => {
+  it("allows only trusted model storage gateways", () => {
+    expect(getTrustedModelStorageUrl("https://ipfs.io/ipfs/bafy123")).toBe(
+      "https://ipfs.io/ipfs/bafy123",
+    );
+    expect(getTrustedModelStorageUrl("https://arweave.net/tx123")).toBe(
+      "https://arweave.net/tx123",
+    );
+    expect(getTrustedModelStorageUrl("https://example.com/model.json")).toBe(
+      null,
+    );
+    expect(getTrustedModelStorageUrl("http://ipfs.io/ipfs/bafy123")).toBe(null);
+  });
+
+  it("normalizes decentralized storage schemes to trusted gateways", () => {
+    expect(getTrustedModelStorageUrl("ipfs://bafy123/model.json")).toBe(
+      "https://ipfs.io/ipfs/bafy123/model.json",
+    );
+    expect(getTrustedModelStorageUrl("ar://tx123")).toBe(
+      "https://arweave.net/tx123",
+    );
   });
 });

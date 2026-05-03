@@ -25,7 +25,7 @@ import {
   prettyPrintSchema,
   truncateIdentifier,
 } from "@/lib/models";
-import { isHttpUrl } from "@/lib/utils";
+import { getTrustedModelStorageUrl } from "@/lib/utils";
 
 function MetricCard({
   label,
@@ -71,6 +71,7 @@ export default function ModelDetailPage() {
   const registry = model?.registry;
   const usage = model?.usage;
   const lineage = model?.lineage.recentJobs ?? [];
+  const trustedStorageUrl = getTrustedModelStorageUrl(registry?.storageUri);
   const proofBreakdown = usage?.proofTypeBreakdown ?? [];
   const totalProofJobs = proofBreakdown.reduce(
     (sum, entry) => sum + entry.count,
@@ -279,16 +280,21 @@ export default function ModelDetailPage() {
                                   Unpublished
                                 </p>
                               )}
-                              {isHttpUrl(registry.storageUri) ? (
+                              {trustedStorageUrl ? (
                                 <a
-                                  href={registry.storageUri}
+                                  href={trustedStorageUrl}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-cyan-200 hover:text-cyan-100"
                                 >
-                                  Open storage
+                                  Open verified storage
                                   <ExternalLink className="h-3.5 w-3.5" />
                                 </a>
+                              ) : registry.storageUri ? (
+                                <p className="mt-2 text-xs text-amber-200/80">
+                                  External storage link withheld until its
+                                  gateway is allowlisted.
+                                </p>
                               ) : null}
                             </div>
                           </div>
