@@ -1,7 +1,7 @@
 # Public Readiness Register
 
 > Repo-backed readiness register for the current Cruzible workspace.
-> Last reconciled on 2026-04-22.
+> Last reconciled on 2026-05-03.
 
 ## 1. Purpose
 
@@ -29,7 +29,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | Area      | Current state                                                                                                                               |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | Frontend  | Next.js pages for explorer, vault, validators, jobs, models, seals, stablecoins, reconciliation, developer tools, and governance preview    |
-| API       | `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{blocks,jobs,reconciliation,alerts,stablecoins}`                              |
+| API       | `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{auth,audit,blocks,jobs,reconciliation,alerts,stablecoins}`                    |
 | Contracts | CosmWasm contracts for AI jobs, vault, governance, model registry, seal manager, and CW20 staking                                           |
 | Testing   | Frontend Vitest, API Vitest, contract Cargo tests                                                                                           |
 | Infra     | Frontend Dockerfile, API Dockerfile, contract artifact Dockerfile, partial Compose scaffold, frontend/API/indexer Kubernetes base manifests |
@@ -46,6 +46,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | Admin/ops authentication bootstrap | Partial    | Wallet-backed nonce login, context-bound refresh rotation, logout revocation, refresh-session incident endpoints, current-role checks, access-token revocation watermarks, append-only privileged audit evidence, and operator audit retrieval/export endpoints exist; production startup now requires at least one configured operator/admin wallet and deployments must apply auth migrations |
 | Realtime gateway                   | Partial    | Production Socket.IO handshakes require allowed origins plus access or operational tokens, and active connections are capped per client IP; end-to-end staging validation is still required |
 | Data persistence model             | Partial    | Prisma-backed database state exists for auth, reconciliation, indexer, and alert events; Redis-backed cache is required for production                                                                                             |
+| Dependency exception posture       | Good       | Root and backend API production audits report zero high-or-above vulnerabilities; `docs/security/dependency-exceptions.md` has no active accepted exceptions |
 | Migration workflow                 | Partial    | Development and production Prisma migration scripts exist; rollback still depends on operator-managed database snapshots                                                                                                           |
 
 ## 5. Launch Blockers From The Current Repo State
@@ -56,7 +57,6 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Configure `NEXT_PUBLIC_API_URL` for the selected `NEXT_PUBLIC_CHAIN_ENV`; frontend public-data requests now fail closed when the API URL is missing or obviously points at the wrong network.
 - Exercise the `/v1/auth` nonce/login/refresh/logout and session revocation workflow in staging, then provision validated operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
 - Exercise `npm run db:migrate:deploy` in staging and pair it with tested database snapshot/restore procedures.
-- Track the temporary Next.js dependency exception in `docs/security/dependency-exceptions.md` until upstream stops bundling `postcss < 8.5.10`.
 
 ## 6. Operator Assumptions That Should Be Treated As Explicit
 
