@@ -81,6 +81,7 @@ mod tests {
             fee_collector: FEE_COLLECTOR.to_string(),
             required_tee_type: 0,
             model_registry: MODEL_REGISTRY.to_string(),
+            validators: vec![VALIDATOR.to_string()],
         };
 
         instantiate(deps, mock_env(), info.clone(), msg).unwrap();
@@ -95,6 +96,7 @@ mod tests {
             fee_collector: Addr::unchecked(FEE_COLLECTOR),
             required_tee_type: 0,
             model_registry: Addr::unchecked(MODEL_REGISTRY),
+            authorized_validators: vec![Addr::unchecked(VALIDATOR)],
         };
         (config, info)
     }
@@ -172,10 +174,31 @@ mod tests {
             fee_collector: "".to_string(),
             required_tee_type: 0,
             model_registry: MODEL_REGISTRY.to_string(),
+            validators: vec![VALIDATOR.to_string()],
         };
 
         let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         assert!(matches!(err, ContractError::Std(_)));
+    }
+
+    #[test]
+    fn instantiate_without_validators_fails() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let msg = InstantiateMsg {
+            payment_denom: PAYMENT_DENOM.to_string(),
+            min_timeout: 100,
+            max_timeout: 10000,
+            min_payment: Uint128::from(1000u128),
+            platform_fee_bps: 500,
+            fee_collector: FEE_COLLECTOR.to_string(),
+            required_tee_type: 0,
+            model_registry: MODEL_REGISTRY.to_string(),
+            validators: vec![],
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidValidatorSet {}));
     }
 
     // ============ SUBMIT JOB TESTS ============
@@ -377,6 +400,25 @@ mod tests {
         assert!(matches!(err, ContractError::JobExpired {}));
     }
 
+    #[test]
+    fn assign_job_unauthorized_validator_fails() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+
+        let info = mock_info("unauthorized_validator", &[]);
+        let msg = ExecuteMsg::AssignJob {
+            job_id: job_id.clone(),
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::Unauthorized {}));
+
+        let job = jobs().load(&deps.storage, job_id).unwrap();
+        assert_eq!(job.status, JobStatus::Pending);
+        assert_eq!(job.validator, None);
+    }
+
     // ============ START COMPUTING TESTS ============
 
     #[test]
@@ -521,6 +563,7 @@ mod tests {
             fee_collector: FEE_COLLECTOR.to_string(),
             required_tee_type: 2, // Require TDX
             model_registry: MODEL_REGISTRY.to_string(),
+            validators: vec![VALIDATOR.to_string()],
         };
         instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -903,6 +946,7 @@ mod tests {
             min_payment: Some(Uint128::from(5000u128)),
             platform_fee_bps: Some(1000),
             required_tee_type: Some(1),
+            validators: None,
         };
 
         let res = execute(deps.as_mut(), mock_env(), admin_info, msg).unwrap();
@@ -918,6 +962,90 @@ mod tests {
     }
 
     #[test]
+    fn update_config_rotates_authorized_validators() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let (_config, admin_info) = setup_contract(deps.as_mut());
+
+        let new_validator = "new_validator";
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                min_payment: None,
+                platform_fee_bps: None,
+                required_tee_type: None,
+                validators: Some(vec![new_validator.to_string(), new_validator.to_string()]),
+            },
+        )
+        .unwrap();
+
+        let updated_config = CONFIG.load(&deps.storage).unwrap();
+        assert_eq!(
+            updated_config.authorized_validators,
+            vec![Addr::unchecked(new_validator)]
+        );
+
+        let (old_validator_job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+        let old_validator_err = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(VALIDATOR, &[]),
+            ExecuteMsg::AssignJob {
+                job_id: old_validator_job_id.clone(),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(old_validator_err, ContractError::Unauthorized {}));
+
+        let old_validator_job = jobs().load(&deps.storage, old_validator_job_id).unwrap();
+        assert_eq!(old_validator_job.status, JobStatus::Pending);
+
+        let (new_validator_job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(new_validator, &[]),
+            ExecuteMsg::AssignJob {
+                job_id: new_validator_job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let new_validator_job = jobs().load(&deps.storage, new_validator_job_id).unwrap();
+        assert_eq!(
+            new_validator_job.validator,
+            Some(Addr::unchecked(new_validator))
+        );
+    }
+
+    #[test]
+    fn update_config_empty_validator_set_fails() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let (_config, admin_info) = setup_contract(deps.as_mut());
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                min_payment: None,
+                platform_fee_bps: None,
+                required_tee_type: None,
+                validators: Some(vec![]),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContractError::InvalidValidatorSet {}));
+
+        let config = CONFIG.load(&deps.storage).unwrap();
+        assert_eq!(
+            config.authorized_validators,
+            vec![Addr::unchecked(VALIDATOR)]
+        );
+    }
+
+    #[test]
     fn update_config_not_admin_fails() {
         let mut deps = mock_dependencies_with_registered_model();
         setup_contract(deps.as_mut());
@@ -927,6 +1055,7 @@ mod tests {
             min_payment: Some(Uint128::from(5000u128)),
             platform_fee_bps: None,
             required_tee_type: None,
+            validators: None,
         };
 
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
@@ -1683,6 +1812,7 @@ mod tests {
                 min_payment: None,
                 platform_fee_bps: Some(2001), // Above 20% cap
                 required_tee_type: None,
+                validators: None,
             },
         )
         .unwrap_err();
@@ -1703,6 +1833,7 @@ mod tests {
                 min_payment: None,
                 platform_fee_bps: Some(2000), // Exactly at cap (20%)
                 required_tee_type: None,
+                validators: None,
             },
         )
         .unwrap();

@@ -147,15 +147,30 @@
         "platform_fee_bps": 250,
         "fee_collector": "aethel1treasury000000000000000000000000000000",
         "required_tee_type": 0,
-        "model_registry": "aethel1models00000000000000000000000000000000"
+        "model_registry": "aethel1models00000000000000000000000000000000",
+        "validators": [
+          "aethel1aijobvalidator100000000000000000000000000",
+          "aethel1aijobvalidator200000000000000000000000000",
+          "aethel1aijobvalidator300000000000000000000000000"
+        ]
       },
       "instantiate_funds": [],
       "roles": {
-        "fee_collector": "aethel1treasury000000000000000000000000000000"
+        "fee_collector": "aethel1treasury000000000000000000000000000000",
+        "validators": [
+          "aethel1aijobvalidator100000000000000000000000000",
+          "aethel1aijobvalidator200000000000000000000000000",
+          "aethel1aijobvalidator300000000000000000000000000"
+        ]
       },
       "config": {
         "model_registry": "aethel1models00000000000000000000000000000000",
-        "payment_denom": "uaethel"
+        "payment_denom": "uaethel",
+        "authorized_validators": [
+          "aethel1aijobvalidator100000000000000000000000000",
+          "aethel1aijobvalidator200000000000000000000000000",
+          "aethel1aijobvalidator300000000000000000000000000"
+        ]
       }
     },
     {

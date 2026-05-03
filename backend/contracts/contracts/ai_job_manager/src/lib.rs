@@ -60,6 +60,9 @@ pub enum ContractError {
 
     #[error("Already claimed")]
     AlreadyClaimed {},
+
+    #[error("Validator set must contain at least one valid address")]
+    InvalidValidatorSet {},
 }
 
 // ============ STATE ============
@@ -83,6 +86,8 @@ pub struct Config {
     pub required_tee_type: u8,
     /// Model registry contract address
     pub model_registry: Addr,
+    /// Validators authorized to claim pending inference jobs.
+    pub authorized_validators: Vec<Addr>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -247,6 +252,7 @@ pub struct InstantiateMsg {
     pub fee_collector: String,
     pub required_tee_type: u8,
     pub model_registry: String,
+    pub validators: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -292,6 +298,7 @@ pub enum ExecuteMsg {
         min_payment: Option<Uint128>,
         platform_fee_bps: Option<u64>,
         required_tee_type: Option<u8>,
+        validators: Option<Vec<String>>,
     },
 
     /// Cleanup expired jobs (anyone)
@@ -361,6 +368,8 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    let authorized_validators = validate_validator_set(deps.api, msg.validators)?;
+
     let config = Config {
         admin: info.sender,
         payment_denom: msg.payment_denom,
@@ -371,6 +380,7 @@ pub fn instantiate(
         fee_collector: deps.api.addr_validate(&msg.fee_collector)?,
         required_tee_type: msg.required_tee_type,
         model_registry: deps.api.addr_validate(&msg.model_registry)?,
+        authorized_validators,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -385,6 +395,29 @@ pub fn instantiate(
         .add_attribute("action", "instantiate")
         .add_attribute("contract_name", CONTRACT_NAME)
         .add_attribute("contract_version", CONTRACT_VERSION))
+}
+
+fn validate_validator_set(
+    api: &dyn cosmwasm_std::Api,
+    validators: Vec<String>,
+) -> Result<Vec<Addr>, ContractError> {
+    if validators.is_empty() {
+        return Err(ContractError::InvalidValidatorSet {});
+    }
+
+    let mut authorized_validators = Vec::new();
+    for validator in validators {
+        let validator_addr = api.addr_validate(&validator)?;
+        if !authorized_validators.contains(&validator_addr) {
+            authorized_validators.push(validator_addr);
+        }
+    }
+
+    if authorized_validators.is_empty() {
+        return Err(ContractError::InvalidValidatorSet {});
+    }
+
+    Ok(authorized_validators)
 }
 
 // ============ EXECUTE ============
@@ -430,7 +463,15 @@ pub fn execute(
             min_payment,
             platform_fee_bps,
             required_tee_type,
-        } => execute_update_config(deps, info, min_payment, platform_fee_bps, required_tee_type),
+            validators,
+        } => execute_update_config(
+            deps,
+            info,
+            min_payment,
+            platform_fee_bps,
+            required_tee_type,
+            validators,
+        ),
         ExecuteMsg::CleanupExpired { limit } => execute_cleanup_expired(deps, env, limit),
     }
 }
@@ -544,6 +585,11 @@ fn execute_assign_job(
     info: MessageInfo,
     job_id: String,
 ) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    if !config.authorized_validators.contains(&info.sender) {
+        return Err(ContractError::Unauthorized {});
+    }
+
     let mut job = jobs().load(deps.storage, job_id.clone())?;
 
     // Check job is pending
@@ -977,6 +1023,7 @@ fn execute_update_config(
     min_payment: Option<Uint128>,
     platform_fee_bps: Option<u64>,
     required_tee_type: Option<u8>,
+    validators: Option<Vec<String>>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -998,6 +1045,9 @@ fn execute_update_config(
     }
     if let Some(tee) = required_tee_type {
         config.required_tee_type = tee;
+    }
+    if let Some(validators) = validators {
+        config.authorized_validators = validate_validator_set(deps.api, validators)?;
     }
 
     CONFIG.save(deps.storage, &config)?;

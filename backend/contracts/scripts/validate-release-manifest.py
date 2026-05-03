@@ -323,6 +323,18 @@ def validate_ai_job_manager_instantiate(contract: dict[str, Any]) -> None:
     ):
         fail(f"{msg_path}.model_registry must match {path}.config.model_registry")
 
+    validators = require_unique_string_list(msg.get("validators"), f"{msg_path}.validators", min_length=1)
+    role_validators = require_unique_string_list(roles.get("validators"), f"{path}.roles.validators", min_length=1)
+    config_validators = require_unique_string_list(
+        config.get("authorized_validators"),
+        f"{path}.config.authorized_validators",
+        min_length=1,
+    )
+    if validators != role_validators:
+        fail(f"{msg_path}.validators must match {path}.roles.validators")
+    if validators != config_validators:
+        fail(f"{msg_path}.validators must match {path}.config.authorized_validators")
+
 
 def validate_model_registry_instantiate(contract: dict[str, Any]) -> None:
     path = "$.contracts[model_registry]"

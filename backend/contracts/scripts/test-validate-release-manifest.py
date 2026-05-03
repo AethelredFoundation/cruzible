@@ -162,6 +162,26 @@ class ReleaseManifestValidationTests(unittest.TestCase):
 
             self.assert_manifest_fails(manifest_path)
 
+    def test_ai_job_manager_validators_must_match_manifest_roles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            ai_jobs = self.contract_by_name(manifest, "ai_job_manager")
+            ai_jobs["roles"]["validators"] = [
+                "aethel1differentaijobvalidator000000000000000000"
+            ]
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_ai_job_manager_validators_must_match_manifest_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            ai_jobs = self.contract_by_name(manifest, "ai_job_manager")
+            ai_jobs["config"]["authorized_validators"] = []
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
     def test_vault_instantiate_funds_required(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = self.load_example()
