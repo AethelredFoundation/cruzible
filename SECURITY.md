@@ -18,18 +18,18 @@ If you discover a security vulnerability in Cruzible, please report it responsib
 
 ### Response Timeline
 
-| Stage | SLA |
-|-------|-----|
-| Acknowledgment | 48 hours |
-| Initial assessment | 5 business days |
-| Fix timeline communicated | 10 business days |
-| Patch released | Depends on severity |
+| Stage                     | SLA                 |
+| ------------------------- | ------------------- |
+| Acknowledgment            | 48 hours            |
+| Initial assessment        | 5 business days     |
+| Fix timeline communicated | 10 business days    |
+| Patch released            | Depends on severity |
 
 ## Scope
 
 ### In Scope
 
-- Smart contracts (CosmWasm and Solidity)
+- Smart contracts (CosmWasm)
 - Backend API endpoints
 - Authentication and authorization logic
 - Cryptographic implementations
@@ -43,7 +43,7 @@ If you discover a security vulnerability in Cruzible, please report it responsib
 - Third-party dependencies (report upstream)
 - Issues in test or development environments
 
-## Audit Reports
+## Internal Security And Readiness Reports
 
 - [120-Attack Security Analysis](backend/contracts/SECURITY_AUDIT.md)
 - [Compliance and Remediation Report](backend/contracts/SECURITY_COMPLIANCE_REPORT.md)
@@ -55,7 +55,10 @@ If you discover a security vulnerability in Cruzible, please report it responsib
 
 **Application layer:** JWT + refresh tokens, RBAC, Zod input validation, per-endpoint rate limiting, CORS, Helmet headers, parameterised queries (Prisma), XSS sanitisation.
 
-**Infrastructure:** TLS 1.3, libp2p Noise protocol, DDoS protection, container security contexts, secrets management.
+**Infrastructure:** Container security contexts, Kubernetes secret references,
+health probes, and node transport hardening are represented in repo artifacts.
+TLS termination, DDoS protection, and external secret-store controls must be
+validated in the target deployment environment before mainnet.
 
 ## Bug Bounty
 
@@ -63,7 +66,7 @@ A bug bounty program will be announced prior to mainnet launch. Details will be 
 
 ## Supported Versions
 
-| Version | Supported |
-|---------|-----------|
-| main (pre-mainnet) | Yes |
-| Older branches | No |
+| Version            | Supported |
+| ------------------ | --------- |
+| main (pre-mainnet) | Yes       |
+| Older branches     | No        |
