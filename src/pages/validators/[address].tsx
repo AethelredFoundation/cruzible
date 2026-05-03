@@ -24,6 +24,7 @@ import {
   type ValidatorLifecycleStatus,
   type ValidatorRiskLevel,
 } from "@/lib/validators";
+import { isHttpUrl } from "@/lib/utils";
 
 function DetailCard({
   label,
@@ -123,6 +124,7 @@ export default function ValidatorDetailPage() {
     : 0;
   const profileCompleteness = validator ? getProfileCompleteness(validator) : 0;
   const status = validator ? getValidatorStatus(validator) : "inactive";
+  const safeWebsite = isHttpUrl(validator?.website) ? validator?.website : null;
 
   return (
     <>
@@ -218,11 +220,11 @@ export default function ValidatorDetailPage() {
                       Reconciliation
                       <FileCheck className="h-4 w-4" />
                     </Link>
-                    {validator.website ? (
+                    {safeWebsite ? (
                       <a
-                        href={validator.website}
+                        href={safeWebsite}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         className="inline-flex items-center justify-between rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-sm font-medium text-slate-100 transition-colors hover:border-slate-500"
                       >
                         Operator website

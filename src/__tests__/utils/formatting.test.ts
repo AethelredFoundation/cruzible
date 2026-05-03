@@ -5,6 +5,7 @@
 import {
   formatFullNumber,
   formatNumber,
+  isHttpUrl,
   seededAddress,
   seededHex,
   seededInt,
@@ -91,5 +92,16 @@ describe("truncateAddress", () => {
 
   it("returns short addresses unchanged", () => {
     expect(truncateAddress("short")).toBe("short");
+  });
+});
+
+describe("isHttpUrl", () => {
+  it("allows only http and https URLs", () => {
+    expect(isHttpUrl("https://validator.example")).toBe(true);
+    expect(isHttpUrl("http://validator.example")).toBe(true);
+    expect(isHttpUrl("javascript:alert(1)")).toBe(false);
+    expect(isHttpUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
+    expect(isHttpUrl("not a url")).toBe(false);
+    expect(isHttpUrl("")).toBe(false);
   });
 });

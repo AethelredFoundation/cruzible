@@ -91,3 +91,16 @@ export function truncateAddress(
 export function copyToClipboard(text: string): Promise<void> {
   return navigator.clipboard.writeText(text).catch(() => {});
 }
+
+export function isHttpUrl(value?: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}

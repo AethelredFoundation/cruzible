@@ -22,10 +22,10 @@ import {
   formatModelCategory,
   formatNullableNumber,
   formatRelativeTime,
-  isHttpUrl,
   prettyPrintSchema,
   truncateIdentifier,
 } from "@/lib/models";
+import { isHttpUrl } from "@/lib/utils";
 
 function MetricCard({
   label,
