@@ -26,7 +26,7 @@
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "benchmark": "autocannon -c 100 -d 30 http://localhost:3000/v1/health"
+    "benchmark": "autocannon -c 100 -d 30 http://localhost:3000/health/live"
   },
   "dependencies": {
     "@cosmjs/amino": "^0.34.1",

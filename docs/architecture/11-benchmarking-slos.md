@@ -15,7 +15,7 @@ This document only covers measurement paths that are backed by code or scripts p
 | Frontend bundle analysis | `npm run analyze` | root `package.json` |
 | Frontend test coverage | `npm run test:coverage` | root `package.json` |
 | API latency smoke test scaffold | `cd backend/api && npm run benchmark` | `backend/api/package.json` |
-| API readiness | `GET /health` and `GET /health/ready` | `backend/api/src/routes/health.ts` |
+| API readiness | `GET /health/live` and `GET /health/ready` | `backend/api/src/routes/health.ts` |
 | API route documentation | `GET /docs` | `backend/api/src/config/swagger.ts` and route annotations |
 | Contract test coverage baseline | `cd backend/contracts && cargo test --all` | `backend/contracts` |
 
@@ -34,7 +34,7 @@ This document only covers measurement paths that are backed by code or scripts p
 
 | Metric | Target | How to measure |
 | --- | --- | --- |
-| `/health` remains fast enough for probes | p95 under 250ms on representative infra | `npm run benchmark` or external probe |
+| `/health/live` remains fast enough for liveness probes | p95 under 250ms on representative infra | `npm run benchmark` or external probe |
 | `/health/ready` only returns 200 when core dependencies are healthy | 100% correctness | direct curl / monitoring checks |
 | Public route surface remains documented | `/docs` renders and matches route annotations | local run of API |
 | Global rate limiter behaves predictably | default 120 requests per 60s unless overridden | automated tests + env review |
@@ -72,7 +72,7 @@ cargo test --all
 
 ## 5. Notes For Operators
 
-- The current API benchmark script targets a stale path, `http://localhost:3000/v1/health`. Update that target locally before using it as a meaningful latency measurement.
+- Full `/health` is a token-gated diagnostic endpoint in production; liveness and readiness automation should use `/health/live` and `/health/ready`.
 - Some frontend pages still include preview or mock fallback data. User-perceived performance should be interpreted in that context.
 - The API exposes Prometheus-compatible process and HTTP metrics at `/metrics`, but the checked-in Compose monitoring stack is incomplete because referenced config assets are missing from `backend/infra/`.
 - `CacheService` uses Redis when `REDIS_URL` is configured and production startup requires Redis. Alert history is database-backed when `DATABASE_URL` is configured.
