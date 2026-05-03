@@ -1,7 +1,7 @@
 # Cruzible Environment Reference
 
 > Repo-aligned environment contract for the current workspace snapshot.
-> Last reconciled on 2026-04-28.
+> Last reconciled on 2026-05-03.
 
 ## 1. Loading Behavior
 
@@ -15,8 +15,8 @@ The variables below are the ones referenced from `src/` in the current workspace
 
 | Variable                                | Required               | Default / example          | Notes                                                                                                                               |
 | --------------------------------------- | ---------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_CHAIN_ENV`                 | No                     | `testnet`                  | Selects `mainnet`, `testnet`, or `devnet` in `src/config/chains.ts`                                                                 |
-| `NEXT_PUBLIC_API_URL`                   | Required in production | `http://localhost:3001/v1` | Base URL for frontend API requests; production public-data requests fail closed if unset or mismatched with `NEXT_PUBLIC_CHAIN_ENV` |
+| `NEXT_PUBLIC_CHAIN_ENV`                 | Build-time production input | `devnet` locally, `testnet` in CI | Selects `mainnet`, `testnet`, or `devnet` in `src/config/chains.ts`; pass as a Docker build arg for production images                |
+| `NEXT_PUBLIC_API_URL`                   | Required at build time | `http://localhost:3001/v1` | Base URL for frontend API requests; Next.js compiles this into browser bundles, so Kubernetes runtime env alone cannot change it     |
 | `NEXT_PUBLIC_APP_VERSION`               | No                     | `local-dev`                | Displayed in UI and sent in request headers                                                                                         |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`  | Optional               | blank                      | Needed for WalletConnect flows                                                                                                      |
 | `NEXT_PUBLIC_CRUZIBLE_ADDRESS`          | Optional               | blank                      | Contract address placeholder                                                                                                        |
@@ -30,6 +30,18 @@ The variables below are the ones referenced from `src/` in the current workspace
 | `NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL`      | Optional               | `http://127.0.0.1:8000`    | Used by `/devtools`                                                                                                                 |
 | `NEXT_PUBLIC_DEVTOOLS_NEXTJS_URL`       | Optional               | `http://127.0.0.1:3000`    | Used by `/devtools`                                                                                                                 |
 | `NEXT_PUBLIC_DEVTOOLS_RPC_URL`          | Optional               | `http://127.0.0.1:26657`   | Used by `/devtools`                                                                                                                 |
+
+Production frontend images must be built with explicit public config:
+
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org \
+  --build-arg NEXT_PUBLIC_CHAIN_ENV=testnet \
+  -t cruzible-frontend:staging .
+```
+
+Use `NEXT_PUBLIC_CHAIN_ENV=devnet` for localhost API builds. `mainnet` builds
+reject localhost and obvious testnet API URLs.
 
 ## 3. API Runtime Variables
 

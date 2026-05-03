@@ -54,7 +54,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Supply and stage-test the config directories referenced by `backend/infra/docker-compose.yml`.
 - Capture a contract staging release manifest with wasm checksums, code IDs, contract addresses, and role owners.
 - Stage-test `k8s/base/` with real `cruzible-api-config` values and a provisioned `cruzible-api-secrets` Secret.
-- Configure `NEXT_PUBLIC_API_URL` for the selected `NEXT_PUBLIC_CHAIN_ENV`; frontend public-data requests now fail closed when the API URL is missing or obviously points at the wrong network.
+- Build frontend images with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` Docker build args; frontend public-data requests fail closed when the API URL is missing or obviously points at the wrong network.
 - Exercise the `/v1/auth` nonce/login/refresh/logout and session revocation workflow in staging, then provision validated operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
 - Exercise `npm run db:migrate:deploy` in staging and pair it with tested database snapshot/restore procedures.
 

@@ -73,6 +73,8 @@ Before starting the API, inject the variables documented in [backend/.env.exampl
 
 ```bash
 # Frontend
+export NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org
+export NEXT_PUBLIC_CHAIN_ENV=testnet
 npm run build
 
 # API
@@ -86,10 +88,12 @@ cargo test --all
 
 ### Kubernetes base
 
-`k8s/base/` contains frontend, API gateway, and indexer manifests. Before
-applying it, replace placeholder values in `cruzible-config` and
-`cruzible-api-config`, then create the required `cruzible-api-secrets` Secret
-with these keys:
+`k8s/base/` contains frontend, API gateway, and indexer manifests. Build the
+frontend image with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` Docker
+build args before rollout; Kubernetes runtime env does not rewrite values that
+Next.js compiled into browser bundles. Before applying the backend manifests,
+replace placeholder values in `cruzible-api-config`, then create the required
+`cruzible-api-secrets` Secret with these keys:
 
 - `database-url`
 - `redis-url`

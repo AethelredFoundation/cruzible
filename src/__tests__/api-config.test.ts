@@ -52,13 +52,31 @@ describe("frontend API config", () => {
     );
   });
 
-  it("rejects local or testnet API URLs for mainnet wallet builds", () => {
+  it("rejects testnet API URLs for mainnet wallet builds", () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.NEXT_PUBLIC_CHAIN_ENV = "mainnet";
     process.env.NEXT_PUBLIC_API_URL = "https://api.testnet.aethelred.org";
 
     expect(() => getApiV1BaseUrl()).toThrow(
-      "NEXT_PUBLIC_API_URL must not point at a testnet or local API when NEXT_PUBLIC_CHAIN_ENV=mainnet",
+      "NEXT_PUBLIC_API_URL must not point at a testnet API when NEXT_PUBLIC_CHAIN_ENV=mainnet",
     );
+  });
+
+  it("rejects localhost API URLs outside devnet production builds", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
+    process.env.NEXT_PUBLIC_API_URL = "http://localhost:3001";
+
+    expect(() => getApiV1BaseUrl()).toThrow(
+      "NEXT_PUBLIC_API_URL must not point at localhost unless NEXT_PUBLIC_CHAIN_ENV=devnet",
+    );
+  });
+
+  it("allows localhost API URLs for explicit devnet production builds", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "devnet";
+    process.env.NEXT_PUBLIC_API_URL = "http://localhost:3001";
+
+    expect(getApiV1BaseUrl()).toBe("http://localhost:3001/v1");
   });
 });

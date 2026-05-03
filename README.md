@@ -119,6 +119,8 @@ handshakes require an allowed origin plus a valid API access token or
 
 ```bash
 # Frontend
+export NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org
+export NEXT_PUBLIC_CHAIN_ENV=testnet
 npm run build
 npm run test
 npm run test:coverage
@@ -139,7 +141,7 @@ cargo test --all
 
 - `backend/infra/docker-compose.yml` still references companion config directories that are not present in this workspace. Treat that Compose file as a hardened baseline, not a turnkey stack.
 - `k8s/base/` includes frontend, API gateway, and indexer manifests. The backend manifests expect environment-specific ConfigMap values and a `cruzible-api-secrets` Secret before rollout.
-- Frontend public-data requests require an explicit `NEXT_PUBLIC_API_URL` in production and reject obvious chain/API environment mismatches.
+- Frontend public-data requests require `NEXT_PUBLIC_API_URL` at build time because Next.js public env is compiled into browser bundles; Docker images must pass `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` as build args.
 - `backend/api/src/services/CacheService.ts` uses Redis when `REDIS_URL` is configured and requires Redis in production; local/test runs keep an in-memory fallback.
 - `backend/api/src/services/AlertService.ts` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.
 - Some frontend surfaces remain preview-oriented. Governance explicitly guards against simulated on-chain success, and several pages use mock or fallback data for presentation.

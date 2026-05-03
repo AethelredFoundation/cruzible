@@ -23,6 +23,15 @@ function hostnameFor(apiV1Url: string): string | null {
   }
 }
 
+function isLocalApiHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
 function assertApiMatchesChain(apiV1Url: string): void {
   if (process.env.NODE_ENV !== "production") {
     return;
@@ -34,7 +43,13 @@ function assertApiMatchesChain(apiV1Url: string): void {
   }
 
   const chainEnv = activeChainEnv();
-  const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
+  const isLocalHost = isLocalApiHost(hostname);
+
+  if (chainEnv !== "devnet" && isLocalHost) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL must not point at localhost unless NEXT_PUBLIC_CHAIN_ENV=devnet",
+    );
+  }
 
   if (chainEnv !== "mainnet" && hostname.includes("mainnet")) {
     throw new Error(
@@ -42,9 +57,9 @@ function assertApiMatchesChain(apiV1Url: string): void {
     );
   }
 
-  if (chainEnv === "mainnet" && (hostname.includes("testnet") || isLocalHost)) {
+  if (chainEnv === "mainnet" && hostname.includes("testnet")) {
     throw new Error(
-      "NEXT_PUBLIC_API_URL must not point at a testnet or local API when NEXT_PUBLIC_CHAIN_ENV=mainnet",
+      "NEXT_PUBLIC_API_URL must not point at a testnet API when NEXT_PUBLIC_CHAIN_ENV=mainnet",
     );
   }
 }

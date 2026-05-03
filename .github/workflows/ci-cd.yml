@@ -73,8 +73,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Reject missing frontend public API build config
+        run: |
+          if node scripts/validate-frontend-public-env.mjs; then
+            echo "Expected frontend public build config validation to fail without NEXT_PUBLIC_API_URL"
+            exit 1
+          fi
+
       - name: Build frontend
+        env:
+          NEXT_PUBLIC_API_URL: https://api.testnet.aethelred.org
+          NEXT_PUBLIC_CHAIN_ENV: testnet
         run: npm run build
+
+      - name: Build frontend container
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org \
+            --build-arg NEXT_PUBLIC_CHAIN_ENV=testnet \
+            -t cruzible-frontend:ci .
 
   backend-api:
     name: Backend API
