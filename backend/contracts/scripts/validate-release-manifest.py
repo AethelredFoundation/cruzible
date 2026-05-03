@@ -109,6 +109,18 @@ def require_unique_string_list(value: Any, path: str, *, min_length: int = 0) ->
     return strings
 
 
+def require_unique_measurement_list(value: Any, path: str, *, min_length: int = 1) -> list[str]:
+    measurements = require_unique_string_list(value, path, min_length=min_length)
+    canonical: list[str] = []
+    for index, measurement in enumerate(measurements):
+        if not SHA256_RE.match(measurement.lower()):
+            fail(f"{path}[{index}] must be a 64-character hex measurement")
+        canonical.append(measurement.lower())
+    if len(set(canonical)) != len(canonical):
+        fail(f"{path} contains duplicate canonical measurements")
+    return canonical
+
+
 def validate_basis_points(value: Any, path: str, *, allow_zero: bool = True) -> int:
     if allow_zero:
         if not isinstance(value, int) or value < 0:
@@ -334,6 +346,17 @@ def validate_ai_job_manager_instantiate(contract: dict[str, Any]) -> None:
         fail(f"{msg_path}.validators must match {path}.roles.validators")
     if validators != config_validators:
         fail(f"{msg_path}.validators must match {path}.config.authorized_validators")
+
+    measurements = require_unique_measurement_list(
+        msg.get("authorized_measurements"),
+        f"{msg_path}.authorized_measurements",
+    )
+    config_measurements = require_unique_measurement_list(
+        config.get("authorized_measurements"),
+        f"{path}.config.authorized_measurements",
+    )
+    if measurements != config_measurements:
+        fail(f"{msg_path}.authorized_measurements must match {path}.config.authorized_measurements")
 
 
 def validate_model_registry_instantiate(contract: dict[str, Any]) -> None:

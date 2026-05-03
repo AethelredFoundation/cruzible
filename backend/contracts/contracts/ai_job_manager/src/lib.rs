@@ -20,6 +20,9 @@ use thiserror::Error;
 const CONTRACT_NAME: &str = "crates.io:ai-job-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MODEL_REGISTRY_INCREMENT_REPLY_ID: u64 = 1;
+const MIN_TEE_QUOTE_BYTES: usize = 256;
+const MIN_REPORT_DATA_BYTES: usize = 32;
+const MIN_ENCLAVE_KEY_BYTES: usize = 32;
 
 // ============ ERRORS ============
 
@@ -63,6 +66,9 @@ pub enum ContractError {
 
     #[error("Validator set must contain at least one valid address")]
     InvalidValidatorSet {},
+
+    #[error("Measurement set must contain at least one 64-character hex measurement")]
+    InvalidMeasurementSet {},
 }
 
 // ============ STATE ============
@@ -88,6 +94,8 @@ pub struct Config {
     pub model_registry: Addr,
     /// Validators authorized to claim pending inference jobs.
     pub authorized_validators: Vec<Addr>,
+    /// Canonical enclave measurements approved for production inference.
+    pub authorized_measurements: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -253,6 +261,7 @@ pub struct InstantiateMsg {
     pub required_tee_type: u8,
     pub model_registry: String,
     pub validators: Vec<String>,
+    pub authorized_measurements: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -299,6 +308,7 @@ pub enum ExecuteMsg {
         platform_fee_bps: Option<u64>,
         required_tee_type: Option<u8>,
         validators: Option<Vec<String>>,
+        authorized_measurements: Option<Vec<String>>,
     },
 
     /// Cleanup expired jobs (anyone)
@@ -369,6 +379,7 @@ pub fn instantiate(
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
     let authorized_validators = validate_validator_set(deps.api, msg.validators)?;
+    let authorized_measurements = validate_measurement_set(msg.authorized_measurements)?;
 
     let config = Config {
         admin: info.sender,
@@ -381,6 +392,7 @@ pub fn instantiate(
         required_tee_type: msg.required_tee_type,
         model_registry: deps.api.addr_validate(&msg.model_registry)?,
         authorized_validators,
+        authorized_measurements,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -418,6 +430,39 @@ fn validate_validator_set(
     }
 
     Ok(authorized_validators)
+}
+
+fn validate_measurement_set(measurements: Vec<String>) -> Result<Vec<String>, ContractError> {
+    if measurements.is_empty() {
+        return Err(ContractError::InvalidMeasurementSet {});
+    }
+
+    let mut authorized_measurements = Vec::new();
+    for measurement in measurements {
+        if measurement.len() != 64 || !measurement.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(ContractError::InvalidMeasurementSet {});
+        }
+
+        let canonical = measurement.to_ascii_lowercase();
+        if !authorized_measurements.contains(&canonical) {
+            authorized_measurements.push(canonical);
+        }
+    }
+
+    if authorized_measurements.is_empty() {
+        return Err(ContractError::InvalidMeasurementSet {});
+    }
+
+    Ok(authorized_measurements)
+}
+
+fn tee_type_code(tee_type: &TeeType) -> u8 {
+    match tee_type {
+        TeeType::IntelSgx => 1,
+        TeeType::IntelTdx => 2,
+        TeeType::AmdSevSnp => 3,
+        TeeType::AwsNitro => 4,
+    }
 }
 
 // ============ EXECUTE ============
@@ -464,6 +509,7 @@ pub fn execute(
             platform_fee_bps,
             required_tee_type,
             validators,
+            authorized_measurements,
         } => execute_update_config(
             deps,
             info,
@@ -471,6 +517,7 @@ pub fn execute(
             platform_fee_bps,
             required_tee_type,
             validators,
+            authorized_measurements,
         ),
         ExecuteMsg::CleanupExpired { limit } => execute_cleanup_expired(deps, env, limit),
     }
@@ -680,37 +727,34 @@ fn execute_complete_job(
 
     // Verify TEE attestation
     if config.required_tee_type != 0 {
-        let tee_type = match tee_attestation.tee_type {
-            TeeType::IntelSgx => 1u8,
-            TeeType::IntelTdx => 2u8,
-            TeeType::AmdSevSnp => 3u8,
-            TeeType::AwsNitro => 4u8,
-        };
+        let tee_type = tee_type_code(&tee_attestation.tee_type);
         if tee_type != config.required_tee_type {
             return Err(ContractError::InvalidAttestation {});
         }
     }
 
-    // MED-7: Validate TEE attestation content — not just the type enum.
-    // Check that required fields are non-empty and the quote is well-formed.
-    if tee_attestation.quote.is_empty() {
+    // Validate TEE attestation content against production-sized evidence.
+    if tee_attestation.quote.len() < MIN_TEE_QUOTE_BYTES {
         return Err(ContractError::InvalidAttestation {});
     }
-    if tee_attestation.report_data.is_empty() {
+    if tee_attestation.report_data.len() < MIN_REPORT_DATA_BYTES {
         return Err(ContractError::InvalidAttestation {});
     }
-    if tee_attestation.measurement.is_empty() {
+    if tee_attestation.enclave_key.len() < MIN_ENCLAVE_KEY_BYTES {
         return Err(ContractError::InvalidAttestation {});
     }
-    if tee_attestation.enclave_key.is_empty() {
-        return Err(ContractError::InvalidAttestation {});
-    }
-    // Validate measurement looks like a hex hash (at least 32 hex chars)
-    if tee_attestation.measurement.len() < 32
+    // Validate measurement is a canonical 32-byte hex digest and is allowlisted.
+    if tee_attestation.measurement.len() != 64
         || !tee_attestation
             .measurement
             .chars()
             .all(|c| c.is_ascii_hexdigit())
+    {
+        return Err(ContractError::InvalidAttestation {});
+    }
+    if !config
+        .authorized_measurements
+        .contains(&tee_attestation.measurement.to_ascii_lowercase())
     {
         return Err(ContractError::InvalidAttestation {});
     }
@@ -1024,6 +1068,7 @@ fn execute_update_config(
     platform_fee_bps: Option<u64>,
     required_tee_type: Option<u8>,
     validators: Option<Vec<String>>,
+    authorized_measurements: Option<Vec<String>>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -1048,6 +1093,9 @@ fn execute_update_config(
     }
     if let Some(validators) = validators {
         config.authorized_validators = validate_validator_set(deps.api, validators)?;
+    }
+    if let Some(measurements) = authorized_measurements {
+        config.authorized_measurements = validate_measurement_set(measurements)?;
     }
 
     CONFIG.save(deps.storage, &config)?;

@@ -152,6 +152,11 @@
           "aethel1aijobvalidator100000000000000000000000000",
           "aethel1aijobvalidator200000000000000000000000000",
           "aethel1aijobvalidator300000000000000000000000000"
+        ],
+        "authorized_measurements": [
+          "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         ]
       },
       "instantiate_funds": [],
@@ -170,6 +175,11 @@
           "aethel1aijobvalidator100000000000000000000000000",
           "aethel1aijobvalidator200000000000000000000000000",
           "aethel1aijobvalidator300000000000000000000000000"
+        ],
+        "authorized_measurements": [
+          "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         ]
       }
     },

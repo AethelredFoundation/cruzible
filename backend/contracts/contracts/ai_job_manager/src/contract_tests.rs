@@ -23,6 +23,8 @@ mod tests {
     const FEE_COLLECTOR: &str = "fee_collector";
     const MODEL_REGISTRY: &str = "model_registry";
     const PAYMENT_DENOM: &str = "aeth";
+    const AUTHORIZED_MEASUREMENT: &str =
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
     // ============ HELPER FUNCTIONS ============
     fn mock_dependencies_with_model_response(
@@ -82,6 +84,7 @@ mod tests {
             required_tee_type: 0,
             model_registry: MODEL_REGISTRY.to_string(),
             validators: vec![VALIDATOR.to_string()],
+            authorized_measurements: vec![AUTHORIZED_MEASUREMENT.to_string()],
         };
 
         instantiate(deps, mock_env(), info.clone(), msg).unwrap();
@@ -97,6 +100,7 @@ mod tests {
             required_tee_type: 0,
             model_registry: Addr::unchecked(MODEL_REGISTRY),
             authorized_validators: vec![Addr::unchecked(VALIDATOR)],
+            authorized_measurements: vec![AUTHORIZED_MEASUREMENT.to_string()],
         };
         (config, info)
     }
@@ -128,12 +132,11 @@ mod tests {
         TEEAttestation {
             tee_type: TeeType::IntelSgx,
             quote_version: 3,
-            quote: cosmwasm_std::Binary(vec![1, 2, 3, 4, 5, 6, 7, 8]),
-            report_data: cosmwasm_std::Binary(vec![10, 20, 30, 40, 50]),
-            measurement: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
-                .to_string(),
+            quote: cosmwasm_std::Binary(vec![1; 512]),
+            report_data: cosmwasm_std::Binary(vec![10; 64]),
+            measurement: AUTHORIZED_MEASUREMENT.to_string(),
             timestamp: mock_env().block.time, // Use mock_env time to be within 24h window
-            enclave_key: cosmwasm_std::Binary(vec![7, 8, 9, 10, 11]),
+            enclave_key: cosmwasm_std::Binary(vec![7; 32]),
         }
     }
 
@@ -175,6 +178,7 @@ mod tests {
             required_tee_type: 0,
             model_registry: MODEL_REGISTRY.to_string(),
             validators: vec![VALIDATOR.to_string()],
+            authorized_measurements: vec![AUTHORIZED_MEASUREMENT.to_string()],
         };
 
         let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
@@ -195,10 +199,32 @@ mod tests {
             required_tee_type: 0,
             model_registry: MODEL_REGISTRY.to_string(),
             validators: vec![],
+            authorized_measurements: vec![AUTHORIZED_MEASUREMENT.to_string()],
         };
 
         let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         assert!(matches!(err, ContractError::InvalidValidatorSet {}));
+    }
+
+    #[test]
+    fn instantiate_without_authorized_measurements_fails() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let msg = InstantiateMsg {
+            payment_denom: PAYMENT_DENOM.to_string(),
+            min_timeout: 100,
+            max_timeout: 10000,
+            min_payment: Uint128::from(1000u128),
+            platform_fee_bps: 500,
+            fee_collector: FEE_COLLECTOR.to_string(),
+            required_tee_type: 0,
+            model_registry: MODEL_REGISTRY.to_string(),
+            validators: vec![VALIDATOR.to_string()],
+            authorized_measurements: vec![],
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidMeasurementSet {}));
     }
 
     // ============ SUBMIT JOB TESTS ============
@@ -564,6 +590,7 @@ mod tests {
             required_tee_type: 2, // Require TDX
             model_registry: MODEL_REGISTRY.to_string(),
             validators: vec![VALIDATOR.to_string()],
+            authorized_measurements: vec![AUTHORIZED_MEASUREMENT.to_string()],
         };
         instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -616,6 +643,51 @@ mod tests {
         };
 
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidAttestation {}));
+    }
+
+    #[test]
+    fn complete_job_unapproved_measurement_fails() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+
+        let validator_info = mock_info(VALIDATOR, &[]);
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::AssignJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::StartComputing {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let mut tee_attestation = mock_tee_attestation();
+        tee_attestation.measurement =
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info,
+            ExecuteMsg::CompleteJob {
+                job_id,
+                output_hash: "output789".to_string(),
+                tee_attestation,
+                compute_metrics: mock_compute_metrics(),
+            },
+        )
+        .unwrap_err();
         assert!(matches!(err, ContractError::InvalidAttestation {}));
     }
 
@@ -947,6 +1019,7 @@ mod tests {
             platform_fee_bps: Some(1000),
             required_tee_type: Some(1),
             validators: None,
+            authorized_measurements: None,
         };
 
         let res = execute(deps.as_mut(), mock_env(), admin_info, msg).unwrap();
@@ -976,6 +1049,7 @@ mod tests {
                 platform_fee_bps: None,
                 required_tee_type: None,
                 validators: Some(vec![new_validator.to_string(), new_validator.to_string()]),
+                authorized_measurements: None,
             },
         )
         .unwrap();
@@ -1033,6 +1107,7 @@ mod tests {
                 platform_fee_bps: None,
                 required_tee_type: None,
                 validators: Some(vec![]),
+                authorized_measurements: None,
             },
         )
         .unwrap_err();
@@ -1042,6 +1117,63 @@ mod tests {
         assert_eq!(
             config.authorized_validators,
             vec![Addr::unchecked(VALIDATOR)]
+        );
+    }
+
+    #[test]
+    fn update_config_rotates_authorized_measurements() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let (_config, admin_info) = setup_contract(deps.as_mut());
+        let new_measurement = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                min_payment: None,
+                platform_fee_bps: None,
+                required_tee_type: None,
+                validators: None,
+                authorized_measurements: Some(vec![
+                    new_measurement.to_ascii_uppercase(),
+                    new_measurement.to_string(),
+                ]),
+            },
+        )
+        .unwrap();
+
+        let config = CONFIG.load(&deps.storage).unwrap();
+        assert_eq!(
+            config.authorized_measurements,
+            vec![new_measurement.to_string()]
+        );
+    }
+
+    #[test]
+    fn update_config_empty_measurement_set_fails() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let (_config, admin_info) = setup_contract(deps.as_mut());
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                min_payment: None,
+                platform_fee_bps: None,
+                required_tee_type: None,
+                validators: None,
+                authorized_measurements: Some(vec![]),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContractError::InvalidMeasurementSet {}));
+
+        let config = CONFIG.load(&deps.storage).unwrap();
+        assert_eq!(
+            config.authorized_measurements,
+            vec![AUTHORIZED_MEASUREMENT.to_string()]
         );
     }
 
@@ -1056,6 +1188,7 @@ mod tests {
             platform_fee_bps: None,
             required_tee_type: None,
             validators: None,
+            authorized_measurements: None,
         };
 
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
@@ -1813,6 +1946,7 @@ mod tests {
                 platform_fee_bps: Some(2001), // Above 20% cap
                 required_tee_type: None,
                 validators: None,
+                authorized_measurements: None,
             },
         )
         .unwrap_err();
@@ -1834,6 +1968,7 @@ mod tests {
                 platform_fee_bps: Some(2000), // Exactly at cap (20%)
                 required_tee_type: None,
                 validators: None,
+                authorized_measurements: None,
             },
         )
         .unwrap();
