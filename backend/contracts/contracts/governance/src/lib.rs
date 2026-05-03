@@ -602,13 +602,17 @@ fn execute_submit_proposal(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // Check deposit
+    // Require the configured anti-spam deposit before creating durable state.
     let deposit = info
         .funds
         .iter()
         .find(|c| c.denom == config.deposit_denom)
         .map(|c| c.amount)
         .unwrap_or_default();
+
+    if deposit < config.min_deposit {
+        return Err(ContractError::InsufficientDeposit {});
+    }
 
     let id = PROPOSAL_COUNT.load(deps.storage)? + 1;
 
@@ -1578,6 +1582,27 @@ mod tests {
         assert_eq!(err, ContractError::FeederSetFull {});
     }
 
+    #[test]
+    fn test_submit_proposal_rejects_below_min_deposit() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(999_999, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: "Underfunded proposal".to_string(),
+                description: "must not create durable proposal state".to_string(),
+                messages: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, ContractError::InsufficientDeposit {});
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
     /// Configure mock staking state: one validator with delegations.
     fn set_delegations(
         deps: &mut cosmwasm_std::OwnedDeps<
@@ -1631,7 +1656,7 @@ mod tests {
         >,
         env: Env,
     ) -> u64 {
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env,
@@ -1691,7 +1716,7 @@ mod tests {
         env: Env,
         proposal_id: u64,
     ) {
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env,
@@ -1715,10 +1740,10 @@ mod tests {
         refresh_total_bonded(&mut deps, env_at(t0), 10_000_000);
         seed_anchor(&mut deps, env_at(t0));
 
-        // Submit proposal (partial deposit)
+        // Submit proposal with the anti-spam deposit.
         submit_proposal(&mut deps, env_at(t0 + 10));
 
-        // Deposit remaining to activate
+        // Deposit again to trigger activation.
         activate_proposal(&mut deps, env_at(t0 + 20), 1);
 
         // Verify proposal is Active
@@ -1913,7 +1938,7 @@ mod tests {
         seed_anchor(&mut deps, env_at(t0));
         submit_proposal(&mut deps, env_at(t0 + 10));
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let err = execute(
             deps.as_mut(),
             env_at(t0 + 400),
@@ -1937,7 +1962,7 @@ mod tests {
         submit_proposal(&mut deps, env_at(t0 + 10));
 
         // Activate within freshness window (200s < 300s max_staleness)
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let res = execute(
             deps.as_mut(),
             env_at(t0 + 200),
@@ -2256,7 +2281,7 @@ mod tests {
         let t0 = 1_000_000u64;
         // Create 3 proposals (all Pending)
         for i in 0..3 {
-            let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+            let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
             execute(
                 deps.as_mut(),
                 env_at(t0 + i * 10),
@@ -2422,7 +2447,7 @@ mod tests {
         // Do NOT seed anchor
         submit_proposal(&mut deps, env_at(t0 + 10));
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let err = execute(
             deps.as_mut(),
             env_at(t0 + 20),
@@ -2476,7 +2501,7 @@ mod tests {
         refresh_total_bonded(&mut deps, env_at(t0 + 100), 15_000_000);
 
         // Submit and try to activate second proposal (after 60s cooldown)
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env_at(t0 + 100),
@@ -2489,7 +2514,7 @@ mod tests {
         )
         .unwrap();
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let err = execute(
             deps.as_mut(),
             env_at(t0 + 100), // refresh is fresh; cooldown: 100-20=80 > 60 ✓
@@ -2518,7 +2543,7 @@ mod tests {
         // Admin understates to 5M (-50%, exceeds ±10%)
         refresh_total_bonded(&mut deps, env_at(t0 + 100), 5_000_000);
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env_at(t0 + 100),
@@ -2531,7 +2556,7 @@ mod tests {
         )
         .unwrap();
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let err = execute(
             deps.as_mut(),
             env_at(t0 + 100), // cooldown: 100-20=80 > 60 ✓
@@ -2561,7 +2586,7 @@ mod tests {
         // Admin updates to 10.5M (+5%, within ±10%)
         refresh_total_bonded(&mut deps, env_at(t0 + 100), 10_500_000);
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env_at(t0 + 100),
@@ -2574,7 +2599,7 @@ mod tests {
         )
         .unwrap();
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let res = execute(
             deps.as_mut(),
             env_at(t0 + 100), // cooldown: 100-20=80 > 60 ✓; fresh: 0s < 300s ✓
@@ -2617,7 +2642,7 @@ mod tests {
         refresh_total_bonded(&mut deps, env_at(t0 + 30), 10_000_000);
 
         // Submit second proposal
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env_at(t0 + 30),
