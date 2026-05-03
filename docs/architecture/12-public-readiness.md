@@ -66,7 +66,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Full operational diagnostics require `OPERATIONAL_ENDPOINTS_TOKEN`; protected
   `/v1` operational endpoints require externally provisioned JWTs.
 - Some frontend surfaces are still preview-oriented and should not be mistaken for proof of live on-chain wiring.
-- `/devtools` is hidden in production unless `NEXT_PUBLIC_ENABLE_DEVTOOLS=true` is explicitly configured.
+- `/devtools` is hard-disabled in production; the public flag can only enable or disable local/test diagnostics.
 
 ## 7. Exit Criteria Before Public Or Production Use
 

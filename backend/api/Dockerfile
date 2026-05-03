@@ -53,6 +53,11 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app/backend/api
 
+# Production images must boot into the hardened config path even when they are
+# run outside docker-compose.
+ENV NODE_ENV=production
+ENV PORT=3000
+
 # Copy package files
 COPY backend/api/package*.json ./
 

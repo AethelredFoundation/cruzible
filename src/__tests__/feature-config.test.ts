@@ -7,7 +7,7 @@ describe("feature gates", () => {
     expect(isDevtoolsEnabled({ NODE_ENV: "test" })).toBe(true);
   });
 
-  it("hides devtools in production unless explicitly enabled", () => {
+  it("hides devtools in production even when public flags are set", () => {
     expect(isDevtoolsEnabled({})).toBe(false);
     expect(isDevtoolsEnabled({ NODE_ENV: "production" })).toBe(false);
     expect(
@@ -21,6 +21,15 @@ describe("feature gates", () => {
         NODE_ENV: "production",
         NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
       }),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("allows local diagnostics to be disabled explicitly", () => {
+    expect(
+      isDevtoolsEnabled({
+        NODE_ENV: "development",
+        NEXT_PUBLIC_ENABLE_DEVTOOLS: "false",
+      }),
+    ).toBe(false);
   });
 });

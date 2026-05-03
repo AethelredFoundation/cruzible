@@ -105,6 +105,17 @@ describe("backend config hardening", () => {
     );
   });
 
+  it("rejects mock signature verification in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        ALLOW_MOCK_SIGNATURES: "true",
+      }),
+    ).rejects.toThrow(
+      "Refusing to enable mock signature verification in production",
+    );
+  });
+
   it("accepts explicit production-safe configuration", async () => {
     const { config } = await loadConfigWithEnv({
       ...productionBaseEnv,

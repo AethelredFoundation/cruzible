@@ -5,5 +5,7 @@ type FeatureEnv = {
 
 export function isDevtoolsEnabled(env: FeatureEnv = process.env): boolean {
   const nodeEnv = env.NODE_ENV ?? "production";
-  return nodeEnv !== "production" || env.NEXT_PUBLIC_ENABLE_DEVTOOLS === "true";
+  return (
+    nodeEnv !== "production" && env.NEXT_PUBLIC_ENABLE_DEVTOOLS !== "false"
+  );
 }
