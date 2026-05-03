@@ -24,6 +24,7 @@ import {
   type ReconciliationCheckStatus,
   type ReconciliationScorecard,
 } from "@/lib/reconciliation";
+import { isDevtoolsEnabled } from "@/config/features";
 
 function StatusPill({ status }: { status: string | undefined }) {
   const normalized = (status || "UNKNOWN").toUpperCase();
@@ -155,6 +156,7 @@ export default function ReconciliationPage() {
     () => (liveDocument ? renderLiveReconciliationMarkdown(liveDocument) : ""),
     [liveDocument],
   );
+  const devtoolsEnabled = isDevtoolsEnabled();
 
   const isLoading =
     (scorecardQuery.isLoading && !scorecard) ||
@@ -251,13 +253,15 @@ export default function ReconciliationPage() {
                   <FileText className="h-4 w-4" />
                   Download Markdown
                 </button>
-                <Link
-                  href="/devtools"
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm hover:border-slate-500"
-                >
-                  Devtools
-                  <ExternalLink className="h-4 w-4" />
-                </Link>
+                {devtoolsEnabled ? (
+                  <Link
+                    href="/devtools"
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm hover:border-slate-500"
+                  >
+                    Devtools
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                ) : null}
               </div>
             </div>
           </section>

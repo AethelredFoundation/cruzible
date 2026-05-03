@@ -8,6 +8,7 @@ import {
 import { SEOHead } from "@/components/SEOHead";
 import { Footer, TopNav } from "@/components/SharedComponents";
 import { GlassCard } from "@/components/PagePrimitives";
+import { isDevtoolsEnabled } from "@/config/features";
 
 type LaunchGatedPage = "validators" | "governance";
 
@@ -30,6 +31,8 @@ export function LaunchReadinessPage({
   reasons,
   nextSteps,
 }: LaunchReadinessPageProps) {
+  const devtoolsEnabled = isDevtoolsEnabled();
+
   return (
     <>
       <SEOHead title={title} description={description} path={path} />
@@ -110,13 +113,15 @@ export function LaunchReadinessPage({
                   Review the live reconciliation report
                   <FileCheck className="h-4 w-4" />
                 </Link>
-                <Link
-                  href="/devtools"
-                  className="inline-flex items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500"
-                >
-                  Inspect devtools and protocol diagnostics
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
+                {devtoolsEnabled ? (
+                  <Link
+                    href="/devtools"
+                    className="inline-flex items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500"
+                  >
+                    Inspect devtools and protocol diagnostics
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                ) : null}
               </div>
             </GlassCard>
           </div>

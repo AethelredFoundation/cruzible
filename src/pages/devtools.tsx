@@ -22,6 +22,7 @@ import {
   type LiveReconciliationDocument,
 } from "@/lib/reconciliation";
 import { getApiV1BaseUrl } from "@/config/api";
+import { isDevtoolsEnabled } from "@/config/features";
 
 const FASTAPI_URL =
   process.env.NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL || "http://127.0.0.1:8000";
@@ -31,10 +32,7 @@ const RPC_URL =
   process.env.NEXT_PUBLIC_DEVTOOLS_RPC_URL || "http://127.0.0.1:26657";
 
 export const getServerSideProps: GetServerSideProps = async () => {
-  if (
-    process.env.NODE_ENV === "production" &&
-    process.env.NEXT_PUBLIC_ENABLE_DEVTOOLS !== "true"
-  ) {
+  if (!isDevtoolsEnabled()) {
     return { notFound: true };
   }
 
