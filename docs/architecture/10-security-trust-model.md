@@ -2,7 +2,16 @@
 
 ## Overview
 
-This document defines the security trust boundaries, threat model, and mitigation strategies for the Cruzible liquid staking protocol. It covers the full stack: smart contracts (EVM), Cosmos SDK keeper, TEE enclaves, relayer services, and the frontend dApp.
+This document defines the security trust boundaries, threat model, and
+mitigation strategies for the Cruzible liquid staking protocol. It covers the
+target full stack: contract layer, Cosmos SDK keeper, TEE enclaves, relayer
+services, and the frontend dApp.
+
+> Repository alignment note: the current checked-in contract workspace is
+> CosmWasm under `backend/contracts`. EVM-facing contract references in this
+> threat model describe target architecture and integration assumptions; they
+> must not be treated as implemented release artifacts until a signed release
+> manifest includes those artifacts.
 
 ---
 
@@ -15,7 +24,7 @@ Layer 0:   Hardware TEE (Intel SGX / AWS Nitro / AMD SEV)
   └─ Layer 0.5: Attestation Relay Bridge (trusted off-chain P-256 signer)
        └─ Layer 1: TEE Enclave Application (Rust server)
             └─ Layer 2: Cosmos SDK Module (Go keeper)
-                 └─ Layer 3: EVM Smart Contracts (Solidity)
+                 └─ Layer 3: Contract Layer (release artifacts)
                       └─ Layer 4: Backend API Gateway (Node.js)
                            └─ Layer 5: Frontend dApp (React/Next.js)
 ```
@@ -26,7 +35,7 @@ Layer 0:   Hardware TEE (Intel SGX / AWS Nitro / AMD SEV)
 | L0.5: Attestation Relay | High (trusted bridge) | Forged platform keys, enclave impersonation | Governance revocation (`revokeRelay`), 48h rotation timelock, liveness challenges |
 | L1: Enclave App         | High (attested)       | Validator selection manipulation            | Enclave revocation + re-attestation                                               |
 | L2: Cosmos Keeper       | High (consensus)      | State corruption, fund theft                | Governance halt + state rollback                                                  |
-| L3: EVM Contracts       | High (immutable)      | Fund theft, reward manipulation             | Timelock + upgrade proxy                                                          |
+| L3: Contract Layer      | High (immutable)      | Fund theft, reward manipulation             | Timelock, governance controls, release manifests                                  |
 | L4: Backend API         | Medium (auxiliary)    | Data inconsistency, DoS                     | Redundancy, no fund access                                                        |
 | L5: Frontend            | Low (untrusted)       | Phishing, UI manipulation                   | User verification, wallet confirmation                                            |
 
@@ -52,14 +61,14 @@ Layer 0:   Hardware TEE (Intel SGX / AWS Nitro / AMD SEV)
 
 ## 2. Threat Model
 
-### 2.1 Smart Contract Threats (EVM)
+### 2.1 Smart Contract Threats (Target Contract Layer)
 
 | Threat                               | Severity | Likelihood | Mitigation                                                       |
 | ------------------------------------ | -------- | ---------- | ---------------------------------------------------------------- |
 | Reentrancy on stake/unstake          | Critical | Low        | CEI pattern, ReentrancyGuard                                     |
 | Exchange rate manipulation           | Critical | Medium     | Oracle-independent rate (shares/pooled), no external price feeds |
 | Flash loan attack on governance      | High     | Medium     | Timelock on parameter changes, no same-block voting              |
-| Overflow/underflow                   | High     | Low        | Solidity 0.8+ built-in checks                                    |
+| Overflow/underflow                   | High     | Low        | Checked arithmetic and release-language runtime checks           |
 | Front-running of validator selection | Medium   | Medium     | Attestation payload binding prevents manipulation                |
 | Denial of service (gas griefing)     | Medium   | Medium     | Gas limits, batch size caps                                      |
 
@@ -228,9 +237,15 @@ The following are **known trust dependencies** that have been reviewed and accep
 
 ### 6.2 Trusted Keeper ↔ TEE Bridge (Permanent)
 
-**Description**: The Cosmos SDK keeper trusts the EVM contract's attestation verification results via cross-layer validator-set hash agreement. If the EVM contract or keeper is compromised, the other layer cannot independently detect the compromise in real time.
+**Description**: The Cosmos SDK keeper trusts the target contract layer's
+attestation verification results via cross-layer validator-set hash agreement.
+If the contract layer or keeper is compromised, the other layer cannot
+independently detect the compromise in real time.
 
-**Justification**: Cross-layer verification is by design — the Cosmos module and EVM contracts form a layered security model where each layer validates its own invariants. Full cross-layer proofs would require an on-chain light client, which is not yet feasible.
+**Justification**: Cross-layer verification is by design: the Cosmos module and
+contract layer form a layered security model where each layer validates its own
+invariants. Full cross-layer proofs would require an on-chain light client,
+which is not yet feasible.
 
 **Mitigations in place**:
 
