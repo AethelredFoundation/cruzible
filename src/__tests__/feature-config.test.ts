@@ -8,6 +8,7 @@ describe("feature gates", () => {
   });
 
   it("hides devtools in production unless explicitly enabled", () => {
+    expect(isDevtoolsEnabled({})).toBe(false);
     expect(isDevtoolsEnabled({ NODE_ENV: "production" })).toBe(false);
     expect(
       isDevtoolsEnabled({
