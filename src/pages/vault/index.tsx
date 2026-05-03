@@ -1839,7 +1839,7 @@ function UnstakeTab() {
     setWithdrawalClock(Date.now() / 1000);
   }, [onChainWithdrawals]);
 
-  // Merge on-chain withdrawals with mock fallback for display
+  // Render only live withdrawal requests returned by the contract hook.
   const requests: UnstakeRequest[] = useMemo(() => {
     return onChainWithdrawals.map((w) => {
       const completion = Number(w.completionTime);
