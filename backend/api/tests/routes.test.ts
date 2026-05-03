@@ -157,6 +157,105 @@ describe('backend routes', () => {
     });
   });
 
+  it('serves jobs pricing with validated numeric estimates', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { JobsService } = await import('../src/services/JobsService');
+    const cache = new CacheService();
+    const jobs = {
+      getPricing: vi.fn().mockResolvedValue({
+        estimatedCpuCycles: 123456,
+        estimatedMemoryMb: 4096,
+        estimatedCost: 42,
+      }),
+    } as unknown as JobsService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(JobsService, jobs);
+
+    const { jobsRouter } = await import('../src/routes/v1/jobs');
+    const app = express();
+    app.use('/v1/jobs', jobsRouter);
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/jobs/pricing?model_hash=model-1&estimated_cpu_cycles=123456&estimated_memory_mb=4096`,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.estimatedCost).toBe(42);
+      expect((jobs.getPricing as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({
+        modelHash: 'model-1',
+        estimatedCpuCycles: 123456,
+        estimatedMemoryMb: 4096,
+      });
+    });
+  });
+
+  it('rejects unsafe jobs pricing estimates before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { JobsService } = await import('../src/services/JobsService');
+    const cache = new CacheService();
+    const jobs = {
+      getPricing: vi.fn(),
+    } as unknown as JobsService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(JobsService, jobs);
+
+    const { jobsRouter } = await import('../src/routes/v1/jobs');
+    const app = express();
+    app.use('/v1/jobs', jobsRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/jobs/pricing?estimated_cpu_cycles=not-a-number&estimated_memory_mb=4096`,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe('Validation failed');
+      expect((jobs.getPricing as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    });
+  });
+
+  it('rejects unsafe jobs queue limits before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { JobsService } = await import('../src/services/JobsService');
+    const cache = new CacheService();
+    const jobs = {
+      getJobQueue: vi.fn(),
+    } as unknown as JobsService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(JobsService, jobs);
+
+    const { jobsRouter } = await import('../src/routes/v1/jobs');
+    const app = express();
+    app.use('/v1/jobs', jobsRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/jobs/queue?limit=5000`);
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe('Validation failed');
+      expect((jobs.getJobQueue as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    });
+  });
+
   it('serves live reconciliation documents through the registered reconciliation service', async () => {
     const { CacheService } = await import('../src/services/CacheService');
     const { ReconciliationService } = await import('../src/services/ReconciliationService');

@@ -16,6 +16,9 @@ const jobsService = container.resolve(JobsService);
 const cacheService = container.resolve(CacheService);
 
 const JOB_SORT_FIELDS = ['created_at', 'completed_at', 'priority', 'verification_score'] as const;
+const MAX_ESTIMATED_CPU_CYCLES = 10_000_000_000_000;
+const MAX_ESTIMATED_MEMORY_MB = 1_048_576;
+const MAX_JOB_QUEUE_LIMIT = 100;
 
 function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolean {
   if (typeof value !== 'string' || value.length === 0) {
@@ -160,22 +163,40 @@ router.get('/stats',
  *         name: estimated_cpu_cycles
  *         schema:
  *           type: integer
+ *           minimum: 1
+ *           maximum: 10000000000000
  *       - in: query
  *         name: estimated_memory_mb
  *         schema:
  *           type: integer
+ *           minimum: 1
+ *           maximum: 1048576
  *     responses:
  *       200:
  *         description: Pricing information
  */
 router.get('/pricing',
+  [
+    query('model_hash').optional().isString().trim(),
+    query('estimated_cpu_cycles')
+      .optional()
+      .isInt({ min: 1, max: MAX_ESTIMATED_CPU_CYCLES })
+      .toInt(),
+    query('estimated_memory_mb')
+      .optional()
+      .isInt({ min: 1, max: MAX_ESTIMATED_MEMORY_MB })
+      .toInt(),
+    validate,
+  ],
   asyncHandler(async (req: Request, res: Response) => {
     const { model_hash, estimated_cpu_cycles, estimated_memory_mb } = req.query;
     
     const pricing = await jobsService.getPricing({
       modelHash: model_hash as string,
-      estimatedCpuCycles: estimated_cpu_cycles ? Number(estimated_cpu_cycles) : undefined,
-      estimatedMemoryMb: estimated_memory_mb ? Number(estimated_memory_mb) : undefined,
+      estimatedCpuCycles:
+        estimated_cpu_cycles != null ? Number(estimated_cpu_cycles) : undefined,
+      estimatedMemoryMb:
+        estimated_memory_mb != null ? Number(estimated_memory_mb) : undefined,
     });
     
     res.json(pricing);
@@ -194,11 +215,17 @@ router.get('/pricing',
  *         schema:
  *           type: integer
  *           default: 50
+ *           minimum: 1
+ *           maximum: 100
  *     responses:
  *       200:
  *         description: Job queue
  */
 router.get('/queue',
+  [
+    query('limit').optional().isInt({ min: 1, max: MAX_JOB_QUEUE_LIMIT }).toInt(),
+    validate,
+  ],
   asyncHandler(async (req: Request, res: Response) => {
     const { limit = 50 } = req.query;
 
