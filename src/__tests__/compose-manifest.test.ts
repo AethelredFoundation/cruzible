@@ -47,4 +47,17 @@ describe("Docker Compose production scaffold", () => {
       expectRequiredVariable(variable);
     }
   });
+
+  it("keeps internal service ports off public host interfaces", () => {
+    for (const port of ["3000", "5432", "6379", "1317", "26657", "9091"]) {
+      expect(composeManifest).not.toContain(`"${port}:${port}"`);
+      expect(composeManifest).toContain(`"127.0.0.1:${port}:${port}"`);
+    }
+
+    expect(composeManifest).toContain('"26656:26656"');
+    expect(composeManifest).toContain('"127.0.0.1:9090:9090"');
+    expect(composeManifest).toContain('"127.0.0.1:3002:3000"');
+    expect(composeManifest).toContain('"127.0.0.1:16686:16686"');
+    expect(composeManifest).toContain('"127.0.0.1:14250:14250"');
+  });
 });

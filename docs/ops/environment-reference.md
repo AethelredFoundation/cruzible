@@ -134,6 +134,7 @@ The variables below are referenced by `backend/infra/docker-compose.yml`. They s
 - Operational surfaces (`/metrics` and `/docs`) use `OPERATIONAL_ENDPOINTS_TOKEN` in production, accepted as `Authorization: Bearer <token>` or `X-Operational-Token: <token>`. Configure Prometheus or ingress probes with that credential instead of exposing these endpoints anonymously.
 - Alert history uses PostgreSQL when `DATABASE_URL` is configured and falls back to in-memory history only when database-backed API state is unavailable.
 - `backend/infra/docker-compose.yml` still references additional config directories that are not checked in.
+- `backend/infra/docker-compose.yml` binds internal API, database, RPC, cache, and observability ports to loopback by default; only nginx and the P2P listener are public-facing in the scaffold.
 - `k8s/base/` expects environment overlays to replace checked-in image placeholders with immutable `sha256` digests before rollout.
 - `k8s/base/backend.yaml` expects non-secret runtime config in `cruzible-api-config` and secret values in `cruzible-api-secrets` with keys `database-url`, `redis-url`, `jwt-secret`, `jwt-refresh-secret`, and `operational-endpoints-token`.
 
