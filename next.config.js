@@ -3,6 +3,11 @@ const path = require("path");
 const wagmiConnectorsRoot = path.dirname(
   require.resolve("@wagmi/connectors/package.json"),
 );
+const isProduction = process.env.NODE_ENV === "production";
+const imageRemotePatterns = [
+  ...(isProduction ? [] : [{ protocol: "http", hostname: "localhost" }]),
+  { protocol: "https", hostname: "api.aethelred.io" },
+];
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -11,10 +16,7 @@ const nextConfig = {
 
   // Image optimization
   images: {
-    remotePatterns: [
-      { protocol: "http", hostname: "localhost" },
-      { protocol: "https", hostname: "api.aethelred.io" },
-    ],
+    remotePatterns: imageRemotePatterns,
     formats: ["image/webp", "image/avif"],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
