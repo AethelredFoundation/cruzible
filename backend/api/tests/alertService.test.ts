@@ -102,4 +102,45 @@ describe('AlertService', () => {
       requestId: 'shared-alert-history',
     });
   });
+
+  it('posts configured webhooks without following redirects', async () => {
+    process.env.ALERT_WEBHOOK_URL = 'https://alerts.cruzible.test/hook';
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const { AlertService, AlertSeverity, AlertType } = await import(
+      '../src/services/AlertService'
+    );
+    const service = new AlertService();
+
+    try {
+      await service.sendAlert(
+        AlertSeverity.CRITICAL,
+        AlertType.RECONCILIATION_MISMATCH,
+        'Reconciliation mismatch',
+        { epoch: 42 },
+      );
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      const [url, init] = fetchSpy.mock.calls[0];
+      const body = JSON.parse(String(init?.body));
+
+      expect(url).toBe('https://alerts.cruzible.test/hook');
+      expect(init).toMatchObject({
+        method: 'POST',
+        redirect: 'error',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      expect(body).toMatchObject({
+        severity: AlertSeverity.CRITICAL,
+        type: AlertType.RECONCILIATION_MISMATCH,
+        message: 'Reconciliation mismatch',
+        metadata: { epoch: 42 },
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });

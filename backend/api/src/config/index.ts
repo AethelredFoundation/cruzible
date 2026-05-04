@@ -241,6 +241,41 @@ function parseCorsOrigins(value: string, production: boolean): string[] {
   return [...new Set(normalizedOrigins)];
 }
 
+function parseAlertWebhookUrl(
+  value: string | undefined,
+  production: boolean,
+): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new URL(value);
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("ALERT_WEBHOOK_URL must use http or https");
+  }
+
+  if (parsed.username || parsed.password || parsed.hash) {
+    throw new Error(
+      "ALERT_WEBHOOK_URL must not contain credentials or fragments",
+    );
+  }
+
+  if (production && parsed.protocol !== "https:") {
+    throw new Error(
+      "Refusing to start with non-HTTPS ALERT_WEBHOOK_URL in production",
+    );
+  }
+
+  if (production && isPrivateOrLocalHostname(parsed.hostname)) {
+    throw new Error(
+      "Refusing to start with private or local ALERT_WEBHOOK_URL in production",
+    );
+  }
+
+  return parsed.href;
+}
+
 if (isProduction) {
   requireProductionConfig(
     process.env.RPC_URL,
@@ -333,6 +368,10 @@ if (isProduction && trustProxy === true) {
 }
 
 const corsOrigins = parseCorsOrigins(parsedEnv.CORS_ORIGINS, isProduction);
+const alertWebhookUrl = parseAlertWebhookUrl(
+  parsedEnv.ALERT_WEBHOOK_URL,
+  isProduction,
+);
 
 export const config = {
   env: parsedEnv.NODE_ENV,
@@ -373,7 +412,7 @@ export const config = {
   indexerEnabled: parsedEnv.INDEXER_ENABLED,
 
   // Alerting
-  alertWebhookUrl: parsedEnv.ALERT_WEBHOOK_URL,
+  alertWebhookUrl,
   alertRateLimitMs: parsedEnv.ALERT_RATE_LIMIT_MS,
 
   // Reconciliation

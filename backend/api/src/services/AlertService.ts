@@ -291,6 +291,7 @@ export class AlertService {
       const response = await fetch(this.webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        redirect: 'error',
         body: JSON.stringify({
           id: alert.id,
           severity: alert.severity,

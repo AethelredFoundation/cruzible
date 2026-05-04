@@ -207,6 +207,39 @@ describe("backend config hardening", () => {
     ).rejects.toThrow(/ALERT_WEBHOOK_URL/);
   });
 
+  it("rejects non-HTTPS alert webhooks in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        ALERT_WEBHOOK_URL: "http://alerts.cruzible.test/hook",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start with non-HTTPS ALERT_WEBHOOK_URL in production",
+    );
+  });
+
+  it("rejects private or local alert webhooks in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        ALERT_WEBHOOK_URL: "https://10.0.0.5/hook",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start with private or local ALERT_WEBHOOK_URL in production",
+    );
+  });
+
+  it("rejects alert webhook credentials and fragments", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        ALERT_WEBHOOK_URL: "https://user:pass@alerts.cruzible.test/hook#token",
+      }),
+    ).rejects.toThrow(
+      "ALERT_WEBHOOK_URL must not contain credentials or fragments",
+    );
+  });
+
   it("treats blank optional URLs as unset", async () => {
     const { config } = await loadConfigWithEnv({
       NODE_ENV: "development",
