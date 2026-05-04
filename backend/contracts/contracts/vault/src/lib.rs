@@ -243,12 +243,23 @@ pub fn instantiate(
         return Err(ContractError::FeeTooHigh {});
     }
 
+    if msg.unbonding_period < MIN_UNBONDING_PERIOD {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!(
+                "Unbonding period must be at least {} seconds",
+                MIN_UNBONDING_PERIOD
+            ),
+        )));
+    }
+
     let validators: Result<Vec<Addr>, _> = msg
         .validators
         .iter()
         .map(|v| deps.api.addr_validate(v))
         .collect();
     let validators = validators?;
+    ensure!(!validators.is_empty(), ContractError::InvalidValidator {});
+    let staking_token = deps.api.addr_validate(&msg.staking_token)?;
 
     // SECURITY: Require seed deposit to prevent first depositor attack
     let seed_amount = info
@@ -279,7 +290,7 @@ pub fn instantiate(
         pauser: deps.api.addr_validate(&msg.pauser)?,
         unbonding_period: msg.unbonding_period,
         denom: msg.denom,
-        staking_token: msg.staking_token,
+        staking_token: staking_token.to_string(),
         validators,
         fee_bps: msg.fee_bps,
         min_stake: effective_min_stake,
@@ -950,7 +961,9 @@ fn execute_update_validators(
         .iter()
         .map(|v| deps.api.addr_validate(v))
         .collect();
-    config.validators = validators?;
+    let validators = validators?;
+    ensure!(!validators.is_empty(), ContractError::InvalidValidator {});
+    config.validators = validators;
 
     CONFIG.save(deps.storage, &config)?;
     Ok(Response::new().add_attribute("action", "update_validators"))

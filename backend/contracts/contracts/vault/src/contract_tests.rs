@@ -114,6 +114,48 @@ mod security_tests {
     }
 
     #[test]
+    fn test_instantiate_rejects_short_unbonding_period() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &coins(1_000_000, "aeth"));
+        let msg = InstantiateMsg {
+            unbonding_period: MIN_UNBONDING_PERIOD - 1,
+            denom: "aeth".to_string(),
+            staking_token: "staeth".to_string(),
+            validators: vec!["validator1".to_string()],
+            fee_bps: 100,
+            min_stake: Uint128::from(1_000_000u128),
+            max_stake: Uint128::from(1_000_000_000_000u128),
+            operator: "operator".to_string(),
+            pauser: "pauser".to_string(),
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::Std(_)));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_empty_validator_set() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &coins(1_000_000, "aeth"));
+        let msg = InstantiateMsg {
+            unbonding_period: MIN_UNBONDING_PERIOD,
+            denom: "aeth".to_string(),
+            staking_token: "staeth".to_string(),
+            validators: vec![],
+            fee_bps: 100,
+            min_stake: Uint128::from(1_000_000u128),
+            max_stake: Uint128::from(1_000_000_000_000u128),
+            operator: "operator".to_string(),
+            pauser: "pauser".to_string(),
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidValidator {});
+    }
+
+    #[test]
     fn test_attack_4_donation_does_not_inflate_shares() {
         let (mut deps, env, _) = proper_instantiate();
 
@@ -409,6 +451,17 @@ mod security_tests {
             validator: "validator1".to_string(),
         };
         assert!(execute(deps.as_mut(), env, info, msg).is_ok());
+    }
+
+    #[test]
+    fn test_update_validators_rejects_empty_set() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let info = mock_info("operator", &[]);
+        let msg = ExecuteMsg::UpdateValidators { validators: vec![] };
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+
+        assert_eq!(err, ContractError::InvalidValidator {});
     }
 
     // ============ SLASHING TESTS ============
