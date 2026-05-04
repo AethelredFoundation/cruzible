@@ -98,20 +98,27 @@ These variables are validated or consumed by `backend/api` in the current snapsh
 
 The variables below are referenced by `backend/infra/docker-compose.yml`. They should be treated as scaffold inputs, not proof that the current API runtime consumes each value directly.
 
-| Variable               | Used by                           | Notes                                                   |
-| ---------------------- | --------------------------------- | ------------------------------------------------------- |
-| `CHAIN_ID`             | node / seed-node scaffolding      | Defaults to testnet-style values in the updated example |
-| `MONIKER`              | node / seed-node scaffolding      | Human-readable node name                                |
-| `MINIMUM_GAS_PRICES`   | node scaffolding                  | Passed into the node container                          |
-| `PRUNING`              | node scaffolding                  | Passed into the node container                          |
-| `INDEXER`              | node scaffolding                  | Passed into the node container                          |
-| `DB_USER`              | postgres + compose-generated URLs | Shared Compose credential input                         |
-| `DB_PASSWORD`          | postgres + compose-generated URLs | Shared Compose credential input                         |
-| `DB_NAME`              | postgres + health checks          | Shared Compose database name                            |
-| `INDEXER_START_HEIGHT` | indexer scaffold                  | Compose maps this to API runtime `INDEXER_START_BLOCK`  |
-| `GRAFANA_USER`         | grafana scaffold                  | Grafana bootstrap user                                  |
-| `GRAFANA_PASSWORD`     | grafana scaffold                  | Grafana bootstrap password                              |
-| `GRAFANA_ROOT_URL`     | grafana scaffold                  | Grafana external URL                                    |
+| Variable                  | Used by                           | Notes                                                   |
+| ------------------------- | --------------------------------- | ------------------------------------------------------- |
+| `CHAIN_ID`                | node / seed-node scaffolding      | Defaults to testnet-style values in the updated example |
+| `MONIKER`                 | node / seed-node scaffolding      | Human-readable node name                                |
+| `MINIMUM_GAS_PRICES`      | node scaffolding                  | Passed into the node container                          |
+| `PRUNING`                 | node scaffolding                  | Passed into the node container                          |
+| `INDEXER`                 | node scaffolding                  | Passed into the node container                          |
+| `CORS_ORIGINS`            | api-gateway / indexer scaffold    | Required; production rejects wildcard or local origins  |
+| `DB_USER`                 | postgres + compose-generated URLs | Shared Compose credential input                         |
+| `DB_PASSWORD`             | postgres + compose-generated URLs | Shared Compose credential input                         |
+| `DB_NAME`                 | postgres + health checks          | Shared Compose database name                            |
+| `INDEXER_START_HEIGHT`    | indexer scaffold                  | Compose maps this to API runtime `INDEXER_START_BLOCK`  |
+| `POSTGRES_IMAGE_DIGEST`   | postgres scaffold                 | Immutable third-party image digest                      |
+| `REDIS_IMAGE_DIGEST`      | redis scaffold                    | Immutable third-party image digest                      |
+| `NGINX_IMAGE_DIGEST`      | nginx scaffold                    | Immutable third-party image digest                      |
+| `PROMETHEUS_IMAGE_DIGEST` | prometheus scaffold               | Immutable third-party image digest                      |
+| `GRAFANA_USER`            | grafana scaffold                  | Grafana bootstrap user                                  |
+| `GRAFANA_PASSWORD`        | grafana scaffold                  | Grafana bootstrap password                              |
+| `GRAFANA_ROOT_URL`        | grafana scaffold                  | Grafana external URL                                    |
+| `GRAFANA_IMAGE_DIGEST`    | grafana scaffold                  | Immutable third-party image digest                      |
+| `JAEGER_IMAGE_DIGEST`     | jaeger scaffold                   | Immutable third-party image digest                      |
 
 ## 5. Important Caveats
 
