@@ -1,13 +1,13 @@
-import { timingSafeEqual } from 'crypto';
-import type { Server as SocketIOServer, Socket } from 'socket.io';
-import { verifyAccessToken } from '../auth/service';
-import { config } from '../config';
-import { logger } from '../utils/logger';
+import { timingSafeEqual } from "crypto";
+import type { Server as SocketIOServer, Socket } from "socket.io";
+import { isAccessTokenRevoked, verifyAccessToken } from "../auth/service";
+import { config } from "../config";
+import { logger } from "../utils/logger";
 
 const MAX_PRODUCTION_CONNECTIONS_PER_IP = 10;
-const WS_AUTH_ERROR = 'WebSocket authentication required';
-const WS_ORIGIN_ERROR = 'WebSocket origin is not allowed';
-const WS_THROTTLE_ERROR = 'WebSocket connection limit exceeded';
+const WS_AUTH_ERROR = "WebSocket authentication required";
+const WS_ORIGIN_ERROR = "WebSocket origin is not allowed";
+const WS_THROTTLE_ERROR = "WebSocket connection limit exceeded";
 
 export class WebSocketManager {
   private readonly activeConnectionsByIp = new Map<string, number>();
@@ -16,27 +16,29 @@ export class WebSocketManager {
 
   initialize(): void {
     this.io.use((socket, next) => {
-      try {
-        this.authorizeSocket(socket);
-        this.trackSocketConnection(socket);
-        next();
-      } catch (error) {
-        const rejection = error instanceof Error ? error : new Error(WS_AUTH_ERROR);
-        logger.warn('WebSocket connection rejected', {
-          reason: rejection.message,
-          origin: readOrigin(socket),
-          ip: readClientIp(socket),
+      void this.authorizeSocket(socket)
+        .then(() => {
+          this.trackSocketConnection(socket);
+          next();
+        })
+        .catch((error: unknown) => {
+          const rejection =
+            error instanceof Error ? error : new Error(WS_AUTH_ERROR);
+          logger.warn("WebSocket connection rejected", {
+            reason: rejection.message,
+            origin: readOrigin(socket),
+            ip: readClientIp(socket),
+          });
+          next(rejection);
         });
-        next(rejection);
-      }
     });
 
-    this.io.on('connection', (socket) => {
-      socket.emit('ready', { ok: true });
+    this.io.on("connection", (socket) => {
+      socket.emit("ready", { ok: true });
     });
   }
 
-  private authorizeSocket(socket: Socket): void {
+  private async authorizeSocket(socket: Socket): Promise<void> {
     if (!config.isProduction) {
       return;
     }
@@ -56,7 +58,10 @@ export class WebSocketManager {
     }
 
     try {
-      verifyAccessToken(token);
+      const payload = verifyAccessToken(token);
+      if (await isAccessTokenRevoked(payload)) {
+        throw new Error(WS_AUTH_ERROR);
+      }
     } catch {
       throw new Error(WS_AUTH_ERROR);
     }
@@ -74,7 +79,7 @@ export class WebSocketManager {
     }
 
     this.activeConnectionsByIp.set(ip, activeConnections + 1);
-    socket.once('disconnect', () => {
+    socket.once("disconnect", () => {
       const currentConnections = this.activeConnectionsByIp.get(ip) ?? 0;
       if (currentConnections <= 1) {
         this.activeConnectionsByIp.delete(ip);
@@ -87,22 +92,22 @@ export class WebSocketManager {
 
 function readHandshakeToken(socket: Socket): string | undefined {
   const authToken = socket.handshake.auth?.token;
-  if (typeof authToken === 'string' && authToken.trim()) {
+  if (typeof authToken === "string" && authToken.trim()) {
     return authToken.trim();
   }
 
-  const explicitToken = socket.handshake.headers['x-operational-token'];
-  if (typeof explicitToken === 'string' && explicitToken.trim()) {
+  const explicitToken = socket.handshake.headers["x-operational-token"];
+  if (typeof explicitToken === "string" && explicitToken.trim()) {
     return explicitToken.trim();
   }
 
   const authorization = socket.handshake.headers.authorization;
-  if (typeof authorization !== 'string') {
+  if (typeof authorization !== "string") {
     return undefined;
   }
 
   const [scheme, token, extra] = authorization.trim().split(/\s+/);
-  if (scheme?.toLowerCase() !== 'bearer' || !token || extra) {
+  if (scheme?.toLowerCase() !== "bearer" || !token || extra) {
     return undefined;
   }
 
@@ -126,9 +131,11 @@ function isOperationalToken(token: string): boolean {
 
 function readOrigin(socket: Socket): string | undefined {
   const origin = socket.handshake.headers.origin;
-  return typeof origin === 'string' && origin.trim() ? origin.trim() : undefined;
+  return typeof origin === "string" && origin.trim()
+    ? origin.trim()
+    : undefined;
 }
 
 function readClientIp(socket: Socket): string {
-  return socket.handshake.address || socket.conn.remoteAddress || 'unknown';
+  return socket.handshake.address || socket.conn.remoteAddress || "unknown";
 }

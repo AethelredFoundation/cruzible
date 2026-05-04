@@ -1,13 +1,13 @@
-import type { Server as SocketIOServer, Socket } from 'socket.io';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Server as SocketIOServer, Socket } from "socket.io";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const OPERATIONAL_TOKEN = '12345678901234567890123456789012';
+const OPERATIONAL_TOKEN = "12345678901234567890123456789012";
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock("../src/utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-describe('WebSocketManager', () => {
+describe("WebSocketManager", () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -17,28 +17,38 @@ describe('WebSocketManager', () => {
     corsOrigins?: string[];
     operationalEndpointsToken?: string;
     verifyAccessToken?: () => unknown;
+    isAccessTokenRevoked?: () => unknown;
   }) {
     const verifyAccessToken = vi.fn(
       options.verifyAccessToken ??
-        (() => ({ address: 'aeth1user', roles: ['user'] })),
+        (() => ({ address: "aeth1user", iat: 1_777_928_000, roles: ["user"] })),
     );
-    vi.doMock('../src/auth/service', () => ({ verifyAccessToken }));
+    const isAccessTokenRevoked = vi.fn(
+      options.isAccessTokenRevoked ?? (async () => false),
+    );
+    vi.doMock("../src/auth/service", () => ({
+      isAccessTokenRevoked,
+      verifyAccessToken,
+    }));
 
-    const { config } = await import('../src/config');
+    const { config } = await import("../src/config");
     (config as any).isProduction = options.isProduction;
-    (config as any).corsOrigins = options.corsOrigins ?? ['https://app.example'];
+    (config as any).corsOrigins = options.corsOrigins ?? [
+      "https://app.example",
+    ];
     (config as any).operationalEndpointsToken =
       options.operationalEndpointsToken;
 
-    const { WebSocketManager } = await import('../src/websocket/WebSocketManager');
+    const { WebSocketManager } =
+      await import("../src/websocket/WebSocketManager");
     const io = new FakeSocketServer();
     const manager = new WebSocketManager(io as unknown as SocketIOServer);
     manager.initialize();
 
-    return { io, verifyAccessToken };
+    return { io, isAccessTokenRevoked, verifyAccessToken };
   }
 
-  it('allows local sockets without production credentials', async () => {
+  it("allows local sockets without production credentials", async () => {
     const { io } = await buildManager({ isProduction: false });
     const socket = createSocket();
 
@@ -46,10 +56,10 @@ describe('WebSocketManager', () => {
     io.connect(socket);
 
     expect(rejection).toBeUndefined();
-    expect(socket.emit).toHaveBeenCalledWith('ready', { ok: true });
+    expect(socket.emit).toHaveBeenCalledWith("ready", { ok: true });
   });
 
-  it('rejects production sockets without a valid token', async () => {
+  it("rejects production sockets without a valid token", async () => {
     const { io } = await buildManager({
       isProduction: true,
       operationalEndpointsToken: OPERATIONAL_TOKEN,
@@ -57,60 +67,82 @@ describe('WebSocketManager', () => {
 
     const rejection = await io.authorize(createSocket());
 
-    expect(rejection?.message).toBe('WebSocket authentication required');
+    expect(rejection?.message).toBe("WebSocket authentication required");
   });
 
-  it('rejects production sockets from disallowed origins', async () => {
+  it("rejects production sockets from disallowed origins", async () => {
     const { io } = await buildManager({
       isProduction: true,
       operationalEndpointsToken: OPERATIONAL_TOKEN,
-      corsOrigins: ['https://app.example'],
+      corsOrigins: ["https://app.example"],
     });
 
     const rejection = await io.authorize(
       createSocket({
-        origin: 'https://evil.example',
-        authorization: 'Bearer valid-access-token',
+        origin: "https://evil.example",
+        authorization: "Bearer valid-access-token",
       }),
     );
 
-    expect(rejection?.message).toBe('WebSocket origin is not allowed');
+    expect(rejection?.message).toBe("WebSocket origin is not allowed");
   });
 
-  it('accepts production access and operational tokens', async () => {
-    const { io, verifyAccessToken } = await buildManager({
+  it("accepts production access and operational tokens", async () => {
+    const { io, isAccessTokenRevoked, verifyAccessToken } = await buildManager({
       isProduction: true,
       operationalEndpointsToken: OPERATIONAL_TOKEN,
     });
 
     const accessTokenRejection = await io.authorize(
       createSocket({
-        authorization: 'Bearer valid-access-token',
-        origin: 'https://app.example',
+        authorization: "Bearer valid-access-token",
+        origin: "https://app.example",
       }),
     );
     const operationalTokenRejection = await io.authorize(
       createSocket({
         operationalToken: OPERATIONAL_TOKEN,
-        origin: 'https://app.example',
+        origin: "https://app.example",
       }),
     );
 
     expect(accessTokenRejection).toBeUndefined();
     expect(operationalTokenRejection).toBeUndefined();
-    expect(verifyAccessToken).toHaveBeenCalledWith('valid-access-token');
+    expect(verifyAccessToken).toHaveBeenCalledWith("valid-access-token");
+    expect(isAccessTokenRevoked).toHaveBeenCalledWith({
+      address: "aeth1user",
+      iat: 1_777_928_000,
+      roles: ["user"],
+    });
   });
 
-  it('limits active production sockets per IP and frees capacity on disconnect', async () => {
+  it("rejects revoked production access tokens", async () => {
+    const { io } = await buildManager({
+      isProduction: true,
+      isAccessTokenRevoked: async () => true,
+      operationalEndpointsToken: OPERATIONAL_TOKEN,
+    });
+
+    const rejection = await io.authorize(
+      createSocket({
+        authorization: "Bearer revoked-access-token",
+        origin: "https://app.example",
+      }),
+    );
+
+    expect(rejection?.message).toBe("WebSocket authentication required");
+  });
+
+  it("limits active production sockets per IP and frees capacity on disconnect", async () => {
     const { io } = await buildManager({
       isProduction: true,
       operationalEndpointsToken: OPERATIONAL_TOKEN,
     });
     const activeSockets = Array.from({ length: 10 }, () =>
       createSocket({
-        authorization: 'Bearer valid-access-token',
-        origin: 'https://app.example',
-        ip: '203.0.113.10',
+        authorization: "Bearer valid-access-token",
+        origin: "https://app.example",
+        ip: "203.0.113.10",
       }),
     );
 
@@ -120,21 +152,21 @@ describe('WebSocketManager', () => {
 
     const rejected = await io.authorize(
       createSocket({
-        authorization: 'Bearer valid-access-token',
-        origin: 'https://app.example',
-        ip: '203.0.113.10',
+        authorization: "Bearer valid-access-token",
+        origin: "https://app.example",
+        ip: "203.0.113.10",
       }),
     );
     activeSockets[0].disconnect();
     const acceptedAfterDisconnect = await io.authorize(
       createSocket({
-        authorization: 'Bearer valid-access-token',
-        origin: 'https://app.example',
-        ip: '203.0.113.10',
+        authorization: "Bearer valid-access-token",
+        origin: "https://app.example",
+        ip: "203.0.113.10",
       }),
     );
 
-    expect(rejected?.message).toBe('WebSocket connection limit exceeded');
+    expect(rejected?.message).toBe("WebSocket connection limit exceeded");
     expect(acceptedAfterDisconnect).toBeUndefined();
   });
 });
@@ -150,7 +182,7 @@ class FakeSocketServer {
     return this;
   }
 
-  on(event: 'connection', handler: (socket: Socket) => void): this {
+  on(event: "connection", handler: (socket: Socket) => void): this {
     this.connectionHandler = handler;
     return this;
   }
@@ -177,18 +209,20 @@ interface TestSocket {
   conn: { remoteAddress: string };
   data: Record<string, unknown>;
   emit: ReturnType<typeof vi.fn>;
-  once: (event: 'disconnect', handler: () => void) => void;
+  once: (event: "disconnect", handler: () => void) => void;
   disconnect: () => void;
 }
 
-function createSocket(options: {
-  authorization?: string;
-  operationalToken?: string;
-  origin?: string;
-  ip?: string;
-} = {}): TestSocket {
+function createSocket(
+  options: {
+    authorization?: string;
+    operationalToken?: string;
+    origin?: string;
+    ip?: string;
+  } = {},
+): TestSocket {
   let disconnectHandler: (() => void) | null = null;
-  const ip = options.ip ?? '127.0.0.1';
+  const ip = options.ip ?? "127.0.0.1";
 
   return {
     handshake: {
@@ -196,7 +230,7 @@ function createSocket(options: {
       headers: {
         authorization: options.authorization,
         origin: options.origin,
-        'x-operational-token': options.operationalToken,
+        "x-operational-token": options.operationalToken,
       },
       address: ip,
     },
