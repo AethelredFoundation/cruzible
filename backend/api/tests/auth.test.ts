@@ -2,7 +2,10 @@ import express from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { authenticate, requireRoles } from '../src/auth/middleware';
 import { rateLimiter } from '../src/middleware/rateLimiter';
-import { generateTokens } from '../src/auth/service';
+import {
+  generateTokens,
+  revokeRefreshSessionsForAddress,
+} from '../src/auth/service';
 import { config } from '../src/config';
 import { withHttpServer } from './helpers/http';
 
@@ -55,6 +58,35 @@ describe('auth middleware', () => {
         address: 'aeth1validuser',
         roles: ['user', 'operator'],
       });
+    });
+  });
+
+  it('rejects revoked access tokens on authentication-only routes', async () => {
+    const app = express();
+    app.use(rateLimiter);
+    app.get('/protected', authenticate, (req, res) => {
+      res.json({ address: req.user?.address });
+    });
+
+    const { accessToken } = generateTokens({
+      address: 'aeth1revokeduser',
+      roles: ['user'],
+    });
+    await revokeRefreshSessionsForAddress('aeth1revokeduser', {
+      actorAddress: 'aeth1operator',
+      requestId: 'test-revocation',
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/protected`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(body.message).toContain('Access token revoked');
     });
   });
 

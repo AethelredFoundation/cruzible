@@ -17,7 +17,11 @@ import { logger } from '../utils/logger';
  * JWT Authentication middleware
  * Validates JWT token from Authorization header
  */
-export function authenticate(req: Request, res: Response, next: NextFunction): void {
+export async function authenticate(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
 
@@ -55,6 +59,18 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
       return;
     }
 
+    if (await isAccessTokenRevoked(decoded)) {
+      logger.warn('Revoked access token rejected', {
+        address: decoded.address,
+      });
+      res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        message: 'Access token revoked',
+      });
+      return;
+    }
+
     req.user = decoded;
     next();
   } catch (error) {
@@ -81,7 +97,11 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
  * Optional authentication middleware
  * Attaches user if token present, but doesn't require it
  */
-export function optionalAuth(req: Request, res: Response, next: NextFunction): void {
+export async function optionalAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
 
@@ -98,6 +118,10 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction): v
 
     const token = parts[1];
     const decoded = verifyAccessToken(token) as NonNullable<Request['user']>;
+    if (await isAccessTokenRevoked(decoded)) {
+      next();
+      return;
+    }
     req.user = decoded;
     next();
   } catch {
