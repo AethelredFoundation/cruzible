@@ -6,6 +6,17 @@
 import { BRAND } from "./constants";
 import { getApiUrl } from "@/config/api";
 
+let apiAccessToken: string | null = null;
+
+export function setApiAccessToken(token: string | null) {
+  const normalizedToken = token?.trim();
+  apiAccessToken = normalizedToken || null;
+}
+
+export function clearApiAccessToken() {
+  apiAccessToken = null;
+}
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -272,15 +283,11 @@ async function fetchApi<T>(
     },
   };
 
-  // Add auth token if available
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("auth_token");
-    if (token) {
-      defaultOptions.headers = {
-        ...defaultOptions.headers,
-        Authorization: `Bearer ${token}`,
-      };
-    }
+  if (apiAccessToken) {
+    defaultOptions.headers = {
+      ...defaultOptions.headers,
+      Authorization: `Bearer ${apiAccessToken}`,
+    };
   }
 
   try {
