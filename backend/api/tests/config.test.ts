@@ -106,6 +106,48 @@ describe("backend config hardening", () => {
     );
   });
 
+  it("requires explicit CORS origins in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CORS_ORIGINS: undefined,
+      }),
+    ).rejects.toThrow(
+      "Refusing to start without explicit CORS_ORIGINS in production",
+    );
+  });
+
+  it("rejects non-HTTPS CORS origins in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CORS_ORIGINS: "http://app.cruzible.test",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start with non-HTTPS CORS origins in production",
+    );
+  });
+
+  it("rejects private or local CORS origins in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CORS_ORIGINS: "https://127.0.0.1",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start with private or local CORS origins in production",
+    );
+  });
+
+  it("rejects CORS origins with paths or query strings", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CORS_ORIGINS: "https://app.cruzible.test/admin?preview=true",
+      }),
+    ).rejects.toThrow(/must be bare origins/);
+  });
+
   it("rejects mock signature verification in production", async () => {
     await expect(
       loadConfigWithEnv({
@@ -120,7 +162,8 @@ describe("backend config hardening", () => {
   it("accepts explicit production-safe configuration", async () => {
     const { config } = await loadConfigWithEnv({
       ...productionBaseEnv,
-      CORS_ORIGINS: "https://app.cruzible.test,https://admin.cruzible.test",
+      CORS_ORIGINS:
+        "https://app.cruzible.test/,https://admin.cruzible.test,https://app.cruzible.test",
       TRUST_PROXY: "1",
     });
 

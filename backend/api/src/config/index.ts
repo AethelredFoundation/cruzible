@@ -163,6 +163,84 @@ function parseAddressList(value: string, envName: string): string[] {
   return [...new Set(addresses)];
 }
 
+function isPrivateOrLocalHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized.startsWith("127.") ||
+    normalized === "::1" ||
+    normalized === "[::1]" ||
+    normalized === "0.0.0.0" ||
+    normalized.startsWith("10.") ||
+    normalized.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized) ||
+    normalized.startsWith("169.254.")
+  );
+}
+
+function parseCorsOrigins(value: string, production: boolean): string[] {
+  const rawOrigins = value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (rawOrigins.length === 0) {
+    throw new Error("CORS_ORIGINS must include at least one origin");
+  }
+
+  const normalizedOrigins = rawOrigins.map((origin) => {
+    if (origin.includes("*")) {
+      throw new Error(
+        production
+          ? "Refusing to start with wildcard CORS origins in production"
+          : "CORS_ORIGINS must not contain wildcard origins when credentials are enabled",
+      );
+    }
+
+    let parsed: URL;
+
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error(`CORS_ORIGINS contains invalid origin "${origin}"`);
+    }
+
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("CORS_ORIGINS entries must use http or https");
+    }
+
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error(
+        `CORS_ORIGINS entries must be bare origins without paths, credentials, query strings, or fragments: "${origin}"`,
+      );
+    }
+
+    if (production && parsed.protocol !== "https:") {
+      throw new Error(
+        "Refusing to start with non-HTTPS CORS origins in production",
+      );
+    }
+
+    if (production && isPrivateOrLocalHostname(parsed.hostname)) {
+      throw new Error(
+        "Refusing to start with private or local CORS origins in production",
+      );
+    }
+
+    return parsed.origin;
+  });
+
+  return [...new Set(normalizedOrigins)];
+}
+
 if (isProduction) {
   requireProductionConfig(
     process.env.RPC_URL,
@@ -176,6 +254,10 @@ if (isProduction) {
     parsedEnv.REDIS_URL,
     "Refusing to start without REDIS_URL in production",
   );
+  requireProductionConfig(
+    process.env.CORS_ORIGINS,
+    "Refusing to start without explicit CORS_ORIGINS in production",
+  );
 
   if (
     defaultSecrets.has(parsedEnv.JWT_SECRET) ||
@@ -183,12 +265,6 @@ if (isProduction) {
   ) {
     throw new Error(
       "Refusing to start with development JWT secrets in production",
-    );
-  }
-
-  if (parsedEnv.CORS_ORIGINS.includes("*")) {
-    throw new Error(
-      "Refusing to start with wildcard CORS origins in production",
     );
   }
 
@@ -256,6 +332,8 @@ if (isProduction && trustProxy === true) {
   );
 }
 
+const corsOrigins = parseCorsOrigins(parsedEnv.CORS_ORIGINS, isProduction);
+
 export const config = {
   env: parsedEnv.NODE_ENV,
   isProduction,
@@ -264,9 +342,7 @@ export const config = {
   rpcUrl: parsedEnv.RPC_URL,
   databaseUrl: parsedEnv.DATABASE_URL,
   redisUrl: parsedEnv.REDIS_URL,
-  corsOrigins: parsedEnv.CORS_ORIGINS.split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean),
+  corsOrigins,
   jwtSecret: parsedEnv.JWT_SECRET,
   jwtRefreshSecret: parsedEnv.JWT_REFRESH_SECRET,
   jwtExpiresIn: parsedEnv.JWT_EXPIRES_IN,
