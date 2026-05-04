@@ -20,6 +20,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "security:audit": "npm audit --omit=dev --audit-level=high",
+    "security:hygiene": "node scripts/security-hygiene-scan.mjs",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
     "validate": "npm run type-check && npm run lint && npm run format:check && npm run test",

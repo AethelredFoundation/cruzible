@@ -27,6 +27,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  repository-hygiene:
+    name: Repository Hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run repository hygiene scan
+        run: npm run security:hygiene
+
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'
