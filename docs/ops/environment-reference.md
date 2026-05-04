@@ -61,8 +61,8 @@ These variables are validated or consumed by `backend/api` in the current snapsh
 | `CORS_ORIGINS`                    | Yes in shared environments             | `http://localhost:3000`               | Comma-separated; wildcard is rejected in production                                                                                                      |
 | `JWT_SECRET`                      | Yes                                    | replace with secret                   | Development defaults and values shorter than 32 characters are rejected in production                                                                    |
 | `JWT_REFRESH_SECRET`              | Yes                                    | replace with secret                   | Development defaults and values shorter than 32 characters are rejected in production                                                                    |
-| `JWT_EXPIRES_IN`                  | No                                     | `1h`                                  | Must match the `^\d+[hd]$` pattern                                                                                                                       |
-| `JWT_REFRESH_EXPIRES_IN`          | No                                     | `7d`                                  | Must match the `^\d+[hd]$` pattern                                                                                                                       |
+| `JWT_EXPIRES_IN`                  | No                                     | `1h`                                  | Must match the `^\d+[hd]$` pattern; production rejects values longer than `1h`                                                                           |
+| `JWT_REFRESH_EXPIRES_IN`          | No                                     | `7d`                                  | Must match the `^\d+[hd]$` pattern; production rejects values longer than `30d`                                                                          |
 | `TRUST_PROXY`                     | No                                     | `loopback`                            | Express trust proxy setting; production rejects unbounded `true`, use a hop count such as `1` behind ingress                                             |
 | `RATE_LIMIT_WINDOW_MS`            | No                                     | `60000`                               | Global limiter window                                                                                                                                    |
 | `RATE_LIMIT_MAX`                  | No                                     | `120`                                 | Global limiter max request count                                                                                                                         |
@@ -147,6 +147,7 @@ When `NODE_ENV=production`, API startup refuses to run with:
 - missing `REDIS_URL`
 - development JWT secrets
 - JWT secrets shorter than 32 characters
+- JWT access lifetimes longer than 1 hour or refresh lifetimes longer than 30 days
 - wildcard `CORS_ORIGINS`
 - `ALLOW_MOCK_SIGNATURES=true`
 - no configured `AUTH_OPERATOR_ADDRESSES` or `AUTH_ADMIN_ADDRESSES`

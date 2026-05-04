@@ -115,6 +115,24 @@ describe("backend config hardening", () => {
     );
   });
 
+  it("rejects overly long JWT lifetimes in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        JWT_EXPIRES_IN: "2h",
+      }),
+    ).rejects.toThrow("JWT_EXPIRES_IN must be 1h or shorter in production");
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        JWT_REFRESH_EXPIRES_IN: "31d",
+      }),
+    ).rejects.toThrow(
+      "JWT_REFRESH_EXPIRES_IN must be 30d or shorter in production",
+    );
+  });
+
   it("rejects wildcard CORS in production", async () => {
     await expect(
       loadConfigWithEnv({

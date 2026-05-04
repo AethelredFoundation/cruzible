@@ -6,6 +6,8 @@ const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
 const AUTH_ROLE_ADDRESS_PATTERN = /^aeth1[0-9a-z]{5,}$/;
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
+const MAX_PRODUCTION_ACCESS_TOKEN_MS = 60 * 60 * 1000;
+const MAX_PRODUCTION_REFRESH_TOKEN_MS = 30 * 24 * 60 * 60 * 1000;
 
 const optionalUrlSchema = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -152,6 +154,29 @@ function requireProductionSecretLength(value: string, envName: string): void {
     throw new Error(
       `${envName} must be at least ${MIN_PRODUCTION_SECRET_LENGTH} characters in production`,
     );
+  }
+}
+
+function parseDurationMs(value: string): number {
+  const match = value.match(/^(\d+)([hd])$/);
+  if (!match) {
+    throw new Error(`Invalid duration "${value}"`);
+  }
+
+  const amount = Number(match[1]);
+  return match[2] === "h"
+    ? amount * 60 * 60 * 1000
+    : amount * 24 * 60 * 60 * 1000;
+}
+
+function requireMaxProductionDuration(
+  value: string,
+  envName: string,
+  maxMs: number,
+  maxLabel: string,
+): void {
+  if (parseDurationMs(value) > maxMs) {
+    throw new Error(`${envName} must be ${maxLabel} or shorter in production`);
   }
 }
 
@@ -315,6 +340,18 @@ if (isProduction) {
   requireProductionSecretLength(
     parsedEnv.JWT_REFRESH_SECRET,
     "JWT_REFRESH_SECRET",
+  );
+  requireMaxProductionDuration(
+    parsedEnv.JWT_EXPIRES_IN,
+    "JWT_EXPIRES_IN",
+    MAX_PRODUCTION_ACCESS_TOKEN_MS,
+    "1h",
+  );
+  requireMaxProductionDuration(
+    parsedEnv.JWT_REFRESH_EXPIRES_IN,
+    "JWT_REFRESH_EXPIRES_IN",
+    MAX_PRODUCTION_REFRESH_TOKEN_MS,
+    "30d",
   );
 
   if (parsedEnv.ALLOW_MOCK_SIGNATURES) {
