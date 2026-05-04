@@ -59,8 +59,8 @@ These variables are validated or consumed by `backend/api` in the current snapsh
 | `DATABASE_URL`                    | Yes in production                      | `postgresql://cruzible:...`           | Required for Prisma-backed health, indexing, and reconciliation                                                                                          |
 | `REDIS_URL`                       | Yes in production                      | `redis://localhost:6379`              | Required for cross-instance API cache and distributed rate-limit counters in production; optional in local/test                                          |
 | `CORS_ORIGINS`                    | Yes in shared environments             | `http://localhost:3000`               | Comma-separated; wildcard is rejected in production                                                                                                      |
-| `JWT_SECRET`                      | Yes                                    | replace with secret                   | Development defaults are rejected in production                                                                                                          |
-| `JWT_REFRESH_SECRET`              | Yes                                    | replace with secret                   | Development defaults are rejected in production                                                                                                          |
+| `JWT_SECRET`                      | Yes                                    | replace with secret                   | Development defaults and values shorter than 32 characters are rejected in production                                                                    |
+| `JWT_REFRESH_SECRET`              | Yes                                    | replace with secret                   | Development defaults and values shorter than 32 characters are rejected in production                                                                    |
 | `JWT_EXPIRES_IN`                  | No                                     | `1h`                                  | Must match the `^\d+[hd]$` pattern                                                                                                                       |
 | `JWT_REFRESH_EXPIRES_IN`          | No                                     | `7d`                                  | Must match the `^\d+[hd]$` pattern                                                                                                                       |
 | `TRUST_PROXY`                     | No                                     | `loopback`                            | Express trust proxy setting; production rejects unbounded `true`, use a hop count such as `1` behind ingress                                             |
@@ -146,6 +146,7 @@ When `NODE_ENV=production`, API startup refuses to run with:
 - missing `DATABASE_URL`
 - missing `REDIS_URL`
 - development JWT secrets
+- JWT secrets shorter than 32 characters
 - wildcard `CORS_ORIGINS`
 - `ALLOW_MOCK_SIGNATURES=true`
 - no configured `AUTH_OPERATOR_ADDRESSES` or `AUTH_ADMIN_ADDRESSES`

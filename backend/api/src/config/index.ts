@@ -5,6 +5,7 @@ const DEFAULT_INDEXER_RPC_URL = "http://127.0.0.1:8545";
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
 const AUTH_ROLE_ADDRESS_PATTERN = /^aeth1[0-9a-z]{5,}$/;
+const MIN_PRODUCTION_SECRET_LENGTH = 32;
 
 const optionalUrlSchema = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -143,6 +144,14 @@ const apiDocsEnabled = parsedEnv.API_DOCS_ENABLED ?? !isProduction;
 function requireProductionConfig(value: unknown, message: string): void {
   if (value === undefined || value === null || value === "") {
     throw new Error(message);
+  }
+}
+
+function requireProductionSecretLength(value: string, envName: string): void {
+  if (value.length < MIN_PRODUCTION_SECRET_LENGTH) {
+    throw new Error(
+      `${envName} must be at least ${MIN_PRODUCTION_SECRET_LENGTH} characters in production`,
+    );
   }
 }
 
@@ -302,6 +311,11 @@ if (isProduction) {
       "Refusing to start with development JWT secrets in production",
     );
   }
+  requireProductionSecretLength(parsedEnv.JWT_SECRET, "JWT_SECRET");
+  requireProductionSecretLength(
+    parsedEnv.JWT_REFRESH_SECRET,
+    "JWT_REFRESH_SECRET",
+  );
 
   if (parsedEnv.ALLOW_MOCK_SIGNATURES) {
     throw new Error(
