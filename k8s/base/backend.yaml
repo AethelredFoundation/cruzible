@@ -11,6 +11,7 @@ data:
   cors.origins: "https://app.cruzible.example"
   cruzible.vault.address: "REPLACE_WITH_CRUZIBLE_VAULT_ADDRESS"
   api.docs.enabled: "false"
+  indexer.expected.chain.id: "REPLACE_WITH_EXPECTED_CHAIN_ID"
   indexer.rpc.url: "REPLACE_WITH_EVM_RPC_URL"
   indexer.start.block: "0"
   indexer.ws.url: "REPLACE_WITH_EVM_WS_URL"
@@ -48,6 +49,7 @@ spec:
         prometheus.io/port: "3000"
         prometheus.io/scrape: "false"
     spec:
+      automountServiceAccountToken: false
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
@@ -57,7 +59,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: ghcr.io/aethelred/cruzible/api:latest
+          image: ghcr.io/aethelred/cruzible/api@sha256:REPLACE_WITH_API_IMAGE_DIGEST
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
@@ -256,6 +258,7 @@ spec:
         app: cruzible-indexer
         tier: backend
     spec:
+      automountServiceAccountToken: false
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
@@ -265,7 +268,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: indexer
-          image: ghcr.io/aethelred/cruzible/api-indexer:latest
+          image: ghcr.io/aethelred/cruzible/api-indexer@sha256:REPLACE_WITH_INDEXER_IMAGE_DIGEST
           imagePullPolicy: IfNotPresent
           env:
             - name: NODE_ENV
@@ -302,6 +305,11 @@ spec:
                 configMapKeyRef:
                   name: cruzible-api-config
                   key: indexer.start.block
+            - name: INDEXER_EXPECTED_CHAIN_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.expected.chain.id
             - name: CRUZIBLE_VAULT_ADDRESS
               valueFrom:
                 configMapKeyRef:

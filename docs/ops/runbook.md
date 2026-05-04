@@ -91,14 +91,17 @@ cargo test --all
 `k8s/base/` contains frontend, API gateway, and indexer manifests. Build the
 frontend image with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` Docker
 build args before rollout; Kubernetes runtime env does not rewrite values that
-Next.js compiled into browser bundles. Before applying the backend manifests,
-replace placeholder values in `cruzible-api-config`, then create the required
-`cruzible-api-secrets` Secret with these keys:
+Next.js compiled into browser bundles. Replace the checked-in image placeholders
+with immutable `sha256` image digests in the environment overlay before rollout;
+the base intentionally does not use floating tags. Before applying the backend
+manifests, replace placeholder values in `cruzible-api-config`, then create the
+required `cruzible-api-secrets` Secret with these keys:
 
 - `database-url`
 - `redis-url`
 - `jwt-secret`
 - `jwt-refresh-secret`
+- `operational-endpoints-token`
 - `alert-webhook-url` when alert delivery is enabled
 
 The API deployment probes `/health/live` for liveness and `/health/ready` for
@@ -110,13 +113,13 @@ not expose an HTTP service.
 
 ### API endpoints
 
-| Endpoint | Purpose | Notes |
-| --- | --- | --- |
-| `GET /health` | Full health report | Includes DB, RPC, memory, uptime, optional indexer state, and optional reconciliation state |
-| `GET /health/live` | Liveness probe | Simple process-alive probe |
-| `GET /health/ready` | Readiness probe | Fails when DB/RPC are down, indexer lag exceeds 500 blocks, or reconciliation is CRITICAL |
-| `GET /metrics` | Prometheus scrape endpoint | Exposes process metrics plus HTTP request count, latency, and in-flight gauges |
-| `GET /docs` | Swagger UI | Built from checked-in route annotations |
+| Endpoint            | Purpose                    | Notes                                                                                       |
+| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------- |
+| `GET /health`       | Full health report         | Includes DB, RPC, memory, uptime, optional indexer state, and optional reconciliation state |
+| `GET /health/live`  | Liveness probe             | Simple process-alive probe                                                                  |
+| `GET /health/ready` | Readiness probe            | Fails when DB/RPC are down, indexer lag exceeds 500 blocks, or reconciliation is CRITICAL   |
+| `GET /metrics`      | Prometheus scrape endpoint | Exposes process metrics plus HTTP request count, latency, and in-flight gauges              |
+| `GET /docs`         | Swagger UI                 | Built from checked-in route annotations                                                     |
 
 ### Common checks
 
