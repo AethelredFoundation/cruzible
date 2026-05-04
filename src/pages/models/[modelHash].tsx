@@ -284,7 +284,7 @@ export default function ModelDetailPage() {
                                 <a
                                   href={trustedStorageUrl}
                                   target="_blank"
-                                  rel="noreferrer"
+                                  rel="noopener noreferrer"
                                   className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-cyan-200 hover:text-cyan-100"
                                 >
                                   Open verified storage

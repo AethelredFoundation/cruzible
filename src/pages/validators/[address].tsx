@@ -24,7 +24,7 @@ import {
   type ValidatorLifecycleStatus,
   type ValidatorRiskLevel,
 } from "@/lib/validators";
-import { isHttpUrl } from "@/lib/utils";
+import { getSafeExternalUrl } from "@/lib/utils";
 
 function DetailCard({
   label,
@@ -124,7 +124,7 @@ export default function ValidatorDetailPage() {
     : 0;
   const profileCompleteness = validator ? getProfileCompleteness(validator) : 0;
   const status = validator ? getValidatorStatus(validator) : "inactive";
-  const safeWebsite = isHttpUrl(validator?.website) ? validator?.website : null;
+  const safeWebsite = getSafeExternalUrl(validator?.website);
 
   return (
     <>

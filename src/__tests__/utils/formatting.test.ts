@@ -5,6 +5,7 @@
 import {
   formatFullNumber,
   formatNumber,
+  getSafeExternalUrl,
   getTrustedModelStorageUrl,
   isHttpUrl,
   seededAddress,
@@ -104,6 +105,22 @@ describe("isHttpUrl", () => {
     expect(isHttpUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
     expect(isHttpUrl("not a url")).toBe(false);
     expect(isHttpUrl("")).toBe(false);
+  });
+});
+
+describe("getSafeExternalUrl", () => {
+  it("allows only public HTTPS URLs", () => {
+    expect(getSafeExternalUrl("https://validator.example")).toBe(
+      "https://validator.example/",
+    );
+    expect(getSafeExternalUrl("http://validator.example")).toBe(null);
+    expect(getSafeExternalUrl("https://127.0.0.1/status")).toBe(null);
+    expect(getSafeExternalUrl("https://10.0.0.5/status")).toBe(null);
+    expect(getSafeExternalUrl("https://user:pass@validator.example")).toBe(
+      null,
+    );
+    expect(getSafeExternalUrl("javascript:alert(1)")).toBe(null);
+    expect(getSafeExternalUrl("not a url")).toBe(null);
   });
 });
 
