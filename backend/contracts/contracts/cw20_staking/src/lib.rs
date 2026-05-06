@@ -16,6 +16,7 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:cw20-staking";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_DECIMALS: u8 = 18;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -33,8 +34,12 @@ pub enum ContractError {
     NoAllowance {},
     #[error("Cannot exceed max supply")]
     CannotExceedCap {},
+    #[error("Overflow")]
+    Overflow {},
     #[error("Cannot transfer to self")]
     CannotTransferToSelf {},
+    #[error("Invalid token metadata: {reason}")]
+    InvalidTokenMetadata { reason: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -179,6 +184,8 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    validate_token_metadata(&msg)?;
+    validate_initial_supply_cap(msg.initial_supply, msg.cap)?;
 
     let minter = deps.api.addr_validate(&msg.minter)?;
 
@@ -206,6 +213,37 @@ pub fn instantiate(
         .add_attribute("symbol", msg.symbol)
         .add_attribute("decimals", msg.decimals.to_string())
         .add_attribute("total_supply", msg.initial_supply))
+}
+
+fn validate_token_metadata(msg: &InstantiateMsg) -> Result<(), ContractError> {
+    if msg.name.trim().is_empty() {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: "name must not be empty".to_string(),
+        });
+    }
+    if msg.symbol.trim().is_empty() {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: "symbol must not be empty".to_string(),
+        });
+    }
+    if msg.decimals > MAX_DECIMALS {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: format!("decimals cannot exceed {}", MAX_DECIMALS),
+        });
+    }
+    Ok(())
+}
+
+fn validate_initial_supply_cap(
+    initial_supply: Uint128,
+    cap: Option<Uint128>,
+) -> Result<(), ContractError> {
+    if let Some(cap) = cap {
+        if initial_supply > cap {
+            return Err(ContractError::CannotExceedCap {});
+        }
+    }
+    Ok(())
 }
 
 #[entry_point]
@@ -332,20 +370,25 @@ fn execute_mint(
         return Err(ContractError::Unauthorized {});
     }
 
+    let new_total_supply = config
+        .total_supply
+        .checked_add(amount)
+        .map_err(|_| ContractError::Overflow {})?;
+
     // Check cap
     if let Some(cap) = mint_data.cap {
-        if config.total_supply + amount > cap {
+        if new_total_supply > cap {
             return Err(ContractError::CannotExceedCap {});
         }
     }
 
     let recipient = deps.api.addr_validate(&recipient)?;
 
-    config.total_supply += amount;
+    config.total_supply = new_total_supply;
     TOKEN_INFO.save(deps.storage, &config)?;
 
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
-        Ok(balance.unwrap_or_default() + amount)
+        Ok(balance.unwrap_or_default().checked_add(amount)?)
     })?;
 
     // MONITORING: Mint event for supply tracking

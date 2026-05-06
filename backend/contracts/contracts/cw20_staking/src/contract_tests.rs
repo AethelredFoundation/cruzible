@@ -130,6 +130,81 @@ mod tests {
         assert_eq!(m.cap, Some(Uint128::from(10_000_000_000u128)));
     }
 
+    #[test]
+    fn test_instantiate_rejects_empty_name() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("minter", &[]);
+        let msg = InstantiateMsg {
+            name: " ".to_string(),
+            symbol: "TST".to_string(),
+            decimals: 6,
+            initial_supply: Uint128::zero(),
+            minter: "minter".to_string(),
+            cap: None,
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidTokenMetadata { .. }));
+        assert!(err.to_string().contains("name"));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_empty_symbol() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("minter", &[]);
+        let msg = InstantiateMsg {
+            name: "Test".to_string(),
+            symbol: " ".to_string(),
+            decimals: 6,
+            initial_supply: Uint128::zero(),
+            minter: "minter".to_string(),
+            cap: None,
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidTokenMetadata { .. }));
+        assert!(err.to_string().contains("symbol"));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_decimals_above_limit() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("minter", &[]);
+        let msg = InstantiateMsg {
+            name: "Test".to_string(),
+            symbol: "TST".to_string(),
+            decimals: 19,
+            initial_supply: Uint128::zero(),
+            minter: "minter".to_string(),
+            cap: None,
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidTokenMetadata { .. }));
+        assert!(err.to_string().contains("decimals"));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_initial_supply_above_cap() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("minter", &[]);
+        let msg = InstantiateMsg {
+            name: "Test".to_string(),
+            symbol: "TST".to_string(),
+            decimals: 6,
+            initial_supply: Uint128::from(101u128),
+            minter: "minter".to_string(),
+            cap: Some(Uint128::from(100u128)),
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::CannotExceedCap {});
+    }
+
     // ============ TRANSFER TESTS ============
 
     #[test]
@@ -264,6 +339,34 @@ mod tests {
             query_balance(&deps, &env, "alice"),
             Uint128::from(999_999_999_999u128)
         );
+    }
+
+    #[test]
+    fn test_mint_supply_overflow_rejected() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("minter", &[]);
+        let msg = InstantiateMsg {
+            name: "Staked AETHEL".to_string(),
+            symbol: "stAETHEL".to_string(),
+            decimals: 6,
+            initial_supply: Uint128::MAX,
+            minter: "minter".to_string(),
+            cap: None,
+        };
+        instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env,
+            mock_info("minter", &[]),
+            ExecuteMsg::Mint {
+                recipient: "alice".to_string(),
+                amount: Uint128::from(1u128),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::Overflow {});
     }
 
     // ============ BURN TESTS ============
