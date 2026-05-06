@@ -27,6 +27,8 @@ pub enum ContractError {
     SealNotFound {},
     #[error("Invalid seal status")]
     InvalidSealStatus {},
+    #[error("Invalid config: {reason}")]
+    InvalidConfig { reason: String },
     #[error("Seal expired")]
     SealExpired {},
     #[error("Seal already revoked")]
@@ -214,6 +216,8 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    validate_validator_bounds(msg.min_validators, msg.max_validators)?;
+    validate_expiration_bounds(msg.default_expiration, msg.max_expiration)?;
 
     let config = Config {
         admin: info.sender,
@@ -303,47 +307,8 @@ fn execute_create_seal(
     expiration: Option<u64>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-
-    // SECURITY: Cross-contract query to verify job exists and is in a valid terminal state.
-    // Prevents seals from being created for non-existent or in-progress jobs.
-    let job_response: JobResponse = deps
-        .querier
-        .query_wasm_smart(
-            config.ai_job_manager.to_string(),
-            &AiJobManagerQueryMsg::Job {
-                job_id: job_id.clone(),
-            },
-        )
-        .map_err(|_| {
-            ContractError::Std(cosmwasm_std::StdError::generic_err(format!(
-                "Job '{}' not found in AI Job Manager",
-                job_id
-            )))
-        })?;
-
-    // Only allow seals for verified or paid (completed+paid) jobs
-    match job_response.status {
-        JobStatusResponse::Verified | JobStatusResponse::Paid | JobStatusResponse::Completed => {}
-        _ => {
-            return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                format!(
-                    "Job '{}' is not in a valid state for sealing (status: {:?})",
-                    job_id, job_response.status
-                ),
-            )));
-        }
-    }
-
-    let validator_count = validator_addresses.len() as u32;
-    if validator_count < config.min_validators || validator_count > config.max_validators {
-        return Err(ContractError::InvalidSealStatus {});
-    }
-
-    let validators: Result<Vec<Addr>, _> = validator_addresses
-        .into_iter()
-        .map(|v| deps.api.addr_validate(&v))
-        .collect();
-    let validators = validators?;
+    ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
+    let validators = validate_unique_validators(deps.api, &config, validator_addresses)?;
 
     let expires_at =
         expiration.map(|exp| env.block.time.plus_seconds(exp.min(config.max_expiration)));
@@ -374,6 +339,97 @@ fn execute_create_seal(
         .add_attribute("action", "create_seal")
         .add_attribute("seal_id", seal_id)
         .add_attribute("job_id", job_id))
+}
+
+fn ensure_sealable_job(deps: Deps, config: &Config, job_id: &str) -> Result<(), ContractError> {
+    let job_response: JobResponse = deps
+        .querier
+        .query_wasm_smart(
+            config.ai_job_manager.to_string(),
+            &AiJobManagerQueryMsg::Job {
+                job_id: job_id.to_string(),
+            },
+        )
+        .map_err(|_| {
+            ContractError::Std(cosmwasm_std::StdError::generic_err(format!(
+                "Job '{}' not found in AI Job Manager",
+                job_id
+            )))
+        })?;
+
+    if job_response.id != job_id {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!(
+                "AI Job Manager returned mismatched job id '{}' for '{}'",
+                job_response.id, job_id
+            ),
+        )));
+    }
+
+    match job_response.status {
+        JobStatusResponse::Verified | JobStatusResponse::Paid => Ok(()),
+        _ => Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!(
+                "Job '{}' is not in a valid state for sealing (status: {:?})",
+                job_id, job_response.status
+            ),
+        ))),
+    }
+}
+
+fn validate_unique_validators(
+    api: &dyn cosmwasm_std::Api,
+    config: &Config,
+    validator_addresses: Vec<String>,
+) -> Result<Vec<Addr>, ContractError> {
+    let mut validators = Vec::new();
+    for validator in validator_addresses {
+        let validator_addr = api.addr_validate(&validator)?;
+        if !validators.contains(&validator_addr) {
+            validators.push(validator_addr);
+        }
+    }
+
+    let validator_count = validators.len() as u32;
+    if validator_count < config.min_validators || validator_count > config.max_validators {
+        return Err(ContractError::InvalidSealStatus {});
+    }
+
+    Ok(validators)
+}
+
+fn validate_validator_bounds(
+    min_validators: u32,
+    max_validators: u32,
+) -> Result<(), ContractError> {
+    if min_validators == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_validators must be greater than zero".to_string(),
+        });
+    }
+    if min_validators > max_validators {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_validators cannot exceed max_validators".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_expiration_bounds(
+    default_expiration: u64,
+    max_expiration: u64,
+) -> Result<(), ContractError> {
+    if default_expiration == 0 || max_expiration == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "expiration values must be greater than zero".to_string(),
+        });
+    }
+    if default_expiration > max_expiration {
+        return Err(ContractError::InvalidConfig {
+            reason: "default_expiration cannot exceed max_expiration".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn execute_revoke_seal(
@@ -458,22 +514,18 @@ fn execute_supersede_seal(
         return Err(ContractError::Unauthorized {});
     }
 
-    let config = CONFIG.load(deps.storage)?;
-
-    // M-08 FIX: Validate validator count before superseding
-    let validator_count = validator_addresses.len() as u32;
-    if validator_count < config.min_validators || validator_count > config.max_validators {
+    if old_seal.status != SealStatus::Active {
         return Err(ContractError::InvalidSealStatus {});
     }
 
-    old_seal.status = SealStatus::Superseded;
-    seals().save(deps.storage, old_seal_id.clone(), &old_seal)?;
+    if old_seal.job_id != job_id {
+        return Err(ContractError::InvalidSealStatus {});
+    }
 
-    let validators: Result<Vec<Addr>, _> = validator_addresses
-        .into_iter()
-        .map(|v| deps.api.addr_validate(&v))
-        .collect();
-    let validators = validators?;
+    let config = CONFIG.load(deps.storage)?;
+    ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
+    let validators = validate_unique_validators(deps.api, &config, validator_addresses)?;
+
     let count = SEAL_COUNT.load(deps.storage)?;
     let new_seal_id = generate_seal_id(&job_id, &info.sender, count);
 
@@ -493,6 +545,8 @@ fn execute_supersede_seal(
         revocation_reason: None,
     };
 
+    old_seal.status = SealStatus::Superseded;
+    seals().save(deps.storage, old_seal_id.clone(), &old_seal)?;
     seals().save(deps.storage, new_seal_id.clone(), &new_seal)?;
     SEAL_COUNT.save(deps.storage, &(count + 1))?;
 
@@ -607,6 +661,7 @@ fn execute_update_config(
     if let Some(max) = max_validators {
         config.max_validators = max;
     }
+    validate_validator_bounds(config.min_validators, config.max_validators)?;
 
     CONFIG.save(deps.storage, &config)?;
     Ok(Response::new().add_attribute("action", "update_config"))
