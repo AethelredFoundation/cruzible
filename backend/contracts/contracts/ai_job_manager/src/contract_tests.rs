@@ -1522,6 +1522,105 @@ mod tests {
         assert_eq!(job.status, JobStatus::Expired);
     }
 
+    #[test]
+    fn cleanup_expired_assigned_job_refunds_and_expires() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(VALIDATOR, &[]),
+            ExecuteMsg::AssignJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let mut env = mock_env();
+        env.block.height = mock_env().block.height + 1001;
+
+        let res = execute(
+            deps.as_mut(),
+            env,
+            mock_info("anyone", &[]),
+            ExecuteMsg::CleanupExpired { limit: Some(10) },
+        )
+        .unwrap();
+
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "cleaned" && a.value == "1"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "refunds" && a.value == "1"));
+        assert_eq!(res.messages.len(), 1);
+        match &res.messages[0].msg {
+            CosmosMsg::Bank(cosmwasm_std::BankMsg::Send { to_address, amount }) => {
+                assert_eq!(to_address, CREATOR);
+                assert_eq!(amount, &coins(10000, PAYMENT_DENOM));
+            }
+            _ => panic!("expected refund bank send"),
+        }
+
+        let job = jobs().load(&deps.storage, job_id).unwrap();
+        assert_eq!(job.status, JobStatus::Expired);
+    }
+
+    #[test]
+    fn cleanup_expired_computing_job_refunds_and_expires() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+        let validator_info = mock_info(VALIDATOR, &[]);
+
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::AssignJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info,
+            ExecuteMsg::StartComputing {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let mut env = mock_env();
+        env.block.height = mock_env().block.height + 1001;
+
+        let res = execute(
+            deps.as_mut(),
+            env,
+            mock_info("anyone", &[]),
+            ExecuteMsg::CleanupExpired { limit: Some(10) },
+        )
+        .unwrap();
+
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "cleaned" && a.value == "1"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "refunds" && a.value == "1"));
+        assert_eq!(res.messages.len(), 1);
+
+        let job = jobs().load(&deps.storage, job_id).unwrap();
+        assert_eq!(job.status, JobStatus::Expired);
+    }
+
     // ============ EDGE CASE TESTS ============
 
     #[test]

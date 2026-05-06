@@ -1177,19 +1177,11 @@ fn execute_cleanup_expired(
     let mut cleaned = 0u64;
     let mut refund_msgs: Vec<CosmosMsg> = Vec::new();
 
-    // Iterate through pending and assigned jobs
-    let pending: Vec<_> = PENDING_JOBS
-        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-        .take(limit)
-        .filter_map(|r| r.ok())
-        .collect();
+    let expirable_job_ids = collect_expirable_job_ids(deps.storage, limit)?;
 
-    for (_, job_id) in pending {
+    for job_id in expirable_job_ids {
         if let Ok(job) = jobs().load(deps.storage, job_id.clone()) {
-            if env.block.height > job.created_at + job.timeout {
-                // HIGH-7: Check status BEFORE overwriting — refund for Pending/Assigned jobs
-                let should_refund =
-                    job.status == JobStatus::Pending || job.status == JobStatus::Assigned;
+            if is_expirable_status(&job.status) && env.block.height > job.created_at + job.timeout {
                 let refund_amount = job.max_payment;
                 let refund_to = job.creator.clone();
 
@@ -1199,7 +1191,7 @@ fn execute_cleanup_expired(
                 remove_from_pending(deps.storage, &job_id)?;
 
                 // Refund the locked payment to the job creator
-                if should_refund && !refund_amount.is_zero() {
+                if !refund_amount.is_zero() {
                     refund_msgs.push(CosmosMsg::Bank(BankMsg::Send {
                         to_address: refund_to.to_string(),
                         amount: vec![Coin {
@@ -1224,6 +1216,44 @@ fn execute_cleanup_expired(
     }
 
     Ok(response)
+}
+
+fn collect_expirable_job_ids(
+    storage: &dyn cosmwasm_std::Storage,
+    limit: usize,
+) -> StdResult<Vec<String>> {
+    let mut job_ids = Vec::new();
+    for status in [
+        JobStatus::Pending,
+        JobStatus::Assigned,
+        JobStatus::Computing,
+    ] {
+        let remaining = limit.saturating_sub(job_ids.len());
+        if remaining == 0 {
+            break;
+        }
+
+        let status_key = status.as_str().to_string();
+        for item in jobs()
+            .idx
+            .status
+            .prefix(status_key)
+            .range(storage, None, None, cosmwasm_std::Order::Ascending)
+            .take(remaining)
+        {
+            let (_, job) = item?;
+            job_ids.push(job.id);
+        }
+    }
+
+    Ok(job_ids)
+}
+
+fn is_expirable_status(status: &JobStatus) -> bool {
+    matches!(
+        status,
+        JobStatus::Pending | JobStatus::Assigned | JobStatus::Computing
+    )
 }
 
 // ============ QUERY ============
