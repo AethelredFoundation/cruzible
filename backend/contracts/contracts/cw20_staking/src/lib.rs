@@ -309,7 +309,7 @@ fn execute_transfer(
     })?;
 
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
-        Ok(balance.unwrap_or_default() + amount)
+        Ok(balance.unwrap_or_default().checked_add(amount)?)
     })?;
 
     // MONITORING: Emit structured transfer event for indexers
@@ -428,7 +428,7 @@ fn execute_increase_allowance(
             if let Some(exp) = expires {
                 allow.expires = exp;
             }
-            allow.allowance += amount;
+            allow.allowance = allow.allowance.checked_add(amount)?;
             Ok(allow)
         },
     )?;
@@ -516,7 +516,7 @@ fn execute_transfer_from(
     })?;
 
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
-        Ok(balance.unwrap_or_default() + amount)
+        Ok(balance.unwrap_or_default().checked_add(amount)?)
     })?;
 
     Ok(Response::new()
@@ -597,7 +597,7 @@ fn execute_send(
     })?;
 
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
-        Ok(balance.unwrap_or_default() + amount)
+        Ok(balance.unwrap_or_default().checked_add(amount)?)
     })?;
 
     // Send message to contract

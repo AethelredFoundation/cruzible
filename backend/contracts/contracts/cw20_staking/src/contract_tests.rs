@@ -448,6 +448,37 @@ mod tests {
     }
 
     #[test]
+    fn test_increase_allowance_overflow_rejected() {
+        let (mut deps, env) = default_instantiate();
+        let info = mock_info("minter", &[]);
+
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::MAX,
+                expires: None,
+            },
+        )
+        .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(1u128),
+                expires: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContractError::Std(_)));
+    }
+
+    #[test]
     fn test_decrease_allowance() {
         let (mut deps, env) = default_instantiate();
         let info = mock_info("minter", &[]);
