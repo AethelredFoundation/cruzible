@@ -20,6 +20,9 @@ use thiserror::Error;
 const CONTRACT_NAME: &str = "crates.io:ai-job-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MODEL_REGISTRY_INCREMENT_REPLY_ID: u64 = 1;
+const BASIS_POINTS_DENOMINATOR: u64 = 10_000;
+const MAX_PLATFORM_FEE_BPS: u64 = 2_000;
+const MAX_REQUIRED_TEE_TYPE: u8 = 3;
 const MIN_TEE_QUOTE_BYTES: usize = 256;
 const MIN_REPORT_DATA_BYTES: usize = 32;
 const MIN_ENCLAVE_KEY_BYTES: usize = 32;
@@ -57,6 +60,9 @@ pub enum ContractError {
 
     #[error("Invalid model")]
     InvalidModel {},
+
+    #[error("Invalid config: {reason}")]
+    InvalidConfig { reason: String },
 
     #[error("Timeout too short")]
     TimeoutTooShort {},
@@ -378,6 +384,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    validate_instantiate_config(&msg)?;
     let authorized_validators = validate_validator_set(deps.api, msg.validators)?;
     let authorized_measurements = validate_measurement_set(msg.authorized_measurements)?;
 
@@ -407,6 +414,62 @@ pub fn instantiate(
         .add_attribute("action", "instantiate")
         .add_attribute("contract_name", CONTRACT_NAME)
         .add_attribute("contract_version", CONTRACT_VERSION))
+}
+
+fn validate_instantiate_config(msg: &InstantiateMsg) -> Result<(), ContractError> {
+    validate_payment_denom(&msg.payment_denom)?;
+    validate_timeout_bounds(msg.min_timeout, msg.max_timeout)?;
+    validate_min_payment(msg.min_payment)?;
+    validate_platform_fee_bps(msg.platform_fee_bps)?;
+    validate_required_tee_type(msg.required_tee_type)
+}
+
+fn validate_payment_denom(denom: &str) -> Result<(), ContractError> {
+    if denom.trim().is_empty() || denom.chars().any(char::is_whitespace) {
+        return Err(ContractError::InvalidConfig {
+            reason: "payment_denom must not be empty or contain whitespace".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_timeout_bounds(min_timeout: u64, max_timeout: u64) -> Result<(), ContractError> {
+    if min_timeout > max_timeout {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_timeout cannot exceed max_timeout".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_min_payment(min_payment: Uint128) -> Result<(), ContractError> {
+    if min_payment.is_zero() {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_payment must be greater than zero".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_platform_fee_bps(platform_fee_bps: u64) -> Result<(), ContractError> {
+    if platform_fee_bps > MAX_PLATFORM_FEE_BPS {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "Platform fee cannot exceed {} basis points (20%)",
+                MAX_PLATFORM_FEE_BPS
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn validate_required_tee_type(required_tee_type: u8) -> Result<(), ContractError> {
+    if required_tee_type > MAX_REQUIRED_TEE_TYPE {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("required_tee_type cannot exceed {}", MAX_REQUIRED_TEE_TYPE),
+        });
+    }
+    Ok(())
 }
 
 fn validate_validator_set(
@@ -1012,7 +1075,8 @@ fn execute_claim_payment(
     }
 
     let payment = job.actual_payment.unwrap_or_default();
-    let platform_fee = payment * Uint128::from(config.platform_fee_bps) / Uint128::from(10000u128);
+    let platform_fee =
+        payment * Uint128::from(config.platform_fee_bps) / Uint128::from(BASIS_POINTS_DENOMINATOR);
     let validator_payment = payment - platform_fee;
 
     // SECURITY: Transition to Paid BEFORE external calls (checks-effects-interactions)
@@ -1077,18 +1141,15 @@ fn execute_update_config(
     }
 
     if let Some(mp) = min_payment {
+        validate_min_payment(mp)?;
         config.min_payment = mp;
     }
     if let Some(fee) = platform_fee_bps {
-        // LOW: Cap platform fee at 20% to prevent admin abuse
-        if fee > 2000 {
-            return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                "Platform fee cannot exceed 2000 basis points (20%)",
-            )));
-        }
+        validate_platform_fee_bps(fee)?;
         config.platform_fee_bps = fee;
     }
     if let Some(tee) = required_tee_type {
+        validate_required_tee_type(tee)?;
         config.required_tee_type = tee;
     }
     if let Some(validators) = validators {

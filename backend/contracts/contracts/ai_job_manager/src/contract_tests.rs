@@ -72,20 +72,24 @@ mod tests {
         mock_dependencies_with_model_response(Some(true))
     }
 
-    fn setup_contract(deps: DepsMut) -> (Config, MessageInfo) {
-        let info = mock_info(ADMIN, &[]);
-        let msg = InstantiateMsg {
+    fn default_instantiate_msg() -> InstantiateMsg {
+        InstantiateMsg {
             payment_denom: PAYMENT_DENOM.to_string(),
             min_timeout: 100,
             max_timeout: 10000,
             min_payment: Uint128::from(1000u128),
-            platform_fee_bps: 500, // 5%
+            platform_fee_bps: 500,
             fee_collector: FEE_COLLECTOR.to_string(),
             required_tee_type: 0,
             model_registry: MODEL_REGISTRY.to_string(),
             validators: vec![VALIDATOR.to_string()],
             authorized_measurements: vec![AUTHORIZED_MEASUREMENT.to_string()],
-        };
+        }
+    }
+
+    fn setup_contract(deps: DepsMut) -> (Config, MessageInfo) {
+        let info = mock_info(ADMIN, &[]);
+        let msg = default_instantiate_msg();
 
         instantiate(deps, mock_env(), info.clone(), msg).unwrap();
         // Return the expected config (deps was consumed by instantiate)
@@ -161,6 +165,66 @@ mod tests {
         assert_eq!(config.max_timeout, 10000);
         assert_eq!(config.min_payment, Uint128::from(1000u128));
         assert_eq!(config.platform_fee_bps, 500);
+    }
+
+    #[test]
+    fn instantiate_rejects_empty_payment_denom() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let mut msg = default_instantiate_msg();
+        msg.payment_denom = " ".to_string();
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("payment_denom"));
+    }
+
+    #[test]
+    fn instantiate_rejects_timeout_bounds() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let mut msg = default_instantiate_msg();
+        msg.min_timeout = 10_001;
+        msg.max_timeout = 10_000;
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("min_timeout"));
+    }
+
+    #[test]
+    fn instantiate_rejects_zero_min_payment() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let mut msg = default_instantiate_msg();
+        msg.min_payment = Uint128::zero();
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("min_payment"));
+    }
+
+    #[test]
+    fn instantiate_rejects_platform_fee_above_cap() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let mut msg = default_instantiate_msg();
+        msg.platform_fee_bps = 2001;
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(err.to_string().contains("Platform fee cannot exceed 2000"));
+    }
+
+    #[test]
+    fn instantiate_rejects_invalid_required_tee_type() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let mut msg = default_instantiate_msg();
+        msg.required_tee_type = 4;
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("required_tee_type"));
     }
 
     #[test]
@@ -1032,6 +1096,50 @@ mod tests {
         assert_eq!(updated_config.min_payment, Uint128::from(5000u128));
         assert_eq!(updated_config.platform_fee_bps, 1000);
         assert_eq!(updated_config.required_tee_type, 1);
+    }
+
+    #[test]
+    fn update_config_rejects_zero_min_payment() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let (_config, admin_info) = setup_contract(deps.as_mut());
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                min_payment: Some(Uint128::zero()),
+                platform_fee_bps: None,
+                required_tee_type: None,
+                validators: None,
+                authorized_measurements: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("min_payment"));
+    }
+
+    #[test]
+    fn update_config_rejects_invalid_required_tee_type() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let (_config, admin_info) = setup_contract(deps.as_mut());
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                min_payment: None,
+                platform_fee_bps: None,
+                required_tee_type: Some(4),
+                validators: None,
+                authorized_measurements: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("required_tee_type"));
     }
 
     #[test]
