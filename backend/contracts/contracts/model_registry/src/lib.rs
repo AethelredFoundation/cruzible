@@ -29,6 +29,8 @@ pub enum ContractError {
     ModelExists {},
     #[error("Invalid category")]
     InvalidCategory {},
+    #[error("Verifier set must contain at least one valid address when verification is required")]
+    InvalidVerifierSet {},
     #[error("Not verified")]
     NotVerified {},
     #[error("Rate limited: try again later")]
@@ -203,11 +205,7 @@ pub fn instantiate(
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     validate_registration_fee_denom(&msg.registration_fee_denom)?;
 
-    let verifiers: Result<Vec<Addr>, _> = msg
-        .verifiers
-        .iter()
-        .map(|v| deps.api.addr_validate(v))
-        .collect();
+    let verifiers = validate_verifier_set(deps.api, msg.verification_required, msg.verifiers)?;
 
     let config = Config {
         admin: info.sender,
@@ -215,7 +213,7 @@ pub fn instantiate(
         registration_fee: msg.registration_fee,
         registration_fee_denom: msg.registration_fee_denom,
         verification_required: msg.verification_required,
-        verifiers: verifiers?,
+        verifiers,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -552,6 +550,30 @@ fn validate_registration_fee_denom(denom: &str) -> StdResult<()> {
     Ok(())
 }
 
+fn validate_verifier_set(
+    api: &dyn cosmwasm_std::Api,
+    verification_required: bool,
+    verifiers: Vec<String>,
+) -> Result<Vec<Addr>, ContractError> {
+    if verification_required && verifiers.is_empty() {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+
+    let mut validated_verifiers = Vec::new();
+    for verifier in verifiers {
+        let verifier_addr = api.addr_validate(&verifier)?;
+        if !validated_verifiers.contains(&verifier_addr) {
+            validated_verifiers.push(verifier_addr);
+        }
+    }
+
+    if verification_required && validated_verifiers.is_empty() {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+
+    Ok(validated_verifiers)
+}
+
 fn execute_update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -700,15 +722,19 @@ pub struct MigrateMsg {
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> StdResult<Response> {
+pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     let version = cw2::get_contract_version(deps.storage)?;
     if version.contract != CONTRACT_NAME {
         return Err(cosmwasm_std::StdError::generic_err(
             "Cannot migrate from a different contract",
-        ));
+        )
+        .into());
     }
     validate_registration_fee_denom(&msg.registration_fee_denom)?;
     let legacy = LEGACY_CONFIG.load(deps.storage)?;
+    if legacy.verification_required && legacy.verifiers.is_empty() {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
     let config = Config {
         admin: legacy.admin,
         ai_job_manager: legacy.ai_job_manager,

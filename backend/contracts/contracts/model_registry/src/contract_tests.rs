@@ -136,6 +136,59 @@ mod tests {
         assert!(err.to_string().contains("registration_fee_denom"));
     }
 
+    #[test]
+    fn test_instantiate_rejects_required_verification_without_verifiers() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::from(1000u128),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            verification_required: true,
+            verifiers: vec![],
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidVerifierSet {});
+    }
+
+    #[test]
+    fn test_instantiate_allows_empty_verifiers_when_verification_not_required() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::zero(),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            verification_required: false,
+            verifiers: vec![],
+        };
+
+        instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let res = query(deps.as_ref(), env, QueryMsg::Config {}).unwrap();
+        let config: Config = from_json(&res).unwrap();
+        assert!(!config.verification_required);
+        assert!(config.verifiers.is_empty());
+    }
+
+    #[test]
+    fn test_instantiate_deduplicates_verifiers() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::from(1000u128),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            verification_required: true,
+            verifiers: vec!["verifier1".to_string(), "verifier1".to_string()],
+        };
+
+        instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let res = query(deps.as_ref(), env, QueryMsg::Config {}).unwrap();
+        let config: Config = from_json(&res).unwrap();
+        assert_eq!(config.verifiers, vec![Addr::unchecked("verifier1")]);
+    }
+
     // ============ REGISTRATION TESTS ============
 
     #[test]
@@ -1172,6 +1225,35 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("Cannot migrate"));
+    }
+
+    #[test]
+    fn test_migration_rejects_required_verification_without_verifiers() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        cw2::set_contract_version(deps.as_mut().storage, CONTRACT_NAME, "0.1.0").unwrap();
+        LEGACY_CONFIG
+            .save(
+                deps.as_mut().storage,
+                &LegacyConfig {
+                    admin: Addr::unchecked("admin"),
+                    ai_job_manager: None,
+                    registration_fee: Uint128::from(1000u128),
+                    verification_required: true,
+                    verifiers: vec![],
+                },
+            )
+            .unwrap();
+
+        let err = migrate(
+            deps.as_mut(),
+            env,
+            MigrateMsg {
+                registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::InvalidVerifierSet {});
     }
 
     // ============ MONITORING EVENT TESTS ============
