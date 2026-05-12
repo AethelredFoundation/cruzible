@@ -3,7 +3,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { query, validationResult } from 'express-validator';
+import { param, query, validationResult } from 'express-validator';
 import { container } from 'tsyringe';
 import { BlockchainService } from '../../services/BlockchainService';
 import { CacheService } from '../../services/CacheService';
@@ -14,6 +14,7 @@ import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
 const router = Router();
 const blockchainService = container.resolve(BlockchainService);
 const cacheService = container.resolve(CacheService);
+const blockHeightValidator = param('height').isInt({ min: 1 }).toInt();
 
 // Validation middleware
 const validate = (req: Request, res: Response, next: NextFunction) => {
@@ -134,10 +135,11 @@ router.get('/latest',
  *         description: Block not found
  */
 router.get('/:height',
+  [blockHeightValidator, validate],
   asyncHandler(async (req: Request, res: Response) => {
-    const height = parseInt(req.params.height, 10);
+    const height = Number(req.params.height);
     
-    if (isNaN(height) || height < 1) {
+    if (!Number.isInteger(height) || height < 1) {
       throw new ApiError(400, 'Invalid block height');
     }
 
@@ -191,6 +193,7 @@ router.get('/:height',
  */
 router.get('/:height/transactions',
   [
+    blockHeightValidator,
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
     query('offset')
       .optional()
@@ -199,13 +202,13 @@ router.get('/:height/transactions',
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
-    const height = parseInt(req.params.height, 10);
+    const height = Number(req.params.height);
     const { limit = 50, offset = 0 } = req.query as {
       limit?: number;
       offset?: number;
     };
     
-    if (isNaN(height) || height < 1) {
+    if (!Number.isInteger(height) || height < 1) {
       throw new ApiError(400, 'Invalid block height');
     }
 

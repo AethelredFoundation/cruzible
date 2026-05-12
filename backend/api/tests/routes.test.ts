@@ -82,6 +82,45 @@ describe('backend routes', () => {
     });
   });
 
+  it('rejects partially parsed block heights before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { BlockchainService } = await import('../src/services/BlockchainService');
+    const cache = new CacheService();
+    const blockchain = {
+      getBlockByHeight: vi.fn(),
+      getBlockTransactions: vi.fn(),
+    } as unknown as BlockchainService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(BlockchainService, blockchain);
+
+    const { blocksRouter } = await import('../src/routes/v1/blocks');
+    const app = express();
+    app.use('/v1/blocks', blocksRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const blockResponse = await fetch(`${baseUrl}/v1/blocks/123abc`);
+      const txResponse = await fetch(
+        `${baseUrl}/v1/blocks/123abc/transactions`,
+      );
+
+      expect(blockResponse.status).toBe(400);
+      expect(txResponse.status).toBe(400);
+      expect(
+        (blockchain.getBlockByHeight as ReturnType<typeof vi.fn>).mock.calls,
+      ).toHaveLength(0);
+      expect(
+        (blockchain.getBlockTransactions as ReturnType<typeof vi.fn>).mock.calls,
+      ).toHaveLength(0);
+    });
+  });
+
   it('serves jobs through the registered jobs service', async () => {
     const { CacheService } = await import('../src/services/CacheService');
     const { JobsService } = await import('../src/services/JobsService');
