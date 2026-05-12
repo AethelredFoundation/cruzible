@@ -2,7 +2,7 @@
 # Multi-stage build for production
 
 # ============ BUILDER ============
-FROM rust:1.75-slim-bookworm AS builder
+FROM rust:1.75-slim-bookworm@sha256:70c2a016184099262fd7cee46f3d35fec3568c45c62f87e37f7f665f766b1f74 AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -32,7 +32,7 @@ COPY src ./src
 RUN cargo build --release --bin aethelred-node
 
 # ============ RUNTIME ============
-FROM debian:bookworm-slim AS production
+FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3 AS production
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

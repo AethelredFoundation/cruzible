@@ -14,7 +14,11 @@ describe("frontend Dockerfile hardening", () => {
   });
 
   it("does not expose compiled public config as mutable runtime env", () => {
-    const runnerStage = dockerfile.split("FROM node:20-alpine AS runner").at(1);
+    const runnerStage = dockerfile
+      .split(
+        "FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS runner",
+      )
+      .at(1);
 
     expect(runnerStage).toBeDefined();
     expect(runnerStage).not.toContain("ENV NEXT_PUBLIC_API_URL");
