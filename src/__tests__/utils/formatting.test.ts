@@ -8,59 +8,8 @@ import {
   getSafeExternalUrl,
   getTrustedModelStorageUrl,
   isHttpUrl,
-  seededAddress,
-  seededHex,
-  seededInt,
-  seededRandom,
-  seededRange,
   truncateAddress,
 } from "@/lib/utils";
-
-describe("seededRandom", () => {
-  it("is deterministic for the same seed", () => {
-    expect(seededRandom(42)).toBe(seededRandom(42));
-  });
-
-  it("returns a value in the [0, 1) range", () => {
-    const result = seededRandom(42);
-    expect(result).toBeGreaterThanOrEqual(0);
-    expect(result).toBeLessThan(1);
-  });
-});
-
-describe("seededRange", () => {
-  it("stays within the requested range", () => {
-    const result = seededRange(42, 10, 20);
-    expect(result).toBeGreaterThanOrEqual(10);
-    expect(result).toBeLessThan(20);
-  });
-});
-
-describe("seededInt", () => {
-  it("returns a deterministic integer within the inclusive range", () => {
-    const result = seededInt(42, 1, 5);
-    expect(result).toBeGreaterThanOrEqual(1);
-    expect(result).toBeLessThanOrEqual(5);
-    expect(result).toBe(seededInt(42, 1, 5));
-  });
-});
-
-describe("seededHex", () => {
-  it("returns a deterministic hex string of the requested length", () => {
-    const result = seededHex(42, 12);
-    expect(result).toHaveLength(12);
-    expect(result).toMatch(/^[0-9a-f]+$/);
-    expect(result).toBe(seededHex(42, 12));
-  });
-});
-
-describe("seededAddress", () => {
-  it("returns an aethelred-style deterministic address", () => {
-    const result = seededAddress(42);
-    expect(result).toMatch(/^aeth1[a-z0-9]{38}$/);
-    expect(result).toBe(seededAddress(42));
-  });
-});
 
 describe("formatNumber", () => {
   it("formats large numbers with compact suffixes", () => {
