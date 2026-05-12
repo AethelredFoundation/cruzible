@@ -85,6 +85,7 @@ const nextConfig = {
 
   // Compression
   compress: true,
+  productionBrowserSourceMaps: false,
 
   // Experimental features
   experimental: {
@@ -120,6 +121,13 @@ const nextConfig = {
             value:
               "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
           },
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin-allow-popups",
+          },
+          { key: "Cross-Origin-Resource-Policy", value: "same-site" },
+          { key: "Origin-Agent-Cluster", value: "?1" },
+          { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
           { key: "Referrer-Policy", value: "origin-when-cross-origin" },
         ],
       },

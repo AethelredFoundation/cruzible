@@ -9,6 +9,7 @@ function loadNextConfig(nodeEnv: string) {
   vi.stubEnv("NODE_ENV", nodeEnv);
   return require("../../next.config.js") as {
     images: { remotePatterns: Array<{ protocol: string; hostname: string }> };
+    productionBrowserSourceMaps: boolean;
     headers: () => Promise<
       Array<{ source: string; headers: Array<{ key: string; value: string }> }>
     >;
@@ -50,6 +51,12 @@ describe("Next.js security config", () => {
     });
   });
 
+  it("does not publish production browser source maps", () => {
+    const nextConfig = loadNextConfig("production");
+
+    expect(nextConfig.productionBrowserSourceMaps).toBe(false);
+  });
+
   it("sets an explicit resource-loading Content Security Policy", async () => {
     const csp = await getGlobalSecurityHeader("Content-Security-Policy");
 
@@ -67,6 +74,21 @@ describe("Next.js security config", () => {
     expect(csp).toContain("form-action 'self'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("upgrade-insecure-requests");
+  });
+
+  it("sets browser isolation and legacy plugin blocking headers", async () => {
+    await expect(
+      getGlobalSecurityHeader("Cross-Origin-Opener-Policy"),
+    ).resolves.toBe("same-origin-allow-popups");
+    await expect(
+      getGlobalSecurityHeader("Cross-Origin-Resource-Policy"),
+    ).resolves.toBe("same-site");
+    await expect(getGlobalSecurityHeader("Origin-Agent-Cluster")).resolves.toBe(
+      "?1",
+    );
+    await expect(
+      getGlobalSecurityHeader("X-Permitted-Cross-Domain-Policies"),
+    ).resolves.toBe("none");
   });
 
   it("limits local connect sources to non-production CSP", async () => {
