@@ -30,6 +30,7 @@ import { getContractAddress } from "@/config/contracts";
 import { activeChain } from "@/config/wagmi";
 import { useApp, type AppContextValue } from "@/contexts/AppContext";
 import { needsTokenApproval } from "@/lib/allowance";
+import { assertContractSimulation } from "@/lib/transactionPreflight";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -259,6 +260,24 @@ export function useStake() {
           "Please approve AETHEL spending in your wallet...",
         );
 
+        if (
+          !(await assertContractSimulation(
+            config,
+            addNotification,
+            "AETHEL Approval",
+            {
+              address: tokenAddr,
+              abi: ERC20ABI,
+              functionName: "approve",
+              args: [cruzibleAddr, amount],
+              account: wallet.address as Address,
+              chainId: activeChain.id,
+            },
+          ))
+        ) {
+          return undefined;
+        }
+
         const approveHash = await writeContractAsync({
           address: tokenAddr,
           abi: ERC20ABI,
@@ -294,6 +313,19 @@ export function useStake() {
           "Staking",
           "Please confirm the stake transaction...",
         );
+        if (
+          !(await assertContractSimulation(config, addNotification, "Stake", {
+            address: cruzibleAddr,
+            abi: CruzibleABI,
+            functionName: "stake",
+            args: [amount],
+            account: wallet.address as Address,
+            chainId: activeChain.id,
+          }))
+        ) {
+          return undefined;
+        }
+
         const hash = await writeContractAsync({
           address: cruzibleAddr,
           abi: CruzibleABI,
@@ -435,6 +467,24 @@ export function useUnstake() {
             "Please approve the vault to burn exactly this unstake amount...",
           );
 
+          if (
+            !(await assertContractSimulation(
+              config,
+              addNotification,
+              "stAETHEL Approval",
+              {
+                address: stAethelAddr,
+                abi: StAETHELABI,
+                functionName: "approve",
+                args: [cruzibleAddr, shares],
+                account: wallet.address as Address,
+                chainId: activeChain.id,
+              },
+            ))
+          ) {
+            return undefined;
+          }
+
           const approveHash = await writeContractAsync({
             address: stAethelAddr,
             abi: StAETHELABI,
@@ -468,6 +518,19 @@ export function useUnstake() {
           "Unstaking",
           "Please confirm the unstake transaction...",
         );
+        if (
+          !(await assertContractSimulation(config, addNotification, "Unstake", {
+            address: cruzibleAddr,
+            abi: CruzibleABI,
+            functionName: "unstake",
+            args: [shares],
+            account: wallet.address as Address,
+            chainId: activeChain.id,
+          }))
+        ) {
+          return undefined;
+        }
+
         const hash = await writeContractAsync({
           address: cruzibleAddr,
           abi: CruzibleABI,
@@ -566,6 +629,24 @@ export function useWithdraw() {
           "Withdrawing",
           "Please confirm the withdrawal...",
         );
+        if (
+          !(await assertContractSimulation(
+            config,
+            addNotification,
+            "Withdrawal",
+            {
+              address: cruzibleAddr,
+              abi: CruzibleABI,
+              functionName: "withdraw",
+              args: [withdrawalId],
+              account: wallet.address as Address,
+              chainId: activeChain.id,
+            },
+          ))
+        ) {
+          return undefined;
+        }
+
         const hash = await writeContractAsync({
           address: cruzibleAddr,
           abi: CruzibleABI,
@@ -661,6 +742,24 @@ export function useClaimRewards() {
           "Claiming Rewards",
           "Please confirm the claim transaction...",
         );
+        if (
+          !(await assertContractSimulation(
+            config,
+            addNotification,
+            "Reward Claim",
+            {
+              address: cruzibleAddr,
+              abi: CruzibleABI,
+              functionName: "claimRewards",
+              args: [params.epoch, params.amount, params.proof],
+              account: wallet.address as Address,
+              chainId: activeChain.id,
+            },
+          ))
+        ) {
+          return undefined;
+        }
+
         const hash = await writeContractAsync({
           address: cruzibleAddr,
           abi: CruzibleABI,
