@@ -167,7 +167,9 @@ describe("GitHub Actions workflow hardening", () => {
 
     expect(workflow).toContain("python-sdk:");
     expect(workflow).toContain("uses: actions/setup-python@v6");
-    expect(workflow).toContain("PYTHONPATH: sdk/python/src");
+    expect(workflow).toContain(
+      "python -m pip install --disable-pip-version-check --no-input ./sdk/python",
+    );
     expect(workflow).toContain(
       'python -m unittest discover -s sdk/python/tests -p "test_*.py"',
     );

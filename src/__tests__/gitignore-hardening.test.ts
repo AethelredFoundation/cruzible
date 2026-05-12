@@ -30,5 +30,7 @@ describe("gitignore secret hardening", () => {
     expect(gitignore).toContain(".pytest_cache/");
     expect(gitignore).toContain("__pycache__/");
     expect(gitignore).toContain("*.py[cod]");
+    expect(gitignore).toContain("build/");
+    expect(gitignore).toContain("*.egg-info/");
   });
 });

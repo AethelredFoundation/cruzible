@@ -191,9 +191,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Python SDK
+        run: python -m pip install --disable-pip-version-check --no-input ./sdk/python
+
       - name: Run Python SDK conformance tests
-        env:
-          PYTHONPATH: sdk/python/src
         run: python -m unittest discover -s sdk/python/tests -p "test_*.py"
 
   backend-containers:
