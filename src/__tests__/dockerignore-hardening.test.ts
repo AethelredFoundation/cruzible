@@ -21,6 +21,8 @@ describe("Docker build context hardening", () => {
       String.raw`\*\.pem`,
       String.raw`\*\.p12`,
       String.raw`\*\.pfx`,
+      String.raw`\*\.crt`,
+      String.raw`\*\.csr`,
       "secrets",
       String.raw`\*\*/secrets`,
     ]) {

@@ -11,6 +11,8 @@ node_modules
 *.pem
 *.p12
 *.pfx
+*.crt
+*.csr
 Dockerfile
 .dockerignore
 npm-debug.log*
