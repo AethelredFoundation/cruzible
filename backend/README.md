@@ -1,6 +1,6 @@
 # Cruzible Backend
 
-This directory contains the backend-side pieces of the Cruzible workspace: the API gateway, CosmWasm contracts, node code, and infrastructure scaffolding. This README is intentionally scoped to what is actually present in the repository today.
+This directory contains the backend-side pieces of the Cruzible workspace: the API gateway, CosmWasm contracts, node scaffold, and infrastructure scaffolding. This README is intentionally scoped to what is actually present in the repository today.
 
 ## Directory Map
 
@@ -8,11 +8,20 @@ This directory contains the backend-side pieces of the Cruzible workspace: the A
 | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `backend/api`          | Express/TypeScript API gateway with health, docs, blocks, jobs, reconciliation, alerts, and stablecoin routes |
 | `backend/contracts`    | CosmWasm contracts plus audit/test documentation                                                              |
-| `backend/node`         | Aethelred node workspace and Dockerfile                                                                       |
+| `backend/node`         | Incomplete node scaffold; not part of the production Compose or audit-candidate release scope                 |
 | `backend/infra`        | Docker Compose scaffold for a fuller deployment footprint                                                     |
 | `backend/.env.example` | Backend env template and operator reference input                                                             |
 
 ## API Gateway Surface
+
+## Node Scaffold Scope
+
+`backend/node` is intentionally de-scoped from the production Docker Compose
+stack until it has a complete Cargo workspace, binary target, committed
+`Cargo.lock`, passing build/test evidence, and cargo-audit coverage. Production
+API and indexer deployments must point `RPC_URL`, `GRPC_URL`,
+`INDEXER_RPC_URL`, and `INDEXER_WS_URL` at an externally managed, reviewed node
+endpoint.
 
 ### Public endpoints
 

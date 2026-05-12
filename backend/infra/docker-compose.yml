@@ -2,52 +2,6 @@
 # Production-grade Docker Compose configuration
 
 services:
-  # ============ AETHELRED NODE ============
-  aethelred-node:
-    build:
-      context: ../node
-      dockerfile: Dockerfile
-      target: production
-    container_name: aethelred-node
-    restart: unless-stopped
-    ports:
-      - "26656:26656" # P2P
-      - "127.0.0.1:26657:26657" # RPC
-      - "127.0.0.1:1317:1317" # REST API
-      - "127.0.0.1:9090:9090" # gRPC
-      - "127.0.0.1:9091:9091" # gRPC Web
-    volumes:
-      - aethelred-data:/data
-      - ./config/node:/config:ro
-    environment:
-      - CHAIN_ID=${CHAIN_ID:-aethelred-1}
-      - MONIKER=${MONIKER:-aethelred-node}
-      - MINIMUM_GAS_PRICES=${MINIMUM_GAS_PRICES:-0.025aeth}
-      - PRUNING=${PRUNING:-default}
-      - INDEXER=${INDEXER:-kv}
-    networks:
-      - aethelred-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:26657/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: "4.0"
-          memory: 16G
-        reservations:
-          cpus: "2.0"
-          memory: 8G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "10"
-        labels: "service_name,environment"
-
   # ============ API GATEWAY ============
   api-gateway:
     build:
@@ -60,8 +14,8 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - RPC_URL=http://aethelred-node:26657
-      - GRPC_URL=http://aethelred-node:9090
+      - RPC_URL=${RPC_URL:?set RPC_URL}
+      - GRPC_URL=${GRPC_URL:?set GRPC_URL}
       - DATABASE_URL=postgresql://${DB_USER:?set DB_USER}:${DB_PASSWORD:?set DB_PASSWORD}@postgres:5432/${DB_NAME:?set DB_NAME}?schema=public
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
@@ -75,8 +29,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      aethelred-node:
         condition: service_healthy
     networks:
       - aethelred-network
@@ -107,7 +59,7 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - RPC_URL=http://aethelred-node:26657
+      - RPC_URL=${RPC_URL:?set RPC_URL}
       - DATABASE_URL=postgresql://${DB_USER:?set DB_USER}:${DB_PASSWORD:?set DB_PASSWORD}@postgres:5432/${DB_NAME:?set DB_NAME}?schema=public
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
@@ -127,8 +79,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      aethelred-node:
         condition: service_healthy
     networks:
       - aethelred-network
@@ -322,27 +272,6 @@ services:
     networks:
       - aethelred-network
 
-  # ============ SEED NODE (for P2P discovery) ============
-  seed-node:
-    build:
-      context: ../node
-      dockerfile: Dockerfile
-      target: production
-    container_name: aethelred-seed
-    restart: unless-stopped
-    ports:
-      - "26656"
-    volumes:
-      - seed-data:/data
-    environment:
-      - CHAIN_ID=${CHAIN_ID:-aethelred-1}
-      - MONIKER=aethelred-seed
-      - P2P_SEED_MODE=true
-      - P2P_PEX=true
-    command: ["aethelred-node", "start", "--p2p.seed_mode"]
-    networks:
-      - aethelred-network
-
 networks:
   aethelred-network:
     driver: bridge
@@ -351,8 +280,6 @@ networks:
         - subnet: 172.20.0.0/16
 
 volumes:
-  aethelred-data:
-    driver: local
   postgres-data:
     driver: local
   redis-data:
@@ -362,6 +289,4 @@ volumes:
   prometheus-data:
     driver: local
   grafana-data:
-    driver: local
-  seed-data:
     driver: local

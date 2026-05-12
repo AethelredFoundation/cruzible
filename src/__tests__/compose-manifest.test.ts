@@ -22,6 +22,8 @@ describe("Docker Compose production scaffold", () => {
     expectRequiredVariable("DB_USER");
     expectRequiredVariable("DB_PASSWORD");
     expectRequiredVariable("DB_NAME");
+    expectRequiredVariable("RPC_URL");
+    expectRequiredVariable("GRPC_URL");
     expectRequiredVariable("CORS_ORIGINS");
     expectRequiredVariable("GRAFANA_USER");
     expectRequiredVariable("GRAFANA_PASSWORD");
@@ -49,15 +51,27 @@ describe("Docker Compose production scaffold", () => {
   });
 
   it("keeps internal service ports off public host interfaces", () => {
-    for (const port of ["3000", "5432", "6379", "1317", "26657", "9091"]) {
+    for (const port of ["3000", "5432", "6379"]) {
       expect(composeManifest).not.toContain(`"${port}:${port}"`);
       expect(composeManifest).toContain(`"127.0.0.1:${port}:${port}"`);
     }
 
-    expect(composeManifest).toContain('"26656:26656"');
-    expect(composeManifest).toContain('"127.0.0.1:9090:9090"');
     expect(composeManifest).toContain('"127.0.0.1:3002:3000"');
     expect(composeManifest).toContain('"127.0.0.1:16686:16686"');
     expect(composeManifest).toContain('"127.0.0.1:14250:14250"');
+  });
+
+  it("does not build the incomplete node scaffold in the production stack", () => {
+    expect(composeManifest).not.toContain("context: ../node");
+    expect(composeManifest).not.toContain("aethelred-node:");
+    expect(composeManifest).not.toContain("seed-node:");
+    expect(composeManifest).toContain("RPC_URL=${RPC_URL:?set RPC_URL}");
+    expect(composeManifest).toContain("GRPC_URL=${GRPC_URL:?set GRPC_URL}");
+    expect(composeManifest).toContain(
+      "INDEXER_RPC_URL=${INDEXER_RPC_URL:?set INDEXER_RPC_URL}",
+    );
+    expect(composeManifest).toContain(
+      "INDEXER_WS_URL=${INDEXER_WS_URL:?set INDEXER_WS_URL}",
+    );
   });
 });
