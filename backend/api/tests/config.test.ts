@@ -144,6 +144,35 @@ describe("backend config hardening", () => {
     );
   });
 
+  it("rejects reused access and refresh signing secrets", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        JWT_REFRESH_SECRET: productionBaseEnv.JWT_SECRET,
+      }),
+    ).rejects.toThrow("JWT_SECRET and JWT_REFRESH_SECRET must be distinct");
+  });
+
+  it("rejects operational endpoint tokens reused as signing secrets", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        OPERATIONAL_ENDPOINTS_TOKEN: productionBaseEnv.JWT_SECRET,
+      }),
+    ).rejects.toThrow(
+      "OPERATIONAL_ENDPOINTS_TOKEN and JWT_SECRET must be distinct",
+    );
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        OPERATIONAL_ENDPOINTS_TOKEN: productionBaseEnv.JWT_REFRESH_SECRET,
+      }),
+    ).rejects.toThrow(
+      "OPERATIONAL_ENDPOINTS_TOKEN and JWT_REFRESH_SECRET must be distinct",
+    );
+  });
+
   it("rejects overly long JWT lifetimes in production", async () => {
     await expect(
       loadConfigWithEnv({

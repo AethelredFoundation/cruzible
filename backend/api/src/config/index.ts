@@ -226,6 +226,17 @@ function requireProductionSecretLength(value: string, envName: string): void {
   }
 }
 
+function requireDistinctSecrets(
+  firstValue: string | undefined,
+  firstName: string,
+  secondValue: string | undefined,
+  secondName: string,
+): void {
+  if (firstValue && secondValue && firstValue === secondValue) {
+    throw new Error(`${firstName} and ${secondName} must be distinct secrets`);
+  }
+}
+
 function parseDurationMs(value: string): number {
   const match = value.match(/^(\d+)([mhd])$/);
   if (!match) {
@@ -496,6 +507,25 @@ const corsOrigins = parseCorsOrigins(parsedEnv.CORS_ORIGINS, isProduction);
 const alertWebhookUrl = parseAlertWebhookUrl(
   parsedEnv.ALERT_WEBHOOK_URL,
   isProduction,
+);
+
+requireDistinctSecrets(
+  parsedEnv.JWT_SECRET,
+  "JWT_SECRET",
+  parsedEnv.JWT_REFRESH_SECRET,
+  "JWT_REFRESH_SECRET",
+);
+requireDistinctSecrets(
+  parsedEnv.OPERATIONAL_ENDPOINTS_TOKEN,
+  "OPERATIONAL_ENDPOINTS_TOKEN",
+  parsedEnv.JWT_SECRET,
+  "JWT_SECRET",
+);
+requireDistinctSecrets(
+  parsedEnv.OPERATIONAL_ENDPOINTS_TOKEN,
+  "OPERATIONAL_ENDPOINTS_TOKEN",
+  parsedEnv.JWT_REFRESH_SECRET,
+  "JWT_REFRESH_SECRET",
 );
 
 export const config = {
