@@ -21,6 +21,7 @@ const ACCESS_TOKEN_AUDIENCE = "aethelred-client";
 const TOKEN_ISSUER = "aethelred-api";
 const LOGIN_DOMAIN = "Aethelred Cruzible API";
 const NONCE_BYTES = 24;
+const AUTH_DB_CLEANUP_INTERVAL_MS = 60_000;
 
 type SessionContext = {
   ip?: string;
@@ -120,6 +121,8 @@ const authPrisma = config.databaseUrl ? new PrismaClient() : null;
 const memoryNonces = new Map<string, StoredNonce>();
 const memoryRefreshSessions = new Map<string, StoredRefreshSession>();
 const memoryAccessRevocations = new Map<string, StoredAccessRevocation>();
+let nextAuthDbCleanupAt = 0;
+let authDbCleanupPromise: Promise<void> | null = null;
 
 /**
  * Generate JWT access and refresh tokens.
@@ -218,7 +221,7 @@ export function verifyRefreshToken(token: string): {
 export async function createLoginChallenge(
   address: string,
 ): Promise<LoginChallenge> {
-  cleanupExpiredMemoryState();
+  void cleanupExpiredAuthArtifacts();
 
   const normalizedAddress = normalizeAddress(address);
   const nonce = randomBytes(NONCE_BYTES).toString("base64url");
@@ -450,6 +453,30 @@ export async function isAccessTokenRevoked(
   }
 
   return payload.iat * 1000 <= revocation.notBefore.getTime();
+}
+
+export async function cleanupExpiredAuthArtifacts(): Promise<void> {
+  const prisma = authPrisma;
+  if (!prisma) {
+    cleanupExpiredMemoryState();
+    return;
+  }
+
+  const now = new Date();
+  if (authDbCleanupPromise || now.getTime() < nextAuthDbCleanupAt) {
+    return;
+  }
+
+  nextAuthDbCleanupAt = now.getTime() + AUTH_DB_CLEANUP_INTERVAL_MS;
+  authDbCleanupPromise = cleanupExpiredDbAuthArtifacts(prisma, now)
+    .catch((error) => {
+      logger.warn("Expired auth artifact cleanup failed", { error });
+    })
+    .finally(() => {
+      authDbCleanupPromise = null;
+    });
+
+  await authDbCleanupPromise;
 }
 
 async function revokeAccessTokensForAddress(
@@ -983,6 +1010,31 @@ function isRefreshSessionUsable(
     !session.rotatedAt &&
     session.expiresAt > now,
   );
+}
+
+async function cleanupExpiredDbAuthArtifacts(
+  prisma: PrismaClient,
+  now: Date,
+): Promise<void> {
+  const [nonceResult, refreshSessionResult] = await Promise.all([
+    prisma.authNonce.deleteMany({
+      where: {
+        OR: [{ expiresAt: { lte: now } }, { consumedAt: { not: null } }],
+      },
+    }),
+    prisma.authRefreshSession.deleteMany({
+      where: {
+        expiresAt: { lte: now },
+      },
+    }),
+  ]);
+
+  if (nonceResult.count > 0 || refreshSessionResult.count > 0) {
+    logger.info("Expired auth artifacts cleaned up", {
+      authNonceCount: nonceResult.count,
+      authRefreshSessionCount: refreshSessionResult.count,
+    });
+  }
 }
 
 function cleanupExpiredMemoryState(): void {
