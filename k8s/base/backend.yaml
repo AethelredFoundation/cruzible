@@ -151,9 +151,11 @@ spec:
             requests:
               cpu: 500m
               memory: 512Mi
+              ephemeral-storage: 512Mi
             limits:
               cpu: "2"
               memory: 2Gi
+              ephemeral-storage: 2Gi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -164,10 +166,13 @@ spec:
             - name: api-secret-files
               mountPath: /var/run/secrets/cruzible-api
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: api-secret-files
           secret:
             secretName: cruzible-api-secrets
+            defaultMode: 0400
             items:
               - key: database-url
                 path: database-url
@@ -179,6 +184,9 @@ spec:
                 path: jwt-refresh-secret
               - key: operational-endpoints-token
                 path: operational-endpoints-token
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -347,9 +355,11 @@ spec:
             requests:
               cpu: 500m
               memory: 512Mi
+              ephemeral-storage: 512Mi
             limits:
               cpu: "2"
               memory: 2Gi
+              ephemeral-storage: 2Gi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -360,10 +370,13 @@ spec:
             - name: api-secret-files
               mountPath: /var/run/secrets/cruzible-api
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: api-secret-files
           secret:
             secretName: cruzible-api-secrets
+            defaultMode: 0400
             items:
               - key: database-url
                 path: database-url
@@ -373,6 +386,9 @@ spec:
                 path: jwt-secret
               - key: jwt-refresh-secret
                 path: jwt-refresh-secret
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

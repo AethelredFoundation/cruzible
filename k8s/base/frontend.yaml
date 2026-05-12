@@ -45,9 +45,11 @@ spec:
             requests:
               memory: "256Mi"
               cpu: "250m"
+              ephemeral-storage: "256Mi"
             limits:
               memory: "512Mi"
               cpu: "500m"
+              ephemeral-storage: "1Gi"
           livenessProbe:
             httpGet:
               path: /api/health
@@ -68,6 +70,13 @@ spec:
             capabilities:
               drop:
                 - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service

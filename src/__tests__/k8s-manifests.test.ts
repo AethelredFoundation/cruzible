@@ -72,6 +72,30 @@ function expectContainerHardening(manifest: string, deploymentName: string) {
   expect(deployment).toContain("- ALL");
 }
 
+function expectBoundedTmpVolume(manifest: string, deploymentName: string) {
+  const deployment = getDeploymentBlock(manifest, deploymentName);
+
+  expect(deployment).toContain("mountPath: /tmp");
+  expect(deployment).toContain("emptyDir:");
+  expect(deployment).toContain("sizeLimit: 256Mi");
+}
+
+function expectEphemeralStorageBudget(
+  manifest: string,
+  deploymentName: string,
+  request: string,
+  limit: string,
+) {
+  const deployment = getDeploymentBlock(manifest, deploymentName);
+
+  expect(deployment).toMatch(
+    new RegExp(String.raw`requests:[\s\S]*ephemeral-storage:\s+"?${request}"?`),
+  );
+  expect(deployment).toMatch(
+    new RegExp(String.raw`limits:[\s\S]*ephemeral-storage:\s+"?${limit}"?`),
+  );
+}
+
 function expectSecretFileMount(
   manifest: string,
   deploymentName: string,
@@ -92,6 +116,7 @@ function expectSecretFileMount(
   expect(deployment).toContain("mountPath: /var/run/secrets/cruzible-api");
   expect(deployment).toContain("readOnly: true");
   expect(deployment).toContain("secretName: cruzible-api-secrets");
+  expect(deployment).toContain("defaultMode: 0400");
 
   for (const [envName, fileName] of secretFileEnv) {
     expect(deployment).toContain(`name: ${envName}`);
@@ -198,6 +223,31 @@ describe("Kubernetes base manifests", () => {
     expectContainerHardening(backendManifest, "cruzible-api");
     expectContainerHardening(backendManifest, "cruzible-indexer");
     expectContainerHardening(frontendManifest, "cruzible-frontend");
+  });
+
+  it("bounds writable runtime storage for read-only-root workloads", () => {
+    expectBoundedTmpVolume(backendManifest, "cruzible-api");
+    expectBoundedTmpVolume(backendManifest, "cruzible-indexer");
+    expectBoundedTmpVolume(frontendManifest, "cruzible-frontend");
+
+    expectEphemeralStorageBudget(
+      backendManifest,
+      "cruzible-api",
+      "512Mi",
+      "2Gi",
+    );
+    expectEphemeralStorageBudget(
+      backendManifest,
+      "cruzible-indexer",
+      "512Mi",
+      "2Gi",
+    );
+    expectEphemeralStorageBudget(
+      frontendManifest,
+      "cruzible-frontend",
+      "256Mi",
+      "1Gi",
+    );
   });
 
   it("enforces fail-closed network policy boundaries", () => {

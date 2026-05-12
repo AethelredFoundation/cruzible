@@ -108,7 +108,9 @@ required `cruzible-api-secrets` Secret with these keys:
 The API deployment probes `/health/live` for liveness and `/health/ready` for
 readiness. The API service and pods expose Prometheus scrape annotations for
 `/metrics`. The indexer manifest runs one `api-indexer` worker replica and does
-not expose an HTTP service.
+not expose an HTTP service. All Kubernetes workloads use a read-only root
+filesystem with only a bounded `/tmp` `emptyDir` write surface, explicit
+ephemeral-storage budgets, and backend Secret projections defaulted to `0400`.
 
 ### Compose baseline
 
@@ -243,7 +245,7 @@ npm run db:migrate:deploy
 ## 8. Known Operator Gaps In This Repo Snapshot
 
 - `backend/infra/docker-compose.yml` requires operator-provisioned secret files, Redis credentials, TLS certificate/key files, immutable third-party image digests, and a staging dry run before it can be treated as production-ready.
-- `k8s/base/backend.yaml` contains fail-closed placeholder config and requires environment-specific values plus the `cruzible-api-secrets` Secret before rollout.
+- `k8s/base/backend.yaml` contains fail-closed placeholder config and requires environment-specific values plus the `cruzible-api-secrets` Secret before rollout; the base projects those secrets as read-only `0400` files.
 - Production database-backed auth and alert state requires the `AuthNonce`,
   `AuthRefreshSession`, and `AlertEvent` Prisma migrations to be applied with
   `npm run db:migrate:deploy` before enabling the API gateway.
