@@ -342,6 +342,31 @@ function parseCorsOrigins(value: string, production: boolean): string[] {
   return [...new Set(normalizedOrigins)];
 }
 
+function parseRedisUrl(
+  value: string | undefined,
+  production: boolean,
+): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new URL(value);
+
+  if (parsed.protocol !== "redis:" && parsed.protocol !== "rediss:") {
+    throw new Error("REDIS_URL must use redis:// or rediss://");
+  }
+
+  if (parsed.hash) {
+    throw new Error("REDIS_URL must not contain fragments");
+  }
+
+  if (production && parsed.protocol !== "rediss:") {
+    throw new Error("Refusing to start with non-TLS REDIS_URL in production");
+  }
+
+  return parsed.href;
+}
+
 function parseAlertWebhookUrl(
   value: string | undefined,
   production: boolean,
@@ -504,6 +529,7 @@ if (isProduction && trustProxy === true) {
 }
 
 const corsOrigins = parseCorsOrigins(parsedEnv.CORS_ORIGINS, isProduction);
+const redisUrl = parseRedisUrl(parsedEnv.REDIS_URL, isProduction);
 const alertWebhookUrl = parseAlertWebhookUrl(
   parsedEnv.ALERT_WEBHOOK_URL,
   isProduction,
@@ -535,7 +561,7 @@ export const config = {
   version: process.env.npm_package_version || "1.0.0",
   rpcUrl: parsedEnv.RPC_URL,
   databaseUrl: parsedEnv.DATABASE_URL,
-  redisUrl: parsedEnv.REDIS_URL,
+  redisUrl,
   corsOrigins,
   jwtSecret: parsedEnv.JWT_SECRET,
   jwtRefreshSecret: parsedEnv.JWT_REFRESH_SECRET,

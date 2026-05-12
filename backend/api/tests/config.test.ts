@@ -65,7 +65,7 @@ const productionBaseEnv = {
   NODE_ENV: "production",
   RPC_URL: "http://127.0.0.1:26657",
   DATABASE_URL: "postgresql://cruzible:cruzible@127.0.0.1:5432/cruzible",
-  REDIS_URL: "redis://127.0.0.1:6379",
+  REDIS_URL: "rediss://cache.cruzible.org:6379",
   CORS_ORIGINS: "https://app.cruzible.org",
   JWT_SECRET: "production-jwt-secret-012345678901",
   JWT_REFRESH_SECRET: "production-refresh-secret-012345678",
@@ -388,6 +388,33 @@ describe("backend config hardening", () => {
         REDIS_URL: undefined,
       }),
     ).rejects.toThrow("Refusing to start without REDIS_URL in production");
+  });
+
+  it("rejects unsupported Redis URL protocols", async () => {
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        REDIS_URL: "https://cache.cruzible.org",
+      }),
+    ).rejects.toThrow("REDIS_URL must use redis:// or rediss://");
+  });
+
+  it("rejects Redis URL fragments", async () => {
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        REDIS_URL: "redis://127.0.0.1:6379#secret",
+      }),
+    ).rejects.toThrow("REDIS_URL must not contain fragments");
+  });
+
+  it("requires TLS Redis URLs in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        REDIS_URL: "redis://cache.cruzible.org:6379",
+      }),
+    ).rejects.toThrow("Refusing to start with non-TLS REDIS_URL in production");
   });
 
   it("rejects invalid alert webhook URLs", async () => {

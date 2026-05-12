@@ -80,7 +80,7 @@ IP/user-agent values for incident correlation.
   Production handshakes require an allowed origin plus either a valid API access
   token or `OPERATIONAL_ENDPOINTS_TOKEN`, and active connections are capped per
   client IP.
-- `CacheService` uses Redis when `REDIS_URL` is configured and falls back to an in-memory cache for local/test operation.
+- `CacheService` uses Redis when `REDIS_URL` is configured, requires `rediss://` in production, and falls back to an in-memory cache for local/test operation.
 - `AlertService` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.
 - The API reads environment from `process.env`; it does not automatically load `.env` files.
 - Production secret material can be injected through `*_FILE` variables for `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `OPERATIONAL_ENDPOINTS_TOKEN`, and `ALERT_WEBHOOK_URL`. Matching direct env values and `*_FILE` values are mutually exclusive so deployments fail closed instead of silently choosing one source.

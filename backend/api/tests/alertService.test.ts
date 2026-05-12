@@ -16,7 +16,7 @@ function productionWebhookEnv(): NodeJS.ProcessEnv {
     NODE_ENV: "production",
     RPC_URL: "https://rpc.cruzible.org",
     DATABASE_URL: "postgresql://cruzible:secret@db.cruzible.org:5432/cruzible",
-    REDIS_URL: "redis://cache.cruzible.org:6379",
+    REDIS_URL: "rediss://cache.cruzible.org:6379",
     CORS_ORIGINS: "https://vault.cruzible.org",
     JWT_SECRET: "s".repeat(32),
     JWT_REFRESH_SECRET: "r".repeat(32),

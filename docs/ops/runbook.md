@@ -188,8 +188,9 @@ The reconciliation scheduler starts automatically with the API process.
 ### Important operational caveat
 
 Alert history is persisted in PostgreSQL when `DATABASE_URL` is configured. API
-cache entries are stored in Redis when `REDIS_URL` is configured. Local/test
-fallbacks use in-process buffers that are cleared on restart.
+cache entries are stored in Redis when `REDIS_URL` is configured. Production
+requires `rediss://` Redis URLs; local/test may use `redis://` or in-process
+fallbacks that are cleared on restart.
 
 ### Investigation flow when readiness fails
 
@@ -197,7 +198,7 @@ fallbacks use in-process buffers that are cleared on restart.
 2. Query full `/health` with `Authorization: Bearer $OPERATIONAL_ENDPOINTS_TOKEN`
    or `X-Operational-Token` to inspect detailed diagnostics.
 3. Check whether the failing signal is `database`, `blockchainRpc`, `indexer`, or `reconciliation`.
-4. Verify `DATABASE_URL`, `REDIS_URL`, and `RPC_URL` reachability from the runtime environment.
+4. Verify `DATABASE_URL`, production `rediss://` `REDIS_URL`, and `RPC_URL` reachability from the runtime environment.
 5. Inspect API logs for startup errors, Prisma failures, or indexer connection errors.
 6. Confirm whether the issue is operational drift or a genuine protocol anomaly before treating it as resolved.
 
