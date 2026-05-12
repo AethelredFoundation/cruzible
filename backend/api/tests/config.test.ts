@@ -267,6 +267,33 @@ describe("backend config hardening", () => {
     );
   });
 
+  it("rejects secret-bearing RPC and indexer URLs", async () => {
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        RPC_URL: "https://user:pass@rpc.cruzible.test",
+      }),
+    ).rejects.toThrow("RPC_URL must not contain credentials or fragments");
+
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        INDEXER_RPC_URL: "https://rpc.cruzible.test#provider-token",
+      }),
+    ).rejects.toThrow(
+      "INDEXER_RPC_URL must not contain credentials or fragments",
+    );
+
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        INDEXER_WS_URL: "wss://user:pass@rpc.cruzible.test/ws",
+      }),
+    ).rejects.toThrow(
+      "INDEXER_WS_URL must not contain credentials or fragments",
+    );
+  });
+
   it("rejects alert webhook credentials and fragments", async () => {
     await expect(
       loadConfigWithEnv({

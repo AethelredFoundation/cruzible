@@ -30,6 +30,7 @@ import { metricsHandler, metricsMiddleware } from './middleware/metrics';
 import { requireOperationalAccess } from './middleware/operationalAccess';
 import { requestId } from './middleware/requestId';
 import { requestLogger } from './middleware/requestLogger';
+import { redactUrlForLogs } from './utils/urlRedaction';
 
 // Routes
 import { router as v1Router } from './routes/v1';
@@ -315,7 +316,7 @@ export class ApiGateway {
           logger.info(`API Documentation: http://localhost:${config.port}/docs`);
         }
         logger.info(`WebSocket: ws://localhost:${config.port}`);
-        logger.info(`Connected to: ${config.rpcUrl}`);
+        logger.info(`Connected to: ${redactUrlForLogs(config.rpcUrl)}`);
         resolve();
       });
     });

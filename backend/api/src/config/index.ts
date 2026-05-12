@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { rejectUrlUserInfoAndFragment } from "../utils/urlRedaction";
 
 const DEFAULT_INDEXER_WS_URL = "ws://127.0.0.1:8546";
 const DEFAULT_INDEXER_RPC_URL = "http://127.0.0.1:8545";
@@ -132,6 +133,10 @@ const defaultSecrets = new Set([
 const indexerWsUrl =
   parsedEnv.INDEXER_WS_URL ?? parsedEnv.WS_URL ?? DEFAULT_INDEXER_WS_URL;
 const indexerRpcUrl = parsedEnv.INDEXER_RPC_URL ?? DEFAULT_INDEXER_RPC_URL;
+rejectUrlUserInfoAndFragment(parsedEnv.RPC_URL, "RPC_URL");
+rejectUrlUserInfoAndFragment(parsedEnv.INDEXER_RPC_URL, "INDEXER_RPC_URL");
+rejectUrlUserInfoAndFragment(parsedEnv.INDEXER_WS_URL, "INDEXER_WS_URL");
+rejectUrlUserInfoAndFragment(parsedEnv.WS_URL, "WS_URL");
 const authAdminAddresses = parseAddressList(
   parsedEnv.AUTH_ADMIN_ADDRESSES,
   "AUTH_ADMIN_ADDRESSES",

@@ -32,6 +32,7 @@ import {
 import { logger } from '../utils/logger';
 import { BlockchainService } from './BlockchainService';
 import { config } from '../config';
+import { redactUrlForLogs } from '../utils/urlRedaction';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -305,8 +306,8 @@ export class IndexerService {
     }
 
     logger.info('IndexerService started', {
-      wsUrl: this.cfg.wsUrl,
-      rpcUrl: this.cfg.rpcUrl,
+      wsUrl: redactUrlForLogs(this.cfg.wsUrl),
+      rpcUrl: redactUrlForLogs(this.cfg.rpcUrl),
       cruzibleVault: this.cfg.cruzibleVaultAddress || '(disabled)',
       staethel: this.cfg.staethelAddress || '(disabled)',
       stablecoinBridge: this.cfg.stablecoinBridgeAddress || '(disabled)',
@@ -448,7 +449,7 @@ export class IndexerService {
       this.wsReconnectAttempts = 0;
 
       logger.info('WebSocket connected', {
-        url: this.cfg.wsUrl,
+        url: redactUrlForLogs(this.cfg.wsUrl),
         chainId: network.chainId.toString(),
       });
 
