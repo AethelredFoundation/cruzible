@@ -1,0 +1,23 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const dockerfile = readFileSync(resolve(process.cwd(), "Dockerfile"), "utf8");
+
+describe("frontend Dockerfile hardening", () => {
+  it("requires public build args instead of defaulting production images", () => {
+    expect(dockerfile).toContain("ARG NEXT_PUBLIC_API_URL");
+    expect(dockerfile).toContain("ARG NEXT_PUBLIC_CHAIN_ENV\n");
+    expect(dockerfile).not.toContain("ARG NEXT_PUBLIC_CHAIN_ENV=testnet");
+    expect(dockerfile).toContain("NEXT_PUBLIC_API_URL build arg is required");
+    expect(dockerfile).toContain("NEXT_PUBLIC_CHAIN_ENV build arg is required");
+  });
+
+  it("does not expose compiled public config as mutable runtime env", () => {
+    const runnerStage = dockerfile.split("FROM node:20-alpine AS runner").at(1);
+
+    expect(runnerStage).toBeDefined();
+    expect(runnerStage).not.toContain("ENV NEXT_PUBLIC_API_URL");
+    expect(runnerStage).not.toContain("ENV NEXT_PUBLIC_CHAIN_ENV");
+  });
+});

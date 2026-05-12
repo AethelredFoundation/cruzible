@@ -7,9 +7,9 @@ out/
 *.tsbuildinfo
 
 # Environment
-.env
-.env.local
-.env.production.local
+.env*
+!.env.example
+!backend/.env.example
 
 # Debug
 npm-debug.log*
