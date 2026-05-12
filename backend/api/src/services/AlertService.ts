@@ -12,33 +12,34 @@
  *  - Maintain an in-memory fallback ring buffer for local/test operation
  */
 
-import { singleton } from 'tsyringe';
-import { Prisma, PrismaClient } from '@prisma/client';
-import { logger } from '../utils/logger';
-import { config } from '../config';
+import { randomUUID } from "node:crypto";
+import { singleton } from "tsyringe";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { logger } from "../utils/logger";
+import { config } from "../config";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export enum AlertSeverity {
-  INFO = 'INFO',
-  WARNING = 'WARNING',
-  CRITICAL = 'CRITICAL',
+  INFO = "INFO",
+  WARNING = "WARNING",
+  CRITICAL = "CRITICAL",
 }
 
 export enum AlertType {
-  RECONCILIATION_MISMATCH = 'RECONCILIATION_MISMATCH',
-  EXCHANGE_RATE_DRIFT = 'EXCHANGE_RATE_DRIFT',
-  TVL_ANOMALY = 'TVL_ANOMALY',
-  EPOCH_STALE = 'EPOCH_STALE',
-  VALIDATOR_COUNT_DROP = 'VALIDATOR_COUNT_DROP',
+  RECONCILIATION_MISMATCH = "RECONCILIATION_MISMATCH",
+  EXCHANGE_RATE_DRIFT = "EXCHANGE_RATE_DRIFT",
+  TVL_ANOMALY = "TVL_ANOMALY",
+  EPOCH_STALE = "EPOCH_STALE",
+  VALIDATOR_COUNT_DROP = "VALIDATOR_COUNT_DROP",
   // Stablecoin bridge alerts
-  STABLECOIN_CIRCUIT_BREAKER = 'STABLECOIN_CIRCUIT_BREAKER',
-  STABLECOIN_RESERVE_DRIFT = 'STABLECOIN_RESERVE_DRIFT',
-  STABLECOIN_CONFIG_MISMATCH = 'STABLECOIN_CONFIG_MISMATCH',
-  PRIVILEGED_ACCESS_REJECTED = 'PRIVILEGED_ACCESS_REJECTED',
-  PRIVILEGED_AUDIT_PERSISTENCE_FAILURE = 'PRIVILEGED_AUDIT_PERSISTENCE_FAILURE',
+  STABLECOIN_CIRCUIT_BREAKER = "STABLECOIN_CIRCUIT_BREAKER",
+  STABLECOIN_RESERVE_DRIFT = "STABLECOIN_RESERVE_DRIFT",
+  STABLECOIN_CONFIG_MISMATCH = "STABLECOIN_CONFIG_MISMATCH",
+  PRIVILEGED_ACCESS_REJECTED = "PRIVILEGED_ACCESS_REJECTED",
+  PRIVILEGED_AUDIT_PERSISTENCE_FAILURE = "PRIVILEGED_AUDIT_PERSISTENCE_FAILURE",
 }
 
 export type AlertMetadata = Record<string, unknown>;
@@ -127,7 +128,7 @@ export class AlertService {
 
     // Build alert record
     const alert: Alert = {
-      id: `alert_${now}_${Math.random().toString(36).slice(2, 10)}`,
+      id: `alert_${randomUUID()}`,
       severity,
       type,
       message,
@@ -175,7 +176,7 @@ export class AlertService {
       const [events, total] = await Promise.all([
         this.prisma.alertEvent.findMany({
           where,
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
           skip: offset,
           take: limit,
         }),
@@ -216,11 +217,13 @@ export class AlertService {
   async getAlertSummary(): Promise<AlertSummary> {
     if (this.prisma) {
       const events = await this.prisma.alertEvent.findMany({
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         take: MAX_ALERT_HISTORY,
       });
 
-      return this.summarizeAlerts(events.map((event) => this.mapAlertEvent(event)));
+      return this.summarizeAlerts(
+        events.map((event) => this.mapAlertEvent(event)),
+      );
     }
 
     return this.summarizeAlerts(this.history);
@@ -289,9 +292,9 @@ export class AlertService {
 
     try {
       const response = await fetch(this.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        redirect: 'error',
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        redirect: "error",
         body: JSON.stringify({
           id: alert.id,
           severity: alert.severity,
@@ -309,7 +312,7 @@ export class AlertService {
         );
       }
     } catch (error) {
-      logger.warn('Alert webhook delivery error', { error });
+      logger.warn("Alert webhook delivery error", { error });
     }
   }
 
@@ -349,7 +352,10 @@ export class AlertService {
         },
       });
     } catch (error) {
-      logger.error('Failed to persist alert event', { error, alertId: alert.id });
+      logger.error("Failed to persist alert event", {
+        error,
+        alertId: alert.id,
+      });
     }
   }
 
