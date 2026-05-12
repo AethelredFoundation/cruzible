@@ -210,6 +210,61 @@ mod tests {
     }
 
     #[test]
+    fn test_instantiate_rejects_oversized_name() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("minter", &[]);
+        let msg = InstantiateMsg {
+            name: "N".repeat(MAX_NAME_LENGTH + 1),
+            symbol: "TST".to_string(),
+            decimals: 6,
+            initial_supply: Uint128::zero(),
+            minter: "minter".to_string(),
+            cap: None,
+            transfer_hook: None,
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidTokenMetadata { .. }));
+        assert!(err.to_string().contains("name"));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_invalid_symbol_format() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("minter", &[]);
+        let msg = InstantiateMsg {
+            name: "Test".to_string(),
+            symbol: "BAD SYMBOL".to_string(),
+            decimals: 6,
+            initial_supply: Uint128::zero(),
+            minter: "minter".to_string(),
+            cap: None,
+            transfer_hook: None,
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidTokenMetadata { .. }));
+        assert!(err.to_string().contains("symbol"));
+
+        let msg = InstantiateMsg {
+            name: "Test".to_string(),
+            symbol: "S".repeat(MAX_SYMBOL_LENGTH + 1),
+            decimals: 6,
+            initial_supply: Uint128::zero(),
+            minter: "minter".to_string(),
+            cap: None,
+            transfer_hook: None,
+        };
+
+        let err =
+            instantiate(deps.as_mut(), mock_env(), mock_info("minter", &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidTokenMetadata { .. }));
+        assert!(err.to_string().contains("symbol"));
+    }
+
+    #[test]
     fn test_instantiate_rejects_decimals_above_limit() {
         let mut deps = mock_dependencies();
         let env = mock_env();

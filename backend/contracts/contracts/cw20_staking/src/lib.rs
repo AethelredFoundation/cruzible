@@ -16,6 +16,8 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:cw20-staking";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_NAME_LENGTH: usize = 64;
+const MAX_SYMBOL_LENGTH: usize = 16;
 const MAX_DECIMALS: u8 = 18;
 
 #[derive(Error, Debug, PartialEq)]
@@ -242,9 +244,30 @@ fn validate_token_metadata(msg: &InstantiateMsg) -> Result<(), ContractError> {
             reason: "name must not be empty".to_string(),
         });
     }
+    if msg.name.len() > MAX_NAME_LENGTH || msg.name.chars().any(char::is_control) {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: format!(
+                "name must be at most {} bytes and contain no control characters",
+                MAX_NAME_LENGTH
+            ),
+        });
+    }
     if msg.symbol.trim().is_empty() {
         return Err(ContractError::InvalidTokenMetadata {
             reason: "symbol must not be empty".to_string(),
+        });
+    }
+    if msg.symbol.len() > MAX_SYMBOL_LENGTH
+        || msg
+            .symbol
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
+    {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: format!(
+                "symbol must be at most {} bytes and contain no whitespace or control characters",
+                MAX_SYMBOL_LENGTH
+            ),
         });
     }
     if msg.decimals > MAX_DECIMALS {
