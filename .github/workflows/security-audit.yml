@@ -74,6 +74,9 @@ jobs:
       - name: Audit root production dependencies
         run: npm run security:audit
 
+      - name: Audit root build and development dependencies
+        run: npm audit --audit-level=high
+
       - name: Install backend API dependencies
         working-directory: ./backend/api
         run: npm ci --ignore-scripts
@@ -81,6 +84,10 @@ jobs:
       - name: Audit backend API production dependencies
         working-directory: ./backend/api
         run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit backend API build and development dependencies
+        working-directory: ./backend/api
+        run: npm audit --audit-level=high
 
       - name: Install TypeScript SDK dependencies
         working-directory: ./sdk/typescript
