@@ -13,6 +13,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 EXPECTED_ARTIFACTS = {
@@ -36,6 +37,15 @@ VAULT_MIN_SEED_AMOUNT = 1_000_000
 VAULT_MIN_UNBONDING_PERIOD_SECONDS = 86_400
 AI_JOB_MAX_PLATFORM_FEE_BPS = 2_000
 MAX_REQUIRED_TEE_TYPE = 3
+STRICT_PLACEHOLDER_TERMS = (
+    "example",
+    "placeholder",
+    "replace",
+    "template",
+    "todo",
+)
+STRICT_RESERVED_HOST_SUFFIXES = (".example", ".invalid", ".localhost", ".test")
+STRICT_RESERVED_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def fail(message: str) -> None:
@@ -712,7 +722,52 @@ def parse_sha256sums(path: Path) -> dict[str, str]:
     return checksums
 
 
+def reject_strict_placeholder_text(value: str, path: str) -> None:
+    lowered = value.lower()
+    if "${" in value:
+        fail(f"{path} cannot contain template placeholders in strict mode")
+    for term in STRICT_PLACEHOLDER_TERMS:
+        if term in lowered:
+            fail(f"{path} must not contain placeholder term '{term}' in strict mode")
+
+
+def validate_strict_url(value: str, path: str) -> None:
+    reject_strict_placeholder_text(value, path)
+    parsed = urlparse(value)
+    if parsed.scheme != "https":
+        fail(f"{path} must use https in strict mode")
+    if not parsed.hostname:
+        fail(f"{path} must include a hostname in strict mode")
+    if parsed.username or parsed.password:
+        fail(f"{path} must not include credentials in strict mode")
+    if parsed.query or parsed.fragment:
+        fail(f"{path} must not include query strings or fragments in strict mode")
+
+    hostname = parsed.hostname.lower()
+    if hostname in STRICT_RESERVED_HOSTS or any(
+        hostname.endswith(suffix) for suffix in STRICT_RESERVED_HOST_SUFFIXES
+    ):
+        fail(f"{path} must not use localhost or reserved test/example domains in strict mode")
+
+
 def validate_strict_release_evidence(root: dict[str, Any]) -> None:
+    release_id = require_string(root.get("release_id"), "$.release_id")
+    reject_strict_placeholder_text(release_id, "$.release_id")
+    environment = require_string(root.get("environment"), "$.environment")
+    reject_strict_placeholder_text(environment, "$.environment")
+
+    chain = require_mapping(root.get("chain"), "$.chain")
+    validate_strict_url(
+        require_string(chain.get("rpc_url"), "$.chain.rpc_url"),
+        "$.chain.rpc_url",
+    )
+    explorer_url = chain.get("explorer_url")
+    if explorer_url is not None:
+        validate_strict_url(
+            require_string(explorer_url, "$.chain.explorer_url"),
+            "$.chain.explorer_url",
+        )
+
     source = require_mapping(root.get("source"), "$.source")
     git_commit = require_string(source.get("git_commit"), "$.source.git_commit")
     if not GIT_SHA_RE.fullmatch(git_commit) or set(git_commit) == {"0"}:
@@ -720,11 +775,9 @@ def validate_strict_release_evidence(root: dict[str, Any]) -> None:
 
     for key in ("artifact_manifest", "checksum_file", "signatures_file"):
         value = require_string(source.get(key), f"$.source.{key}")
-        if "${" in value:
-            fail(f"$.source.{key} cannot contain template placeholders in strict mode")
+        reject_strict_placeholder_text(value, f"$.source.{key}")
     signer_id = require_string(source.get("signer_id"), "$.source.signer_id")
-    if "${" in signer_id:
-        fail("$.source.signer_id cannot contain template placeholders in strict mode")
+    reject_strict_placeholder_text(signer_id, "$.source.signer_id")
 
     for index, artifact in enumerate(require_list(root.get("artifacts"), "$.artifacts")):
         artifact_obj = require_mapping(artifact, f"$.artifacts[{index}]")

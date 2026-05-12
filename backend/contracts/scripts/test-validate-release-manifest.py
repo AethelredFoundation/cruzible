@@ -51,6 +51,9 @@ class ReleaseManifestValidationTests(unittest.TestCase):
     def strict_manifest(self) -> dict:
         manifest = self.load_example()
         git_commit = "1234567890abcdef1234567890abcdef12345678"
+        manifest["release_id"] = "staging-2026-05-13-001"
+        manifest["chain"]["rpc_url"] = "https://rpc.staging.aethelred.org"
+        manifest["chain"]["explorer_url"] = "https://explorer.staging.aethelred.org"
         manifest["source"]["git_commit"] = git_commit
         manifest["source"]["artifact_manifest"] = f"cosmwasm-contracts-{git_commit}/manifest.json"
         manifest["source"]["checksum_file"] = f"cosmwasm-contracts-{git_commit}/SHA256SUMS"
@@ -135,6 +138,22 @@ class ReleaseManifestValidationTests(unittest.TestCase):
             artifact_dir = self.write_artifact_dir(temp_path, manifest)
 
             self.validate_manifest_quietly(manifest_path, strict=True, artifact_dir=artifact_dir)
+
+    def test_strict_manifest_rejects_example_release_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.strict_manifest()
+            manifest["release_id"] = "staging-2026-05-13-example"
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path, strict=True)
+
+    def test_strict_manifest_rejects_placeholder_chain_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.strict_manifest()
+            manifest["chain"]["rpc_url"] = "https://rpc.staging.aethelred.example"
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path, strict=True)
 
     def test_cross_contract_wiring_rejects_wrong_staking_token(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
