@@ -15,7 +15,7 @@ The live code includes remediations for the previously tracked critical issues, 
 | Vault reward index           | Implemented to prevent repeat reward claims and stale reward capture.                                                   |
 | Vault unbonding double claim | Implemented with claim-state tracking and terminal request handling.                                                    |
 | Vault rounding controls      | Implemented with protocol-favorable rounding coverage.                                                                  |
-| Vault stAETHEL lifecycle     | Implemented mint-on-stake/compound/restake, minter burn-on-unstake, and transfer-synchronized accounting.               |
+| Vault stAETHEL lifecycle     | Implemented mint-on-stake/compound/restake, auto-claim-on-unstake, minter burn-on-unstake, and transfer-synchronized accounting. |
 | Vault donation controls      | Implemented with accounted balance and donation handling.                                                               |
 | AI job Paid state            | Implemented to prevent repeated settlement of the same verified job.                                                    |
 | Governance snapshots         | Implemented to avoid mutable or placeholder vote weight.                                                                |
@@ -28,11 +28,11 @@ The live code includes remediations for the previously tracked critical issues, 
 
 ## Test Evidence
 
-Local `cargo test` from `backend/contracts` passes with 303 total unit tests:
+Local `cargo test` from `backend/contracts` passes with 304 total unit tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            32 |
+| `vault`          |            33 |
 | `ai_job_manager` |            72 |
 | `cw20_staking`   |            53 |
 | `governance`     |            53 |
@@ -45,12 +45,12 @@ Local `cargo test` from `backend/contracts` passes with 303 total unit tests:
 Completed for audit-candidate state:
 
 - [x] Prior vault criticals remediated.
-- [x] Vault stAETHEL mint/burn and transfer-accounting lifecycle covered by tests.
+- [x] Vault stAETHEL mint/burn, unstake reward settlement, and transfer-accounting lifecycle covered by tests.
 - [x] AI job payment double-claim guard remediated.
 - [x] Governance snapshot, quorum, and feeder-oracle controls remediated.
 - [x] Model registry fee amount/denom, submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates remediated.
 - [x] Seal manager cross-contract job check remediated.
-- [x] Local `cargo test` evidence passes with 303 unit tests.
+- [x] Local `cargo test` evidence passes with 304 unit tests.
 - [x] CI workflow enforces contract fmt, clippy, tests, dependency audit, and wasm release build.
 - [x] CI workflow uploads commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json`.
 - [x] Residual review items and deployment assumptions are documented in `AUDIT_PACKET.md`.

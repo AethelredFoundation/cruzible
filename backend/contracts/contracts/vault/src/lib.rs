@@ -590,6 +590,7 @@ fn execute_unstake(
         user_stake.shares >= shares_to_burn,
         ContractError::InsufficientBalance {}
     );
+    let rewards = calculate_rewards(&state, &user_stake)?;
 
     // Check request limit (DoS protection)
     let count = UNSTAKE_COUNT.load(deps.storage, &info.sender).unwrap_or(0);
@@ -610,6 +611,12 @@ fn execute_unstake(
     if user_stake.shares.is_zero() {
         USER_STAKES.remove(deps.storage, &info.sender);
     } else {
+        user_stake.reward_debt = state
+            .reward_index
+            .checked_mul(user_stake.shares)
+            .map_err(|_| ContractError::Overflow {})?
+            .checked_div(Uint128::from(REWARD_INDEX_SCALE))
+            .map_err(|_| ContractError::Underflow {})?;
         USER_STAKES.save(deps.storage, &info.sender, &user_stake)?;
     }
 
@@ -626,6 +633,12 @@ fn execute_unstake(
         .total_unbonding
         .checked_add(amount)
         .map_err(|_| ContractError::Overflow {})?;
+    if !rewards.is_zero() {
+        state.reward_pool = state
+            .reward_pool
+            .checked_sub(rewards)
+            .map_err(|_| ContractError::Underflow {})?;
+    }
 
     // Create unbonding request
     let unbonding = UnbondingRequest {
@@ -650,13 +663,26 @@ fn execute_unstake(
         .add_attribute("total_unbonding", state.total_unbonding.to_string());
 
     let burn_msg = burn_staking_token_from(&config, &info.sender, shares_to_burn)?;
+    let reward_msg = if rewards.is_zero() {
+        None
+    } else {
+        Some(CosmosMsg::Bank(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: vec![coin(rewards.u128(), &config.denom)],
+        }))
+    };
 
-    Ok(Response::new()
-        .add_message(burn_msg)
+    let mut response = Response::new().add_message(burn_msg);
+    if let Some(reward_msg) = reward_msg {
+        response = response.add_message(reward_msg);
+    }
+
+    Ok(response
         .add_event(unstake_event)
         .add_attribute("action", "unstake")
         .add_attribute("amount", amount)
         .add_attribute("shares_burned", shares_to_burn)
+        .add_attribute("rewards_claimed", rewards)
         .add_attribute("unbonding_id", count.to_string()))
 }
 

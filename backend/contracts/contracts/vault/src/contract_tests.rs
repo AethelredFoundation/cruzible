@@ -18,7 +18,8 @@ mod security_tests {
         mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
     };
     use cosmwasm_std::{
-        coins, from_json, Addr, CosmosMsg, Env, MessageInfo, OwnedDeps, Response, Uint128, WasmMsg,
+        coins, from_json, Addr, BankMsg, CosmosMsg, Env, MessageInfo, OwnedDeps, Response, Uint128,
+        WasmMsg,
     };
 
     // ============ TEST HELPERS ============
@@ -315,6 +316,41 @@ mod security_tests {
             .unwrap();
 
         assert!(!rewards.is_zero(), "staking more must not erase rewards");
+    }
+
+    #[test]
+    fn test_unstake_auto_claims_accrued_rewards() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "user", 10_000_000);
+
+        let info = mock_info("creator", &coins(2_000_000, "aeth"));
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::AddRewards {}).unwrap();
+
+        let res = unstake(&mut deps, &env, "user", 5_000_000);
+        let rewards: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "rewards_claimed")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+
+        assert!(!rewards.is_zero(), "unstake must not erase rewards");
+        assert_eq!(res.messages.len(), 2);
+        match &res.messages[1].msg {
+            CosmosMsg::Bank(BankMsg::Send { to_address, amount }) => {
+                assert_eq!(to_address, "user");
+                assert_eq!(amount[0].denom, "aeth");
+                assert_eq!(amount[0].amount, rewards);
+            }
+            other => panic!("unexpected reward message: {:?}", other),
+        }
+
+        let info = mock_info("user", &[]);
+        let err = execute(deps.as_mut(), env, info, ExecuteMsg::ClaimRewards {}).unwrap_err();
+        assert_eq!(err, ContractError::NothingToClaim {});
     }
 
     #[test]

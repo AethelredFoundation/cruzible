@@ -27,13 +27,13 @@ Implemented remediation areas:
 - Model registry registration fee amount/denom enforcement, submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates from the AI job manager.
 - Seal manager cross-contract job check.
 
-Vault deployments must wire the CW20 staking token to the vault as both final minter and transfer hook. The minter burn path lets the vault burn stAETHEL during unstake without user allowance, while the transfer hook keeps vault shares, stake principal, and reward debt synchronized across `transfer`, `transfer_from`, and `send`.
+Vault deployments must wire the CW20 staking token to the vault as both final minter and transfer hook. The minter burn path lets the vault burn stAETHEL during unstake without user allowance, unstake auto-claims accrued rewards before reducing shares, and the transfer hook keeps vault shares, stake principal, and reward debt synchronized across `transfer`, `transfer_from`, and `send`.
 
-Local `cargo test` from `backend/contracts` passes with 303 unit tests:
+Local `cargo test` from `backend/contracts` passes with 304 unit tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            32 |
+| `vault`          |            33 |
 | `ai_job_manager` |            72 |
 | `cw20_staking`   |            53 |
 | `governance`     |            53 |
@@ -75,7 +75,7 @@ manager.
 Before external audit:
 
 - [x] Prior critical remediations implemented in live code.
-- [x] Local `cargo test` passes with 303 unit tests.
+- [x] Local `cargo test` passes with 304 unit tests.
 - [x] CI workflow enforces test, fmt, clippy, and wasm release build gates.
 - [x] CI workflow uploads commit-scoped wasm artifacts, checksums, and manifest.
 - [x] Known residual review items documented for auditor review.
