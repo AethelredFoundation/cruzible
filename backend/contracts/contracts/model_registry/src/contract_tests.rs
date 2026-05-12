@@ -457,6 +457,30 @@ mod tests {
     }
 
     #[test]
+    fn test_register_trusted_arweave_gateway_storage_uri_works() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env = env_at_block(&env, 100);
+        let mut msg = register_msg("hash1");
+
+        if let ExecuteMsg::RegisterModel { storage_uri, .. } = &mut msg {
+            *storage_uri = "https://arweave.net/abc123".to_string();
+        }
+
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let model_res = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::Model {
+                model_hash: "hash1".to_string(),
+            },
+        )
+        .unwrap();
+        let model: Model = from_json(&model_res).unwrap();
+        assert_eq!(model.storage_uri, "https://arweave.net/abc123");
+    }
+
+    #[test]
     fn test_register_oversized_schema_rejected() {
         let (mut deps, env) = instantiate_no_fee();
         let info = mock_info("user1", &[]);

@@ -51,9 +51,10 @@ const MAX_ARCHITECTURE_LENGTH: usize = 256;
 const MAX_VERSION_LENGTH: usize = 64;
 const MAX_STORAGE_URI_LENGTH: usize = 2048;
 const MAX_SCHEMA_LENGTH: usize = 10240;
-const TRUSTED_STORAGE_URI_PREFIXES: [&str; 5] = [
+const TRUSTED_STORAGE_URI_PREFIXES: [&str; 6] = [
     "ipfs://",
     "ar://",
+    "https://arweave.net/",
     "https://ipfs.io/ipfs/",
     "https://cloudflare-ipfs.com/ipfs/",
     "https://gateway.pinata.cloud/ipfs/",
