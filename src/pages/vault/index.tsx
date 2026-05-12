@@ -95,6 +95,7 @@ import {
   type ReconciliationControlPlaneSummary,
 } from "@/lib/reconciliation";
 import { getApiUrl } from "@/config/api";
+import { buildVaultQuoteSafety, formatVaultQuoteAge } from "@/lib/vaultQuotes";
 
 // ============================================================================
 // TYPES
@@ -1467,14 +1468,20 @@ function StakeTab() {
 
   const liveRate = snapshot.exchangeRate;
   const liveApy = snapshot.apy;
-  const receiveSt = liveRate != null && liveRate > 0 ? numAmt / liveRate : null;
-  const fee = numAmt * 0.001;
+  const stakeQuote = buildVaultQuoteSafety({
+    kind: "stake",
+    amount: numAmt,
+    exchangeRate: liveRate,
+    quoteUpdatedAt: vaultState.quoteUpdatedAt,
+  });
+  const receiveSt = stakeQuote.expectedOutput;
   const projected30d = liveApy != null ? (numAmt * liveApy) / 100 / 12 : null;
   const isValid =
     wallet.connected &&
     !wallet.isWrongNetwork &&
     numAmt >= 1 &&
-    numAmt <= maxBalance;
+    numAmt <= maxBalance &&
+    stakeQuote.canSubmit;
   const processing = stakeIsPending;
 
   const handleQuick = (pct: number) => {
@@ -1482,6 +1489,17 @@ function StakeTab() {
   };
 
   const handleStake = useCallback(async () => {
+    if (!stakeQuote.canSubmit) {
+      addNotification(
+        "error",
+        "Quote Not Ready",
+        stakeQuote.blockReason ??
+          "Wait for a fresh vault quote before signing.",
+      );
+      setShowConfirm(false);
+      return;
+    }
+
     const hash = await stake(amount);
     if (hash) {
       setSuccess(true);
@@ -1494,7 +1512,7 @@ function StakeTab() {
       // Error or rejection — stake() already fires notification via useStake
       setShowConfirm(false);
     }
-  }, [amount, stake]);
+  }, [addNotification, amount, stake, stakeQuote]);
 
   return (
     <div className="grid lg:grid-cols-5 gap-8">
@@ -1580,9 +1598,23 @@ function StakeTab() {
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">Transaction fee</span>
+                <span className="text-slate-400">Quote freshness</span>
+                <span
+                  className={`font-medium tabular-nums ${
+                    stakeQuote.canSubmit ? "text-emerald-400" : "text-amber-400"
+                  }`}
+                >
+                  {stakeQuote.hasLiveRate
+                    ? stakeQuote.isFresh
+                      ? `Fresh (${formatVaultQuoteAge(stakeQuote.quoteAgeMs)})`
+                      : "Expired"
+                    : "Waiting for contract quote"}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-400">Estimated network cost</span>
                 <span className="text-slate-300 tabular-nums">
-                  {numAmt > 0 ? fee.toFixed(4) : "0.001"} AETHEL
+                  Shown in wallet before signing
                 </span>
               </div>
               <div className="h-px bg-slate-600/30" />
@@ -1614,11 +1646,17 @@ function StakeTab() {
               >
                 {!wallet.connected
                   ? "Connect Wallet to Stake"
-                  : numAmt < 1
-                    ? "Minimum 1 AETHEL"
-                    : numAmt > maxBalance
-                      ? "Insufficient Balance"
-                      : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
+                  : wallet.isWrongNetwork
+                    ? "Switch Network to Stake"
+                    : numAmt < 1
+                      ? "Minimum 1 AETHEL"
+                      : numAmt > maxBalance
+                        ? "Insufficient Balance"
+                        : !stakeQuote.hasLiveRate
+                          ? "Waiting for Live Exchange Rate"
+                          : !stakeQuote.isFresh
+                            ? "Waiting for Fresh Quote"
+                            : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
               </button>
             ) : success ? (
               <div className="text-center py-4">
@@ -1655,6 +1693,14 @@ function StakeTab() {
                     {receiveSt == null
                       ? "Live exchange rate is unavailable, so the receive preview is withheld."
                       : `You will receive ${receiveSt.toFixed(4)} stAETHEL`}
+                  </p>
+                  <p className="text-xs text-amber-300/70 mt-1">
+                    Quote freshness:{" "}
+                    {stakeQuote.isFresh
+                      ? formatVaultQuoteAge(stakeQuote.quoteAgeMs)
+                      : "expired; wait for the next contract read"}
+                    . The wallet will show the final network cost before
+                    signing.
                   </p>
                 </div>
                 <div className="flex gap-3">
@@ -1816,13 +1862,19 @@ function UnstakeTab() {
   const maxBal = wallet.connected ? wallet.stBalance : 0;
   const liveRate = snapshot.exchangeRate;
 
-  const receiveAethel = liveRate == null ? null : numAmt * liveRate;
-  const earlyFee = receiveAethel == null ? null : receiveAethel * 0.005;
+  const unstakeQuote = buildVaultQuoteSafety({
+    kind: "unstake",
+    amount: numAmt,
+    exchangeRate: liveRate,
+    quoteUpdatedAt: vaultState.quoteUpdatedAt,
+  });
+  const receiveAethel = unstakeQuote.expectedOutput;
   const isValid =
     wallet.connected &&
     !wallet.isWrongNetwork &&
     numAmt > 0 &&
-    numAmt <= maxBal;
+    numAmt <= maxBal &&
+    unstakeQuote.canSubmit;
   const processing = unstakeIsPending;
 
   const completionDate = useMemo(() => {
@@ -1878,6 +1930,17 @@ function UnstakeTab() {
     setAmount(((maxBal * pct) / 100).toFixed(2));
 
   const handleUnstake = useCallback(async () => {
+    if (!unstakeQuote.canSubmit) {
+      addNotification(
+        "error",
+        "Quote Not Ready",
+        unstakeQuote.blockReason ??
+          "Wait for a fresh vault quote before signing.",
+      );
+      setShowConfirm(false);
+      return;
+    }
+
     const hash = await unstake(amount);
     if (hash) {
       setSuccess(true);
@@ -1890,7 +1953,7 @@ function UnstakeTab() {
     } else {
       setShowConfirm(false);
     }
-  }, [amount, unstake, refetchWithdrawals]);
+  }, [addNotification, amount, refetchWithdrawals, unstake, unstakeQuote]);
 
   const handleClaim = useCallback(
     async (id: string) => {
@@ -1995,13 +2058,25 @@ function UnstakeTab() {
                 </div>
                 <div className="h-px bg-slate-600/30" />
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">
-                    Early exit fee (if applicable)
+                  <span className="text-slate-400">Quote freshness</span>
+                  <span
+                    className={`font-medium tabular-nums ${
+                      unstakeQuote.canSubmit
+                        ? "text-emerald-400"
+                        : "text-amber-400"
+                    }`}
+                  >
+                    {unstakeQuote.hasLiveRate
+                      ? unstakeQuote.isFresh
+                        ? `Fresh (${formatVaultQuoteAge(unstakeQuote.quoteAgeMs)})`
+                        : "Expired"
+                      : "Waiting for contract quote"}
                   </span>
-                  <span className="text-amber-400 tabular-nums">
-                    {earlyFee == null
-                      ? "Unavailable"
-                      : `0.5% (${numAmt > 0 ? earlyFee.toFixed(2) : "0.00"} AETHEL)`}
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Estimated network cost</span>
+                  <span className="text-slate-300 tabular-nums">
+                    Shown in wallet before signing
                   </span>
                 </div>
               </div>
@@ -2014,11 +2089,17 @@ function UnstakeTab() {
                 >
                   {!wallet.connected
                     ? "Connect Wallet"
-                    : numAmt <= 0
-                      ? "Enter amount"
-                      : numAmt > maxBal
-                        ? "Insufficient Balance"
-                        : `Unstake ${fmtNum(numAmt, 2)} stAETHEL`}
+                    : wallet.isWrongNetwork
+                      ? "Switch Network to Unstake"
+                      : numAmt <= 0
+                        ? "Enter amount"
+                        : numAmt > maxBal
+                          ? "Insufficient Balance"
+                          : !unstakeQuote.hasLiveRate
+                            ? "Waiting for Live Exchange Rate"
+                            : !unstakeQuote.isFresh
+                              ? "Waiting for Fresh Quote"
+                              : `Unstake ${fmtNum(numAmt, 2)} stAETHEL`}
                 </button>
               ) : success ? (
                 <div className="text-center py-4">
@@ -2049,6 +2130,14 @@ function UnstakeTab() {
                       {receiveAethel == null
                         ? "Live exchange rate is unavailable, so the receive preview is withheld."
                         : `You will receive ${receiveAethel.toFixed(2)} AETHEL after 21-day cooldown`}
+                    </p>
+                    <p className="text-xs text-amber-300/70 mt-1">
+                      Quote freshness:{" "}
+                      {unstakeQuote.isFresh
+                        ? formatVaultQuoteAge(unstakeQuote.quoteAgeMs)
+                        : "expired; wait for the next contract read"}
+                      . The wallet will show the final network cost before
+                      signing.
                     </p>
                   </div>
                   <div className="flex gap-3">

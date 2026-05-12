@@ -41,6 +41,7 @@ export interface VaultState {
   exchangeRate: bigint;
   currentEpoch: bigint;
   effectiveAPY: bigint;
+  quoteUpdatedAt: number;
   isLoading: boolean;
 }
 
@@ -85,6 +86,41 @@ function canSubmitTransaction(
   return true;
 }
 
+async function assertLiveExchangeRate(
+  config: ReturnType<typeof useConfig>,
+  cruzibleAddr: Address,
+  addNotification: AddNotification,
+): Promise<boolean> {
+  try {
+    const exchangeRate = (await readContract(config, {
+      address: cruzibleAddr,
+      abi: CruzibleABI,
+      functionName: "getExchangeRate",
+      chainId: activeChain.id,
+    })) as bigint;
+
+    if (exchangeRate <= 0n) {
+      addNotification(
+        "error",
+        "Quote Unavailable",
+        "The vault returned an invalid exchange rate. Try again after the next contract read.",
+      );
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    addNotification(
+      "error",
+      "Quote Check Failed",
+      err?.shortMessage ||
+        err?.message ||
+        "Could not verify the live vault exchange rate before signing.",
+    );
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Vault State Hook
 // ---------------------------------------------------------------------------
@@ -92,7 +128,7 @@ function canSubmitTransaction(
 export function useVaultState(): VaultState {
   const cruzibleAddr = getContractAddress("cruzible");
 
-  const { data, isLoading } = useReadContracts({
+  const { data, dataUpdatedAt, isLoading } = useReadContracts({
     contracts: [
       {
         address: cruzibleAddr ?? zeroAddress,
@@ -132,6 +168,7 @@ export function useVaultState(): VaultState {
     exchangeRate: (data?.[2]?.result as bigint) ?? 0n,
     currentEpoch: (data?.[3]?.result as bigint) ?? 0n,
     effectiveAPY: (data?.[4]?.result as bigint) ?? 0n,
+    quoteUpdatedAt: dataUpdatedAt,
     isLoading,
   };
 }
@@ -199,6 +236,21 @@ export function useStake() {
 
       try {
         const amount = parseEther(amountEther);
+
+        if (amount <= 0n) {
+          addNotification(
+            "error",
+            "Invalid Amount",
+            "Enter an AETHEL amount greater than zero.",
+          );
+          return undefined;
+        }
+
+        if (
+          !(await assertLiveExchangeRate(config, cruzibleAddr, addNotification))
+        ) {
+          return undefined;
+        }
 
         // Step 1: Approve AETHEL token spending
         addNotification(
@@ -353,6 +405,12 @@ export function useUnstake() {
             "Invalid Amount",
             "Enter a stAETHEL amount greater than zero.",
           );
+          return undefined;
+        }
+
+        if (
+          !(await assertLiveExchangeRate(config, cruzibleAddr, addNotification))
+        ) {
           return undefined;
         }
 
