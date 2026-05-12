@@ -3,8 +3,7 @@
  * Type-safe API client with automatic error handling and caching
  */
 
-import { BRAND } from "./constants";
-import { getApiUrl } from "@/config/api";
+import { apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 
 let apiAccessToken: string | null = null;
 
@@ -272,15 +271,9 @@ async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<ApiResponse<T>> {
-  const url = getApiUrl(endpoint);
-
   const defaultOptions: RequestInit = {
-    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      Accept: "application/json",
-      "X-Client-Name": BRAND.NAME,
-      "X-Client-Version": process.env.NEXT_PUBLIC_APP_VERSION || "1.0.0",
     },
   };
 
@@ -292,7 +285,7 @@ async function fetchApi<T>(
   }
 
   try {
-    const response = await fetch(url, {
+    const response = await apiRequest(endpoint, {
       ...defaultOptions,
       ...options,
       headers: {
@@ -301,17 +294,19 @@ async function fetchApi<T>(
       },
     });
 
-    const data = await response.json();
+    const data = await parseApiJsonResponse<ApiResponse<T> | ApiError>(
+      response,
+    );
 
     if (!response.ok) {
       throw new ApiClientError(
-        data.message || "API request failed",
+        data?.message || "API request failed",
         response.status,
         data,
       );
     }
 
-    return data;
+    return data as ApiResponse<T>;
   } catch (error) {
     if (error instanceof ApiClientError) {
       throw error;

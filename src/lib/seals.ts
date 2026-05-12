@@ -1,4 +1,6 @@
-import { getApiUrl } from "@/config/api";
+import { apiJson, apiRequest, parseApiJsonResponse } from "@/lib/api-request";
+
+const DETAIL_FALLBACK_STATUSES = new Set([404, 405, 501]);
 
 export type SealLifecycleStatus =
   | "active"
@@ -312,15 +314,10 @@ export async function fetchSeals(options?: {
     params.set("job_id", options.jobId);
   }
 
-  const response = await fetch(getApiUrl(`/seals?${params.toString()}`));
-  if (!response.ok) {
-    throw new Error("Failed to fetch seals");
-  }
-
-  const payload = (await response.json()) as {
+  const payload = await apiJson<{
     seals?: unknown[];
     total?: number;
-  };
+  }>(`/seals?${params.toString()}`);
 
   return {
     seals: (payload.seals ?? [])
@@ -362,12 +359,12 @@ export async function fetchSeal(id: string): Promise<SealDetailRecord> {
   let detailError: Error | null = null;
 
   try {
-    const response = await fetch(getApiUrl(`/seals/${encodeURIComponent(id)}`));
+    const response = await apiRequest(`/seals/${encodeURIComponent(id)}`);
     if (response.ok) {
-      const payload = (await response.json()) as {
+      const payload = await parseApiJsonResponse<{
         seal?: unknown;
         data?: unknown;
-      };
+      }>(response);
       const rawSeal = payload.seal ?? payload.data ?? payload;
       const normalized = normalizeSealDetail(rawSeal);
       if (normalized) {
@@ -376,14 +373,15 @@ export async function fetchSeal(id: string): Promise<SealDetailRecord> {
       detailError = new Error(
         "Seal detail response was missing a usable record",
       );
-    } else {
+    } else if (DETAIL_FALLBACK_STATUSES.has(response.status)) {
       detailError = new Error(
         `Seal detail endpoint returned ${response.status}`,
       );
+    } else {
+      throw new Error(`Failed to fetch seal: HTTP ${response.status}`);
     }
   } catch (error) {
-    detailError =
-      error instanceof Error ? error : new Error("Failed to fetch seal detail");
+    throw error instanceof Error ? error : new Error("Failed to fetch seal");
   }
 
   fallback = await fetchSealFromListFallback(id);

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, Clock, Cpu, RefreshCw, XCircle } from "lucide-react";
 import { SEOHead } from "@/components/SEOHead";
 import { CopyButton } from "@/components/PagePrimitives";
-import { getApiUrl } from "@/config/api";
+import { ApiHttpError, apiJson } from "@/lib/api-request";
 
 interface Job {
   id: string;
@@ -21,13 +21,17 @@ interface Job {
 }
 
 async function fetchJob(id: string): Promise<Job> {
-  const response = await fetch(getApiUrl(`/jobs/${encodeURIComponent(id)}`));
-  if (!response.ok) {
+  try {
+    return await apiJson<Job>(`/jobs/${encodeURIComponent(id)}`);
+  } catch (error) {
+    if (error instanceof ApiHttpError && error.statusCode === 404) {
+      throw new Error("Job not found");
+    }
+
     throw new Error(
-      response.status === 404 ? "Job not found" : "Failed to fetch job",
+      error instanceof Error ? error.message : "Failed to fetch job",
     );
   }
-  return response.json();
 }
 
 function formatDate(dateString: string | null): string {

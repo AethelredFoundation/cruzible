@@ -94,7 +94,7 @@ import {
   fetchReconciliationControlPlane,
   type ReconciliationControlPlaneSummary,
 } from "@/lib/reconciliation";
-import { getApiUrl } from "@/config/api";
+import { apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 import { buildVaultQuoteSafety, formatVaultQuoteAge } from "@/lib/vaultQuotes";
 
 // ============================================================================
@@ -785,21 +785,20 @@ function OverviewTab({
     );
 
     try {
-      const res = await fetch(
-        getApiUrl(`/vault/reward-proof?address=${wallet.address}`),
-      );
+      const params = new URLSearchParams({ address: wallet.address });
+      const res = await apiRequest(`/vault/reward-proof?${params.toString()}`);
       if (!res.ok) {
-        const body = await res
-          .json()
-          .catch(() => ({ message: "Reward proof endpoint not available" }));
+        const body = await parseApiJsonResponse<{ message?: string }>(
+          res,
+        ).catch(() => ({ message: "Reward proof endpoint not available" }));
         throw new Error(body.message || `API returned ${res.status}`);
       }
 
-      const { epoch, amount, proof } = (await res.json()) as {
+      const { epoch, amount, proof } = await parseApiJsonResponse<{
         epoch: string;
         amount: string;
         proof: `0x${string}`[];
-      };
+      }>(res);
 
       await claimRewards({
         epoch: BigInt(epoch),
@@ -2400,21 +2399,20 @@ function RewardsTab({
     );
 
     try {
-      const res = await fetch(
-        getApiUrl(`/vault/reward-proof?address=${wallet.address}`),
-      );
+      const params = new URLSearchParams({ address: wallet.address });
+      const res = await apiRequest(`/vault/reward-proof?${params.toString()}`);
       if (!res.ok) {
-        const body = await res
-          .json()
-          .catch(() => ({ message: "Reward proof endpoint not available" }));
+        const body = await parseApiJsonResponse<{ message?: string }>(
+          res,
+        ).catch(() => ({ message: "Reward proof endpoint not available" }));
         throw new Error(body.message || `API returned ${res.status}`);
       }
 
-      const { epoch, amount, proof } = (await res.json()) as {
+      const { epoch, amount, proof } = await parseApiJsonResponse<{
         epoch: string;
         amount: string;
         proof: `0x${string}`[];
-      };
+      }>(res);
 
       await claimRewards({
         epoch: BigInt(epoch),

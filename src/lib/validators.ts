@@ -1,4 +1,6 @@
-import { getApiUrl } from "@/config/api";
+import { apiJson, apiRequest, parseApiJsonResponse } from "@/lib/api-request";
+
+const DETAIL_FALLBACK_STATUSES = new Set([404, 405, 501]);
 
 export type ValidatorLifecycleStatus = "active" | "inactive" | "jailed";
 export type ValidatorRiskLevel = "low" | "guarded" | "elevated" | "high";
@@ -118,29 +120,30 @@ export async function fetchValidators(options?: {
     params.set("status", options.status);
   }
 
-  const response = await fetch(getApiUrl(`/validators?${params.toString()}`));
-  if (!response.ok) {
-    throw new Error("Failed to fetch validators");
-  }
-
-  return response.json();
+  return apiJson<ValidatorsResponse>(`/validators?${params.toString()}`, {
+    fallbackMessage: "Failed to fetch validators",
+  });
 }
 
 export async function fetchValidator(
   address: string,
 ): Promise<ValidatorDetailResponse> {
-  const detailResponse = await fetch(
-    getApiUrl(`/validators/${encodeURIComponent(address)}`),
+  const detailResponse = await apiRequest(
+    `/validators/${encodeURIComponent(address)}`,
   );
 
   if (detailResponse.ok) {
-    const payload = (await detailResponse.json()) as
-      | ValidatorRecord
-      | ValidatorDetailResponse;
+    const payload = await parseApiJsonResponse<
+      ValidatorRecord | ValidatorDetailResponse
+    >(detailResponse);
     if ("validator" in payload) {
       return payload;
     }
     return { validator: payload };
+  }
+
+  if (!DETAIL_FALLBACK_STATUSES.has(detailResponse.status)) {
+    throw new Error(`Failed to fetch validator: HTTP ${detailResponse.status}`);
   }
 
   const listResponse = await fetchValidators({ limit: 200 });

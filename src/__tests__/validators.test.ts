@@ -45,6 +45,11 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   });
 }
 
+function getLastRequestOptions(fetchMock: ReturnType<typeof vi.fn>) {
+  const [, options] = fetchMock.mock.calls.at(-1) ?? [];
+  return options as RequestInit | undefined;
+}
+
 describe("validator formatting helpers", () => {
   it("derives lifecycle status from explicit, jailed, bonded, and inactive states", () => {
     expect(getValidatorStatus(validator({ lifecycleStatus: "inactive" }))).toBe(
@@ -154,7 +159,11 @@ describe("validator API helpers", () => {
     expect(response.data).toEqual([]);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:3001/v1/validators?limit=10&offset=5&status=active",
+      expect.objectContaining({ credentials: "include" }),
     );
+    expect(
+      new Headers(getLastRequestOptions(fetchMock)?.headers).get("Accept"),
+    ).toBe("application/json");
   });
 
   it("returns direct validator detail responses and wrapped responses", async () => {
@@ -214,5 +223,17 @@ describe("validator API helpers", () => {
     await expect(fetchValidator("missing")).rejects.toThrow(
       "Validator not found",
     );
+  });
+
+  it("does not fall back to validator list on authorization failures", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchValidator("forbidden")).rejects.toThrow(
+      "Failed to fetch validator: HTTP 403",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,4 @@
-import { getApiUrl } from "@/config/api";
+import { apiJson, apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 
 const MODELS_PAGE_SIZE = 100;
 
@@ -225,11 +225,6 @@ function normalizeLineageRecord(source: unknown): ModelLineageRecord {
   };
 }
 
-async function parseJsonResponse<T>(response: Response): Promise<T> {
-  const payload = (await response.json()) as T;
-  return payload;
-}
-
 export async function fetchModelsPage(
   options: FetchModelsOptions = {},
 ): Promise<ModelsListResult> {
@@ -260,18 +255,10 @@ export async function fetchModelsPage(
     params.set("owner", owner);
   }
 
-  const response = await fetch(getApiUrl(`/models?${params.toString()}`), {
-    headers: { accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch model registry data");
-  }
-
-  const payload = await parseJsonResponse<{
+  const payload = await apiJson<{
     models?: unknown[];
     total?: number;
-  }>(response);
+  }>(`/models?${params.toString()}`);
 
   const models = Array.isArray(payload.models)
     ? payload.models.map((entry) => normalizeRegistryRecord(entry))
@@ -326,15 +313,11 @@ export async function fetchAllModels(
 export async function fetchModelDetail(
   modelHash: string,
 ): Promise<ModelDetailRecord> {
-  const response = await fetch(
-    getApiUrl(`/models/${encodeURIComponent(modelHash)}`),
-    {
-      headers: { accept: "application/json" },
-    },
-  );
+  const response = await apiRequest(`/models/${encodeURIComponent(modelHash)}`);
 
   if (response.ok) {
-    const payload = await parseJsonResponse<Record<string, unknown>>(response);
+    const payload =
+      await parseApiJsonResponse<Record<string, unknown>>(response);
     const registry = normalizeRegistryRecord(
       payload.registry ?? payload.model ?? payload.metadata ?? payload,
       payload,

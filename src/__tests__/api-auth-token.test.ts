@@ -6,21 +6,23 @@ import {
 } from "@/lib/api";
 
 function mockApiResponse() {
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      success: true,
-      data: {
-        gas_limit: 0,
-        gas_used: 0,
-        hash: "0xabc",
-        height: 1,
-        num_txs: 0,
-        proposer: "validator",
-        timestamp: "2026-05-05T00:00:00.000Z",
-      },
-    }),
-  });
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        success: true,
+        data: {
+          gas_limit: 0,
+          gas_used: 0,
+          hash: "0xabc",
+          height: 1,
+          num_txs: 0,
+          proposer: "validator",
+          timestamp: "2026-05-05T00:00:00.000Z",
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  );
 
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -28,9 +30,7 @@ function mockApiResponse() {
 
 function getLastRequestHeaders(fetchMock: ReturnType<typeof vi.fn>) {
   const [, options] = fetchMock.mock.calls.at(-1) ?? [];
-  return (options as RequestInit | undefined)?.headers as
-    | Record<string, string>
-    | undefined;
+  return new Headers((options as RequestInit | undefined)?.headers);
 }
 
 function getLastRequestOptions(fetchMock: ReturnType<typeof vi.fn>) {
@@ -51,9 +51,7 @@ describe("API bearer token handling", () => {
 
     await getLatestBlock();
 
-    expect(getLastRequestHeaders(fetchMock)).not.toHaveProperty(
-      "Authorization",
-    );
+    expect(getLastRequestHeaders(fetchMock).has("Authorization")).toBe(false);
   });
 
   it("sends explicitly provided in-memory bearer tokens", async () => {
@@ -62,9 +60,9 @@ describe("API bearer token handling", () => {
 
     await getLatestBlock();
 
-    expect(getLastRequestHeaders(fetchMock)).toMatchObject({
-      Authorization: "Bearer access-token",
-    });
+    expect(getLastRequestHeaders(fetchMock).get("Authorization")).toBe(
+      "Bearer access-token",
+    );
   });
 
   it("includes browser cookies for API requests by default", async () => {

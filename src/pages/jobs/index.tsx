@@ -14,7 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { getApiUrl } from "@/config/api";
+import { apiJson } from "@/lib/api-request";
 
 interface Job {
   id: string;
@@ -41,9 +41,7 @@ async function fetchJobs(
   });
   if (status) params.set("status", status);
 
-  const response = await fetch(getApiUrl(`/jobs?${params}`));
-  if (!response.ok) throw new Error("Failed to fetch jobs");
-  return response.json();
+  return apiJson<{ jobs: Job[]; total: number }>(`/jobs?${params}`);
 }
 
 function StatusBadge({ status }: { status: string }) {
