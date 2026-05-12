@@ -9,10 +9,10 @@ import { withHttpServer } from './helpers/http';
 
 vi.mock('@prisma/client', () => {
   const MockPrismaClient = vi.fn().mockImplementation(function () {
-    return ({
-    $queryRaw: vi.fn().mockResolvedValue([1]),
-    vaultState: { findFirst: vi.fn().mockResolvedValue(null) },
-  });
+    return {
+      $queryRaw: vi.fn().mockResolvedValue([1]),
+      vaultState: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
   });
   return { PrismaClient: MockPrismaClient };
 });
@@ -46,24 +46,20 @@ describe('ApiGateway lifecycle (server.ts)', () => {
    */
   async function registerMockServices() {
     // Core services used by start() / shutdown()
-    const { BlockchainService } = await import(
-      '../src/services/BlockchainService'
-    );
+    const { BlockchainService } =
+      await import('../src/services/BlockchainService');
     const { CacheService } = await import('../src/services/CacheService');
-    const { ReconciliationScheduler } = await import(
-      '../src/services/ReconciliationScheduler'
-    );
+    const { ReconciliationScheduler } =
+      await import('../src/services/ReconciliationScheduler');
     const { IndexerService } = await import('../src/services/IndexerService');
 
     // Route-level services resolved at module scope in v1 routes
     const { JobsService } = await import('../src/services/JobsService');
-    const { ReconciliationService } = await import(
-      '../src/services/ReconciliationService'
-    );
+    const { ReconciliationService } =
+      await import('../src/services/ReconciliationService');
     const { AlertService } = await import('../src/services/AlertService');
-    const { StablecoinBridgeService } = await import(
-      '../src/services/StablecoinBridgeService'
-    );
+    const { StablecoinBridgeService } =
+      await import('../src/services/StablecoinBridgeService');
 
     container.registerInstance(BlockchainService, {
       initialize: vi.fn().mockResolvedValue(undefined),
@@ -114,7 +110,10 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     container.registerInstance(StablecoinBridgeService, {
       getConfigs: vi.fn().mockResolvedValue([]),
       getConfig: vi.fn().mockResolvedValue(null),
-      getBridgeHistory: vi.fn().mockResolvedValue({ data: [], pagination: { total: 0, limit: 50, offset: 0 } }),
+      getBridgeHistory: vi.fn().mockResolvedValue({
+        data: [],
+        pagination: { total: 0, limit: 50, offset: 0 },
+      }),
       getStatus: vi.fn().mockResolvedValue(null),
     } as any);
   }
@@ -135,6 +134,22 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     expect(api.httpServer).toBeDefined();
     expect(api.httpServer.listening).toBe(false);
   }, 10_000);
+
+  it('configures explicit HTTP timeout and socket-drain limits', async () => {
+    await registerMockServices();
+    const { createAppServer } = await import('../src/server');
+    const { config } = await import('../src/config');
+
+    const api = createAppServer();
+
+    expect(api.httpServer.headersTimeout).toBe(config.httpHeadersTimeoutMs);
+    expect(api.httpServer.requestTimeout).toBe(config.httpRequestTimeoutMs);
+    expect(api.httpServer.timeout).toBe(config.httpRequestTimeoutMs);
+    expect(api.httpServer.keepAliveTimeout).toBe(config.httpKeepAliveTimeoutMs);
+    expect(api.httpServer.maxRequestsPerSocket).toBe(
+      config.httpMaxRequestsPerSocket,
+    );
+  });
 
   it('refuses to expose production operational routes without a token', async () => {
     await registerMockServices();
@@ -257,9 +272,89 @@ describe('ApiGateway lifecycle (server.ts)', () => {
         expect(methods).toContain('OPTIONS');
         expect(methods).not.toContain('PUT');
         expect(methods).not.toContain('DELETE');
-        expect(headers).toContain('X-Operational-Token');
+        expect(headers).not.toContain('X-Operational-Token');
         expect(headers).toContain('X-Client-Name');
         expect(headers).toContain('X-Client-Version');
+      });
+    } finally {
+      Object.assign(config as any, originalConfig);
+    }
+  });
+
+  it('rejects malformed JSON as a safe client error', async () => {
+    await registerMockServices();
+    const { createAppServer } = await import('../src/server');
+    const api = createAppServer();
+
+    await withHttpServer(api.app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{"broken"',
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body).toMatchObject({
+        error: 'BadRequest',
+        message: 'Malformed request body',
+      });
+      expect(body.requestId).toEqual(expect.any(String));
+    });
+  });
+
+  it('rejects oversized JSON as a safe payload-too-large error', async () => {
+    await registerMockServices();
+    const { createAppServer } = await import('../src/server');
+    const api = createAppServer();
+
+    await withHttpServer(api.app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ payload: 'x'.repeat(1_100_000) }),
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(413);
+      expect(body).toMatchObject({
+        error: 'PayloadTooLarge',
+        message: 'Request body exceeds the maximum allowed size',
+      });
+      expect(body.requestId).toEqual(expect.any(String));
+    });
+  });
+
+  it('applies the global rate limit before parsing request bodies', async () => {
+    await registerMockServices();
+    const { config } = await import('../src/config');
+    const originalConfig = {
+      rateLimitWindowMs: config.rateLimitWindowMs,
+      rateLimitMax: config.rateLimitMax,
+    };
+
+    (config as any).rateLimitWindowMs = 60_000;
+    (config as any).rateLimitMax = 1;
+
+    try {
+      const { createAppServer } = await import('../src/server');
+      const api = createAppServer();
+
+      await withHttpServer(api.app, async (baseUrl) => {
+        const first = await fetch(`${baseUrl}/v1/jobs`);
+        const second = await fetch(`${baseUrl}/v1/jobs`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{"broken"',
+        });
+        const body = await second.json();
+
+        expect(first.status).toBe(200);
+        expect(second.status).toBe(429);
+        expect(body).toMatchObject({
+          error: 'TooManyRequests',
+          message: 'Rate limit exceeded',
+        });
       });
     } finally {
       Object.assign(config as any, originalConfig);
@@ -290,9 +385,8 @@ describe('ApiGateway lifecycle (server.ts)', () => {
       expect(port).toBeGreaterThan(0);
 
       // Verify that start() wired up the reconciliation scheduler
-      const { ReconciliationScheduler } = await import(
-        '../src/services/ReconciliationScheduler'
-      );
+      const { ReconciliationScheduler } =
+        await import('../src/services/ReconciliationScheduler');
       const scheduler = container.resolve(ReconciliationScheduler);
       expect(scheduler.start).toHaveBeenCalledTimes(1);
 
@@ -324,9 +418,8 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     expect(api.httpServer.listening).toBe(false);
 
     // Services should have been torn down
-    const { ReconciliationScheduler } = await import(
-      '../src/services/ReconciliationScheduler'
-    );
+    const { ReconciliationScheduler } =
+      await import('../src/services/ReconciliationScheduler');
     const scheduler = container.resolve(ReconciliationScheduler);
     expect(scheduler.stop).toHaveBeenCalled();
 

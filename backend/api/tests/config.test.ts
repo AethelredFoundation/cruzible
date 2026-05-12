@@ -22,6 +22,10 @@ const CONFIG_ENV_KEYS = [
   "TRUST_PROXY",
   "RATE_LIMIT_WINDOW_MS",
   "RATE_LIMIT_MAX",
+  "HTTP_HEADERS_TIMEOUT_MS",
+  "HTTP_REQUEST_TIMEOUT_MS",
+  "HTTP_KEEP_ALIVE_TIMEOUT_MS",
+  "HTTP_MAX_REQUESTS_PER_SOCKET",
   "ALLOW_MOCK_SIGNATURES",
   "AUTH_ADMIN_ADDRESSES",
   "AUTH_OPERATOR_ADDRESSES",
@@ -238,6 +242,10 @@ describe("backend config hardening", () => {
     expect(config.redisUrl).toBe(productionBaseEnv.REDIS_URL);
     expect(config.authOperatorAddresses).toEqual(["aeth1operator"]);
     expect(config.trustProxy).toBe(1);
+    expect(config.httpHeadersTimeoutMs).toBe(65_000);
+    expect(config.httpRequestTimeoutMs).toBe(120_000);
+    expect(config.httpKeepAliveTimeoutMs).toBe(5_000);
+    expect(config.httpMaxRequestsPerSocket).toBe(1000);
     expect(config.publicExpensiveRateLimitWindowMs).toBe(60_000);
     expect(config.publicExpensiveRateLimitMax).toBe(30);
     expect(config.metricsEnabled).toBe(true);
@@ -464,6 +472,43 @@ describe("backend config hardening", () => {
     });
 
     expect(config.trustProxy).toBe(2);
+  });
+
+  it("validates HTTP timeout ordering", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        HTTP_HEADERS_TIMEOUT_MS: "120000",
+        HTTP_REQUEST_TIMEOUT_MS: "120000",
+      }),
+    ).rejects.toThrow(
+      "HTTP_HEADERS_TIMEOUT_MS must be lower than HTTP_REQUEST_TIMEOUT_MS",
+    );
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        HTTP_KEEP_ALIVE_TIMEOUT_MS: "65000",
+        HTTP_HEADERS_TIMEOUT_MS: "65000",
+      }),
+    ).rejects.toThrow(
+      "HTTP_KEEP_ALIVE_TIMEOUT_MS must be lower than HTTP_HEADERS_TIMEOUT_MS",
+    );
+  });
+
+  it("parses explicit HTTP timeout controls", async () => {
+    const { config } = await loadConfigWithEnv({
+      NODE_ENV: "development",
+      HTTP_HEADERS_TIMEOUT_MS: "30000",
+      HTTP_REQUEST_TIMEOUT_MS: "90000",
+      HTTP_KEEP_ALIVE_TIMEOUT_MS: "4000",
+      HTTP_MAX_REQUESTS_PER_SOCKET: "250",
+    });
+
+    expect(config.httpHeadersTimeoutMs).toBe(30_000);
+    expect(config.httpRequestTimeoutMs).toBe(90_000);
+    expect(config.httpKeepAliveTimeoutMs).toBe(4_000);
+    expect(config.httpMaxRequestsPerSocket).toBe(250);
   });
 
   it("parses operational endpoint controls", async () => {

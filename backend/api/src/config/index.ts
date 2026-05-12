@@ -77,6 +77,10 @@ const envSchema = z.object({
   TRUST_PROXY: z.string().default("loopback"),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(120),
+  HTTP_HEADERS_TIMEOUT_MS: z.coerce.number().int().min(1000).default(65_000),
+  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).default(120_000),
+  HTTP_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().min(1000).default(5_000),
+  HTTP_MAX_REQUESTS_PER_SOCKET: z.coerce.number().int().min(1).default(1000),
   ALLOW_MOCK_SIGNATURES: z
     .enum(["true", "false"])
     .default("false")
@@ -464,6 +468,18 @@ if (
   );
 }
 
+if (parsedEnv.HTTP_HEADERS_TIMEOUT_MS >= parsedEnv.HTTP_REQUEST_TIMEOUT_MS) {
+  throw new Error(
+    "HTTP_HEADERS_TIMEOUT_MS must be lower than HTTP_REQUEST_TIMEOUT_MS",
+  );
+}
+
+if (parsedEnv.HTTP_KEEP_ALIVE_TIMEOUT_MS >= parsedEnv.HTTP_HEADERS_TIMEOUT_MS) {
+  throw new Error(
+    "HTTP_KEEP_ALIVE_TIMEOUT_MS must be lower than HTTP_HEADERS_TIMEOUT_MS",
+  );
+}
+
 const trustProxy =
   parsedEnv.TRUST_PROXY === "false"
     ? false
@@ -501,6 +517,10 @@ export const config = {
   trustProxy,
   rateLimitWindowMs: parsedEnv.RATE_LIMIT_WINDOW_MS,
   rateLimitMax: parsedEnv.RATE_LIMIT_MAX,
+  httpHeadersTimeoutMs: parsedEnv.HTTP_HEADERS_TIMEOUT_MS,
+  httpRequestTimeoutMs: parsedEnv.HTTP_REQUEST_TIMEOUT_MS,
+  httpKeepAliveTimeoutMs: parsedEnv.HTTP_KEEP_ALIVE_TIMEOUT_MS,
+  httpMaxRequestsPerSocket: parsedEnv.HTTP_MAX_REQUESTS_PER_SOCKET,
   allowMockSignatures: parsedEnv.ALLOW_MOCK_SIGNATURES,
   authAdminAddresses,
   authOperatorAddresses,

@@ -57,7 +57,6 @@ const CORS_ALLOWED_HEADERS = [
   'Content-Type',
   'Authorization',
   'X-Request-ID',
-  'X-Operational-Token',
   'X-Client-Name',
   'X-Client-Version',
 ];
@@ -81,6 +80,11 @@ export class ApiGateway {
   constructor() {
     this.app = express();
     this.httpServer = createServer(this.app);
+    this.httpServer.headersTimeout = config.httpHeadersTimeoutMs;
+    this.httpServer.requestTimeout = config.httpRequestTimeoutMs;
+    this.httpServer.timeout = config.httpRequestTimeoutMs;
+    this.httpServer.keepAliveTimeout = config.httpKeepAliveTimeoutMs;
+    this.httpServer.maxRequestsPerSocket = config.httpMaxRequestsPerSocket;
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
         origin: config.corsOrigins,
@@ -103,10 +107,7 @@ export class ApiGateway {
   }
 
   private validateOperationalSurfaceConfig(): void {
-    if (
-      config.isProduction &&
-      !config.operationalEndpointsToken
-    ) {
+    if (config.isProduction && !config.operationalEndpointsToken) {
       throw new Error(
         'Refusing to expose operational endpoints in production without OPERATIONAL_ENDPOINTS_TOKEN',
       );
@@ -227,12 +228,19 @@ export class ApiGateway {
     // Metrics
     this.app.use(metricsMiddleware);
 
+    // Rate limiting happens before body parsing so abusive clients are
+    // throttled before the server spends CPU/memory parsing request payloads.
+    this.app.use(rateLimiter);
+
     // Body parsing
     this.app.use(express.json({ limit: '1mb' }));
-    this.app.use(express.urlencoded({ extended: false, limit: '1mb', parameterLimit: 100 }));
-
-    // Rate limiting
-    this.app.use(rateLimiter);
+    this.app.use(
+      express.urlencoded({
+        extended: false,
+        limit: '1mb',
+        parameterLimit: 100,
+      }),
+    );
   }
 
   private initializeRoutes(): void {
@@ -324,7 +332,9 @@ export class ApiGateway {
       this.httpServer.listen(config.port, () => {
         logger.info(`API Gateway running on port ${config.port}`);
         if (config.apiDocsEnabled) {
-          logger.info(`API Documentation: http://localhost:${config.port}/docs`);
+          logger.info(
+            `API Documentation: http://localhost:${config.port}/docs`,
+          );
         }
         logger.info(`WebSocket: ws://localhost:${config.port}`);
         logger.info(`Connected to: ${redactUrlForLogs(config.rpcUrl)}`);
@@ -366,7 +376,10 @@ export class ApiGateway {
     const drainTimeout = FORCED_SHUTDOWN_TIMEOUT_MS - 5000;
     await new Promise<void>((resolve) => {
       const checkDrained = () => {
-        if (this.inFlightRequests <= 0 || Date.now() - drainStart > drainTimeout) {
+        if (
+          this.inFlightRequests <= 0 ||
+          Date.now() - drainStart > drainTimeout
+        ) {
           resolve();
           return;
         }
@@ -378,7 +391,9 @@ export class ApiGateway {
     // 4. Disconnect services
     try {
       try {
-        const reconciliationScheduler = container.resolve(ReconciliationScheduler);
+        const reconciliationScheduler = container.resolve(
+          ReconciliationScheduler,
+        );
         reconciliationScheduler.stop();
       } catch {
         // may not be registered
@@ -423,7 +438,9 @@ export class ApiGateway {
     const shutdown = async (signal: string) => {
       // Guard against double-shutdown
       if (shutdownInProgress) {
-        logger.warn(`Duplicate ${signal} received — shutdown already in progress`);
+        logger.warn(
+          `Duplicate ${signal} received — shutdown already in progress`,
+        );
         return;
       }
       shutdownInProgress = true;
@@ -483,7 +500,9 @@ export class ApiGateway {
       try {
         // Stop reconciliation scheduler first (it depends on cache + blockchain)
         try {
-          const reconciliationScheduler = container.resolve(ReconciliationScheduler);
+          const reconciliationScheduler = container.resolve(
+            ReconciliationScheduler,
+          );
           reconciliationScheduler.stop();
           logger.info('Reconciliation scheduler stopped');
         } catch {
