@@ -64,6 +64,40 @@ function expectContainerHardening(manifest: string, deploymentName: string) {
   expect(deployment).toContain("- ALL");
 }
 
+function expectSecretFileMount(
+  manifest: string,
+  deploymentName: string,
+  includesOperationalToken: boolean,
+) {
+  const deployment = getDeploymentBlock(manifest, deploymentName);
+  const secretFileEnv = [
+    ["DATABASE_URL_FILE", "database-url"],
+    ["REDIS_URL_FILE", "redis-url"],
+    ["JWT_SECRET_FILE", "jwt-secret"],
+    ["JWT_REFRESH_SECRET_FILE", "jwt-refresh-secret"],
+    ...(includesOperationalToken
+      ? [["OPERATIONAL_ENDPOINTS_TOKEN_FILE", "operational-endpoints-token"]]
+      : []),
+  ];
+
+  expect(deployment).toContain("volumeMounts:");
+  expect(deployment).toContain("mountPath: /var/run/secrets/cruzible-api");
+  expect(deployment).toContain("readOnly: true");
+  expect(deployment).toContain("secretName: cruzible-api-secrets");
+
+  for (const [envName, fileName] of secretFileEnv) {
+    expect(deployment).toContain(`name: ${envName}`);
+    expect(deployment).toContain(
+      `value: /var/run/secrets/cruzible-api/${fileName}`,
+    );
+    expect(deployment).toContain(`key: ${fileName}`);
+    expect(deployment).toContain(`path: ${fileName}`);
+    expect(deployment).not.toContain(
+      `name: ${envName.replace(/_FILE$/, "")}\n              valueFrom:\n                secretKeyRef:`,
+    );
+  }
+}
+
 describe("Kubernetes base manifests", () => {
   it("passes required indexer launch invariants through fail-closed config", () => {
     expect(backendManifest).toContain(
@@ -120,6 +154,11 @@ describe("Kubernetes base manifests", () => {
     expect(imageVerificationPolicy).toContain(
       "type: https://slsa.dev/provenance/v1",
     );
+  });
+
+  it("mounts required API secret material as files instead of env values", () => {
+    expectSecretFileMount(backendManifest, "cruzible-api", true);
+    expectSecretFileMount(backendManifest, "cruzible-indexer", false);
   });
 
   it("keeps every workload on a restricted pod and container profile", () => {

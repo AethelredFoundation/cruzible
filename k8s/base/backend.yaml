@@ -106,31 +106,16 @@ spec:
                 configMapKeyRef:
                   name: cruzible-api-config
                   key: auth.admin.addresses
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: database-url
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: redis-url
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: jwt-secret
-            - name: JWT_REFRESH_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: jwt-refresh-secret
-            - name: OPERATIONAL_ENDPOINTS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: operational-endpoints-token
+            - name: DATABASE_URL_FILE
+              value: /var/run/secrets/cruzible-api/database-url
+            - name: REDIS_URL_FILE
+              value: /var/run/secrets/cruzible-api/redis-url
+            - name: JWT_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/jwt-secret
+            - name: JWT_REFRESH_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/jwt-refresh-secret
+            - name: OPERATIONAL_ENDPOINTS_TOKEN_FILE
+              value: /var/run/secrets/cruzible-api/operational-endpoints-token
             - name: ALERT_WEBHOOK_URL
               valueFrom:
                 secretKeyRef:
@@ -173,6 +158,25 @@ spec:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: api-secret-files
+              mountPath: /var/run/secrets/cruzible-api
+              readOnly: true
+      volumes:
+        - name: api-secret-files
+          secret:
+            secretName: cruzible-api-secrets
+            items:
+              - key: database-url
+                path: database-url
+              - key: redis-url
+                path: redis-url
+              - key: jwt-secret
+                path: jwt-secret
+              - key: jwt-refresh-secret
+                path: jwt-refresh-secret
+              - key: operational-endpoints-token
+                path: operational-endpoints-token
 ---
 apiVersion: v1
 kind: Service
@@ -325,26 +329,14 @@ spec:
                 configMapKeyRef:
                   name: cruzible-api-config
                   key: stablecoin.bridge.address
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: database-url
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: redis-url
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: jwt-secret
-            - name: JWT_REFRESH_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: cruzible-api-secrets
-                  key: jwt-refresh-secret
+            - name: DATABASE_URL_FILE
+              value: /var/run/secrets/cruzible-api/database-url
+            - name: REDIS_URL_FILE
+              value: /var/run/secrets/cruzible-api/redis-url
+            - name: JWT_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/jwt-secret
+            - name: JWT_REFRESH_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/jwt-refresh-secret
           resources:
             requests:
               cpu: 500m
@@ -358,6 +350,23 @@ spec:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: api-secret-files
+              mountPath: /var/run/secrets/cruzible-api
+              readOnly: true
+      volumes:
+        - name: api-secret-files
+          secret:
+            secretName: cruzible-api-secrets
+            items:
+              - key: database-url
+                path: database-url
+              - key: redis-url
+                path: redis-url
+              - key: jwt-secret
+                path: jwt-secret
+              - key: jwt-refresh-secret
+                path: jwt-refresh-secret
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
