@@ -111,6 +111,10 @@ readiness. The API service and pods expose Prometheus scrape annotations for
 not expose an HTTP service. All Kubernetes workloads use a read-only root
 filesystem with only a bounded `/tmp` `emptyDir` write surface, explicit
 ephemeral-storage budgets, and backend Secret projections defaulted to `0400`.
+The base NetworkPolicies do not allow cross-namespace ingress by default; label
+the approved ingress-controller namespace with
+`networking.cruzible.io/external-ingress=true` or patch the selector in an
+environment overlay before exposing the frontend or API services.
 
 ### Compose baseline
 
@@ -246,6 +250,7 @@ npm run db:migrate:deploy
 
 - `backend/infra/docker-compose.yml` requires operator-provisioned secret files, Redis credentials, TLS certificate/key files, immutable third-party image digests, and a staging dry run before it can be treated as production-ready.
 - `k8s/base/backend.yaml` contains fail-closed placeholder config and requires environment-specific values plus the `cruzible-api-secrets` Secret before rollout; the base projects those secrets as read-only `0400` files.
+- `k8s/base/network-policy.yaml` requires an explicitly labeled ingress-controller namespace before cross-namespace traffic can reach the frontend or API services.
 - Production database-backed auth and alert state requires the `AuthNonce`,
   `AuthRefreshSession`, and `AlertEvent` Prisma migrations to be applied with
   `npm run db:migrate:deploy` before enabling the API gateway.

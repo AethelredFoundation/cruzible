@@ -153,6 +153,7 @@ The variables below are referenced by `backend/infra/docker-compose.yml`. They s
 - `backend/infra/docker-compose.yml` binds internal API, database, RPC, cache, and observability ports to loopback by default; only nginx and the P2P listener are public-facing in the scaffold.
 - `k8s/base/` expects environment overlays to replace checked-in image placeholders with immutable `sha256` digests before rollout.
 - `k8s/base/` keeps workload roots read-only, grants only a bounded `/tmp` `emptyDir` write surface, and sets container ephemeral-storage budgets so staging can catch unexpected runtime writes before public rollout.
+- `k8s/base/network-policy.yaml` accepts frontend/API ingress only from the same-namespace frontend pods or namespaces labeled `networking.cruzible.io/external-ingress=true`; label the approved ingress-controller namespace or patch the selector in the target overlay.
 - `k8s/base/backend.yaml` expects non-secret runtime config in `cruzible-api-config` and secret values in `cruzible-api-secrets` with keys `database-url`, `redis-url`, `jwt-secret`, `jwt-refresh-secret`, and `operational-endpoints-token`; backend secret files are projected read-only with `0400` permissions.
 
 ## 6. Production Hygiene Rules Already Enforced In Code

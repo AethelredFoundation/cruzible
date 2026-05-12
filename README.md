@@ -143,7 +143,7 @@ cargo test --all
 ## Known Repo-Reality Gaps
 
 - `backend/infra/docker-compose.yml` now includes checked-in nginx, Redis, Prometheus, Grafana, and PostgreSQL init baselines, but it still requires operator-provisioned secrets, TLS material, immutable image digests, and staging validation before production use.
-- `k8s/base/` includes frontend, API gateway, and indexer manifests with read-only roots, bounded `/tmp` write surfaces, ephemeral-storage budgets, and `0400` backend secret-file projections. The backend manifests still expect environment-specific ConfigMap values and a `cruzible-api-secrets` Secret before rollout.
+- `k8s/base/` includes frontend, API gateway, and indexer manifests with read-only roots, bounded `/tmp` write surfaces, scoped ingress NetworkPolicies, ephemeral-storage budgets, and `0400` backend secret-file projections. The backend manifests still expect environment-specific ConfigMap values and a `cruzible-api-secrets` Secret before rollout.
 - Frontend public-data requests require `NEXT_PUBLIC_API_URL` at build time because Next.js public env is compiled into browser bundles; Docker images must pass `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` as build args, and production mainnet/testnet builds accept only the approved chain-specific API origin.
 - `backend/api/src/services/CacheService.ts` uses Redis when `REDIS_URL` is configured and requires Redis in production; local/test runs keep an in-memory fallback.
 - `backend/api/src/services/AlertService.ts` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.

@@ -23,7 +23,9 @@ spec:
     - Egress
   ingress:
     - from:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              networking.cruzible.io/external-ingress: "true"
       ports:
         - protocol: TCP
           port: 3000
@@ -64,7 +66,12 @@ spec:
     - Egress
   ingress:
     - from:
-        - namespaceSelector: {}
+        - podSelector:
+            matchLabels:
+              app: cruzible-frontend
+        - namespaceSelector:
+            matchLabels:
+              networking.cruzible.io/external-ingress: "true"
       ports:
         - protocol: TCP
           port: 3000

@@ -48,6 +48,20 @@ function getDeploymentBlock(manifest: string, name: string): string {
   return deployment;
 }
 
+function getNetworkPolicyBlock(name: string): string {
+  const policy = networkPolicyManifest.match(
+    new RegExp(
+      String.raw`apiVersion: networking.k8s.io/v1[\s\S]*?kind: NetworkPolicy[\s\S]*?metadata:\n\s+name: ${name}[\s\S]*?(?=\n---|$)`,
+    ),
+  )?.[0];
+
+  if (!policy) {
+    throw new Error(`NetworkPolicy ${name} not found`);
+  }
+
+  return policy;
+}
+
 function expectPodSecurityContext(
   manifest: string,
   deploymentName: string,
@@ -251,12 +265,23 @@ describe("Kubernetes base manifests", () => {
   });
 
   it("enforces fail-closed network policy boundaries", () => {
+    const frontendPolicy = getNetworkPolicyBlock("cruzible-frontend-network");
+    const apiPolicy = getNetworkPolicyBlock("cruzible-api-network");
+
     expect(kustomizationManifest).toContain("network-policy.yaml");
     expect(networkPolicyManifest).toContain("name: cruzible-default-deny");
     expect(networkPolicyManifest).toContain("podSelector: {}");
+    expect(networkPolicyManifest).not.toContain("namespaceSelector: {}");
     expect(networkPolicyManifest).toContain("name: cruzible-frontend-network");
     expect(networkPolicyManifest).toContain("name: cruzible-api-network");
     expect(networkPolicyManifest).toContain("name: cruzible-indexer-network");
+    expect(frontendPolicy).toContain(
+      'networking.cruzible.io/external-ingress: "true"',
+    );
+    expect(apiPolicy).toContain("app: cruzible-frontend");
+    expect(apiPolicy).toContain(
+      'networking.cruzible.io/external-ingress: "true"',
+    );
     expect(networkPolicyManifest).toContain("k8s-app: kube-dns");
     expect(networkPolicyManifest).toContain("app: cruzible-api");
     expect(networkPolicyManifest).toContain("port: 3000");
