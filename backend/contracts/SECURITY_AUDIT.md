@@ -24,7 +24,7 @@ Contracts reviewed:
 | Area                        | Prior risk                                                          | Current status                                                                                                              |
 | --------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Vault reward claims         | Repeat claims could over-withdraw rewards.                          | Remediated with reward index/checkpoint accounting.                                                                         |
-| Vault unbonding claims      | Unbonding requests could be double claimed.                         | Remediated with claimed-state handling and terminal claim flow.                                                             |
+| Vault unbonding claims      | Unbonding requests could be double claimed or avoid later slashing.  | Remediated with claimed-state handling, terminal claim flow, and slash-adjusted pending claim amounts.                      |
 | Vault share rounding        | Small deposits/withdrawals could exploit rounding.                  | Remediated with protocol-favorable rounding behavior.                                                                       |
 | Vault liquid staking token  | Internal shares did not fully exercise stAETHEL mint/burn/transfer behavior. | Remediated with staking-token mint on stake/compound/restake, auto-claim-on-unstake, minter burn on unstake, and transfer-synchronized accounting. |
 | Vault donations             | Direct transfers could distort share price.                         | Remediated with accounted balance and donation controls.                                                                    |
@@ -41,14 +41,14 @@ Local `cargo test` from `backend/contracts` passes:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            33 |
+| `vault`          |            34 |
 | `ai_job_manager` |            72 |
 | `cw20_staking`   |            53 |
 | `governance`     |            53 |
 | `model_registry` |            54 |
 | `seal_manager`   |            39 |
 | Doc tests        |             0 |
-| **Total**        |       **304** |
+| **Total**        |       **305** |
 
 ## Residual Review Focus
 

@@ -16,7 +16,7 @@
  */
 use cosmwasm_std::{
     coin, ensure, entry_point, to_json_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut,
-    Env, Event, MessageInfo, Response, StdResult, Uint128, WasmMsg,
+    Env, Event, MessageInfo, Order, Response, StdResult, Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Item, Map};
@@ -1117,6 +1117,64 @@ fn execute_add_rewards(deps: DepsMut, info: MessageInfo) -> Result<Response, Con
         .add_attribute("amount", rewards))
 }
 
+fn apply_unbonding_slash(
+    storage: &mut dyn Storage,
+    total_unbonding: Uint128,
+    slash_amount: Uint128,
+) -> Result<u64, ContractError> {
+    if slash_amount.is_zero() {
+        return Ok(0);
+    }
+
+    let requests: Vec<_> = UNSTAKE_REQUESTS
+        .range(storage, None, None, Order::Ascending)
+        .collect::<StdResult<_>>()?;
+    let mut slash_remaining = slash_amount;
+    let mut unbonding_remaining = total_unbonding;
+    let mut slashed_count = 0u64;
+
+    for ((owner, id), mut request) in requests {
+        if request.claimed || request.amount.is_zero() {
+            continue;
+        }
+
+        let original_amount = request.amount;
+        let request_slash = if original_amount >= unbonding_remaining {
+            slash_remaining.min(original_amount)
+        } else {
+            original_amount
+                .checked_mul(slash_amount)
+                .map_err(|_| ContractError::Overflow {})?
+                .checked_div(total_unbonding)
+                .map_err(|_| ContractError::Underflow {})?
+                .min(slash_remaining)
+                .min(original_amount)
+        };
+
+        if !request_slash.is_zero() {
+            request.amount = request
+                .amount
+                .checked_sub(request_slash)
+                .map_err(|_| ContractError::Underflow {})?;
+            UNSTAKE_REQUESTS.save(storage, (&owner, id), &request)?;
+            slashed_count += 1;
+            slash_remaining = slash_remaining
+                .checked_sub(request_slash)
+                .map_err(|_| ContractError::Underflow {})?;
+        }
+
+        unbonding_remaining = unbonding_remaining
+            .checked_sub(original_amount)
+            .map_err(|_| ContractError::Underflow {})?;
+    }
+
+    ensure!(
+        slash_remaining.is_zero(),
+        ContractError::InvariantViolation {}
+    );
+    Ok(slashed_count)
+}
+
 /// SECURITY: Record slash event with replay protection
 fn execute_record_slash(
     deps: DepsMut,
@@ -1126,6 +1184,7 @@ fn execute_record_slash(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
+    ensure!(!amount.is_zero(), ContractError::InvalidAmount {});
 
     // Only operator or admin can record slashes
     ensure!(
@@ -1139,14 +1198,33 @@ fn execute_record_slash(
     }
     PROCESSED_SLASHES.save(deps.storage, slash_id, &true)?;
 
-    // Apply slash to exchange rate
-    // New rate = (total_staked - slash) / total_shares
+    let slashable_balance = state
+        .total_staked
+        .checked_add(state.total_unbonding)
+        .map_err(|_| ContractError::Overflow {})?;
+    ensure!(amount <= slashable_balance, ContractError::Underflow {});
+
+    let unbonding_slash = if state.total_unbonding.is_zero() {
+        Uint128::zero()
+    } else {
+        amount.multiply_ratio(state.total_unbonding, slashable_balance)
+    };
+    let active_slash = amount
+        .checked_sub(unbonding_slash)
+        .map_err(|_| ContractError::Underflow {})?;
+    let unbonding_requests_slashed =
+        apply_unbonding_slash(deps.storage, state.total_unbonding, unbonding_slash)?;
+
     let new_staked = state
         .total_staked
-        .checked_sub(amount)
+        .checked_sub(active_slash)
         .map_err(|_| ContractError::Underflow {})?;
 
     state.total_staked = new_staked;
+    state.total_unbonding = state
+        .total_unbonding
+        .checked_sub(unbonding_slash)
+        .map_err(|_| ContractError::Underflow {})?;
     // Update exchange rate for precision
     if !state.total_shares.is_zero() {
         state.exchange_rate_num = new_staked;
@@ -1162,7 +1240,14 @@ fn execute_record_slash(
     let slash_event = Event::new("vault_slash")
         .add_attribute("slash_id", slash_id.to_string())
         .add_attribute("amount", amount.to_string())
+        .add_attribute("active_slash", active_slash.to_string())
+        .add_attribute("unbonding_slash", unbonding_slash.to_string())
+        .add_attribute(
+            "unbonding_requests_slashed",
+            unbonding_requests_slashed.to_string(),
+        )
         .add_attribute("remaining_staked", new_staked.to_string())
+        .add_attribute("remaining_unbonding", state.total_unbonding.to_string())
         .add_attribute(
             "severity",
             if amount > state.total_shares {
@@ -1176,7 +1261,9 @@ fn execute_record_slash(
         .add_event(slash_event)
         .add_attribute("action", "record_slash")
         .add_attribute("slash_id", slash_id.to_string())
-        .add_attribute("amount", amount))
+        .add_attribute("amount", amount)
+        .add_attribute("active_slash", active_slash)
+        .add_attribute("unbonding_slash", unbonding_slash))
 }
 
 fn execute_pause(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {

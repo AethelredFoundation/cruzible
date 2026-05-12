@@ -669,6 +669,83 @@ mod security_tests {
         assert_ne!(rate_before.rate_scaled_1e18, rate_after.rate_scaled_1e18);
     }
 
+    #[test]
+    fn test_slash_reduces_pending_unbonding_claims() {
+        let (mut deps, mut env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "user1", 50_000_000);
+        let _ = stake(&mut deps, &env, "user2", 50_000_000);
+        let _ = unstake(&mut deps, &env, "user1", 50_000_000);
+
+        let user1 = Addr::unchecked("user1");
+        let before = UNSTAKE_REQUESTS
+            .load(deps.as_ref().storage, (&user1, 0))
+            .unwrap();
+        assert_eq!(before.amount, Uint128::from(50_000_000u128));
+
+        let info = mock_info("operator", &[]);
+        let res = execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::RecordSlash {
+                slash_id: 1,
+                amount: Uint128::from(10_000_000u128),
+            },
+        )
+        .unwrap();
+
+        let active_slash: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "active_slash")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+        let unbonding_slash: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "unbonding_slash")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+
+        assert!(!active_slash.is_zero());
+        assert!(!unbonding_slash.is_zero());
+        assert_eq!(
+            active_slash + unbonding_slash,
+            Uint128::from(10_000_000u128)
+        );
+
+        let after = UNSTAKE_REQUESTS
+            .load(deps.as_ref().storage, (&user1, 0))
+            .unwrap();
+        assert_eq!(before.amount - after.amount, unbonding_slash);
+
+        let state = STATE.load(deps.as_ref().storage).unwrap();
+        assert_eq!(state.total_unbonding, after.amount);
+
+        env.block.time = env.block.time.plus_seconds(86400 * 21 + 1);
+        let res = execute(
+            deps.as_mut(),
+            env,
+            mock_info("user1", &[]),
+            ExecuteMsg::Claim {},
+        )
+        .unwrap();
+        let claimed: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "amount")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+        assert_eq!(claimed, after.amount);
+    }
+
     // ============ INVARIANT TESTS ============
 
     #[test]

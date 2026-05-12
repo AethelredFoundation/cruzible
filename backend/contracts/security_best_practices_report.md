@@ -33,7 +33,7 @@ The current code includes remediations for the previously tracked critical and h
 | Area                      | Current evidence                                                                                                                                                    |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Vault reward accounting   | Reward index/checkpoint controls prevent repeat reward claims and stale pro-rata reward capture.                                                                    |
-| Vault withdrawal claims   | Claimed-state handling and terminal request state prevent double claim of unbonding requests.                                                                       |
+| Vault withdrawal claims   | Claimed-state handling, terminal request state, and slash-adjusted pending claim amounts protect unbonding requests.                                                |
 | Vault rounding            | Share mint/burn rounding is protocol-favorable and covered by security tests.                                                                                       |
 | Vault stAETHEL lifecycle  | Stake, compound, and restake mint stAETHEL; unstake auto-claims rewards and burns through the configured staking token minter path; transfers synchronize vault accounting through the hook. |
 | Vault donation controls   | Accounted balance tracking and donation controls prevent direct-transfer share price inflation.                                                                     |
@@ -56,21 +56,21 @@ Passing test counts:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            33 |
+| `vault`          |            34 |
 | `ai_job_manager` |            72 |
 | `cw20_staking`   |            53 |
 | `governance`     |            53 |
 | `model_registry` |            54 |
 | `seal_manager`   |            39 |
 | Doc tests        |             0 |
-| **Total**        |       **304** |
+| **Total**        |       **305** |
 
 ## Audit-Candidate Readiness
 
 The workspace is suitable for an external audit candidate branch after the following evidence is packaged:
 
 - Current source tree and Cargo lockfile.
-- Reproducible `cargo test` output showing 304 passing unit tests.
+- Reproducible `cargo test` output showing 305 passing unit tests.
 - Commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json` from CI.
 - Detached artifact signatures generated with `RELEASE_SIGNING.md` before launch.
 - Strict release manifest reconciliation against the signed artifact directory.
