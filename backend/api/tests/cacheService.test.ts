@@ -179,7 +179,7 @@ describe("CacheService", () => {
       RPC_URL: "http://127.0.0.1:26657",
       DATABASE_URL: "postgresql://cruzible:cruzible@127.0.0.1:5432/cruzible",
       REDIS_URL: "redis://127.0.0.1:6379",
-      CORS_ORIGINS: "https://app.cruzible.test",
+      CORS_ORIGINS: "https://app.cruzible.org",
       JWT_SECRET: "production-jwt-secret-012345678901",
       JWT_REFRESH_SECRET: "production-refresh-secret-012345678",
       ALLOW_MOCK_SIGNATURES: "false",

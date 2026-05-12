@@ -8,6 +8,17 @@ function normalizeHostname(hostname: string): string {
     .replace(/^\[(.*)\]$/u, "$1");
 }
 
+function isReservedTestHostname(hostname: string): boolean {
+  return (
+    hostname === "example" ||
+    hostname.endsWith(".example") ||
+    hostname === "invalid" ||
+    hostname.endsWith(".invalid") ||
+    hostname === "test" ||
+    hostname.endsWith(".test")
+  );
+}
+
 function parseIpv4(address: string): number[] | null {
   if (isIP(address) !== 4) {
     return null;
@@ -88,6 +99,7 @@ export function isPrivateOrLocalHostname(hostname: string): boolean {
   return (
     normalized === "localhost" ||
     normalized.endsWith(".localhost") ||
+    isReservedTestHostname(normalized) ||
     isPrivateOrLocalAddress(normalized)
   );
 }

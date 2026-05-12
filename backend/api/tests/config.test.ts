@@ -66,7 +66,7 @@ const productionBaseEnv = {
   RPC_URL: "http://127.0.0.1:26657",
   DATABASE_URL: "postgresql://cruzible:cruzible@127.0.0.1:5432/cruzible",
   REDIS_URL: "redis://127.0.0.1:6379",
-  CORS_ORIGINS: "https://app.cruzible.test",
+  CORS_ORIGINS: "https://app.cruzible.org",
   JWT_SECRET: "production-jwt-secret-012345678901",
   JWT_REFRESH_SECRET: "production-refresh-secret-012345678",
   ALLOW_MOCK_SIGNATURES: "false",
@@ -217,7 +217,7 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
-        CORS_ORIGINS: "http://app.cruzible.test",
+        CORS_ORIGINS: "http://app.cruzible.org",
       }),
     ).rejects.toThrow(
       "Refusing to start with non-HTTPS CORS origins in production",
@@ -239,9 +239,20 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
-        CORS_ORIGINS: "https://app.cruzible.test/admin?preview=true",
+        CORS_ORIGINS: "https://app.cruzible.org/admin?preview=true",
       }),
     ).rejects.toThrow(/must be bare origins/);
+  });
+
+  it("rejects reserved test or documentation CORS origins in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CORS_ORIGINS: "https://app.cruzible.test",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start with private or local CORS origins in production",
+    );
   });
 
   it("rejects mock signature verification in production", async () => {
@@ -270,14 +281,14 @@ describe("backend config hardening", () => {
     const { config } = await loadConfigWithEnv({
       ...productionBaseEnv,
       CORS_ORIGINS:
-        "https://app.cruzible.test/,https://admin.cruzible.test,https://app.cruzible.test",
+        "https://app.cruzible.org/,https://admin.cruzible.org,https://app.cruzible.org",
       TRUST_PROXY: "1",
     });
 
     expect(config.isProduction).toBe(true);
     expect(config.corsOrigins).toEqual([
-      "https://app.cruzible.test",
-      "https://admin.cruzible.test",
+      "https://app.cruzible.org",
+      "https://admin.cruzible.org",
     ]);
     expect(config.databaseUrl).toBe(productionBaseEnv.DATABASE_URL);
     expect(config.redisUrl).toBe(productionBaseEnv.REDIS_URL);
@@ -299,7 +310,7 @@ describe("backend config hardening", () => {
     const jwtSecret = "file-backed-jwt-secret-012345678901";
     const jwtRefreshSecret = "file-backed-refresh-secret-0123456";
     const operationalToken = "file-backed-ops-token-012345678901";
-    const alertWebhookUrl = "https://alerts.cruzible.test/hook";
+    const alertWebhookUrl = "https://alerts.cruzible.org/hook";
 
     const { config } = await loadConfigWithEnv({
       ...productionBaseEnv,
@@ -392,7 +403,7 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
-        ALERT_WEBHOOK_URL: "http://alerts.cruzible.test/hook",
+        ALERT_WEBHOOK_URL: "http://alerts.cruzible.org/hook",
       }),
     ).rejects.toThrow(
       "Refusing to start with non-HTTPS ALERT_WEBHOOK_URL in production",
@@ -404,6 +415,17 @@ describe("backend config hardening", () => {
       loadConfigWithEnv({
         ...productionBaseEnv,
         ALERT_WEBHOOK_URL: "https://10.0.0.5/hook",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start with private or local ALERT_WEBHOOK_URL in production",
+    );
+  });
+
+  it("rejects reserved test or documentation alert webhooks in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        ALERT_WEBHOOK_URL: "https://alerts.cruzible.test/hook",
       }),
     ).rejects.toThrow(
       "Refusing to start with private or local ALERT_WEBHOOK_URL in production",
@@ -441,7 +463,7 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
-        ALERT_WEBHOOK_URL: "https://user:pass@alerts.cruzible.test/hook#token",
+        ALERT_WEBHOOK_URL: "https://user:pass@alerts.cruzible.org/hook#token",
       }),
     ).rejects.toThrow(
       "ALERT_WEBHOOK_URL must not contain credentials or fragments",

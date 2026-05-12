@@ -14,16 +14,16 @@ function productionWebhookEnv(): NodeJS.ProcessEnv {
   return {
     ...originalEnv,
     NODE_ENV: "production",
-    RPC_URL: "https://rpc.cruzible.test",
-    DATABASE_URL: "postgresql://cruzible:secret@db.cruzible.test:5432/cruzible",
-    REDIS_URL: "redis://cache.cruzible.test:6379",
-    CORS_ORIGINS: "https://vault.cruzible.test",
+    RPC_URL: "https://rpc.cruzible.org",
+    DATABASE_URL: "postgresql://cruzible:secret@db.cruzible.org:5432/cruzible",
+    REDIS_URL: "redis://cache.cruzible.org:6379",
+    CORS_ORIGINS: "https://vault.cruzible.org",
     JWT_SECRET: "s".repeat(32),
     JWT_REFRESH_SECRET: "r".repeat(32),
     AUTH_OPERATOR_ADDRESSES: "aeth1operator00000",
     INDEXER_ENABLED: "false",
     ALERT_RATE_LIMIT_MS: "60000",
-    ALERT_WEBHOOK_URL: "https://alerts.cruzible.test/hook",
+    ALERT_WEBHOOK_URL: "https://alerts.cruzible.org/hook",
     AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY: "false",
   };
 }
@@ -258,7 +258,7 @@ describe("AlertService", () => {
         "Reconciliation mismatch",
       );
 
-      expect(lookupMock).toHaveBeenCalledWith("alerts.cruzible.test", {
+      expect(lookupMock).toHaveBeenCalledWith("alerts.cruzible.org", {
         all: true,
         verbatim: true,
       });

@@ -28,6 +28,11 @@ describe("network safety utilities", () => {
     expect(isPrivateOrLocalHostname("localhost")).toBe(true);
     expect(isPrivateOrLocalHostname("admin.localhost")).toBe(true);
     expect(isPrivateOrLocalHostname("[::1]")).toBe(true);
-    expect(isPrivateOrLocalHostname("alerts.cruzible.test")).toBe(false);
+  });
+
+  it("blocks reserved test and documentation hostnames", () => {
+    expect(isPrivateOrLocalHostname("alerts.cruzible.test")).toBe(true);
+    expect(isPrivateOrLocalHostname("rpc.aethelred.example")).toBe(true);
+    expect(isPrivateOrLocalHostname("webhook.invalid")).toBe(true);
   });
 });
