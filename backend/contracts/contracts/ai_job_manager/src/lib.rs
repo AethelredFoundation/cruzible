@@ -26,6 +26,8 @@ const MAX_REQUIRED_TEE_TYPE: u8 = 3;
 const MAX_PAYMENT_DENOM_LENGTH: usize = 128;
 const MAX_AUTHORIZED_VALIDATORS: usize = 64;
 const MAX_AUTHORIZED_MEASUREMENTS: usize = 64;
+const MAX_QUERY_LIMIT: usize = 100;
+const MAX_CLEANUP_LIMIT: usize = 100;
 const MIN_TEE_QUOTE_BYTES: usize = 256;
 const MIN_REPORT_DATA_BYTES: usize = 32;
 const REPORT_DATA_DIGEST_BYTES: usize = 32;
@@ -1245,7 +1247,7 @@ fn execute_cleanup_expired(
     limit: Option<u32>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = bounded_limit(limit, MAX_CLEANUP_LIMIT);
     let mut cleaned = 0u64;
     let mut refund_msgs: Vec<CosmosMsg> = Vec::new();
 
@@ -1380,7 +1382,7 @@ fn query_list_jobs(
     _start_after: Option<String>,
     limit: Option<u32>,
 ) -> StdResult<Vec<Job>> {
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = bounded_limit(limit, MAX_QUERY_LIMIT);
 
     let jobs: Vec<Job> = if let Some(s) = status {
         jobs()
@@ -1423,7 +1425,7 @@ fn query_list_jobs(
 }
 
 fn query_pending_queue(deps: Deps, limit: Option<u32>) -> StdResult<Vec<Job>> {
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = bounded_limit(limit, MAX_QUERY_LIMIT);
     let count = PENDING_COUNT.load(deps.storage).unwrap_or(0);
 
     let mut pending_jobs = Vec::new();
@@ -1436,6 +1438,10 @@ fn query_pending_queue(deps: Deps, limit: Option<u32>) -> StdResult<Vec<Job>> {
     }
 
     Ok(pending_jobs)
+}
+
+fn bounded_limit(limit: Option<u32>, max_limit: usize) -> usize {
+    limit.unwrap_or(50).min(max_limit as u32) as usize
 }
 
 /// L-03 FIX: Return real platform stats from persistent counters.

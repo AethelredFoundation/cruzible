@@ -1830,6 +1830,42 @@ mod tests {
     }
 
     #[test]
+    fn query_limits_are_capped() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+
+        for index in 0..(MAX_QUERY_LIMIT + 5) {
+            setup_job(deps.as_mut(), CREATOR, 10_000 + index as u128);
+        }
+
+        let res = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::ListJobs {
+                status: None,
+                creator: None,
+                validator: None,
+                start_after: None,
+                limit: Some(u32::MAX),
+            },
+        )
+        .unwrap();
+        let jobs: Vec<Job> = from_json(&res).unwrap();
+        assert_eq!(jobs.len(), MAX_QUERY_LIMIT);
+
+        let res = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::PendingQueue {
+                limit: Some(u32::MAX),
+            },
+        )
+        .unwrap();
+        let pending_jobs: Vec<Job> = from_json(&res).unwrap();
+        assert_eq!(pending_jobs.len(), MAX_QUERY_LIMIT);
+    }
+
+    #[test]
     fn query_job_stats_works() {
         let mut deps = mock_dependencies_with_registered_model();
         setup_contract(deps.as_mut());
