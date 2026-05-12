@@ -44,7 +44,7 @@ export class WebSocketManager {
     }
 
     const origin = readOrigin(socket);
-    if (origin && !config.corsOrigins.includes(origin)) {
+    if (!origin || !config.corsOrigins.includes(origin)) {
       throw new Error(WS_ORIGIN_ERROR);
     }
 

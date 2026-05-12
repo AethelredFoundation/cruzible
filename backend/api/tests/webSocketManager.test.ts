@@ -65,9 +65,25 @@ describe("WebSocketManager", () => {
       operationalEndpointsToken: OPERATIONAL_TOKEN,
     });
 
-    const rejection = await io.authorize(createSocket());
+    const rejection = await io.authorize(
+      createSocket({ origin: "https://app.example" }),
+    );
 
     expect(rejection?.message).toBe("WebSocket authentication required");
+  });
+
+  it("rejects production sockets without an origin", async () => {
+    const { io } = await buildManager({
+      isProduction: true,
+      operationalEndpointsToken: OPERATIONAL_TOKEN,
+      corsOrigins: ["https://app.example"],
+    });
+
+    const rejection = await io.authorize(
+      createSocket({ authorization: "Bearer valid-access-token" }),
+    );
+
+    expect(rejection?.message).toBe("WebSocket origin is not allowed");
   });
 
   it("rejects production sockets from disallowed origins", async () => {

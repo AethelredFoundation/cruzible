@@ -290,7 +290,7 @@ function parseCorsOrigins(value: string, production: boolean): string[] {
       throw new Error(
         production
           ? "Refusing to start with wildcard CORS origins in production"
-          : "CORS_ORIGINS must not contain wildcard origins when credentials are enabled",
+          : "CORS_ORIGINS must not contain wildcard origins",
       );
     }
 

@@ -51,6 +51,16 @@ import { ReconciliationScheduler } from './services/ReconciliationScheduler';
 
 /** Timeout (ms) for forced shutdown after graceful attempt. */
 const FORCED_SHUTDOWN_TIMEOUT_MS = 30_000;
+const HTTP_CORS_METHODS = ['GET', 'POST', 'OPTIONS'];
+const WS_CORS_METHODS = ['GET', 'POST'];
+const CORS_ALLOWED_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-Request-ID',
+  'X-Operational-Token',
+  'X-Client-Name',
+  'X-Client-Version',
+];
 
 // ---------------------------------------------------------------------------
 // ApiGateway
@@ -74,7 +84,8 @@ export class ApiGateway {
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
         origin: config.corsOrigins,
-        credentials: true,
+        credentials: false,
+        methods: WS_CORS_METHODS,
       },
       pingTimeout: 60000,
       pingInterval: 25000,
@@ -162,9 +173,9 @@ export class ApiGateway {
     this.app.use(
       cors({
         origin: config.corsOrigins,
-        credentials: true,
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+        credentials: false,
+        methods: HTTP_CORS_METHODS,
+        allowedHeaders: CORS_ALLOWED_HEADERS,
       }),
     );
 

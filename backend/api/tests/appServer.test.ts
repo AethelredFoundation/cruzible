@@ -218,6 +218,54 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     }
   });
 
+  it('serves non-credentialed CORS preflights for browser API clients', async () => {
+    await registerMockServices();
+    const { config } = await import('../src/config');
+    const originalConfig = {
+      corsOrigins: config.corsOrigins,
+    };
+
+    (config as any).corsOrigins = ['https://app.example'];
+
+    try {
+      const { createAppServer } = await import('../src/server');
+      const api = createAppServer();
+
+      await withHttpServer(api.app, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/v1/jobs`, {
+          method: 'OPTIONS',
+          headers: {
+            Origin: 'https://app.example',
+            'Access-Control-Request-Method': 'POST',
+            'Access-Control-Request-Headers':
+              'Content-Type, Authorization, X-Request-ID, X-Operational-Token, X-Client-Name, X-Client-Version',
+          },
+        });
+
+        const methods = response.headers.get('access-control-allow-methods');
+        const headers = response.headers.get('access-control-allow-headers');
+
+        expect(response.status).toBe(204);
+        expect(response.headers.get('access-control-allow-origin')).toBe(
+          'https://app.example',
+        );
+        expect(
+          response.headers.get('access-control-allow-credentials'),
+        ).toBeNull();
+        expect(methods).toContain('GET');
+        expect(methods).toContain('POST');
+        expect(methods).toContain('OPTIONS');
+        expect(methods).not.toContain('PUT');
+        expect(methods).not.toContain('DELETE');
+        expect(headers).toContain('X-Operational-Token');
+        expect(headers).toContain('X-Client-Name');
+        expect(headers).toContain('X-Client-Version');
+      });
+    } finally {
+      Object.assign(config as any, originalConfig);
+    }
+  });
+
   it('start() binds to a port, wires up the scheduler, and health responds', async () => {
     await registerMockServices();
     const { createAppServer } = await import('../src/server');
