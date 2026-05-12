@@ -15,7 +15,7 @@
  * 4. Monotonic queue: processed requests stay processed
  */
 use cosmwasm_std::{
-    coin, ensure, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps,
+    coin, ensure, entry_point, to_json_binary, Addr, Api, BankMsg, Binary, Coin, CosmosMsg, Deps,
     DepsMut, Env, Event, MessageInfo, Order, Response, StdResult, Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
@@ -35,6 +35,10 @@ const MAX_FEE_BPS: u32 = 1000;
 const MAX_UNBONDING_REQUESTS: u64 = 100;
 /// Minimum deposit amount (rounding attack protection)
 const MIN_DEPOSIT: u128 = 1_000_000; // 1 token with 6 decimals
+/// Maximum validator set size (bounded config/gas surface)
+const MAX_VALIDATORS: usize = 64;
+/// Maximum denom length accepted into persistent config
+const MAX_DENOM_LENGTH: usize = 128;
 /// Maximum total value (overflow protection)
 const MAX_TOTAL_STAKED: u128 = u128::MAX / 2;
 /// MED-4: Minimum unbonding period (1 day in seconds) — prevents admin from setting 0
@@ -72,6 +76,8 @@ pub enum ContractError {
     NothingToClaim {},
     #[error("Invalid validator")]
     InvalidValidator {},
+    #[error("Invalid denom")]
+    InvalidDenom {},
     #[error("Contract paused")]
     Paused {},
     #[error("Invariant violation")]
@@ -165,6 +171,37 @@ fn validated_single_denom_funds(funds: &[Coin], denom: &str) -> Result<Uint128, 
     }
 
     Ok(amount)
+}
+
+fn validate_denom(denom: &str) -> Result<(), ContractError> {
+    if denom.trim().is_empty()
+        || denom.len() > MAX_DENOM_LENGTH
+        || denom.chars().any(char::is_whitespace)
+    {
+        return Err(ContractError::InvalidDenom {});
+    }
+
+    Ok(())
+}
+
+fn validate_validator_set(
+    api: &dyn Api,
+    validators: &[String],
+) -> Result<Vec<Addr>, ContractError> {
+    if validators.is_empty() || validators.len() > MAX_VALIDATORS {
+        return Err(ContractError::InvalidValidator {});
+    }
+
+    let mut validated = Vec::with_capacity(validators.len());
+    for validator in validators {
+        let validator_addr = api.addr_validate(validator)?;
+        if validated.contains(&validator_addr) {
+            return Err(ContractError::InvalidValidator {});
+        }
+        validated.push(validator_addr);
+    }
+
+    Ok(validated)
 }
 
 // ============ MESSAGES ============
@@ -286,13 +323,8 @@ pub fn instantiate(
         )));
     }
 
-    let validators: Result<Vec<Addr>, _> = msg
-        .validators
-        .iter()
-        .map(|v| deps.api.addr_validate(v))
-        .collect();
-    let validators = validators?;
-    ensure!(!validators.is_empty(), ContractError::InvalidValidator {});
+    validate_denom(&msg.denom)?;
+    let validators = validate_validator_set(deps.api, &msg.validators)?;
     let staking_token = deps.api.addr_validate(&msg.staking_token)?;
 
     // SECURITY: Require a single-denom seed deposit to prevent first-depositor
@@ -1106,12 +1138,7 @@ fn execute_update_validators(
         ContractError::Unauthorized {}
     );
 
-    let validators: Result<Vec<Addr>, _> = validators
-        .iter()
-        .map(|v| deps.api.addr_validate(v))
-        .collect();
-    let validators = validators?;
-    ensure!(!validators.is_empty(), ContractError::InvalidValidator {});
+    let validators = validate_validator_set(deps.api, &validators)?;
     config.validators = validators;
 
     CONFIG.save(deps.storage, &config)?;

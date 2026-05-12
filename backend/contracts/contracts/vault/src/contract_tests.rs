@@ -157,6 +157,71 @@ mod security_tests {
     }
 
     #[test]
+    fn test_instantiate_rejects_duplicate_validators() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &coins(1_000_000, "aeth"));
+        let msg = InstantiateMsg {
+            unbonding_period: MIN_UNBONDING_PERIOD,
+            denom: "aeth".to_string(),
+            staking_token: "staeth".to_string(),
+            validators: vec!["validator1".to_string(), "validator1".to_string()],
+            fee_bps: 100,
+            min_stake: Uint128::from(1_000_000u128),
+            max_stake: Uint128::from(1_000_000_000_000u128),
+            operator: "operator".to_string(),
+            pauser: "pauser".to_string(),
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidValidator {});
+    }
+
+    #[test]
+    fn test_instantiate_rejects_too_many_validators() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &coins(1_000_000, "aeth"));
+        let msg = InstantiateMsg {
+            unbonding_period: MIN_UNBONDING_PERIOD,
+            denom: "aeth".to_string(),
+            staking_token: "staeth".to_string(),
+            validators: (0..=MAX_VALIDATORS)
+                .map(|index| format!("validator{index}"))
+                .collect(),
+            fee_bps: 100,
+            min_stake: Uint128::from(1_000_000u128),
+            max_stake: Uint128::from(1_000_000_000_000u128),
+            operator: "operator".to_string(),
+            pauser: "pauser".to_string(),
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidValidator {});
+    }
+
+    #[test]
+    fn test_instantiate_rejects_invalid_denom() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &coins(1_000_000, "aeth"));
+        let msg = InstantiateMsg {
+            unbonding_period: MIN_UNBONDING_PERIOD,
+            denom: "bad denom".to_string(),
+            staking_token: "staeth".to_string(),
+            validators: vec!["validator1".to_string()],
+            fee_bps: 100,
+            min_stake: Uint128::from(1_000_000u128),
+            max_stake: Uint128::from(1_000_000_000_000u128),
+            operator: "operator".to_string(),
+            pauser: "pauser".to_string(),
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidDenom {});
+    }
+
+    #[test]
     fn test_attack_4_donation_does_not_inflate_shares() {
         let (mut deps, env, _) = proper_instantiate();
 
@@ -1130,6 +1195,27 @@ mod security_tests {
         };
         let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(err, ContractError::Unauthorized {});
+    }
+
+    #[test]
+    fn test_update_validators_rejects_duplicates_and_oversized_sets() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let info = mock_info("operator", &[]);
+        let msg = ExecuteMsg::UpdateValidators {
+            validators: vec!["validator2".to_string(), "validator2".to_string()],
+        };
+        let err = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidValidator {});
+
+        let info = mock_info("operator", &[]);
+        let msg = ExecuteMsg::UpdateValidators {
+            validators: (0..=MAX_VALIDATORS)
+                .map(|index| format!("validator{index}"))
+                .collect(),
+        };
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidValidator {});
     }
 
     #[test]
