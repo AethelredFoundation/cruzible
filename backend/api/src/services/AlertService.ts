@@ -69,6 +69,14 @@ export interface AlertSummary {
 /** Maximum number of alerts to keep in the ring buffer. */
 const MAX_ALERT_HISTORY = 100;
 
+function webhookOriginForLogs(value: string): string {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return "[invalid-url]";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -320,7 +328,10 @@ export class AlertService {
         );
       }
     } catch (error) {
-      logger.warn("Alert webhook delivery error", { error });
+      logger.warn("Alert webhook delivery error", {
+        webhookOrigin: webhookOriginForLogs(this.webhookUrl),
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
     }
   }
 

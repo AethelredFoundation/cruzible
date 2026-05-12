@@ -195,4 +195,38 @@ describe("AlertService", () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it("does not log secret-bearing webhook paths when delivery fails", async () => {
+    process.env.ALERT_WEBHOOK_URL =
+      "https://alerts.cruzible.test/hooks/super-secret-route-token";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(
+        new Error(
+          "failed https://alerts.cruzible.test/hooks/super-secret-route-token",
+        ),
+      );
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { AlertService, AlertSeverity, AlertType } =
+      await import("../src/services/AlertService");
+    const service = new AlertService();
+
+    try {
+      await service.sendAlert(
+        AlertSeverity.CRITICAL,
+        AlertType.RECONCILIATION_MISMATCH,
+        "Reconciliation mismatch",
+      );
+
+      const serializedWarnings = warnSpy.mock.calls
+        .map((call) => call.map((part) => JSON.stringify(part)).join(" "))
+        .join("\n");
+
+      expect(serializedWarnings).toContain("https://alerts.cruzible.test");
+      expect(serializedWarnings).not.toContain("super-secret-route-token");
+    } finally {
+      fetchSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
 });
