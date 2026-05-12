@@ -1,7 +1,7 @@
-import Redis from 'ioredis';
-import rateLimit, { type Store } from 'express-rate-limit';
-import { config } from '../config';
-import { logger } from '../utils/logger';
+import Redis from "ioredis";
+import rateLimit, { type Store } from "express-rate-limit";
+import { config } from "../config";
+import { logger } from "../utils/logger";
 
 const sharedRateLimitRedisClients = new Map<string, Redis>();
 
@@ -12,8 +12,8 @@ function getRedisRateLimitClient(redisUrl: string): Redis {
       connectTimeout: 1000,
       maxRetriesPerRequest: 1,
     });
-    client.on('error', (error) => {
-      logger.warn('Redis rate-limit store error', {
+    client.on("error", (error) => {
+      logger.warn("Redis rate-limit store error", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -87,16 +87,16 @@ export const rateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: createRedisRateLimitStore({
-    prefix: 'global',
+    prefix: "global",
     windowMs: config.rateLimitWindowMs,
     redisUrl: config.redisUrl,
   }),
   passOnStoreError: false,
-  skip: (req) => req.path === '/health/live',
+  skip: (req) => req.path === "/health/live" || req.path === "/health/ready",
   handler: (req, res) => {
     res.status(429).json({
-      error: 'TooManyRequests',
-      message: 'Rate limit exceeded',
+      error: "TooManyRequests",
+      message: "Rate limit exceeded",
       requestId: req.requestId,
     });
   },
@@ -121,7 +121,7 @@ function namedRateLimiter(options: {
     passOnStoreError: false,
     handler: (req, res) => {
       res.status(429).json({
-        error: 'TooManyRequests',
+        error: "TooManyRequests",
         message: options.message,
         requestId: req.requestId,
       });
@@ -130,22 +130,22 @@ function namedRateLimiter(options: {
 }
 
 export const authRateLimiter = namedRateLimiter({
-  prefix: 'auth',
+  prefix: "auth",
   windowMs: config.authRateLimitWindowMs,
   max: config.authRateLimitMax,
-  message: 'Authentication rate limit exceeded',
+  message: "Authentication rate limit exceeded",
 });
 
 export const opsRateLimiter = namedRateLimiter({
-  prefix: 'ops',
+  prefix: "ops",
   windowMs: config.opsRateLimitWindowMs,
   max: config.opsRateLimitMax,
-  message: 'Operations rate limit exceeded',
+  message: "Operations rate limit exceeded",
 });
 
 export const publicExpensiveRateLimiter = namedRateLimiter({
-  prefix: 'public-expensive',
+  prefix: "public-expensive",
   windowMs: config.publicExpensiveRateLimitWindowMs,
   max: config.publicExpensiveRateLimitMax,
-  message: 'Public expensive endpoint rate limit exceeded',
+  message: "Public expensive endpoint rate limit exceeded",
 });
