@@ -85,6 +85,10 @@ pub enum ContractError {
     InvalidConfig { reason: String },
     #[error("Cannot add feeder: maximum feeder set size reached")]
     FeederSetFull {},
+    #[error("Proposal timing fields are not initialized")]
+    ProposalTimingNotInitialized {},
+    #[error("Arithmetic overflow")]
+    ArithmeticOverflow {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -481,9 +485,9 @@ fn validate_instantiate_msg(msg: &InstantiateMsg) -> Result<(), ContractError> {
             reason: "threshold must be between 1 and 10000 basis points".to_string(),
         });
     }
-    if msg.quorum > BASIS_POINTS_DENOMINATOR {
+    if msg.quorum == 0 || msg.quorum > BASIS_POINTS_DENOMINATOR {
         return Err(ContractError::InvalidConfig {
-            reason: "quorum cannot exceed 10000 basis points".to_string(),
+            reason: "quorum must be between 1 and 10000 basis points".to_string(),
         });
     }
     if msg.veto_threshold > BASIS_POINTS_DENOMINATOR {
@@ -672,7 +676,7 @@ fn execute_deposit(
         .map(|c| c.amount)
         .unwrap_or_default();
 
-    proposal.deposit += deposit;
+    proposal.deposit = checked_add_uint128(proposal.deposit, deposit)?;
 
     // Activate if min deposit reached
     if proposal.deposit >= config.min_deposit && proposal.status == ProposalStatus::Pending {
@@ -1128,7 +1132,7 @@ fn execute_snapshot_stake(
     // (activation → snapshot_end_time). This ensures all voter weights are
     // anchored to a narrow, pre-determined time range — not lazily taken
     // whenever a voter happens to cast.
-    let snapshot_end = proposal.snapshot_end_time.unwrap();
+    let snapshot_end = require_proposal_time(proposal.snapshot_end_time)?;
     if env.block.time > snapshot_end {
         return Err(ContractError::SnapshotWindowEnded {});
     }
@@ -1144,7 +1148,7 @@ fn execute_snapshot_stake(
     let total: Uint128 = delegations
         .iter()
         .map(|d| d.amount.amount)
-        .fold(Uint128::zero(), |acc, a| acc + a);
+        .try_fold(Uint128::zero(), checked_add_uint128)?;
 
     STAKE_SNAPSHOTS.save(deps.storage, (proposal_id, &info.sender), &total)?;
 
@@ -1171,12 +1175,12 @@ fn execute_vote(
     // ── P1 fix: voting only opens after the snapshot window closes ──
     // This guarantees that all voter weights were locked during a narrow,
     // predetermined window — not lazily taken at an attacker-chosen time.
-    let snapshot_end = proposal.snapshot_end_time.unwrap();
+    let snapshot_end = require_proposal_time(proposal.snapshot_end_time)?;
     if env.block.time <= snapshot_end {
         return Err(ContractError::VotingNotOpenYet {});
     }
 
-    let voting_end = proposal.voting_end_time.unwrap();
+    let voting_end = require_proposal_time(proposal.voting_end_time)?;
     if env.block.time > voting_end {
         return Err(ContractError::VotingEnded {});
     }
@@ -1209,10 +1213,14 @@ fn execute_vote(
 
     // Update tallies
     match option {
-        VoteOption::Yes => proposal.votes_yes += weight,
-        VoteOption::No => proposal.votes_no += weight,
-        VoteOption::Abstain => proposal.votes_abstain += weight,
-        VoteOption::NoWithVeto => proposal.votes_no_with_veto += weight,
+        VoteOption::Yes => proposal.votes_yes = checked_add_uint128(proposal.votes_yes, weight)?,
+        VoteOption::No => proposal.votes_no = checked_add_uint128(proposal.votes_no, weight)?,
+        VoteOption::Abstain => {
+            proposal.votes_abstain = checked_add_uint128(proposal.votes_abstain, weight)?
+        }
+        VoteOption::NoWithVeto => {
+            proposal.votes_no_with_veto = checked_add_uint128(proposal.votes_no_with_veto, weight)?
+        }
     }
 
     PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
@@ -1241,8 +1249,7 @@ fn execute_execute_proposal(
         return Err(ContractError::InvalidStatus {});
     }
 
-    // Safe to unwrap: Active proposals always have voting_end_time set.
-    let voting_end = proposal.voting_end_time.unwrap();
+    let voting_end = require_proposal_time(proposal.voting_end_time)?;
     if env.block.time <= voting_end {
         return Err(ContractError::VotingNotStarted {});
     }
@@ -1256,10 +1263,11 @@ fn execute_execute_proposal(
     }
 
     // Calculate results
-    let total_votes = proposal.votes_yes
-        + proposal.votes_no
-        + proposal.votes_abstain
-        + proposal.votes_no_with_veto;
+    let non_abstain_votes = checked_add_uint128(
+        checked_add_uint128(proposal.votes_yes, proposal.votes_no)?,
+        proposal.votes_no_with_veto,
+    )?;
+    let total_votes = checked_add_uint128(non_abstain_votes, proposal.votes_abstain)?;
 
     // Enforce quorum against the total_bonded snapshot taken at proposal activation,
     // NOT the live TOTAL_BONDED value. This prevents quorum from being steered
@@ -1267,7 +1275,12 @@ fn execute_execute_proposal(
     let snapshot_bonded = proposal.snapshot_total_bonded;
     if snapshot_bonded.is_zero() {
         // Snapshot was zero at activation — cannot verify quorum.
-        return Err(ContractError::QuorumNotMet {});
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "snapshot_total_bonded_zero",
+        );
     }
 
     // ── On-chain consistency bound ──
@@ -1280,35 +1293,51 @@ fn execute_execute_proposal(
     // to reach and could block proposals — but that is a liveness issue, not a
     // safety issue, and is detectable off-chain via standard staking queries.
     if total_votes > snapshot_bonded {
-        proposal.status = ProposalStatus::Rejected;
-        PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-        return Err(ContractError::TotalBondedInconsistency {});
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "total_bonded_inconsistency",
+        );
     }
 
     let quorum_threshold =
         snapshot_bonded * Uint128::from(config.quorum) / Uint128::from(10000u128);
     if total_votes < quorum_threshold {
-        proposal.status = ProposalStatus::Rejected;
-        PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-        return Err(ContractError::QuorumNotMet {});
+        return reject_proposal(deps.storage, proposal_id, &mut proposal, "quorum_not_met");
+    }
+
+    if non_abstain_votes.is_zero() || proposal.votes_yes.is_zero() {
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "no_affirmative_non_abstain_votes",
+        );
     }
 
     // Check veto
     let veto_threshold =
         total_votes * Uint128::from(config.veto_threshold) / Uint128::from(10000u128);
     if proposal.votes_no_with_veto > veto_threshold {
-        proposal.status = ProposalStatus::Rejected;
-        PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-        return Err(ContractError::NotPassed {});
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "veto_threshold_met",
+        );
     }
 
     // Check pass threshold
-    let pass_threshold = (proposal.votes_yes + proposal.votes_no) * Uint128::from(config.threshold)
-        / Uint128::from(10000u128);
+    let pass_threshold =
+        non_abstain_votes * Uint128::from(config.threshold) / Uint128::from(10000u128);
     if proposal.votes_yes < pass_threshold {
-        proposal.status = ProposalStatus::Rejected;
-        PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-        return Err(ContractError::NotPassed {});
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "threshold_not_met",
+        );
     }
 
     proposal.status = ProposalStatus::Passed;
@@ -1326,6 +1355,31 @@ fn execute_execute_proposal(
     }
 
     Ok(response)
+}
+
+fn require_proposal_time(value: Option<Timestamp>) -> Result<Timestamp, ContractError> {
+    value.ok_or(ContractError::ProposalTimingNotInitialized {})
+}
+
+fn checked_add_uint128(left: Uint128, right: Uint128) -> Result<Uint128, ContractError> {
+    left.checked_add(right)
+        .map_err(|_| ContractError::ArithmeticOverflow {})
+}
+
+fn reject_proposal(
+    storage: &mut dyn cosmwasm_std::Storage,
+    proposal_id: u64,
+    proposal: &mut Proposal,
+    reason: &str,
+) -> Result<Response, ContractError> {
+    proposal.status = ProposalStatus::Rejected;
+    PROPOSALS.save(storage, proposal_id, proposal)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "execute_proposal")
+        .add_attribute("proposal_id", proposal_id.to_string())
+        .add_attribute("status", "rejected")
+        .add_attribute("reason", reason))
 }
 
 #[entry_point]
@@ -1520,6 +1574,18 @@ mod tests {
         let mut deps = mock_dependencies();
         let msg = InstantiateMsg {
             feeder_tolerance_bps: BASIS_POINTS_DENOMINATOR + 1,
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_zero_quorum() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            quorum: 0,
             ..default_init_msg()
         };
 
@@ -2031,15 +2097,19 @@ mod tests {
         )
         .unwrap();
 
-        // Execute — should fail with TotalBondedInconsistency
-        let err = execute(
+        // Execute — should persist terminal rejection instead of returning an
+        // error that would roll back state on-chain.
+        let res = execute(
             deps.as_mut(),
             env_at(t0 + 800),
             mock_info(VOTER_A, &[]),
             ExecuteMsg::ExecuteProposal { proposal_id: 1 },
         )
-        .unwrap_err();
-        assert_eq!(err, ContractError::TotalBondedInconsistency {});
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "reason" && a.value == "total_bonded_inconsistency"));
 
         // Verify proposal was rejected
         let prop: Proposal = from_json(
@@ -2130,14 +2200,87 @@ mod tests {
         )
         .unwrap();
 
-        let err = execute(
+        let res = execute(
             deps.as_mut(),
             env_at(t0 + 800),
             mock_info(VOTER_A, &[]),
             ExecuteMsg::ExecuteProposal { proposal_id: 1 },
         )
-        .unwrap_err();
-        assert_eq!(err, ContractError::QuorumNotMet {});
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "reason" && a.value == "quorum_not_met"));
+
+        let prop: Proposal = from_json(
+            query(
+                deps.as_ref(),
+                env_at(t0 + 800),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(prop.status, ProposalStatus::Rejected);
+    }
+
+    #[test]
+    fn test_all_abstain_votes_reject_proposal() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        set_delegations(&mut deps, &[(VOTER_A, 5_000_000), (VOTER_B, 3_000_000)]);
+
+        let t0 = 1_000_000u64;
+        refresh_total_bonded(&mut deps, env_at(t0), 10_000_000);
+        seed_anchor(&mut deps, env_at(t0));
+        submit_proposal(&mut deps, env_at(t0 + 10));
+        activate_proposal(&mut deps, env_at(t0 + 20), 1);
+
+        for voter in [VOTER_A, VOTER_B] {
+            execute(
+                deps.as_mut(),
+                env_at(t0 + 50),
+                mock_info(voter, &[]),
+                ExecuteMsg::SnapshotStake { proposal_id: 1 },
+            )
+            .unwrap();
+
+            execute(
+                deps.as_mut(),
+                env_at(t0 + 200),
+                mock_info(voter, &[]),
+                ExecuteMsg::Vote {
+                    proposal_id: 1,
+                    option: VoteOption::Abstain,
+                },
+            )
+            .unwrap();
+        }
+
+        let res = execute(
+            deps.as_mut(),
+            env_at(t0 + 800),
+            mock_info(VOTER_A, &[]),
+            ExecuteMsg::ExecuteProposal { proposal_id: 1 },
+        )
+        .unwrap();
+
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| { a.key == "reason" && a.value == "no_affirmative_non_abstain_votes" }));
+
+        let prop: Proposal = from_json(
+            query(
+                deps.as_ref(),
+                env_at(t0 + 800),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(prop.status, ProposalStatus::Rejected);
+        assert!(!prop.executed);
     }
 
     // ── Test: double vote rejected ───────────────────────────────────────
@@ -2271,6 +2414,54 @@ mod tests {
         assert_eq!(err, ContractError::InvalidStatus {});
     }
 
+    #[test]
+    fn test_malformed_active_proposal_timing_rejected_without_panic() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        set_delegations(&mut deps, &[(VOTER_A, 5_000_000)]);
+
+        let t0 = 1_000_000u64;
+        refresh_total_bonded(&mut deps, env_at(t0), 10_000_000);
+        seed_anchor(&mut deps, env_at(t0));
+        submit_proposal(&mut deps, env_at(t0 + 10));
+        activate_proposal(&mut deps, env_at(t0 + 20), 1);
+
+        PROPOSALS
+            .update(deps.as_mut().storage, 1, |proposal| -> StdResult<_> {
+                let mut proposal = proposal.unwrap();
+                proposal.snapshot_end_time = None;
+                Ok(proposal)
+            })
+            .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(t0 + 50),
+            mock_info(VOTER_A, &[]),
+            ExecuteMsg::SnapshotStake { proposal_id: 1 },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::ProposalTimingNotInitialized {});
+
+        PROPOSALS
+            .update(deps.as_mut().storage, 1, |proposal| -> StdResult<_> {
+                let mut proposal = proposal.unwrap();
+                proposal.snapshot_end_time = Some(Timestamp::from_seconds(t0 + 140));
+                proposal.voting_end_time = None;
+                Ok(proposal)
+            })
+            .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(t0 + 800),
+            mock_info(VOTER_A, &[]),
+            ExecuteMsg::ExecuteProposal { proposal_id: 1 },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::ProposalTimingNotInitialized {});
+    }
+
     // ── Test: query_proposals status filter and pagination ────────────────
 
     #[test]
@@ -2397,14 +2588,28 @@ mod tests {
         )
         .unwrap();
 
-        let err = execute(
+        let res = execute(
             deps.as_mut(),
             env_at(t0 + 800),
             mock_info(VOTER_A, &[]),
             ExecuteMsg::ExecuteProposal { proposal_id: 1 },
         )
-        .unwrap_err();
-        assert_eq!(err, ContractError::NotPassed {});
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "reason" && a.value == "veto_threshold_met"));
+
+        let prop: Proposal = from_json(
+            query(
+                deps.as_ref(),
+                env_at(t0 + 800),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(prop.status, ProposalStatus::Rejected);
     }
 
     // ── Test: seed anchor enables first activation ──────────────────────
