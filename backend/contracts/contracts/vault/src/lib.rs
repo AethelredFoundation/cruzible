@@ -76,6 +76,8 @@ pub enum ContractError {
     Paused {},
     #[error("Invariant violation")]
     InvariantViolation {},
+    #[error("Slippage tolerance exceeded")]
+    SlippageExceeded {},
 }
 
 // ============ STATE STRUCTURES ============
@@ -168,8 +170,16 @@ pub enum ExecuteMsg {
     Stake {
         validator: String,
     },
+    StakeWithMinShares {
+        validator: String,
+        min_shares: Uint128,
+    },
     Unstake {
         amount: Uint128,
+    },
+    UnstakeWithMaxShares {
+        amount: Uint128,
+        max_shares_to_burn: Uint128,
     },
     Claim {},
     ClaimRewards {},
@@ -344,8 +354,16 @@ pub fn execute(
     }
 
     match msg {
-        ExecuteMsg::Stake { validator } => execute_stake(deps, env, info, validator),
-        ExecuteMsg::Unstake { amount } => execute_unstake(deps, env, info, amount),
+        ExecuteMsg::Stake { validator } => execute_stake(deps, env, info, validator, None),
+        ExecuteMsg::StakeWithMinShares {
+            validator,
+            min_shares,
+        } => execute_stake(deps, env, info, validator, Some(min_shares)),
+        ExecuteMsg::Unstake { amount } => execute_unstake(deps, env, info, amount, None),
+        ExecuteMsg::UnstakeWithMaxShares {
+            amount,
+            max_shares_to_burn,
+        } => execute_unstake(deps, env, info, amount, Some(max_shares_to_burn)),
         ExecuteMsg::Claim {} => execute_claim(deps, env, info),
         ExecuteMsg::ClaimRewards {} => execute_claim_rewards(deps, env, info),
         ExecuteMsg::Compound { validator } => execute_compound(deps, env, info, validator),
@@ -460,6 +478,7 @@ fn execute_stake(
     _env: Env,
     info: MessageInfo,
     validator: String,
+    min_shares: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
@@ -498,6 +517,9 @@ fn execute_stake(
     // Calculate shares (rounds down)
     let new_shares = calculate_shares_to_mint(amount, state.total_staked, state.total_shares)?;
     ensure!(!new_shares.is_zero(), ContractError::AmountTooSmall {});
+    if let Some(min_shares) = min_shares {
+        ensure!(new_shares >= min_shares, ContractError::SlippageExceeded {});
+    }
 
     // Update state
     state.total_staked = state
@@ -568,6 +590,7 @@ fn execute_unstake(
     env: Env,
     info: MessageInfo,
     amount: Uint128,
+    max_shares_to_burn: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
@@ -586,6 +609,12 @@ fn execute_unstake(
 
     // Calculate shares to burn (rounds up - favors protocol)
     let shares_to_burn = calculate_shares_to_burn(amount, state.total_staked, state.total_shares)?;
+    if let Some(max_shares_to_burn) = max_shares_to_burn {
+        ensure!(
+            shares_to_burn <= max_shares_to_burn,
+            ContractError::SlippageExceeded {}
+        );
+    }
     ensure!(
         user_stake.shares >= shares_to_burn,
         ContractError::InsufficientBalance {}

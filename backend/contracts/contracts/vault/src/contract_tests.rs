@@ -251,6 +251,61 @@ mod security_tests {
     }
 
     #[test]
+    fn test_stake_min_shares_guard_blocks_adverse_execution() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let info = mock_info("user", &coins(10_000_000, "aeth"));
+        let msg = ExecuteMsg::StakeWithMinShares {
+            validator: "validator1".to_string(),
+            min_shares: Uint128::from(10_000_001u128),
+        };
+        let err = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        assert_eq!(err, ContractError::SlippageExceeded {});
+
+        let info = mock_info("user", &coins(10_000_000, "aeth"));
+        let msg = ExecuteMsg::StakeWithMinShares {
+            validator: "validator1".to_string(),
+            min_shares: Uint128::from(10_000_000u128),
+        };
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+        let shares_attr = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "shares_minted")
+            .unwrap();
+
+        assert_eq!(shares_attr.value, "10000000");
+    }
+
+    #[test]
+    fn test_unstake_max_shares_guard_blocks_adverse_execution() {
+        let (mut deps, env, _) = proper_instantiate();
+        let _ = stake(&mut deps, &env, "user", 10_000_000);
+
+        let info = mock_info("user", &[]);
+        let msg = ExecuteMsg::UnstakeWithMaxShares {
+            amount: Uint128::from(5_000_000u128),
+            max_shares_to_burn: Uint128::from(4_999_999u128),
+        };
+        let err = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        assert_eq!(err, ContractError::SlippageExceeded {});
+
+        let info = mock_info("user", &[]);
+        let msg = ExecuteMsg::UnstakeWithMaxShares {
+            amount: Uint128::from(5_000_000u128),
+            max_shares_to_burn: Uint128::from(5_000_000u128),
+        };
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+        let burned_attr = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "shares_burned")
+            .unwrap();
+
+        assert_eq!(burned_attr.value, "5000000");
+    }
+
+    #[test]
     fn test_attack_7_zero_share_mint_blocked() {
         let (mut deps, env, _) = proper_instantiate();
 
