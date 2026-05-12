@@ -275,6 +275,7 @@ async function fetchApi<T>(
   const url = getApiUrl(endpoint);
 
   const defaultOptions: RequestInit = {
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",

@@ -33,6 +33,11 @@ function getLastRequestHeaders(fetchMock: ReturnType<typeof vi.fn>) {
     | undefined;
 }
 
+function getLastRequestOptions(fetchMock: ReturnType<typeof vi.fn>) {
+  const [, options] = fetchMock.mock.calls.at(-1) ?? [];
+  return options as RequestInit | undefined;
+}
+
 describe("API bearer token handling", () => {
   afterEach(() => {
     clearApiAccessToken();
@@ -59,6 +64,16 @@ describe("API bearer token handling", () => {
 
     expect(getLastRequestHeaders(fetchMock)).toMatchObject({
       Authorization: "Bearer access-token",
+    });
+  });
+
+  it("includes browser cookies for API requests by default", async () => {
+    const fetchMock = mockApiResponse();
+
+    await getLatestBlock();
+
+    expect(getLastRequestOptions(fetchMock)).toMatchObject({
+      credentials: "include",
     });
   });
 });
