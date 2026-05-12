@@ -13,7 +13,10 @@ import {
   type ReconciliationResult,
 } from '../../services/ReconciliationScheduler';
 import { authenticate, requireRoles } from '../../auth/middleware';
-import { opsRateLimiter } from '../../middleware/rateLimiter';
+import {
+  opsRateLimiter,
+  publicExpensiveRateLimiter,
+} from '../../middleware/rateLimiter';
 import { validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 
@@ -294,6 +297,7 @@ function buildScorecard(
  */
 router.get(
   '/live',
+  publicExpensiveRateLimiter,
   [
     query('validator_limit').optional().isInt({ min: 1, max: 500 }).toInt(),
     validate,
@@ -329,6 +333,7 @@ router.get(
  */
 router.get(
   '/control-plane',
+  publicExpensiveRateLimiter,
   asyncHandler(async (_req: Request, res: Response) => {
     const cacheKey = 'reconciliation:control-plane';
     const cached = await cacheService.get(cacheKey);
@@ -357,6 +362,7 @@ router.get(
  */
 router.get(
   '/scorecard',
+  publicExpensiveRateLimiter,
   asyncHandler(async (_req: Request, res: Response) => {
     const cacheKey = 'reconciliation:scorecard';
     const cached = await cacheService.get(cacheKey);

@@ -14,6 +14,7 @@ import {
 } from '../../services/ReconciliationScheduler';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { validate } from '../../middleware/validate';
+import { publicExpensiveRateLimiter } from '../../middleware/rateLimiter';
 import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
 import { ApiError } from '../../utils/ApiError';
 import { bytesToHex, computeEligibleUniverseHash } from '../../lib/protocolSdk';
@@ -506,6 +507,7 @@ function buildProtocolContext(
  */
 router.get(
   '/',
+  publicExpensiveRateLimiter,
   [
     query('limit').optional().isInt({ min: 1, max: 200 }).toInt(),
     query('offset')

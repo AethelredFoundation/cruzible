@@ -23,6 +23,8 @@ const CONFIG_ENV_KEYS = [
   "AUTH_RATE_LIMIT_MAX",
   "OPS_RATE_LIMIT_WINDOW_MS",
   "OPS_RATE_LIMIT_MAX",
+  "PUBLIC_EXPENSIVE_RATE_LIMIT_WINDOW_MS",
+  "PUBLIC_EXPENSIVE_RATE_LIMIT_MAX",
   "METRICS_ENABLED",
   "API_DOCS_ENABLED",
   "OPERATIONAL_ENDPOINTS_TOKEN",
@@ -214,6 +216,8 @@ describe("backend config hardening", () => {
     expect(config.redisUrl).toBe(productionBaseEnv.REDIS_URL);
     expect(config.authOperatorAddresses).toEqual(["aeth1operator"]);
     expect(config.trustProxy).toBe(1);
+    expect(config.publicExpensiveRateLimitWindowMs).toBe(60_000);
+    expect(config.publicExpensiveRateLimitMax).toBe(30);
     expect(config.metricsEnabled).toBe(true);
     expect(config.apiDocsEnabled).toBe(false);
   });

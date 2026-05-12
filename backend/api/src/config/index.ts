@@ -79,6 +79,12 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
   OPS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
   OPS_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(60),
+  PUBLIC_EXPENSIVE_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(60_000),
+  PUBLIC_EXPENSIVE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(30),
   METRICS_ENABLED: optionalBooleanSchema,
   API_DOCS_ENABLED: optionalBooleanSchema,
   OPERATIONAL_ENDPOINTS_TOKEN: optionalSecretSchema,
@@ -453,6 +459,9 @@ export const config = {
   authRateLimitMax: parsedEnv.AUTH_RATE_LIMIT_MAX,
   opsRateLimitWindowMs: parsedEnv.OPS_RATE_LIMIT_WINDOW_MS,
   opsRateLimitMax: parsedEnv.OPS_RATE_LIMIT_MAX,
+  publicExpensiveRateLimitWindowMs:
+    parsedEnv.PUBLIC_EXPENSIVE_RATE_LIMIT_WINDOW_MS,
+  publicExpensiveRateLimitMax: parsedEnv.PUBLIC_EXPENSIVE_RATE_LIMIT_MAX,
   metricsEnabled,
   apiDocsEnabled,
   operationalEndpointsToken: parsedEnv.OPERATIONAL_ENDPOINTS_TOKEN,

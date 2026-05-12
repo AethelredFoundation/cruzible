@@ -110,6 +110,31 @@ describe('rate limiter', () => {
     });
   });
 
+  it('applies a tighter limiter to public expensive endpoints', async () => {
+    process.env.PUBLIC_EXPENSIVE_RATE_LIMIT_WINDOW_MS = '60000';
+    process.env.PUBLIC_EXPENSIVE_RATE_LIMIT_MAX = '2';
+    const { publicExpensiveRateLimiter } = await import(
+      '../src/middleware/rateLimiter'
+    );
+
+    const app = express();
+    app.get('/v1/reconciliation/live', publicExpensiveRateLimiter, (_req, res) => {
+      res.json({ ok: true });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const first = await fetch(`${baseUrl}/v1/reconciliation/live`);
+      const second = await fetch(`${baseUrl}/v1/reconciliation/live`);
+      const third = await fetch(`${baseUrl}/v1/reconciliation/live`);
+      const body = await third.json();
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(third.status).toBe(429);
+      expect(body.message).toBe('Public expensive endpoint rate limit exceeded');
+    });
+  });
+
   it('uses Redis-backed counters when configured with a Redis URL', async () => {
     vi.resetModules();
     const counters = new Map<string, { hits: number; resetAt: number }>();

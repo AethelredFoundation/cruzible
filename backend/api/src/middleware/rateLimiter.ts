@@ -142,3 +142,10 @@ export const opsRateLimiter = namedRateLimiter({
   max: config.opsRateLimitMax,
   message: 'Operations rate limit exceeded',
 });
+
+export const publicExpensiveRateLimiter = namedRateLimiter({
+  prefix: 'public-expensive',
+  windowMs: config.publicExpensiveRateLimitWindowMs,
+  max: config.publicExpensiveRateLimitMax,
+  message: 'Public expensive endpoint rate limit exceeded',
+});

@@ -10,6 +10,7 @@ import { CacheService } from '../../services/CacheService';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ApiError } from '../../utils/ApiError';
 import { validate } from '../../middleware/validate';
+import { publicExpensiveRateLimiter } from '../../middleware/rateLimiter';
 import {
   MAX_PUBLIC_FILTER_LENGTH,
   MAX_PUBLIC_PAGINATION_OFFSET,
@@ -191,6 +192,7 @@ router.get('/stats',
  *         description: Pricing information
  */
 router.get('/pricing',
+  publicExpensiveRateLimiter,
   [
     query('model_hash')
       .optional()
