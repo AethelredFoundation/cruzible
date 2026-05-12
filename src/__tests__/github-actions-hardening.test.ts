@@ -123,4 +123,15 @@ describe("GitHub Actions workflow hardening", () => {
       }
     }
   });
+
+  it("builds backend runtime container targets in CI", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+
+    expect(workflow).toContain("backend-containers:");
+    expect(workflow).toContain("--file backend/api/Dockerfile");
+    expect(workflow).toContain("--target production");
+    expect(workflow).toContain("--tag cruzible-api:ci");
+    expect(workflow).toContain("--target indexer");
+    expect(workflow).toContain("--tag cruzible-api-indexer:ci");
+  });
 });
