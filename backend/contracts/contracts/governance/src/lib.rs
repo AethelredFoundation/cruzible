@@ -5,8 +5,8 @@
  * Supports proposal creation, voting, and execution.
  */
 use cosmwasm_std::{
-    entry_point, to_json_binary, Addr, Binary, CosmosMsg, Deps, DepsMut, Empty, Env, MessageInfo,
-    Response, StdResult, Timestamp, Uint128,
+    entry_point, to_json_binary, Addr, Binary, Coin, CosmosMsg, Deps, DepsMut, Empty, Env,
+    MessageInfo, Response, StdResult, Timestamp, Uint128,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Item, Map};
@@ -89,6 +89,8 @@ pub enum ContractError {
     ProposalTimingNotInitialized {},
     #[error("Arithmetic overflow")]
     ArithmeticOverflow {},
+    #[error("Unexpected funds")]
+    UnexpectedFunds {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -606,14 +608,9 @@ fn execute_submit_proposal(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // Require the configured anti-spam deposit before creating durable state.
-    let deposit = info
-        .funds
-        .iter()
-        .find(|c| c.denom == config.deposit_denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
-
+    // Require the configured anti-spam deposit before creating durable state,
+    // and reject unrelated denoms so deposits cannot strand assets.
+    let deposit = validated_deposit_funds(&info.funds, &config.deposit_denom)?;
     if deposit < config.min_deposit {
         return Err(ContractError::InsufficientDeposit {});
     }
@@ -669,13 +666,7 @@ fn execute_deposit(
         return Err(ContractError::VotingEnded {});
     }
 
-    let deposit = info
-        .funds
-        .iter()
-        .find(|c| c.denom == config.deposit_denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
-
+    let deposit = validated_deposit_funds(&info.funds, &config.deposit_denom)?;
     proposal.deposit = checked_add_uint128(proposal.deposit, deposit)?;
 
     // Activate if min deposit reached
@@ -1366,6 +1357,20 @@ fn checked_add_uint128(left: Uint128, right: Uint128) -> Result<Uint128, Contrac
         .map_err(|_| ContractError::ArithmeticOverflow {})
 }
 
+fn validated_deposit_funds(funds: &[Coin], deposit_denom: &str) -> Result<Uint128, ContractError> {
+    let mut deposit = Uint128::zero();
+
+    for coin in funds {
+        if coin.denom != deposit_denom {
+            return Err(ContractError::UnexpectedFunds {});
+        }
+
+        deposit = checked_add_uint128(deposit, coin.amount)?;
+    }
+
+    Ok(deposit)
+}
+
 fn reject_proposal(
     storage: &mut dyn cosmwasm_std::Storage,
     proposal_id: u64,
@@ -1667,6 +1672,48 @@ mod tests {
 
         assert_eq!(err, ContractError::InsufficientDeposit {});
         assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_unexpected_deposit_funds() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        let funds = vec![Coin::new(1_000_000, DENOM), Coin::new(1, "uatom")];
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &funds),
+            ExecuteMsg::SubmitProposal {
+                title: "Unexpected funds".to_string(),
+                description: "must not create durable proposal state".to_string(),
+                messages: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, ContractError::UnexpectedFunds {});
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_deposit_rejects_unexpected_funds() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        submit_proposal(&mut deps, env_at(1_000_000));
+        let funds = vec![Coin::new(1_000_000, DENOM), Coin::new(1, "uatom")];
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_010),
+            mock_info(VOTER_A, &funds),
+            ExecuteMsg::Deposit { proposal_id: 1 },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, ContractError::UnexpectedFunds {});
+        let prop = PROPOSALS.load(deps.as_ref().storage, 1).unwrap();
+        assert_eq!(prop.deposit, Uint128::from(1_000_000u128));
     }
 
     /// Configure mock staking state: one validator with delegations.

@@ -113,6 +113,18 @@ describe("frontend public build environment validation", () => {
     });
   });
 
+  it("rejects lookalike production API origins", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org.evil.example",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_API_URL must be one of https://api.testnet.aethelred.org when NEXT_PUBLIC_CHAIN_ENV=testnet.",
+    );
+  });
+
   it("allows plaintext localhost only for explicit devnet builds", () => {
     expect(
       validateFrontendPublicEnv({

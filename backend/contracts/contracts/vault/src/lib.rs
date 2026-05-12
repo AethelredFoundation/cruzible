@@ -15,8 +15,8 @@
  * 4. Monotonic queue: processed requests stay processed
  */
 use cosmwasm_std::{
-    coin, ensure, entry_point, to_json_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut,
-    Env, Event, MessageInfo, Order, Response, StdResult, Storage, Uint128, WasmMsg,
+    coin, ensure, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps,
+    DepsMut, Env, Event, MessageInfo, Order, Response, StdResult, Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Item, Map};
@@ -78,6 +78,8 @@ pub enum ContractError {
     InvariantViolation {},
     #[error("Slippage tolerance exceeded")]
     SlippageExceeded {},
+    #[error("Unexpected funds")]
+    UnexpectedFunds {},
 }
 
 // ============ STATE STRUCTURES ============
@@ -148,6 +150,22 @@ const UNSTAKE_REQUESTS: Map<(&Addr, u64), UnbondingRequest> = Map::new("unstake_
 const UNSTAKE_COUNT: Map<&Addr, u64> = Map::new("unstake_count");
 /// SECURITY: Track used slash events to prevent replay
 const PROCESSED_SLASHES: Map<u64, bool> = Map::new("processed_slashes");
+
+fn validated_single_denom_funds(funds: &[Coin], denom: &str) -> Result<Uint128, ContractError> {
+    let mut amount = Uint128::zero();
+
+    for coin in funds {
+        if coin.denom != denom {
+            return Err(ContractError::UnexpectedFunds {});
+        }
+
+        amount = amount
+            .checked_add(coin.amount)
+            .map_err(|_| ContractError::Overflow {})?;
+    }
+
+    Ok(amount)
+}
 
 // ============ MESSAGES ============
 
@@ -277,14 +295,9 @@ pub fn instantiate(
     ensure!(!validators.is_empty(), ContractError::InvalidValidator {});
     let staking_token = deps.api.addr_validate(&msg.staking_token)?;
 
-    // SECURITY: Require seed deposit to prevent first depositor attack
-    let seed_amount = info
-        .funds
-        .iter()
-        .find(|c| c.denom == msg.denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
-
+    // SECURITY: Require a single-denom seed deposit to prevent first-depositor
+    // attacks without silently trapping unrelated assets in the vault.
+    let seed_amount = validated_single_denom_funds(&info.funds, &msg.denom)?;
     if seed_amount < Uint128::from(MIN_DEPOSIT) {
         return Err(ContractError::AmountTooSmall {});
     }
@@ -490,13 +503,9 @@ fn execute_stake(
         ContractError::InvalidValidator {}
     );
 
-    // Get stake amount
-    let amount = info
-        .funds
-        .iter()
-        .find(|c| c.denom == config.denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
+    // Get stake amount. Reject unexpected denoms so stake calls cannot trap
+    // extra assets that the vault accounting will never release.
+    let amount = validated_single_denom_funds(&info.funds, &config.denom)?;
 
     // SECURITY: Validate amount
     if amount.is_zero() {
@@ -1113,12 +1122,7 @@ fn execute_add_rewards(deps: DepsMut, info: MessageInfo) -> Result<Response, Con
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
 
-    let rewards = info
-        .funds
-        .iter()
-        .find(|c| c.denom == config.denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
+    let rewards = validated_single_denom_funds(&info.funds, &config.denom)?;
 
     // HIGH-1 FIX: Update global reward_index when rewards are added.
     // index += (rewards * SCALE) / total_shares

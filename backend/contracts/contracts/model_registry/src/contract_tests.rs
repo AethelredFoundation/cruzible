@@ -275,7 +275,7 @@ mod tests {
         let env = env_at_block(&env, 100);
 
         let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
-        assert!(err.to_string().contains("Insufficient registration fee"));
+        assert!(err.to_string().contains("Invalid registration fee"));
     }
 
     #[test]
@@ -286,7 +286,7 @@ mod tests {
         let env = env_at_block(&env, 100);
 
         let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
-        assert!(err.to_string().contains(REGISTRATION_FEE_DENOM));
+        assert_eq!(err, ContractError::UnexpectedFunds {});
     }
 
     #[test]
@@ -296,7 +296,29 @@ mod tests {
         let env = env_at_block(&env, 100);
 
         let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
-        assert!(err.to_string().contains("Insufficient registration fee"));
+        assert!(err.to_string().contains("Invalid registration fee"));
+    }
+
+    #[test]
+    fn test_register_model_overpayment_rejected() {
+        let (mut deps, env) = default_instantiate();
+        let fee = vec![Coin::new(1001u128, REGISTRATION_FEE_DENOM)];
+        let info = mock_info("user1", &fee);
+        let env = env_at_block(&env, 100);
+
+        let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
+        assert!(err.to_string().contains("Invalid registration fee"));
+    }
+
+    #[test]
+    fn test_register_model_no_fee_mode_rejects_unexpected_funds() {
+        let (mut deps, env) = instantiate_no_fee();
+        let fee = vec![Coin::new(1u128, REGISTRATION_FEE_DENOM)];
+        let info = mock_info("user1", &fee);
+        let env = env_at_block(&env, 100);
+
+        let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
+        assert!(err.to_string().contains("Invalid registration fee"));
     }
 
     // ============ INPUT VALIDATION TESTS ============

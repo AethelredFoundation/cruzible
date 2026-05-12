@@ -386,6 +386,27 @@ mod tests {
     }
 
     #[test]
+    fn submit_job_with_unexpected_funds_fails_without_locking_payment() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+
+        let mut funds = coins(10000, PAYMENT_DENOM);
+        funds.extend(coins(1, "uatom"));
+        let info = mock_info(CREATOR, &funds);
+        let msg = ExecuteMsg::SubmitJob {
+            model_hash: "model123".to_string(),
+            input_hash: "input456".to_string(),
+            proof_type: ProofType::TeeAttestation,
+            priority: 5,
+            timeout: 1000,
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::UnexpectedFunds {}));
+        assert_eq!(JOB_COUNT.load(&deps.storage).unwrap(), 0);
+    }
+
+    #[test]
     fn submit_job_timeout_too_short_fails() {
         let mut deps = mock_dependencies_with_registered_model();
         setup_contract(deps.as_mut());

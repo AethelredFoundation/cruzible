@@ -349,6 +349,28 @@ mod security_tests {
     }
 
     #[test]
+    fn test_stake_rejects_unexpected_funds() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let mut funds = coins(10_000_000, "aeth");
+        funds.extend(coins(1, "uatom"));
+        let info = mock_info("user", &funds);
+        let msg = ExecuteMsg::Stake {
+            validator: "validator1".to_string(),
+        };
+
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::UnexpectedFunds {});
+
+        let state = STATE.load(deps.as_ref().storage).unwrap();
+        assert_eq!(state.total_staked, Uint128::from(MIN_DEPOSIT));
+        assert!(USER_STAKES
+            .may_load(deps.as_ref().storage, &Addr::unchecked("user"))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
     fn test_staking_more_preserves_accrued_rewards() {
         let (mut deps, env, _) = proper_instantiate();
 
@@ -371,6 +393,22 @@ mod security_tests {
             .unwrap();
 
         assert!(!rewards.is_zero(), "staking more must not erase rewards");
+    }
+
+    #[test]
+    fn test_add_rewards_rejects_unexpected_funds() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "user", 10_000_000);
+        let mut funds = coins(2_000_000, "aeth");
+        funds.extend(coins(1, "uatom"));
+        let info = mock_info("creator", &funds);
+
+        let err = execute(deps.as_mut(), env, info, ExecuteMsg::AddRewards {}).unwrap_err();
+        assert_eq!(err, ContractError::UnexpectedFunds {});
+
+        let state = STATE.load(deps.as_ref().storage).unwrap();
+        assert_eq!(state.reward_pool, Uint128::zero());
     }
 
     #[test]
@@ -1031,6 +1069,30 @@ mod security_tests {
 
         let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(err, ContractError::AmountTooSmall {});
+    }
+
+    #[test]
+    fn test_instantiate_rejects_unexpected_seed_funds() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let mut funds = coins(1_000_000, "aeth");
+        funds.extend(coins(1, "uatom"));
+        let info = mock_info("creator", &funds);
+        let msg = InstantiateMsg {
+            unbonding_period: 86400 * 21,
+            denom: "aeth".to_string(),
+            staking_token: "staeth".to_string(),
+            validators: vec!["validator1".to_string()],
+            fee_bps: 100,
+            min_stake: Uint128::from(1_000_000u128),
+            max_stake: Uint128::from(1_000_000_000_000u128),
+            operator: "operator".to_string(),
+            pauser: "pauser".to_string(),
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::UnexpectedFunds {});
     }
 
     // ============ VALIDATOR TESTS ============

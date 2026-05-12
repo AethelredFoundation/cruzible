@@ -5,8 +5,8 @@
  * Models are registered with their hash, architecture, and metadata.
  */
 use cosmwasm_std::{
-    entry_point, to_json_binary, Addr, Binary, Deps, DepsMut, Env, Event, MessageInfo, Response,
-    StdResult, Timestamp, Uint128,
+    entry_point, to_json_binary, Addr, Binary, Coin, Deps, DepsMut, Env, Event, MessageInfo,
+    Response, StdResult, Timestamp, Uint128,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
@@ -35,6 +35,8 @@ pub enum ContractError {
     NotVerified {},
     #[error("Rate limited: try again later")]
     RateLimited {},
+    #[error("Unexpected funds")]
+    UnexpectedFunds {},
 }
 
 // ============ SECURITY CONSTANTS ============
@@ -43,6 +45,35 @@ pub enum ContractError {
 const MAX_MODELS_PER_OWNER: u64 = 500;
 /// Rate limit: minimum blocks between registrations per address
 const REGISTRATION_COOLDOWN_BLOCKS: u64 = 5;
+
+fn validated_registration_payment(
+    funds: &[Coin],
+    registration_fee: Uint128,
+    registration_fee_denom: &str,
+) -> Result<(), ContractError> {
+    let mut paid = Uint128::zero();
+
+    for coin in funds {
+        if coin.denom != registration_fee_denom {
+            return Err(ContractError::UnexpectedFunds {});
+        }
+
+        paid = paid
+            .checked_add(coin.amount)
+            .map_err(|_| cosmwasm_std::StdError::generic_err("registration fee overflow"))?;
+    }
+
+    if paid != registration_fee {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!(
+                "Invalid registration fee: required exactly {} {}, got {}",
+                registration_fee, registration_fee_denom, paid
+            ),
+        )));
+    }
+
+    Ok(())
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
@@ -350,23 +381,13 @@ fn execute_register_model(
         )));
     }
 
-    // MED-3: Enforce registration fee payment
-    if !config.registration_fee.is_zero() {
-        let paid = info
-            .funds
-            .iter()
-            .find(|c| c.denom == config.registration_fee_denom)
-            .map(|c| c.amount)
-            .unwrap_or_default();
-        if paid < config.registration_fee {
-            return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                format!(
-                    "Insufficient registration fee: required {} {}, got {}",
-                    config.registration_fee, config.registration_fee_denom, paid
-                ),
-            )));
-        }
-    }
+    // MED-3: Enforce exact registration fee payment. Overpayments and
+    // unrelated denoms would otherwise be trapped in contract balance.
+    validated_registration_payment(
+        &info.funds,
+        config.registration_fee,
+        &config.registration_fee_denom,
+    )?;
 
     // Check if model already exists
     if models()

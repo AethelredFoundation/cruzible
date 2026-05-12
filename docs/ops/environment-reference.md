@@ -16,7 +16,7 @@ The variables below are the ones referenced from `src/` in the current workspace
 | Variable                                | Required                    | Default / example                 | Notes                                                                                                                            |
 | --------------------------------------- | --------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_CHAIN_ENV`                 | Build-time production input | `devnet` locally, `testnet` in CI | Selects `mainnet`, `testnet`, or `devnet` in `src/config/chains.ts`; pass as a Docker build arg for production images            |
-| `NEXT_PUBLIC_API_URL`                   | Required at build time      | `http://localhost:3001/v1`        | Base URL for frontend API requests; Next.js compiles this into browser bundles, so Kubernetes runtime env alone cannot change it |
+| `NEXT_PUBLIC_API_URL`                   | Required at build time      | `http://localhost:3001/v1`        | Base URL for frontend API requests; Next.js compiles this into browser bundles, so Kubernetes runtime env alone cannot change it; production mainnet/testnet builds must use the exact approved API origin for the selected chain |
 | `NEXT_PUBLIC_APP_VERSION`               | No                          | `local-dev`                       | Displayed in UI and sent in request headers                                                                                      |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`  | Required for mainnet        | blank                             | Needed for WalletConnect flows; mainnet builds fail without it                                                                   |
 | `NEXT_PUBLIC_CRUZIBLE_ADDRESS`          | Required for mainnet        | blank                             | Cruzible vault contract address; mainnet builds require a non-zero EVM address                                                   |
@@ -40,8 +40,9 @@ docker build \
   -t cruzible-frontend:staging .
 ```
 
-Use `NEXT_PUBLIC_CHAIN_ENV=devnet` for localhost API builds. `mainnet` builds
-reject localhost and obvious testnet API URLs.
+Use `NEXT_PUBLIC_CHAIN_ENV=devnet` for localhost API builds. Production
+`mainnet` and `testnet` builds reject localhost, lookalike domains, and any API
+origin other than the exact approved origin for that chain.
 
 Vercel preview builds use `scripts/vercel-build.mjs` to default missing public
 API config to the testnet API. Vercel production deployments must configure

@@ -1,6 +1,10 @@
 import { fileURLToPath } from "node:url";
 
 const allowedChainEnvs = new Set(["mainnet", "testnet", "devnet"]);
+const productionApiOriginsByChain = {
+  mainnet: ["https://api.mainnet.aethelred.org"],
+  testnet: ["https://api.testnet.aethelred.org"],
+};
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
 const MAINNET_REQUIRED_KEYS = [
@@ -38,6 +42,19 @@ function assertValidAddress(env, key) {
   ) {
     throw new FrontendPublicEnvError(
       `${key} must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=mainnet.`,
+    );
+  }
+}
+
+function assertAllowedProductionApiOrigin(chainEnv, origin) {
+  if (chainEnv === "devnet") {
+    return;
+  }
+
+  const allowedOrigins = productionApiOriginsByChain[chainEnv];
+  if (!allowedOrigins.includes(origin)) {
+    throw new FrontendPublicEnvError(
+      `NEXT_PUBLIC_API_URL must be one of ${allowedOrigins.join(", ")} when NEXT_PUBLIC_CHAIN_ENV=${chainEnv}.`,
     );
   }
 }
@@ -118,17 +135,7 @@ export function validateFrontendPublicEnv(env = process.env) {
     );
   }
 
-  if (chainEnv !== "mainnet" && hostname.includes("mainnet")) {
-    throw new FrontendPublicEnvError(
-      "NEXT_PUBLIC_API_URL points at a mainnet API while NEXT_PUBLIC_CHAIN_ENV is not mainnet.",
-    );
-  }
-
-  if (chainEnv === "mainnet" && hostname.includes("testnet")) {
-    throw new FrontendPublicEnvError(
-      "NEXT_PUBLIC_API_URL must not point at a testnet API when NEXT_PUBLIC_CHAIN_ENV=mainnet.",
-    );
-  }
+  assertAllowedProductionApiOrigin(chainEnv, parsedApiUrl.origin);
 
   if (chainEnv === "mainnet") {
     for (const key of MAINNET_REQUIRED_KEYS) {

@@ -99,7 +99,7 @@ describe("frontend API config", () => {
     process.env.NEXT_PUBLIC_API_URL = "https://api.mainnet.aethelred.org";
 
     expect(() => getApiV1BaseUrl()).toThrow(
-      "NEXT_PUBLIC_API_URL points at a mainnet API while NEXT_PUBLIC_CHAIN_ENV is not mainnet",
+      "NEXT_PUBLIC_API_URL must be one of https://api.testnet.aethelred.org when NEXT_PUBLIC_CHAIN_ENV=testnet",
     );
   });
 
@@ -109,7 +109,18 @@ describe("frontend API config", () => {
     process.env.NEXT_PUBLIC_API_URL = "https://api.testnet.aethelred.org";
 
     expect(() => getApiV1BaseUrl()).toThrow(
-      "NEXT_PUBLIC_API_URL must not point at a testnet API when NEXT_PUBLIC_CHAIN_ENV=mainnet",
+      "NEXT_PUBLIC_API_URL must be one of https://api.mainnet.aethelred.org when NEXT_PUBLIC_CHAIN_ENV=mainnet",
+    );
+  });
+
+  it("rejects lookalike production API domains", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
+    process.env.NEXT_PUBLIC_API_URL =
+      "https://api.testnet.aethelred.org.evil.example";
+
+    expect(() => getApiV1BaseUrl()).toThrow(
+      "NEXT_PUBLIC_API_URL must be one of https://api.testnet.aethelred.org when NEXT_PUBLIC_CHAIN_ENV=testnet",
     );
   });
 

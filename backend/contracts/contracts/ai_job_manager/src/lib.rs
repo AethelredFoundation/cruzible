@@ -59,6 +59,9 @@ pub enum ContractError {
     #[error("Insufficient payment")]
     InsufficientPayment {},
 
+    #[error("Unexpected funds")]
+    UnexpectedFunds {},
+
     #[error("Invalid model")]
     InvalidModel {},
 
@@ -450,6 +453,22 @@ fn ensure_job_not_expired(env: &Env, job: &Job) -> Result<(), ContractError> {
     Ok(())
 }
 
+fn validated_job_payment(funds: &[Coin], payment_denom: &str) -> Result<Uint128, ContractError> {
+    let mut payment = Uint128::zero();
+
+    for coin in funds {
+        if coin.denom != payment_denom {
+            return Err(ContractError::UnexpectedFunds {});
+        }
+
+        payment = payment
+            .checked_add(coin.amount)
+            .map_err(|_| StdError::generic_err("payment overflow"))?;
+    }
+
+    Ok(payment)
+}
+
 fn validate_min_payment(min_payment: Uint128) -> Result<(), ContractError> {
     if min_payment.is_zero() {
         return Err(ContractError::InvalidConfig {
@@ -641,14 +660,9 @@ fn execute_submit_job(
         return Err(ContractError::TimeoutTooShort {});
     }
 
-    // Validate payment
-    let payment = info
-        .funds
-        .iter()
-        .find(|c| c.denom == config.payment_denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
-
+    // Validate payment. Rejecting unexpected denoms prevents accidental or
+    // malicious extra funds from being stranded in the contract escrow.
+    let payment = validated_job_payment(&info.funds, &config.payment_denom)?;
     if payment < config.min_payment {
         return Err(ContractError::InsufficientPayment {});
     }

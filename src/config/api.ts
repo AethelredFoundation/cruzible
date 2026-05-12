@@ -1,7 +1,13 @@
 const LOCAL_API_V1_URL = "http://localhost:3001/v1";
 const API_VERSION_PATH = "/v1";
-
 type ChainEnv = "mainnet" | "testnet" | "devnet";
+const PRODUCTION_API_ORIGINS_BY_CHAIN: Record<
+  Exclude<ChainEnv, "devnet">,
+  string[]
+> = {
+  mainnet: ["https://api.mainnet.aethelred.org"],
+  testnet: ["https://api.testnet.aethelred.org"],
+};
 
 function activeChainEnv(): ChainEnv {
   const value = process.env.NEXT_PUBLIC_CHAIN_ENV;
@@ -21,6 +27,22 @@ function isLocalApiHost(hostname: string): boolean {
     hostname === "::1" ||
     hostname === "[::1]"
   );
+}
+
+function assertAllowedProductionApiOrigin(
+  chainEnv: ChainEnv,
+  origin: string,
+): void {
+  if (chainEnv === "devnet" || process.env.NODE_ENV !== "production") {
+    return;
+  }
+
+  const allowedOrigins = PRODUCTION_API_ORIGINS_BY_CHAIN[chainEnv];
+  if (!allowedOrigins.includes(origin)) {
+    throw new Error(
+      `NEXT_PUBLIC_API_URL must be one of ${allowedOrigins.join(", ")} when NEXT_PUBLIC_CHAIN_ENV=${chainEnv}`,
+    );
+  }
 }
 
 function normalizeConfiguredApiUrl(configuredUrl: string): string {
@@ -75,17 +97,7 @@ function normalizeConfiguredApiUrl(configuredUrl: string): string {
     return `${parsed.origin}${API_VERSION_PATH}`;
   }
 
-  if (chainEnv !== "mainnet" && hostname.includes("mainnet")) {
-    throw new Error(
-      "NEXT_PUBLIC_API_URL points at a mainnet API while NEXT_PUBLIC_CHAIN_ENV is not mainnet",
-    );
-  }
-
-  if (chainEnv === "mainnet" && hostname.includes("testnet")) {
-    throw new Error(
-      "NEXT_PUBLIC_API_URL must not point at a testnet API when NEXT_PUBLIC_CHAIN_ENV=mainnet",
-    );
-  }
+  assertAllowedProductionApiOrigin(chainEnv, parsed.origin);
 
   return `${parsed.origin}${API_VERSION_PATH}`;
 }
