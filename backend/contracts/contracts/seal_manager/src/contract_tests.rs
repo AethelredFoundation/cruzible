@@ -912,6 +912,98 @@ mod tests {
     }
 
     #[test]
+    fn supersede_seal_matches_upstream_job_evidence() {
+        let mut deps = mock_deps_with_job_response(JobResponse {
+            id: "job123".to_string(),
+            status: JobStatusResponse::Verified,
+            validator: Some(VALIDATOR1.to_string()),
+            model_hash: Some("model_hash_abc".to_string()),
+            input_hash: Some("input_hash_def".to_string()),
+            output_hash: Some("output_hash_ghi".to_string()),
+        });
+        setup_contract(deps.as_mut());
+        let (old_seal_id, requester_info) = create_seal(
+            deps.as_mut(),
+            REQUESTER,
+            vec![VALIDATOR1, VALIDATOR2, VALIDATOR3],
+        );
+
+        let res = execute(
+            deps.as_mut(),
+            mock_env(),
+            requester_info,
+            ExecuteMsg::SupersedeSeal {
+                old_seal_id: old_seal_id.clone(),
+                job_id: "job123".to_string(),
+                model_commitment: "model_hash_abc".to_string(),
+                input_commitment: "input_hash_def".to_string(),
+                output_commitment: "output_hash_ghi".to_string(),
+                validator_addresses: vec![
+                    VALIDATOR1.to_string(),
+                    VALIDATOR2.to_string(),
+                    VALIDATOR3.to_string(),
+                ],
+            },
+        )
+        .unwrap();
+
+        let new_seal_id = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "new_seal_id")
+            .map(|a| a.value.clone())
+            .unwrap();
+        let old_seal = seals().load(&deps.storage, old_seal_id).unwrap();
+        let new_seal = seals().load(&deps.storage, new_seal_id).unwrap();
+
+        assert_eq!(old_seal.status, SealStatus::Superseded);
+        assert_eq!(new_seal.status, SealStatus::Active);
+        assert_eq!(new_seal.output_commitment, "output_hash_ghi");
+    }
+
+    #[test]
+    fn supersede_seal_rejects_mismatched_job_evidence_and_preserves_old_seal() {
+        let mut deps = mock_deps_with_job_response(JobResponse {
+            id: "job123".to_string(),
+            status: JobStatusResponse::Verified,
+            validator: Some(VALIDATOR1.to_string()),
+            model_hash: Some("model_hash_abc".to_string()),
+            input_hash: Some("input_hash_def".to_string()),
+            output_hash: Some("output_hash_ghi".to_string()),
+        });
+        setup_contract(deps.as_mut());
+        let (old_seal_id, requester_info) = create_seal(
+            deps.as_mut(),
+            REQUESTER,
+            vec![VALIDATOR1, VALIDATOR2, VALIDATOR3],
+        );
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            requester_info,
+            ExecuteMsg::SupersedeSeal {
+                old_seal_id: old_seal_id.clone(),
+                job_id: "job123".to_string(),
+                model_commitment: "model_hash_abc".to_string(),
+                input_commitment: "input_hash_def".to_string(),
+                output_commitment: "tampered_output_hash".to_string(),
+                validator_addresses: vec![
+                    VALIDATOR1.to_string(),
+                    VALIDATOR2.to_string(),
+                    VALIDATOR3.to_string(),
+                ],
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("output_commitment"));
+        let old_seal = seals().load(&deps.storage, old_seal_id).unwrap();
+        assert_eq!(old_seal.status, SealStatus::Active);
+        assert_eq!(SEAL_COUNT.load(&deps.storage).unwrap(), 1);
+    }
+
+    #[test]
     fn supersede_seal_rejects_completed_job_and_preserves_old_seal() {
         let mut deps = mock_deps_with_wasm();
         setup_contract(deps.as_mut());

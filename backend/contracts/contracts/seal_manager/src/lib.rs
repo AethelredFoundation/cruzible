@@ -618,8 +618,20 @@ fn execute_supersede_seal(
     }
 
     let config = CONFIG.load(deps.storage)?;
-    ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
+    validate_commitment("model_commitment", &model_commitment)?;
+    validate_commitment("input_commitment", &input_commitment)?;
+    validate_commitment("output_commitment", &output_commitment)?;
+
+    let job = ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
     let validators = validate_unique_validators(deps.api, &config, validator_addresses)?;
+    validate_seal_matches_job(
+        deps.api,
+        &job,
+        &validators,
+        &model_commitment,
+        &input_commitment,
+        &output_commitment,
+    )?;
 
     let count = SEAL_COUNT.load(deps.storage)?;
     let new_seal_id = generate_seal_id(&job_id, &info.sender, count);
