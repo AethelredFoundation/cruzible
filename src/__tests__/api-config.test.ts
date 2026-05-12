@@ -42,6 +42,58 @@ describe("frontend API config", () => {
     );
   });
 
+  it("requires an explicit chain env for production public-data requests", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_API_URL = "https://api.testnet.aethelred.org";
+
+    expect(() => getApiV1BaseUrl()).toThrow(
+      "NEXT_PUBLIC_CHAIN_ENV is required in production",
+    );
+  });
+
+  it("rejects credential-bearing API URLs", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
+    process.env.NEXT_PUBLIC_API_URL =
+      "https://user:pass@api.testnet.aethelred.org";
+
+    expect(() => getApiV1BaseUrl()).toThrow(
+      "NEXT_PUBLIC_API_URL must not include credentials",
+    );
+  });
+
+  it("rejects API URLs with query strings or fragments", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
+    process.env.NEXT_PUBLIC_API_URL =
+      "https://api.testnet.aethelred.org?token=leak";
+
+    expect(() => getApiV1BaseUrl()).toThrow(
+      "NEXT_PUBLIC_API_URL must not include query strings or fragments",
+    );
+  });
+
+  it("rejects API URLs outside the v1 root", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
+    process.env.NEXT_PUBLIC_API_URL =
+      "https://api.testnet.aethelred.org/admin";
+
+    expect(() => getApiV1BaseUrl()).toThrow(
+      "NEXT_PUBLIC_API_URL path must be empty or /v1",
+    );
+  });
+
+  it("rejects non-local plaintext API URLs", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
+    process.env.NEXT_PUBLIC_API_URL = "http://api.testnet.aethelred.org";
+
+    expect(() => getApiV1BaseUrl()).toThrow(
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost",
+    );
+  });
+
   it("rejects mainnet API URLs when the wallet chain is not mainnet", () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";

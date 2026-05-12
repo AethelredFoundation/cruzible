@@ -44,11 +44,18 @@ function assertValidAddress(env, key) {
 
 export function validateFrontendPublicEnv(env = process.env) {
   const apiUrl = env.NEXT_PUBLIC_API_URL?.trim();
-  const chainEnv = env.NEXT_PUBLIC_CHAIN_ENV?.trim() || "testnet";
+  const rawChainEnv = env.NEXT_PUBLIC_CHAIN_ENV?.trim();
+  const chainEnv = rawChainEnv || "testnet";
 
   if (!apiUrl) {
     throw new FrontendPublicEnvError(
       "NEXT_PUBLIC_API_URL is required at build time because Next.js public env is compiled into browser bundles.",
+    );
+  }
+
+  if (env.NODE_ENV === "production" && !rawChainEnv) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_CHAIN_ENV is required for production builds.",
     );
   }
 
@@ -68,6 +75,25 @@ export function validateFrontendPublicEnv(env = process.env) {
     );
   }
 
+  if (parsedApiUrl.username || parsedApiUrl.password) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_API_URL must not include credentials.",
+    );
+  }
+
+  if (parsedApiUrl.search || parsedApiUrl.hash) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_API_URL must not include query strings or fragments.",
+    );
+  }
+
+  const normalizedPath = parsedApiUrl.pathname.replace(/\/+$/, "");
+  if (normalizedPath && normalizedPath !== "/v1") {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_API_URL path must be empty or /v1.",
+    );
+  }
+
   if (parsedApiUrl.protocol !== "https:" && parsedApiUrl.protocol !== "http:") {
     throw new FrontendPublicEnvError(
       "NEXT_PUBLIC_API_URL must use http or https.",
@@ -80,6 +106,15 @@ export function validateFrontendPublicEnv(env = process.env) {
   if (chainEnv !== "devnet" && isLocalHost) {
     throw new FrontendPublicEnvError(
       "NEXT_PUBLIC_API_URL must not point at localhost unless NEXT_PUBLIC_CHAIN_ENV=devnet.",
+    );
+  }
+
+  if (
+    parsedApiUrl.protocol !== "https:" &&
+    !(chainEnv === "devnet" && isLocalHost)
+  ) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost.",
     );
   }
 

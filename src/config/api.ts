@@ -5,22 +5,13 @@ type ChainEnv = "mainnet" | "testnet" | "devnet";
 
 function activeChainEnv(): ChainEnv {
   const value = process.env.NEXT_PUBLIC_CHAIN_ENV;
-  return value === "mainnet" || value === "devnet" ? value : "testnet";
-}
-
-function appendVersionPath(baseUrl: string): string {
-  const trimmed = baseUrl.replace(/\/+$/, "");
-  return trimmed.endsWith(API_VERSION_PATH)
-    ? trimmed
-    : `${trimmed}${API_VERSION_PATH}`;
-}
-
-function hostnameFor(apiV1Url: string): string | null {
-  try {
-    return new URL(apiV1Url).hostname.toLowerCase();
-  } catch {
-    return null;
+  if (value === "mainnet" || value === "testnet" || value === "devnet") {
+    return value;
   }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_CHAIN_ENV is required in production");
+  }
+  return "testnet";
 }
 
 function isLocalApiHost(hostname: string): boolean {
@@ -32,23 +23,59 @@ function isLocalApiHost(hostname: string): boolean {
   );
 }
 
-function assertApiMatchesChain(apiV1Url: string): void {
-  if (process.env.NODE_ENV !== "production") {
-    return;
+function normalizeConfiguredApiUrl(configuredUrl: string): string {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(configuredUrl);
+  } catch {
+    throw new Error("NEXT_PUBLIC_API_URL must be an absolute URL");
   }
 
-  const hostname = hostnameFor(apiV1Url);
-  if (!hostname) {
-    return;
+  if (parsed.username || parsed.password) {
+    throw new Error("NEXT_PUBLIC_API_URL must not include credentials");
+  }
+
+  if (parsed.search || parsed.hash) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL must not include query strings or fragments",
+    );
+  }
+
+  const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+  if (normalizedPath && normalizedPath !== API_VERSION_PATH) {
+    throw new Error("NEXT_PUBLIC_API_URL path must be empty or /v1");
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("NEXT_PUBLIC_API_URL must use http or https");
   }
 
   const chainEnv = activeChainEnv();
+  const hostname = parsed.hostname.toLowerCase();
   const isLocalHost = isLocalApiHost(hostname);
 
-  if (chainEnv !== "devnet" && isLocalHost) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    chainEnv !== "devnet" &&
+    isLocalHost
+  ) {
     throw new Error(
       "NEXT_PUBLIC_API_URL must not point at localhost unless NEXT_PUBLIC_CHAIN_ENV=devnet",
     );
+  }
+
+  if (
+    parsed.protocol !== "https:" &&
+    !(chainEnv === "devnet" && isLocalHost)
+  ) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost",
+    );
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return `${parsed.origin}${API_VERSION_PATH}`;
   }
 
   if (chainEnv !== "mainnet" && hostname.includes("mainnet")) {
@@ -62,6 +89,8 @@ function assertApiMatchesChain(apiV1Url: string): void {
       "NEXT_PUBLIC_API_URL must not point at a testnet API when NEXT_PUBLIC_CHAIN_ENV=mainnet",
     );
   }
+
+  return `${parsed.origin}${API_VERSION_PATH}`;
 }
 
 export function getApiV1BaseUrl(): string {
@@ -77,9 +106,7 @@ export function getApiV1BaseUrl(): string {
     return LOCAL_API_V1_URL;
   }
 
-  const apiV1Url = appendVersionPath(configuredUrl);
-  assertApiMatchesChain(apiV1Url);
-  return apiV1Url;
+  return normalizeConfiguredApiUrl(configuredUrl);
 }
 
 export function getApiUrl(path: string): string {

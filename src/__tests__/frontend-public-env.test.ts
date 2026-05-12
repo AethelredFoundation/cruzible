@@ -47,6 +47,59 @@ describe("frontend public build environment validation", () => {
     });
   });
 
+  it("requires an explicit chain env for production builds", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
+      }),
+    ).toThrow("NEXT_PUBLIC_CHAIN_ENV is required for production builds.");
+  });
+
+  it("rejects public API URLs with credentials", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://user:pass@api.testnet.aethelred.org",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+      }),
+    ).toThrow("NEXT_PUBLIC_API_URL must not include credentials.");
+  });
+
+  it("rejects public API URLs with query strings or fragments", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org/v1#token",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_API_URL must not include query strings or fragments.",
+    );
+  });
+
+  it("rejects public API URLs outside the v1 root", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org/admin",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+      }),
+    ).toThrow("NEXT_PUBLIC_API_URL path must be empty or /v1.");
+  });
+
+  it("rejects non-local plaintext public API URLs", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "http://api.testnet.aethelred.org",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost.",
+    );
+  });
+
   it("keeps testnet builds available for pre-mainnet evidence", () => {
     expect(
       validateFrontendPublicEnv({
@@ -57,6 +110,19 @@ describe("frontend public build environment validation", () => {
     ).toEqual({
       apiOrigin: "https://api.testnet.aethelred.org",
       chainEnv: "testnet",
+    });
+  });
+
+  it("allows plaintext localhost only for explicit devnet builds", () => {
+    expect(
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
+        NEXT_PUBLIC_CHAIN_ENV: "devnet",
+      }),
+    ).toEqual({
+      apiOrigin: "http://localhost:3001",
+      chainEnv: "devnet",
     });
   });
 });
