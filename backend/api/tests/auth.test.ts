@@ -277,7 +277,7 @@ describe("auth routes", () => {
       expectRefreshCookieHardening(loginResponse);
       expect(tokens.accessToken).toEqual(expect.any(String));
       expect(tokens.refreshToken).toEqual(expect.any(String));
-      expect(tokens.expiresIn).toBe(3600);
+      expect(tokens.expiresIn).toBe(900);
 
       const replayResponse = await fetch(`${baseUrl}/v1/auth/login`, {
         method: "POST",

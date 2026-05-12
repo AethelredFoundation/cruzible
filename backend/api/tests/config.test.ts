@@ -148,9 +148,9 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
-        JWT_EXPIRES_IN: "2h",
+        JWT_EXPIRES_IN: "16m",
       }),
-    ).rejects.toThrow("JWT_EXPIRES_IN must be 1h or shorter in production");
+    ).rejects.toThrow("JWT_EXPIRES_IN must be 15m or shorter in production");
 
     await expect(
       loadConfigWithEnv({
@@ -294,6 +294,7 @@ describe("backend config hardening", () => {
     expect(config.redisUrl).toBe(redisUrl);
     expect(config.jwtSecret).toBe(jwtSecret);
     expect(config.jwtRefreshSecret).toBe(jwtRefreshSecret);
+    expect(config.jwtExpiresIn).toBe("15m");
     expect(config.jwtRefreshCookieMaxAgeMs).toBe(604_800_000);
     expect(config.authExposeRefreshTokenInBody).toBe(false);
     expect(config.operationalEndpointsToken).toBe(operationalToken);

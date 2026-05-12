@@ -3,18 +3,23 @@
  * rotation, logout revocation, and Cosmos ADR-036 signature verification.
  */
 
-import { randomBytes, randomUUID, createHash } from 'crypto';
-import { Secp256k1, Secp256k1Signature, Sha256 as CryptoSha256, Ripemd160 } from '@cosmjs/crypto';
-import { fromBase64, toBech32, fromBech32 } from '@cosmjs/encoding';
-import { serializeSignDoc, type StdSignDoc } from '@cosmjs/amino';
-import { PrismaClient } from '@prisma/client';
-import jwt, { type SignOptions } from 'jsonwebtoken';
-import { config } from '../config';
-import { logger } from '../utils/logger';
+import { randomBytes, randomUUID, createHash } from "crypto";
+import {
+  Secp256k1,
+  Secp256k1Signature,
+  Sha256 as CryptoSha256,
+  Ripemd160,
+} from "@cosmjs/crypto";
+import { fromBase64, toBech32, fromBech32 } from "@cosmjs/encoding";
+import { serializeSignDoc, type StdSignDoc } from "@cosmjs/amino";
+import { PrismaClient } from "@prisma/client";
+import jwt, { type SignOptions } from "jsonwebtoken";
+import { config } from "../config";
+import { logger } from "../utils/logger";
 
-const ACCESS_TOKEN_AUDIENCE = 'aethelred-client';
-const TOKEN_ISSUER = 'aethelred-api';
-const LOGIN_DOMAIN = 'Aethelred Cruzible API';
+const ACCESS_TOKEN_AUDIENCE = "aethelred-client";
+const TOKEN_ISSUER = "aethelred-api";
+const LOGIN_DOMAIN = "Aethelred Cruzible API";
 const NONCE_BYTES = 24;
 
 type SessionContext = {
@@ -84,7 +89,7 @@ export interface RefreshSessionSummary {
   parentSessionId: string | null;
   address: string;
   roles: string[];
-  status: 'active' | 'expired' | 'revoked' | 'rotated';
+  status: "active" | "expired" | "revoked" | "rotated";
   expiresAt: string;
   createdAt: string | null;
   rotatedAt: string | null;
@@ -127,7 +132,7 @@ export function generateTokens(
   options: RefreshTokenOptions = {},
 ): AuthTokens {
   const accessOptions: SignOptions = {
-    expiresIn: config.jwtExpiresIn as SignOptions['expiresIn'],
+    expiresIn: config.jwtExpiresIn as SignOptions["expiresIn"],
     issuer: TOKEN_ISSUER,
     audience: ACCESS_TOKEN_AUDIENCE,
   };
@@ -144,7 +149,7 @@ export function generateTokens(
   const refreshSessionId = options.refreshSessionId ?? randomUUID();
   const refreshTokenId = options.refreshTokenId ?? randomUUID();
   const refreshOptions: SignOptions = {
-    expiresIn: config.jwtRefreshExpiresIn as SignOptions['expiresIn'],
+    expiresIn: config.jwtRefreshExpiresIn as SignOptions["expiresIn"],
     issuer: TOKEN_ISSUER,
     jwtid: refreshTokenId,
   };
@@ -154,7 +159,7 @@ export function generateTokens(
       address: payload.address,
       roles: payload.roles,
       sid: refreshSessionId,
-      type: 'refresh',
+      type: "refresh",
     },
     config.jwtRefreshSecret,
     refreshOptions,
@@ -172,7 +177,7 @@ export function generateTokens(
  */
 export function verifyAccessToken(token: string): TokenPayload {
   return jwt.verify(token, config.jwtSecret, {
-    algorithms: ['HS256'],
+    algorithms: ["HS256"],
     issuer: TOKEN_ISSUER,
     audience: ACCESS_TOKEN_AUDIENCE,
   }) as TokenPayload;
@@ -189,16 +194,16 @@ export function verifyRefreshToken(token: string): {
   expiresAt: Date;
 } {
   const payload = jwt.verify(token, config.jwtRefreshSecret, {
-    algorithms: ['HS256'],
+    algorithms: ["HS256"],
     issuer: TOKEN_ISSUER,
   }) as RefreshTokenPayload;
 
-  if (payload.type !== 'refresh') {
-    throw new Error('Invalid token type');
+  if (payload.type !== "refresh") {
+    throw new Error("Invalid token type");
   }
 
   if (!payload.jti || !payload.sid || !payload.exp) {
-    throw new Error('Refresh token missing rotation metadata');
+    throw new Error("Refresh token missing rotation metadata");
   }
 
   return {
@@ -210,14 +215,21 @@ export function verifyRefreshToken(token: string): {
   };
 }
 
-export async function createLoginChallenge(address: string): Promise<LoginChallenge> {
+export async function createLoginChallenge(
+  address: string,
+): Promise<LoginChallenge> {
   cleanupExpiredMemoryState();
 
   const normalizedAddress = normalizeAddress(address);
-  const nonce = randomBytes(NONCE_BYTES).toString('base64url');
+  const nonce = randomBytes(NONCE_BYTES).toString("base64url");
   const issuedAt = new Date();
   const expiresAt = new Date(issuedAt.getTime() + config.authNonceTtlMs);
-  const message = buildLoginMessage(normalizedAddress, nonce, issuedAt, expiresAt);
+  const message = buildLoginMessage(
+    normalizedAddress,
+    nonce,
+    issuedAt,
+    expiresAt,
+  );
   const nonceHash = hashSecret(nonce);
 
   await storeNonce({
@@ -245,22 +257,30 @@ export async function verifyLoginAndIssueTokens(
   const parsedMessage = parseLoginMessage(message);
 
   if (parsedMessage.address !== normalizedAddress) {
-    throw new Error('Login challenge address mismatch');
+    throw new Error("Login challenge address mismatch");
   }
 
   const storedNonce = await findValidNonce(hashSecret(parsedMessage.nonce));
-  if (!storedNonce || storedNonce.address !== normalizedAddress || storedNonce.message !== message) {
-    throw new Error('Invalid or expired login challenge');
+  if (
+    !storedNonce ||
+    storedNonce.address !== normalizedAddress ||
+    storedNonce.message !== message
+  ) {
+    throw new Error("Invalid or expired login challenge");
   }
 
-  const signatureValid = await verifySignature(normalizedAddress, message, signature);
+  const signatureValid = await verifySignature(
+    normalizedAddress,
+    message,
+    signature,
+  );
   if (!signatureValid) {
-    throw new Error('Invalid login signature');
+    throw new Error("Invalid login signature");
   }
 
   const consumed = await consumeNonce(storedNonce.nonceHash);
   if (!consumed) {
-    throw new Error('Login challenge has already been used');
+    throw new Error("Login challenge has already been used");
   }
 
   return issueAuthTokens(
@@ -277,7 +297,11 @@ export async function issueAuthTokens(
   context: SessionContext = {},
   parentSessionId?: string,
 ): Promise<AuthTokens> {
-  const { tokens, session } = buildTokenSession(payload, context, parentSessionId);
+  const { tokens, session } = buildTokenSession(
+    payload,
+    context,
+    parentSessionId,
+  );
   await storeRefreshSession(session);
 
   return tokens;
@@ -306,15 +330,17 @@ export async function refreshAccessToken(
     const rotated = await rotateRefreshSession(tokenHash, nextSession);
 
     if (!rotated || rotated.address !== verified.address) {
-      throw new Error('Refresh session is invalid or already rotated');
+      throw new Error("Refresh session is invalid or already rotated");
     }
 
     logRefreshSessionIpDrift(rotated, nextSession);
 
     return tokens;
   } catch (error) {
-    logger.warn('Token refresh rejected', { error });
-    const invalidRefreshTokenError = new Error('Invalid refresh token') as Error & {
+    logger.warn("Token refresh rejected", { error });
+    const invalidRefreshTokenError = new Error(
+      "Invalid refresh token",
+    ) as Error & {
       cause?: unknown;
     };
     invalidRefreshTokenError.cause = error;
@@ -331,15 +357,15 @@ export async function revokeRefreshToken(token: string): Promise<void> {
   const revoked = await revokeRefreshSession(hashSecret(token));
 
   if (!revoked || revoked.address !== verified.address) {
-    throw new Error('Refresh session not found');
+    throw new Error("Refresh session not found");
   }
 
   await revokeAccessTokensForAddress(verified.address, {
     actorAddress: verified.address,
-    reason: 'logout',
+    reason: "logout",
   });
 
-  logger.info('Refresh token and access tokens revoked on logout', {
+  logger.info("Refresh token and access tokens revoked on logout", {
     address: verified.address,
   });
 }
@@ -367,16 +393,18 @@ export async function revokeRefreshSessionsForAddress(
   auditContext?: RefreshSessionRevokeAuditContext,
 ): Promise<{ address: string; revokedCount: number }> {
   const normalizedAddress = normalizeAddress(address);
-  const revokedCount = await revokeActiveRefreshSessionsForAddress(
+  const revokedCount =
+    await revokeActiveRefreshSessionsForAddress(normalizedAddress);
+  const accessRevocation = await revokeAccessTokensForAddress(
     normalizedAddress,
+    {
+      actorAddress: auditContext?.actorAddress ?? "system",
+      requestId: auditContext?.requestId,
+      reason: "refresh_sessions_revoked",
+    },
   );
-  const accessRevocation = await revokeAccessTokensForAddress(normalizedAddress, {
-    actorAddress: auditContext?.actorAddress ?? 'system',
-    requestId: auditContext?.requestId,
-    reason: 'refresh_sessions_revoked',
-  });
 
-  logger.info('Refresh sessions and access tokens revoked for address', {
+  logger.info("Refresh sessions and access tokens revoked for address", {
     address: normalizedAddress,
     actorAddress: auditContext?.actorAddress,
     requestId: auditContext?.requestId,
@@ -392,22 +420,22 @@ export async function revokeRefreshSessionsForAddress(
 
 export function resolveRolesForAddress(address: string): string[] {
   const normalizedAddress = normalizeAddress(address);
-  const roles = new Set<string>(['user']);
+  const roles = new Set<string>(["user"]);
 
   if (config.authAdminAddresses.includes(normalizedAddress)) {
-    roles.add('operator');
-    roles.add('admin');
+    roles.add("operator");
+    roles.add("admin");
   }
 
   if (config.authOperatorAddresses.includes(normalizedAddress)) {
-    roles.add('operator');
+    roles.add("operator");
   }
 
   return [...roles];
 }
 
 export async function isAccessTokenRevoked(
-  payload: Pick<TokenPayload, 'address' | 'iat'>,
+  payload: Pick<TokenPayload, "address" | "iat">,
 ): Promise<boolean> {
   if (!payload.iat || !Number.isFinite(payload.iat)) {
     return true;
@@ -449,7 +477,7 @@ function buildLoginMessage(
     `Nonce: ${nonce}`,
     `Issued At: ${issuedAt.toISOString()}`,
     `Expires At: ${expiresAt.toISOString()}`,
-  ].join('\n');
+  ].join("\n");
 }
 
 function parseLoginMessage(message: string): {
@@ -458,22 +486,26 @@ function parseLoginMessage(message: string): {
   issuedAt: Date;
   expiresAt: Date;
 } {
-  const lines = message.split('\n');
+  const lines = message.split("\n");
   if (lines.length !== 5 || lines[0] !== `${LOGIN_DOMAIN} login`) {
-    throw new Error('Invalid login challenge format');
+    throw new Error("Invalid login challenge format");
   }
 
-  const address = parseMessageField(lines[1], 'Address');
-  const nonce = parseMessageField(lines[2], 'Nonce');
-  const issuedAt = new Date(parseMessageField(lines[3], 'Issued At'));
-  const expiresAt = new Date(parseMessageField(lines[4], 'Expires At'));
+  const address = parseMessageField(lines[1], "Address");
+  const nonce = parseMessageField(lines[2], "Nonce");
+  const issuedAt = new Date(parseMessageField(lines[3], "Issued At"));
+  const expiresAt = new Date(parseMessageField(lines[4], "Expires At"));
 
-  if (!nonce || Number.isNaN(issuedAt.getTime()) || Number.isNaN(expiresAt.getTime())) {
-    throw new Error('Invalid login challenge fields');
+  if (
+    !nonce ||
+    Number.isNaN(issuedAt.getTime()) ||
+    Number.isNaN(expiresAt.getTime())
+  ) {
+    throw new Error("Invalid login challenge fields");
   }
 
   if (Date.now() > expiresAt.getTime()) {
-    throw new Error('Login challenge expired');
+    throw new Error("Login challenge expired");
   }
 
   return {
@@ -497,7 +529,7 @@ function normalizeAddress(address: string): string {
 }
 
 function hashSecret(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function buildTokenSession(
@@ -551,17 +583,17 @@ function summarizeRefreshSession(
 function getRefreshSessionStatus(
   session: StoredRefreshSession,
   now: Date,
-): RefreshSessionSummary['status'] {
+): RefreshSessionSummary["status"] {
   if (session.revokedAt) {
-    return 'revoked';
+    return "revoked";
   }
   if (session.rotatedAt) {
-    return 'rotated';
+    return "rotated";
   }
   if (session.expiresAt <= now) {
-    return 'expired';
+    return "expired";
   }
-  return 'active';
+  return "active";
 }
 
 function hasRefreshSessionContextMismatch(
@@ -570,7 +602,7 @@ function hasRefreshSessionContextMismatch(
 ): boolean {
   return Boolean(
     session.userAgentHash &&
-      session.userAgentHash !== nextSession.userAgentHash,
+    session.userAgentHash !== nextSession.userAgentHash,
   );
 }
 
@@ -583,7 +615,7 @@ function logRefreshSessionIpDrift(
     nextSession.ipHash &&
     session.ipHash !== nextSession.ipHash
   ) {
-    logger.warn('Refresh session IP context changed during rotation', {
+    logger.warn("Refresh session IP context changed during rotation", {
       address: session.address,
       sessionId: session.id,
     });
@@ -591,26 +623,29 @@ function logRefreshSessionIpDrift(
 }
 
 /**
- * Parse expiration string to seconds. Supports hours and days, matching the
+ * Parse expiration string to seconds. Supports minutes, hours, and days, matching the
  * config schema.
  */
 function parseExpiration(expiresIn: string): number {
-  const match = expiresIn.match(/^(\d+)([hd])$/);
+  const match = expiresIn.match(/^(\d+)([mhd])$/);
   if (!match) {
-    return 3600;
+    return 900;
   }
 
   const value = parseInt(match[1], 10);
   const unit = match[2];
 
-  if (unit === 'h') {
+  if (unit === "m") {
+    return value * 60;
+  }
+  if (unit === "h") {
     return value * 3600;
   }
-  if (unit === 'd') {
+  if (unit === "d") {
     return value * 86400;
   }
 
-  return 3600;
+  return 900;
 }
 
 async function storeNonce(nonce: StoredNonce): Promise<void> {
@@ -673,7 +708,9 @@ async function consumeNonce(nonceHash: string): Promise<boolean> {
   return result.count === 1;
 }
 
-async function storeRefreshSession(session: StoredRefreshSession): Promise<void> {
+async function storeRefreshSession(
+  session: StoredRefreshSession,
+): Promise<void> {
   if (!authPrisma) {
     memoryRefreshSessions.set(session.tokenHash, session);
     return;
@@ -693,7 +730,9 @@ async function storeRefreshSession(session: StoredRefreshSession): Promise<void>
   });
 }
 
-async function findRefreshSession(tokenHash: string): Promise<StoredRefreshSession | null> {
+async function findRefreshSession(
+  tokenHash: string,
+): Promise<StoredRefreshSession | null> {
   if (!authPrisma) {
     return memoryRefreshSessions.get(tokenHash) ?? null;
   }
@@ -718,7 +757,7 @@ async function findRefreshSessionsForAddress(
 
   return authPrisma.authRefreshSession.findMany({
     where: { address },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: "desc" },
     take: 100,
   });
 }
@@ -743,7 +782,9 @@ async function upsertAccessRevocationForAddress(
   if (!authPrisma) {
     const existing = memoryAccessRevocations.get(address);
     const nextNotBefore =
-      existing && existing.notBefore > notBefore ? existing.notBefore : notBefore;
+      existing && existing.notBefore > notBefore
+        ? existing.notBefore
+        : notBefore;
     const revocation: StoredAccessRevocation = {
       address,
       notBefore: nextNotBefore,
@@ -762,7 +803,9 @@ async function upsertAccessRevocationForAddress(
       where: { address },
     });
     const nextNotBefore =
-      existing && existing.notBefore > notBefore ? existing.notBefore : notBefore;
+      existing && existing.notBefore > notBefore
+        ? existing.notBefore
+        : notBefore;
 
     if (!existing) {
       return tx.authAccessRevocation.create({
@@ -800,7 +843,7 @@ async function rotateRefreshSession(
       return null;
     }
     if (hasRefreshSessionContextMismatch(session, nextSession)) {
-      logger.warn('Refresh session context mismatch during rotation', {
+      logger.warn("Refresh session context mismatch during rotation", {
         address: session.address,
         sessionId: session.id,
       });
@@ -821,7 +864,7 @@ async function rotateRefreshSession(
       return null;
     }
     if (hasRefreshSessionContextMismatch(session, nextSession)) {
-      logger.warn('Refresh session context mismatch during rotation', {
+      logger.warn("Refresh session context mismatch during rotation", {
         address: session.address,
         sessionId: session.id,
       });
@@ -936,9 +979,9 @@ function isRefreshSessionUsable(
 ): session is StoredRefreshSession {
   return Boolean(
     session &&
-      !session.revokedAt &&
-      !session.rotatedAt &&
-      session.expiresAt > now,
+    !session.revokedAt &&
+    !session.rotatedAt &&
+    session.expiresAt > now,
   );
 }
 
@@ -969,53 +1012,54 @@ export async function verifySignature(
   message: string,
   signature: string,
 ): Promise<boolean> {
-  logger.info('Verifying signature', { address });
+  logger.info("Verifying signature", { address });
 
   if (config.allowMockSignatures) {
     logger.warn(
-      'Using mock signature verification. This is blocked in production by config guards.',
+      "Using mock signature verification. This is blocked in production by config guards.",
     );
-    return signature.length > 0 && message.includes('Aethelred');
+    return signature.length > 0 && message.includes("Aethelred");
   }
 
   try {
     if (!address || !message || !signature) {
-      logger.warn('Signature verification failed: missing inputs');
+      logger.warn("Signature verification failed: missing inputs");
       return false;
     }
 
-    let sigData: { pub_key?: { type?: string; value?: string }; signature?: string };
+    let sigData: {
+      pub_key?: { type?: string; value?: string };
+      signature?: string;
+    };
     try {
-      sigData = JSON.parse(
-        Buffer.from(signature, 'base64').toString('utf-8'),
-      );
+      sigData = JSON.parse(Buffer.from(signature, "base64").toString("utf-8"));
     } catch {
-      logger.warn('Signature verification failed: invalid base64 or JSON');
+      logger.warn("Signature verification failed: invalid base64 or JSON");
       return false;
     }
 
     if (!sigData.pub_key?.value || !sigData.signature) {
-      logger.warn('Signature verification failed: malformed signature payload');
+      logger.warn("Signature verification failed: malformed signature payload");
       return false;
     }
 
     const pubKeyBytes = fromBase64(sigData.pub_key.value);
     const signatureBytes = fromBase64(sigData.signature);
     const signDoc: StdSignDoc = {
-      chain_id: '',
-      account_number: '0',
-      sequence: '0',
-      fee: { gas: '0', amount: [] },
+      chain_id: "",
+      account_number: "0",
+      sequence: "0",
+      fee: { gas: "0", amount: [] },
       msgs: [
         {
-          type: 'sign/MsgSignData',
+          type: "sign/MsgSignData",
           value: {
             signer: address,
-            data: Buffer.from(message, 'utf-8').toString('base64'),
+            data: Buffer.from(message, "utf-8").toString("base64"),
           },
         },
       ],
-      memo: '',
+      memo: "",
     };
 
     const signBytes = serializeSignDoc(signDoc);
@@ -1029,26 +1073,28 @@ export async function verifySignature(
     );
 
     if (!valid) {
-      logger.warn('Signature verification failed: secp256k1 check rejected');
+      logger.warn("Signature verification failed: secp256k1 check rejected");
       return false;
     }
 
-    const pubKeyHash = new Ripemd160(new CryptoSha256(pubKeyBytes).digest()).digest();
+    const pubKeyHash = new Ripemd160(
+      new CryptoSha256(pubKeyBytes).digest(),
+    ).digest();
     const { prefix } = fromBech32(address);
     const derivedAddress = toBech32(prefix, pubKeyHash);
 
     if (derivedAddress !== address) {
-      logger.warn('Signature verification failed: address mismatch', {
+      logger.warn("Signature verification failed: address mismatch", {
         expected: address,
         derived: derivedAddress,
       });
       return false;
     }
 
-    logger.info('Signature verified successfully', { address });
+    logger.info("Signature verified successfully", { address });
     return true;
   } catch (error) {
-    logger.error('Signature verification threw', { error });
+    logger.error("Signature verification threw", { error });
     return false;
   }
 }

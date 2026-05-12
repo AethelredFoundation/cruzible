@@ -8,7 +8,7 @@ const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
 const AUTH_ROLE_ADDRESS_PATTERN = /^aeth1[0-9a-z]{5,}$/;
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
-const MAX_PRODUCTION_ACCESS_TOKEN_MS = 60 * 60 * 1000;
+const MAX_PRODUCTION_ACCESS_TOKEN_MS = 15 * 60 * 1000;
 const MAX_PRODUCTION_REFRESH_TOKEN_MS = 30 * 24 * 60 * 60 * 1000;
 const FILE_BACKED_ENV_KEYS = [
   "DATABASE_URL",
@@ -68,8 +68,8 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(16).default("cruzible-dev-refresh-secret"),
   JWT_EXPIRES_IN: z
     .string()
-    .regex(/^\d+[hd]$/)
-    .default("1h"),
+    .regex(/^\d+[mhd]$/)
+    .default("15m"),
   JWT_REFRESH_EXPIRES_IN: z
     .string()
     .regex(/^\d+[hd]$/)
@@ -226,15 +226,19 @@ function requireProductionSecretLength(value: string, envName: string): void {
 }
 
 function parseDurationMs(value: string): number {
-  const match = value.match(/^(\d+)([hd])$/);
+  const match = value.match(/^(\d+)([mhd])$/);
   if (!match) {
     throw new Error(`Invalid duration "${value}"`);
   }
 
   const amount = Number(match[1]);
-  return match[2] === "h"
-    ? amount * 60 * 60 * 1000
-    : amount * 24 * 60 * 60 * 1000;
+  if (match[2] === "m") {
+    return amount * 60 * 1000;
+  }
+  if (match[2] === "h") {
+    return amount * 60 * 60 * 1000;
+  }
+  return amount * 24 * 60 * 60 * 1000;
 }
 
 function requireMaxProductionDuration(
@@ -413,7 +417,7 @@ if (isProduction) {
     parsedEnv.JWT_EXPIRES_IN,
     "JWT_EXPIRES_IN",
     MAX_PRODUCTION_ACCESS_TOKEN_MS,
-    "1h",
+    "15m",
   );
   requireMaxProductionDuration(
     parsedEnv.JWT_REFRESH_EXPIRES_IN,
