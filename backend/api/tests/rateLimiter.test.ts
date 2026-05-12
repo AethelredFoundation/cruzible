@@ -42,7 +42,7 @@ describe('rate limiter', () => {
     });
   });
 
-  it('skips liveness and readiness probes from rate limiting', async () => {
+  it('skips only liveness probes from rate limiting', async () => {
     const { rateLimiter } = await import('../src/middleware/rateLimiter');
 
     const app = express();
@@ -57,10 +57,16 @@ describe('rate limiter', () => {
     await withHttpServer(app, async (baseUrl) => {
       for (let i = 0; i < 4; i += 1) {
         const live = await fetch(`${baseUrl}/health/live`);
-        const ready = await fetch(`${baseUrl}/health/ready`);
         expect(live.status).toBe(200);
-        expect(ready.status).toBe(200);
       }
+
+      const firstReady = await fetch(`${baseUrl}/health/ready`);
+      const secondReady = await fetch(`${baseUrl}/health/ready`);
+      const thirdReady = await fetch(`${baseUrl}/health/ready`);
+
+      expect(firstReady.status).toBe(200);
+      expect(secondReady.status).toBe(200);
+      expect(thirdReady.status).toBe(429);
     });
   });
 

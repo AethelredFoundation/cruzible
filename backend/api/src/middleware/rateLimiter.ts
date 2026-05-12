@@ -92,8 +92,7 @@ export const rateLimiter = rateLimit({
     redisUrl: config.redisUrl,
   }),
   passOnStoreError: false,
-  skip: (req) =>
-    req.path === '/health/live' || req.path === '/health/ready',
+  skip: (req) => req.path === '/health/live',
   handler: (req, res) => {
     res.status(429).json({
       error: 'TooManyRequests',
