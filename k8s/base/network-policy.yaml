@@ -2,6 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: cruzible-default-deny
+  namespace: cruzible
 spec:
   podSelector: {}
   policyTypes:
@@ -12,6 +13,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: cruzible-frontend-network
+  namespace: cruzible
 spec:
   podSelector:
     matchLabels:
@@ -52,6 +54,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: cruzible-api-network
+  namespace: cruzible
 spec:
   podSelector:
     matchLabels:
@@ -93,6 +96,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: cruzible-indexer-network
+  namespace: cruzible
 spec:
   podSelector:
     matchLabels:

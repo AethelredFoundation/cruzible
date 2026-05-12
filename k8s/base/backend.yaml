@@ -2,6 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cruzible-api-config
+  namespace: cruzible
   labels:
     app.kubernetes.io/name: cruzible
     app.kubernetes.io/component: api-config
@@ -25,6 +26,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cruzible-api
+  namespace: cruzible
   labels:
     app: cruzible-api
     tier: backend
@@ -182,6 +184,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: cruzible-api
+  namespace: cruzible
   labels:
     app: cruzible-api
     tier: backend
@@ -204,6 +207,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: cruzible-api-pdb
+  namespace: cruzible
 spec:
   minAvailable: 2
   selector:
@@ -214,6 +218,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: cruzible-api-hpa
+  namespace: cruzible
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -246,6 +251,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cruzible-indexer
+  namespace: cruzible
   labels:
     app: cruzible-indexer
     tier: backend
@@ -372,6 +378,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: cruzible-indexer-pdb
+  namespace: cruzible
 spec:
   minAvailable: 1
   selector:

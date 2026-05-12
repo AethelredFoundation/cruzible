@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cruzible-frontend
+  namespace: cruzible
   labels:
     app: cruzible-frontend
     tier: frontend
@@ -72,6 +73,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: cruzible-frontend
+  namespace: cruzible
   labels:
     app: cruzible-frontend
 spec:
@@ -88,6 +90,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: cruzible-frontend-hpa
+  namespace: cruzible
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

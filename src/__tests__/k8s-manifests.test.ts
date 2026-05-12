@@ -15,6 +15,10 @@ const kustomizationManifest = readFileSync(
   resolve(repoRoot, "k8s/base/kustomization.yaml"),
   "utf8",
 );
+const namespaceManifest = readFileSync(
+  resolve(repoRoot, "k8s/base/namespace.yaml"),
+  "utf8",
+);
 const imageVerificationPolicy = readFileSync(
   resolve(repoRoot, "k8s/base/image-verification-policy.yaml"),
   "utf8",
@@ -103,6 +107,27 @@ function expectSecretFileMount(
 }
 
 describe("Kubernetes base manifests", () => {
+  it("enforces restricted pod security at the namespace boundary", () => {
+    expect(kustomizationManifest).toContain("namespace.yaml");
+    expect(namespaceManifest).toContain("kind: Namespace");
+    expect(namespaceManifest).toContain("name: cruzible");
+    expect(backendManifest).toContain("namespace: cruzible");
+    expect(frontendManifest).toContain("namespace: cruzible");
+    expect(networkPolicyManifest).toContain("namespace: cruzible");
+    expect(namespaceManifest).toContain(
+      "pod-security.kubernetes.io/enforce: restricted",
+    );
+    expect(namespaceManifest).toContain(
+      "pod-security.kubernetes.io/audit: restricted",
+    );
+    expect(namespaceManifest).toContain(
+      "pod-security.kubernetes.io/warn: restricted",
+    );
+    expect(namespaceManifest).toContain(
+      "pod-security.kubernetes.io/enforce-version: latest",
+    );
+  });
+
   it("passes required indexer launch invariants through fail-closed config", () => {
     expect(backendManifest).toContain(
       'indexer.expected.chain.id: "REPLACE_WITH_EXPECTED_CHAIN_ID"',
