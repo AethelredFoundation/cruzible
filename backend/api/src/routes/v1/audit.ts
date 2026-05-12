@@ -1,19 +1,20 @@
-import { Router, Request, Response } from 'express';
-import { z } from 'zod';
-import { authenticate, requireRoles } from '../../auth/middleware';
-import { opsRateLimiter } from '../../middleware/rateLimiter';
+import { Router, Request, Response } from "express";
+import { z } from "zod";
+import { authenticate, requireRoles } from "../../auth/middleware";
+import { opsRateLimiter } from "../../middleware/rateLimiter";
 import {
   listPrivilegedAuditEvents,
   type PrivilegedAuditRecord,
-} from '../../services/PrivilegedAuditService';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { ApiError } from '../../utils/ApiError';
+} from "../../services/PrivilegedAuditService";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { ApiError } from "../../utils/ApiError";
 
 const router = Router();
+const MAX_AUDIT_PAGINATION_OFFSET = 10_000;
 
 router.use(opsRateLimiter);
 router.use(authenticate);
-router.use(requireRoles('operator', 'admin'));
+router.use(requireRoles("operator", "admin"));
 
 const DateTimeSchema = z
   .string()
@@ -23,9 +24,14 @@ const DateTimeSchema = z
 
 const AuditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  offset: z.coerce.number().int().min(0).default(0),
-  decision: z.enum(['allowed', 'rejected']).optional(),
-  principal_type: z.enum(['wallet', 'operational-token']).optional(),
+  offset: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_AUDIT_PAGINATION_OFFSET)
+    .default(0),
+  decision: z.enum(["allowed", "rejected"]).optional(),
+  principal_type: z.enum(["wallet", "operational-token"]).optional(),
   actor_address: z.string().trim().toLowerCase().min(1).max(64).optional(),
   request_id: z.string().trim().min(1).max(128).optional(),
   from: DateTimeSchema.optional(),
@@ -34,20 +40,23 @@ const AuditQuerySchema = z.object({
 
 const AuditExportQuerySchema = AuditQuerySchema.extend({
   limit: z.coerce.number().int().min(1).max(1000).default(1000),
-  format: z.enum(['ndjson', 'csv']).default('ndjson'),
+  format: z.enum(["ndjson", "csv"]).default("ndjson"),
 });
 
-function parseQuery<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
+function parseQuery<T extends z.ZodTypeAny>(
+  schema: T,
+  value: unknown,
+): z.infer<T> {
   const result = schema.safeParse(value);
   if (!result.success) {
-    throw new ApiError(400, 'Validation failed', result.error.issues);
+    throw new ApiError(400, "Validation failed", result.error.issues);
   }
   return result.data;
 }
 
 function assertDateRange(from?: Date, to?: Date): void {
   if (from && to && from > to) {
-    throw new ApiError(400, '`from` must be before or equal to `to`');
+    throw new ApiError(400, "`from` must be before or equal to `to`");
   }
 }
 
@@ -66,34 +75,34 @@ function toServiceQuery(query: z.infer<typeof AuditQuerySchema>) {
 }
 
 function escapeCsv(value: unknown): string {
-  const text = Array.isArray(value) ? value.join('|') : String(value ?? '');
+  const text = Array.isArray(value) ? value.join("|") : String(value ?? "");
   const safeText = /^[\s]*[=+\-@\t\r\n]/.test(text) ? `'${text}` : text;
   return `"${safeText.replace(/"/g, '""')}"`;
 }
 
 function renderCsv(records: PrivilegedAuditRecord[]): string {
   const headers = [
-    'createdAt',
-    'requestId',
-    'method',
-    'path',
-    'principalType',
-    'actorAddress',
-    'requiredRoles',
-    'decision',
-    'reason',
-    'outcome',
-    'statusCode',
-    'eventHash',
-    'previousEventHash',
+    "createdAt",
+    "requestId",
+    "method",
+    "path",
+    "principalType",
+    "actorAddress",
+    "requiredRoles",
+    "decision",
+    "reason",
+    "outcome",
+    "statusCode",
+    "eventHash",
+    "previousEventHash",
   ];
   const rows = records.map((record) =>
     headers
       .map((header) => escapeCsv(record[header as keyof PrivilegedAuditRecord]))
-      .join(','),
+      .join(","),
   );
 
-  return `${headers.join(',')}\n${rows.join('\n')}${rows.length > 0 ? '\n' : ''}`;
+  return `${headers.join(",")}\n${rows.join("\n")}${rows.length > 0 ? "\n" : ""}`;
 }
 
 /**
@@ -113,7 +122,7 @@ function renderCsv(records: PrivilegedAuditRecord[]): string {
  *         description: Forbidden
  */
 router.get(
-  '/privileged-access',
+  "/privileged-access",
   asyncHandler(async (req: Request, res: Response) => {
     const query = parseQuery(AuditQuerySchema, req.query);
     const serviceQuery = toServiceQuery(query);
@@ -144,26 +153,26 @@ router.get(
  *         description: NDJSON or CSV export
  */
 router.get(
-  '/privileged-access/export',
+  "/privileged-access/export",
   asyncHandler(async (req: Request, res: Response) => {
     const query = parseQuery(AuditExportQuerySchema, req.query);
     const serviceQuery = toServiceQuery(query);
     const result = await listPrivilegedAuditEvents(serviceQuery);
 
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader("Cache-Control", "no-store");
     res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="privileged-audit.${query.format === 'csv' ? 'csv' : 'ndjson'}"`,
+      "Content-Disposition",
+      `attachment; filename="privileged-audit.${query.format === "csv" ? "csv" : "ndjson"}"`,
     );
 
-    if (query.format === 'csv') {
-      res.type('text/csv').send(renderCsv(result.data));
+    if (query.format === "csv") {
+      res.type("text/csv").send(renderCsv(result.data));
       return;
     }
 
     res
-      .type('application/x-ndjson')
-      .send(result.data.map((record) => JSON.stringify(record)).join('\n'));
+      .type("application/x-ndjson")
+      .send(result.data.map((record) => JSON.stringify(record)).join("\n"));
   }),
 );
 
