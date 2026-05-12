@@ -153,6 +153,25 @@ mod tests {
         }
     }
 
+    fn low_cost_compute_metrics() -> ComputeMetrics {
+        ComputeMetrics {
+            cpu_cycles: 1_000_000,
+            memory_used: 1,
+            compute_time_ms: 10,
+            energy_mj: 1,
+        }
+    }
+
+    fn assert_bank_send(msg: &CosmosMsg, expected_to: &str, expected_amount: u128) {
+        match msg {
+            CosmosMsg::Bank(cosmwasm_std::BankMsg::Send { to_address, amount }) => {
+                assert_eq!(to_address, expected_to);
+                assert_eq!(amount, &coins(expected_amount, PAYMENT_DENOM));
+            }
+            _ => panic!("expected bank send"),
+        }
+    }
+
     // ============ INSTANTIATE TESTS ============
 
     #[test]
@@ -1009,6 +1028,62 @@ mod tests {
         assert_eq!(job.status, JobStatus::Failed);
     }
 
+    #[test]
+    fn fail_job_refunds_locked_payment_and_blocks_claim() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+
+        let validator_info = mock_info(VALIDATOR, &[]);
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::AssignJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let res = execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::FailJob {
+                job_id: job_id.clone(),
+                reason: "cancelled by operator".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(res.messages.len(), 1);
+        assert_bank_send(&res.messages[0].msg, CREATOR, 10000);
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "refund" && a.value == "10000"));
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info,
+            ExecuteMsg::ClaimPayment {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContractError::InvalidStatus { .. }));
+
+        let job = jobs().load(&deps.storage, job_id).unwrap();
+        assert_eq!(job.status, JobStatus::Failed);
+        assert_eq!(job.actual_payment, None);
+
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::PlatformStats {}).unwrap();
+        let stats: PlatformStats = from_json(&res).unwrap();
+        assert_eq!(stats.failed_jobs, 1);
+        assert_eq!(stats.total_payments, Uint128::zero());
+    }
+
     // ============ CANCEL JOB TESTS ============
 
     #[test]
@@ -1138,6 +1213,84 @@ mod tests {
 
         // Check messages were added (payment transfers)
         assert_eq!(res.messages.len(), 2); // Validator payment + platform fee
+    }
+
+    #[test]
+    fn claim_payment_refunds_unused_escrow_to_creator() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+
+        let validator_info = mock_info(VALIDATOR, &[]);
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::AssignJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::StartComputing {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::CompleteJob {
+                job_id: job_id.clone(),
+                output_hash: "output789".to_string(),
+                tee_attestation: mock_tee_attestation(),
+                compute_metrics: low_cost_compute_metrics(),
+            },
+        )
+        .unwrap();
+
+        let job = jobs().load(&deps.storage, job_id.clone()).unwrap();
+        assert_eq!(job.actual_payment, Some(Uint128::from(101u128)));
+
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(CREATOR, &[]),
+            ExecuteMsg::VerifyJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let res = execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info,
+            ExecuteMsg::ClaimPayment {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(res.messages.len(), 3);
+        assert_bank_send(&res.messages[0].msg, VALIDATOR, 96);
+        assert_bank_send(&res.messages[1].msg, FEE_COLLECTOR, 5);
+        assert_bank_send(&res.messages[2].msg, CREATOR, 9899);
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "refund" && a.value == "9899"));
+
+        let job = jobs().load(&deps.storage, job_id).unwrap();
+        assert_eq!(job.status, JobStatus::Paid);
+
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::PlatformStats {}).unwrap();
+        let stats: PlatformStats = from_json(&res).unwrap();
+        assert_eq!(stats.total_payments, Uint128::from(101u128));
     }
 
     #[test]

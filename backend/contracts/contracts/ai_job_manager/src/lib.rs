@@ -982,6 +982,9 @@ fn execute_fail_job(
         });
     }
 
+    let refund_amount = job.max_payment;
+    let refund_to = job.creator.clone();
+
     job.status = JobStatus::Failed;
     jobs().save(deps.storage, job_id.clone(), &job)?;
 
@@ -1002,16 +1005,30 @@ fn execute_fail_job(
     let fail_event = Event::new("job_failed")
         .add_attribute("job_id", &job_id)
         .add_attribute("reason", &reason)
+        .add_attribute("refund", refund_amount.to_string())
         .add_attribute(
             "validator",
             job.validator.as_ref().map(|v| v.as_str()).unwrap_or("none"),
         );
 
-    Ok(Response::new()
+    let mut response = Response::new()
         .add_event(fail_event)
         .add_attribute("action", "fail_job")
         .add_attribute("job_id", job_id)
-        .add_attribute("reason", reason))
+        .add_attribute("reason", reason)
+        .add_attribute("refund", refund_amount);
+
+    if !refund_amount.is_zero() {
+        response = response.add_message(CosmosMsg::Bank(BankMsg::Send {
+            to_address: refund_to.to_string(),
+            amount: vec![Coin {
+                denom: config.payment_denom,
+                amount: refund_amount,
+            }],
+        }));
+    }
+
+    Ok(response)
 }
 
 fn execute_cancel_job(
@@ -1083,6 +1100,12 @@ fn execute_claim_payment(
     }
 
     let payment = job.actual_payment.unwrap_or_default();
+    if payment > job.max_payment {
+        return Err(ContractError::Std(StdError::generic_err(
+            "actual payment exceeds escrowed payment",
+        )));
+    }
+    let creator_refund = job.max_payment - payment;
     let platform_fee =
         payment * Uint128::from(config.platform_fee_bps) / Uint128::from(BASIS_POINTS_DENOMINATOR);
     let validator_payment = payment - platform_fee;
@@ -1110,7 +1133,7 @@ fn execute_claim_payment(
     let fee_msg = CosmosMsg::Bank(BankMsg::Send {
         to_address: config.fee_collector.to_string(),
         amount: vec![Coin {
-            denom: config.payment_denom,
+            denom: config.payment_denom.clone(),
             amount: platform_fee,
         }],
     });
@@ -1121,16 +1144,30 @@ fn execute_claim_payment(
         .add_attribute("validator", info.sender.as_str())
         .add_attribute("validator_payment", validator_payment.to_string())
         .add_attribute("platform_fee", platform_fee.to_string())
+        .add_attribute("creator_refund", creator_refund.to_string())
         .add_attribute("total_payment", payment.to_string());
 
-    Ok(Response::new()
+    let mut response = Response::new()
         .add_message(validator_msg)
         .add_message(fee_msg)
         .add_event(payment_event)
         .add_attribute("action", "claim_payment")
         .add_attribute("job_id", job_id)
         .add_attribute("payment", validator_payment)
-        .add_attribute("fee", platform_fee))
+        .add_attribute("fee", platform_fee)
+        .add_attribute("refund", creator_refund);
+
+    if !creator_refund.is_zero() {
+        response = response.add_message(CosmosMsg::Bank(BankMsg::Send {
+            to_address: job.creator.to_string(),
+            amount: vec![Coin {
+                denom: config.payment_denom,
+                amount: creator_refund,
+            }],
+        }));
+    }
+
+    Ok(response)
 }
 
 fn execute_update_config(
