@@ -199,6 +199,8 @@ router.post(
 router.post(
   "/login",
   asyncHandler(async (req: Request, res: Response) => {
+    assertTrustedCookieAuthOrigin(req);
+
     const { address, message, signature } = parseRequest(
       LoginBodySchema,
       req.body,
