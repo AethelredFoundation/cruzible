@@ -16,15 +16,20 @@ services:
       - PORT=3000
       - RPC_URL=${RPC_URL:?set RPC_URL}
       - GRPC_URL=${GRPC_URL:?set GRPC_URL}
-      - DATABASE_URL=postgresql://${DB_USER:?set DB_USER}:${DB_PASSWORD:?set DB_PASSWORD}@postgres:5432/${DB_NAME:?set DB_NAME}?schema=public
+      - DATABASE_URL_FILE=/run/secrets/cruzible_database_url
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
-      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      - JWT_SECRET_FILE=/run/secrets/cruzible_jwt_secret
+      - JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS}
       - METRICS_ENABLED=${METRICS_ENABLED:-true}
       - API_DOCS_ENABLED=${API_DOCS_ENABLED:-false}
-      - OPERATIONAL_ENDPOINTS_TOKEN=${OPERATIONAL_ENDPOINTS_TOKEN:?set OPERATIONAL_ENDPOINTS_TOKEN}
+      - OPERATIONAL_ENDPOINTS_TOKEN_FILE=/run/secrets/cruzible_operational_token
       - INDEXER_ENABLED=false
+    secrets:
+      - cruzible_database_url
+      - cruzible_jwt_secret
+      - cruzible_jwt_refresh_secret
+      - cruzible_operational_token
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,10 +65,10 @@ services:
     environment:
       - NODE_ENV=production
       - RPC_URL=${RPC_URL:?set RPC_URL}
-      - DATABASE_URL=postgresql://${DB_USER:?set DB_USER}:${DB_PASSWORD:?set DB_PASSWORD}@postgres:5432/${DB_NAME:?set DB_NAME}?schema=public
+      - DATABASE_URL_FILE=/run/secrets/cruzible_database_url
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
-      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      - JWT_SECRET_FILE=/run/secrets/cruzible_jwt_secret
+      - JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS}
       - METRICS_ENABLED=false
       - API_DOCS_ENABLED=false
@@ -75,6 +80,10 @@ services:
       - CRUZIBLE_VAULT_ADDRESS=${CRUZIBLE_VAULT_ADDRESS:?set CRUZIBLE_VAULT_ADDRESS}
       - STAETHEL_ADDRESS=${STAETHEL_ADDRESS:?set STAETHEL_ADDRESS}
       - STABLECOIN_BRIDGE_ADDRESS=${STABLECOIN_BRIDGE_ADDRESS:?set STABLECOIN_BRIDGE_ADDRESS}
+    secrets:
+      - cruzible_database_url
+      - cruzible_jwt_secret
+      - cruzible_jwt_refresh_secret
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,9 +114,11 @@ services:
       - ./init/postgres:/docker-entrypoint-initdb.d:ro
     environment:
       - POSTGRES_USER=${DB_USER:?set DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/cruzible_db_password
       - POSTGRES_DB=${DB_NAME:?set DB_NAME}
       - POSTGRES_INITDB_ARGS="--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    secrets:
+      - cruzible_db_password
     command:
       - "postgres"
       - "-c"
@@ -251,9 +262,11 @@ services:
       - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:?set GRAFANA_USER}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?set GRAFANA_PASSWORD}
+      - GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/cruzible_grafana_password
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3002}
+    secrets:
+      - cruzible_grafana_password
     networks:
       - aethelred-network
     depends_on:
@@ -290,3 +303,17 @@ volumes:
     driver: local
   grafana-data:
     driver: local
+
+secrets:
+  cruzible_database_url:
+    file: ${DATABASE_URL_FILE:?set DATABASE_URL_FILE}
+  cruzible_db_password:
+    file: ${DB_PASSWORD_FILE:?set DB_PASSWORD_FILE}
+  cruzible_jwt_secret:
+    file: ${JWT_SECRET_FILE:?set JWT_SECRET_FILE}
+  cruzible_jwt_refresh_secret:
+    file: ${JWT_REFRESH_SECRET_FILE:?set JWT_REFRESH_SECRET_FILE}
+  cruzible_operational_token:
+    file: ${OPERATIONAL_ENDPOINTS_TOKEN_FILE:?set OPERATIONAL_ENDPOINTS_TOKEN_FILE}
+  cruzible_grafana_password:
+    file: ${GRAFANA_PASSWORD_FILE:?set GRAFANA_PASSWORD_FILE}

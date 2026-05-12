@@ -62,7 +62,7 @@ npm ci
 npm run dev
 ```
 
-The API does not currently load `backend/.env.example` or a `.env` file automatically. Inject the variables documented in [backend/.env.example](backend/.env.example) through your shell, process manager, container runtime, or secret store before starting `backend/api`.
+The API does not currently load `backend/.env.example` or a `.env` file automatically. Inject the variables documented in [backend/.env.example](backend/.env.example) through your shell, process manager, container runtime, or secret store before starting `backend/api`. Production deployments should prefer the supported `*_FILE` variables for high-value settings such as database URLs, JWT secrets, operational endpoint tokens, and alert webhooks.
 
 At minimum, plan to provide:
 
@@ -70,6 +70,9 @@ At minimum, plan to provide:
 - `RPC_URL`
 - `JWT_SECRET`
 - `JWT_REFRESH_SECRET`
+
+When both a direct secret variable and its matching `*_FILE` variable are set,
+startup fails closed to avoid ambiguous secret provenance.
 
 ## Implemented API Surface
 

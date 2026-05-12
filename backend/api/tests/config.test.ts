@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const originalEnv = { ...process.env };
@@ -6,10 +9,14 @@ const CONFIG_ENV_KEYS = [
   "PORT",
   "RPC_URL",
   "DATABASE_URL",
+  "DATABASE_URL_FILE",
   "REDIS_URL",
+  "REDIS_URL_FILE",
   "CORS_ORIGINS",
   "JWT_SECRET",
+  "JWT_SECRET_FILE",
   "JWT_REFRESH_SECRET",
+  "JWT_REFRESH_SECRET_FILE",
   "JWT_EXPIRES_IN",
   "JWT_REFRESH_EXPIRES_IN",
   "TRUST_PROXY",
@@ -28,6 +35,7 @@ const CONFIG_ENV_KEYS = [
   "METRICS_ENABLED",
   "API_DOCS_ENABLED",
   "OPERATIONAL_ENDPOINTS_TOKEN",
+  "OPERATIONAL_ENDPOINTS_TOKEN_FILE",
   "INDEXER_ENABLED",
   "INDEXER_RPC_URL",
   "INDEXER_WS_URL",
@@ -38,6 +46,7 @@ const CONFIG_ENV_KEYS = [
   "STABLECOIN_BRIDGE_ADDRESS",
   "INDEXER_EXPECTED_CHAIN_ID",
   "ALERT_WEBHOOK_URL",
+  "ALERT_WEBHOOK_URL_FILE",
   "ALERT_RATE_LIMIT_MS",
   "RECONCILIATION_INTERVAL_MS",
   "RECONCILIATION_MIN_VALIDATORS",
@@ -79,9 +88,22 @@ async function loadConfigWithEnv(env: NodeJS.ProcessEnv) {
   return import("../src/config");
 }
 
+function writeTempSecretFile(value: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "cruzible-config-"));
+  const filePath = join(dir, "secret");
+  writeFileSync(filePath, value, { mode: 0o600 });
+  tempDirs.push(dir);
+  return filePath;
+}
+
+const tempDirs: string[] = [];
+
 afterEach(() => {
   process.env = { ...originalEnv };
   vi.resetModules();
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe("backend config hardening", () => {
@@ -220,6 +242,71 @@ describe("backend config hardening", () => {
     expect(config.publicExpensiveRateLimitMax).toBe(30);
     expect(config.metricsEnabled).toBe(true);
     expect(config.apiDocsEnabled).toBe(false);
+  });
+
+  it("loads supported production secrets from mounted secret files", async () => {
+    const databaseUrl = productionBaseEnv.DATABASE_URL;
+    const redisUrl = productionBaseEnv.REDIS_URL;
+    const jwtSecret = "file-backed-jwt-secret-012345678901";
+    const jwtRefreshSecret = "file-backed-refresh-secret-0123456";
+    const operationalToken = "file-backed-ops-token-012345678901";
+    const alertWebhookUrl = "https://alerts.cruzible.test/hook";
+
+    const { config } = await loadConfigWithEnv({
+      ...productionBaseEnv,
+      DATABASE_URL: undefined,
+      REDIS_URL: undefined,
+      JWT_SECRET: undefined,
+      JWT_REFRESH_SECRET: undefined,
+      OPERATIONAL_ENDPOINTS_TOKEN: undefined,
+      ALERT_WEBHOOK_URL: undefined,
+      DATABASE_URL_FILE: writeTempSecretFile(`${databaseUrl}\n`),
+      REDIS_URL_FILE: writeTempSecretFile(`${redisUrl}\n`),
+      JWT_SECRET_FILE: writeTempSecretFile(`${jwtSecret}\n`),
+      JWT_REFRESH_SECRET_FILE: writeTempSecretFile(`${jwtRefreshSecret}\r\n`),
+      OPERATIONAL_ENDPOINTS_TOKEN_FILE: writeTempSecretFile(
+        `${operationalToken}\n`,
+      ),
+      ALERT_WEBHOOK_URL_FILE: writeTempSecretFile(`${alertWebhookUrl}\n`),
+    });
+
+    expect(config.databaseUrl).toBe(databaseUrl);
+    expect(config.redisUrl).toBe(redisUrl);
+    expect(config.jwtSecret).toBe(jwtSecret);
+    expect(config.jwtRefreshSecret).toBe(jwtRefreshSecret);
+    expect(config.operationalEndpointsToken).toBe(operationalToken);
+    expect(config.alertWebhookUrl).toBe(alertWebhookUrl);
+  });
+
+  it("rejects ambiguous direct and file-backed secret configuration", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        JWT_SECRET_FILE: writeTempSecretFile(
+          "file-backed-jwt-secret-012345678901",
+        ),
+      }),
+    ).rejects.toThrow(
+      "JWT_SECRET and JWT_SECRET_FILE are mutually exclusive; provide only one",
+    );
+  });
+
+  it("rejects unreadable or empty secret files", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        JWT_SECRET: undefined,
+        JWT_SECRET_FILE: "/path/that/does/not/exist",
+      }),
+    ).rejects.toThrow("Unable to read JWT_SECRET_FILE for JWT_SECRET");
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        JWT_SECRET: undefined,
+        JWT_SECRET_FILE: writeTempSecretFile("\n"),
+      }),
+    ).rejects.toThrow("JWT_SECRET_FILE for JWT_SECRET must not be empty");
   });
 
   it("rejects missing DATABASE_URL in production", async () => {

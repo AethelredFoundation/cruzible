@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { rejectUrlUserInfoAndFragment } from "../utils/urlRedaction";
 
@@ -9,6 +10,14 @@ const AUTH_ROLE_ADDRESS_PATTERN = /^aeth1[0-9a-z]{5,}$/;
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
 const MAX_PRODUCTION_ACCESS_TOKEN_MS = 60 * 60 * 1000;
 const MAX_PRODUCTION_REFRESH_TOKEN_MS = 30 * 24 * 60 * 60 * 1000;
+const FILE_BACKED_ENV_KEYS = [
+  "DATABASE_URL",
+  "REDIS_URL",
+  "JWT_SECRET",
+  "JWT_REFRESH_SECRET",
+  "OPERATIONAL_ENDPOINTS_TOKEN",
+  "ALERT_WEBHOOK_URL",
+] as const;
 
 const optionalUrlSchema = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -120,7 +129,48 @@ const envSchema = z.object({
   RECONCILIATION_TVL_DRIFT_PCT: z.coerce.number().min(0).max(1).default(0.02),
 });
 
-const envResult = envSchema.safeParse(process.env);
+function stripTrailingNewlines(value: string): string {
+  return value.replace(/[\r\n]+$/u, "");
+}
+
+function resolveFileBackedEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const resolvedEnv = { ...env };
+
+  for (const envName of FILE_BACKED_ENV_KEYS) {
+    const fileEnvName = `${envName}_FILE`;
+    const filePath = env[fileEnvName];
+
+    if (!filePath) {
+      continue;
+    }
+
+    if (env[envName]) {
+      throw new Error(
+        `${envName} and ${fileEnvName} are mutually exclusive; provide only one`,
+      );
+    }
+
+    let fileValue: string;
+
+    try {
+      fileValue = readFileSync(filePath, "utf8");
+    } catch {
+      throw new Error(`Unable to read ${fileEnvName} for ${envName}`);
+    }
+
+    const normalizedValue = stripTrailingNewlines(fileValue);
+    if (normalizedValue.length === 0) {
+      throw new Error(`${fileEnvName} for ${envName} must not be empty`);
+    }
+
+    resolvedEnv[envName] = normalizedValue;
+  }
+
+  return resolvedEnv;
+}
+
+const rawEnv = resolveFileBackedEnv(process.env);
+const envResult = envSchema.safeParse(rawEnv);
 
 if (!envResult.success) {
   const issues = envResult.error.issues
