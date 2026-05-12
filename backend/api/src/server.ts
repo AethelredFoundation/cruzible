@@ -248,8 +248,8 @@ export class ApiGateway {
       this.app.get("/metrics", requireOperationalAccess, metricsHandler);
     }
 
-    // Health routes are mounted after the global limiter. Only /health/live is
-    // exempted in the limiter because readiness performs dependency checks.
+    // Health routes are mounted after the global limiter. Liveness/readiness
+    // probes are exempted for orchestrators; full /health remains protected.
     this.app.use("/health", healthRouter);
 
     if (config.apiDocsEnabled) {
