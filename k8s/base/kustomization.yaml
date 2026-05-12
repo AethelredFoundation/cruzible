@@ -4,3 +4,4 @@ resources:
   - backend.yaml
   - frontend.yaml
   - image-verification-policy.yaml
+  - network-policy.yaml

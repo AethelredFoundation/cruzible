@@ -19,6 +19,10 @@ const imageVerificationPolicy = readFileSync(
   resolve(repoRoot, "k8s/base/image-verification-policy.yaml"),
   "utf8",
 );
+const networkPolicyManifest = readFileSync(
+  resolve(repoRoot, "k8s/base/network-policy.yaml"),
+  "utf8",
+);
 
 function getImageRefs(manifest: string): string[] {
   return Array.from(manifest.matchAll(/^\s*image:\s*(\S+)\s*$/gm)).map(
@@ -169,5 +173,22 @@ describe("Kubernetes base manifests", () => {
     expectContainerHardening(backendManifest, "cruzible-api");
     expectContainerHardening(backendManifest, "cruzible-indexer");
     expectContainerHardening(frontendManifest, "cruzible-frontend");
+  });
+
+  it("enforces fail-closed network policy boundaries", () => {
+    expect(kustomizationManifest).toContain("network-policy.yaml");
+    expect(networkPolicyManifest).toContain("name: cruzible-default-deny");
+    expect(networkPolicyManifest).toContain("podSelector: {}");
+    expect(networkPolicyManifest).toContain("name: cruzible-frontend-network");
+    expect(networkPolicyManifest).toContain("name: cruzible-api-network");
+    expect(networkPolicyManifest).toContain("name: cruzible-indexer-network");
+    expect(networkPolicyManifest).toContain("k8s-app: kube-dns");
+    expect(networkPolicyManifest).toContain("app: cruzible-api");
+    expect(networkPolicyManifest).toContain("port: 3000");
+    expect(networkPolicyManifest).toContain("port: 443");
+    expect(networkPolicyManifest).toContain("port: 5432");
+    expect(networkPolicyManifest).toContain("port: 6379");
+    expect(networkPolicyManifest).toContain("port: 8545");
+    expect(networkPolicyManifest).toContain("port: 26657");
   });
 });
