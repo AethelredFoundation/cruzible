@@ -136,17 +136,14 @@ describe("GitHub Actions workflow hardening", () => {
     }
   });
 
-  it("avoids high-risk workflow triggers and floating action refs", () => {
+  it("avoids high-risk workflow triggers and unpinned action refs", () => {
     for (const file of workflowFiles) {
       const workflow = readWorkflow(file);
       expect(workflow).not.toContain("pull_request_target");
 
       for (const match of workflow.matchAll(/uses:\s+([^@\s]+)@([^\s]+)/g)) {
         const [, action, ref] = match;
-        expect(
-          ["main", "master", "latest", "HEAD"].includes(ref),
-          `${file}:${action}@${ref}`,
-        ).toBe(false);
+        expect(ref, `${file}:${action}@${ref}`).toMatch(/^[a-f0-9]{40}$/);
       }
     }
   });
@@ -184,7 +181,7 @@ describe("GitHub Actions workflow hardening", () => {
     const workflow = readWorkflow("ci-cd.yml");
 
     expect(workflow).toContain("python-sdk:");
-    expect(workflow).toContain("uses: actions/setup-python@v6");
+    expect(workflow).toContain("uses: actions/setup-python@");
     expect(workflow).toContain(
       "python -m pip install --disable-pip-version-check --no-input ./sdk/python",
     );
@@ -214,18 +211,14 @@ describe("GitHub Actions workflow hardening", () => {
     expect(releaseJob?.block).toContain(
       "image: ghcr.io/aethelred/cruzible/api-indexer",
     );
-    expect(releaseJob?.block).toContain(
-      "uses: docker/build-push-action@v7.1.0",
-    );
+    expect(releaseJob?.block).toContain("uses: docker/build-push-action@");
     expect(releaseJob?.block).toContain("push: true");
     expect(releaseJob?.block).toContain("sbom: true");
     expect(releaseJob?.block).toContain("provenance: mode=max");
-    expect(releaseJob?.block).toContain(
-      "uses: sigstore/cosign-installer@v4.1.2",
-    );
+    expect(releaseJob?.block).toContain("uses: sigstore/cosign-installer@");
     expect(releaseJob?.block).toContain("cosign sign --yes");
     expect(releaseJob?.block).toContain(
-      "uses: actions/attest-build-provenance@v4.1.0",
+      "uses: actions/attest-build-provenance@",
     );
     expect(releaseJob?.block).toContain(
       "RELEASE_NEXT_PUBLIC_API_URL repository variable is required",
