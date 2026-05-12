@@ -44,7 +44,8 @@ import {
   useStablecoinConfig,
   useStablecoinAllowance,
 } from "@/hooks/useStablecoinBridge";
-import { formatUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
+import { needsTokenApproval } from "@/lib/allowance";
 
 // ============================================================================
 // TYPES
@@ -95,7 +96,22 @@ function BridgeTab() {
   const asset = STABLECOIN_ASSETS[selectedSymbol];
   const balance = wallet.stablecoinBalances[selectedSymbol] ?? 0;
   const config = useStablecoinConfig(selectedSymbol);
+  const { allowance, isLoading: allowanceLoading } =
+    useStablecoinAllowance(selectedSymbol);
   const { bridgeOut, isPending } = useBridgeOut();
+  const parsedAmount = useMemo(() => {
+    if (!asset || !amount) {
+      return 0n;
+    }
+
+    try {
+      return parseUnits(amount, asset.decimals);
+    } catch {
+      return 0n;
+    }
+  }, [amount, asset]);
+  const approvalRequired =
+    parsedAmount > 0n && needsTokenApproval(allowance, parsedAmount);
 
   const handleMaxClick = useCallback(() => {
     setAmount(balance.toString());
@@ -235,6 +251,26 @@ function BridgeTab() {
           <div className="flex justify-between text-sm text-gray-400 pt-2">
             <span>Decimals</span>
             <span>{asset?.decimals ?? "—"}</span>
+          </div>
+          <div className="flex justify-between text-sm text-gray-400">
+            <span>Allowance precheck</span>
+            <span className="text-right text-gray-300">
+              {!wallet.connected
+                ? "Connect wallet"
+                : allowanceLoading
+                  ? "Loading..."
+                  : parsedAmount <= 0n
+                    ? "Enter amount"
+                    : approvalRequired
+                      ? "Approval required"
+                      : "Ready"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-4 text-sm text-gray-400">
+            <span>Pre-sign simulation</span>
+            <span className="text-right text-emerald-300">
+              Approval and bridge checked before wallet opens
+            </span>
           </div>
 
           {/* Submit */}

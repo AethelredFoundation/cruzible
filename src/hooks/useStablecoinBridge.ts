@@ -21,8 +21,8 @@ import {
   useAccount,
   useConfig,
 } from "wagmi";
-import { waitForTransactionReceipt } from "wagmi/actions";
-import { parseUnits, pad, zeroAddress, type Hash } from "viem";
+import { readContract, waitForTransactionReceipt } from "wagmi/actions";
+import { parseUnits, pad, zeroAddress, type Address, type Hash } from "viem";
 import { StablecoinBridgeABI, ERC20ABI } from "@/config/abis";
 import {
   getContractAddress,
@@ -31,11 +31,13 @@ import {
 } from "@/config/contracts";
 import { activeChain } from "@/config/wagmi";
 import { useApp } from "@/contexts/AppContext";
+import { STABLECOIN_ASSETS, isStablecoinEnabled } from "@/lib/constants";
+import { needsTokenApproval } from "@/lib/allowance";
 import {
-  STABLECOIN_ASSETS,
-  isStablecoinEnabled,
-  type StablecoinAsset,
-} from "@/lib/constants";
+  getStablecoinBridgeLimitBlockReason,
+  isAllowedCctpDomain,
+} from "@/lib/stablecoinBridgeGuards";
+import { assertContractSimulation } from "@/lib/transactionPreflight";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -198,6 +200,15 @@ export function useBridgeOut() {
         return undefined;
       }
 
+      if (!isAllowedCctpDomain(destinationDomain)) {
+        addNotification(
+          "error",
+          "Unsupported Destination",
+          "The selected CCTP destination domain is not enabled for this bridge.",
+        );
+        return undefined;
+      }
+
       // Fail closed on live on-chain config before requesting any approval.
       if (!onChainConfig || onChainConfig.isLoading) {
         addNotification(
@@ -268,38 +279,83 @@ export function useBridgeOut() {
       try {
         // Parse amount using the asset's native decimals (6 for USDC/USDT)
         const amount = parseUnits(amountHuman, asset.decimals);
-
-        // Step 1: Approve token spending
-        addNotification(
-          "info",
-          "Approving",
-          `Please approve ${symbol} spending in your wallet...`,
+        const limitBlockReason = getStablecoinBridgeLimitBlockReason(
+          amount,
+          symbol,
+          onChainConfig,
         );
 
-        const approveHash = await writeContractAsync({
+        if (limitBlockReason) {
+          addNotification("error", "Bridge Amount Blocked", limitBlockReason);
+          return undefined;
+        }
+
+        const allowance = (await readContract(config, {
           address: tokenAddr,
           abi: ERC20ABI,
-          functionName: "approve",
-          args: [bridgeAddr, amount],
+          functionName: "allowance",
+          args: [address, bridgeAddr],
           chainId: activeChain.id,
-        });
+        })) as bigint;
 
-        addNotification(
-          "info",
-          "Confirming Approval",
-          "Waiting for approval to be confirmed on-chain...",
-        );
-        const approvalReceipt = await waitForTransactionReceipt(config, {
-          hash: approveHash,
-        });
-
-        if (approvalReceipt.status === "reverted") {
+        // Step 1: Approve token spending only if the current allowance is not
+        // enough. This avoids unnecessary signature prompts and allowance churn.
+        if (needsTokenApproval(allowance, amount)) {
           addNotification(
-            "error",
-            "Approval Reverted",
-            `The ${symbol} approval was reverted on-chain.`,
+            "info",
+            "Approving",
+            `Please approve ${symbol} spending in your wallet...`,
           );
-          return undefined;
+
+          if (
+            !(await assertContractSimulation(
+              config,
+              addNotification,
+              `${symbol} Approval`,
+              {
+                address: tokenAddr,
+                abi: ERC20ABI,
+                functionName: "approve",
+                args: [bridgeAddr, amount],
+                account: address as Address,
+                chainId: activeChain.id,
+              },
+            ))
+          ) {
+            return undefined;
+          }
+
+          const approveHash = await writeContractAsync({
+            address: tokenAddr,
+            abi: ERC20ABI,
+            functionName: "approve",
+            args: [bridgeAddr, amount],
+            chainId: activeChain.id,
+          });
+
+          addNotification(
+            "info",
+            "Confirming Approval",
+            "Waiting for approval to be confirmed on-chain...",
+          );
+          const approvalReceipt = await waitForTransactionReceipt(config, {
+            hash: approveHash,
+          });
+
+          if (approvalReceipt.status === "reverted") {
+            addNotification(
+              "error",
+              "Approval Reverted",
+              `The ${symbol} approval was reverted on-chain.`,
+            );
+            return undefined;
+          }
+        } else {
+          addNotification(
+            "info",
+            "Allowance Ready",
+            `${symbol} allowance already covers this bridge amount.`,
+          );
         }
 
         // Step 2: Bridge out via CCTP
@@ -311,6 +367,24 @@ export function useBridgeOut() {
           "Bridging",
           `Please confirm the ${symbol} bridge-out transaction...`,
         );
+        if (
+          !(await assertContractSimulation(
+            config,
+            addNotification,
+            `${symbol} Bridge`,
+            {
+              address: bridgeAddr,
+              abi: StablecoinBridgeABI,
+              functionName: "bridgeOutViaCCTP",
+              args: [asset.assetId, amount, destinationDomain, mintRecipient],
+              account: address as Address,
+              chainId: activeChain.id,
+            },
+          ))
+        ) {
+          return undefined;
+        }
+
         const hash = await writeContractAsync({
           address: bridgeAddr,
           abi: StablecoinBridgeABI,
