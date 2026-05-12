@@ -142,6 +142,12 @@ describe("Next.js security config", () => {
 
   it("sets browser isolation and legacy plugin blocking headers", async () => {
     await expect(
+      getGlobalSecurityHeader("X-DNS-Prefetch-Control"),
+    ).resolves.toBe("off");
+    await expect(getGlobalSecurityHeader("Referrer-Policy")).resolves.toBe(
+      "no-referrer",
+    );
+    await expect(
       getGlobalSecurityHeader("Cross-Origin-Opener-Policy"),
     ).resolves.toBe("same-origin-allow-popups");
     await expect(

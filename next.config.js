@@ -44,7 +44,7 @@ const nextConfig = {
       {
         source: "/:path*",
         headers: [
-          { key: "X-DNS-Prefetch-Control", value: "on" },
+          { key: "X-DNS-Prefetch-Control", value: "off" },
           {
             key: "Strict-Transport-Security",
             value: "max-age=63072000; includeSubDomains; preload",
@@ -63,7 +63,7 @@ const nextConfig = {
           { key: "Cross-Origin-Resource-Policy", value: "same-site" },
           { key: "Origin-Agent-Cluster", value: "?1" },
           { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
-          { key: "Referrer-Policy", value: "origin-when-cross-origin" },
+          { key: "Referrer-Policy", value: "no-referrer" },
         ],
       },
       {
