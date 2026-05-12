@@ -16,6 +16,10 @@ export function clearApiAccessToken() {
   apiAccessToken = null;
 }
 
+function encodePathSegment(value: string | number): string {
+  return encodeURIComponent(String(value));
+}
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -62,7 +66,7 @@ export async function getBlocks(
 }
 
 export async function getBlock(height: number): Promise<ApiResponse<Block>> {
-  return fetchApi(`/blocks/${height}`);
+  return fetchApi(`/blocks/${encodePathSegment(height)}`);
 }
 
 export async function getLatestBlock(): Promise<ApiResponse<Block>> {
@@ -113,7 +117,7 @@ export async function getTransactions(
 export async function getTransaction(
   hash: string,
 ): Promise<ApiResponse<Transaction>> {
-  return fetchApi(`/transactions/${hash}`);
+  return fetchApi(`/transactions/${encodePathSegment(hash)}`);
 }
 
 // =============================================================================
@@ -151,7 +155,7 @@ export async function getValidators(
 export async function getValidator(
   address: string,
 ): Promise<ApiResponse<Validator>> {
-  return fetchApi(`/validators/${address}`);
+  return fetchApi(`/validators/${encodePathSegment(address)}`);
 }
 
 // =============================================================================
@@ -200,7 +204,7 @@ export async function getJobs(
 }
 
 export async function getJob(id: string): Promise<ApiResponse<AIJob>> {
-  return fetchApi(`/jobs/${id}`);
+  return fetchApi(`/jobs/${encodePathSegment(id)}`);
 }
 
 export async function submitJob(jobData: {
@@ -235,7 +239,7 @@ export interface StakingInfo {
 export async function getStakingInfo(
   address: string,
 ): Promise<ApiResponse<StakingInfo>> {
-  return fetchApi(`/staking/${address}`);
+  return fetchApi(`/staking/${encodePathSegment(address)}`);
 }
 
 export async function getStakingValidators(): Promise<
