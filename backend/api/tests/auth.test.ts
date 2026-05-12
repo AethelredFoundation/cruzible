@@ -172,11 +172,17 @@ describe('auth routes', () => {
     delete process.env.DATABASE_URL;
 
     const { authRouter } = await import('../src/routes/v1/auth');
+    const { authenticate: routeAuthenticate } = await import(
+      '../src/auth/middleware'
+    );
     const { errorHandler } = await import('../src/middleware/errorHandler');
 
     const app = express();
     app.use(express.json());
     app.use('/v1/auth', authRouter);
+    app.get('/protected', routeAuthenticate, (req, res) => {
+      res.json({ address: req.user?.address });
+    });
     app.use(errorHandler);
 
     await withHttpServer(app, fn);
@@ -492,7 +498,7 @@ describe('auth routes', () => {
     });
   });
 
-  it('revokes refresh tokens on logout', async () => {
+  it('revokes refresh and access tokens on logout', async () => {
     await withAuthRoutes(async (baseUrl) => {
       const challenge = await (
         await fetch(`${baseUrl}/v1/auth/nonce`, {
@@ -513,6 +519,9 @@ describe('auth routes', () => {
         })
       ).json();
 
+      const accessBeforeLogout = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+      });
       const logoutResponse = await fetch(`${baseUrl}/v1/auth/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -523,9 +532,16 @@ describe('auth routes', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
       });
+      const accessAfterLogout = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+      });
+      const accessAfterLogoutBody = await accessAfterLogout.json();
 
+      expect(accessBeforeLogout.status).toBe(200);
       expect(logoutResponse.status).toBe(204);
       expect(refreshResponse.status).toBe(401);
+      expect(accessAfterLogout.status).toBe(401);
+      expect(accessAfterLogoutBody.message).toContain('Access token revoked');
     });
   });
 });

@@ -334,7 +334,14 @@ export async function revokeRefreshToken(token: string): Promise<void> {
     throw new Error('Refresh session not found');
   }
 
-  logger.info('Refresh token revoked', { address: verified.address });
+  await revokeAccessTokensForAddress(verified.address, {
+    actorAddress: verified.address,
+    reason: 'logout',
+  });
+
+  logger.info('Refresh token and access tokens revoked on logout', {
+    address: verified.address,
+  });
 }
 
 export async function isTokenRevoked(token: string): Promise<boolean> {
