@@ -193,6 +193,12 @@ pub enum ExecuteMsg {
         slash_id: u64,
         amount: Uint128,
     },
+    /// Called by the staking token contract after a successful stAETHEL transfer.
+    SyncStakingTokenTransfer {
+        from: String,
+        to: String,
+        amount: Uint128,
+    },
     Pause {},
     Unpause {},
     /// Sweep accidental donations (admin only)
@@ -356,6 +362,9 @@ pub fn execute(
         ExecuteMsg::AddRewards {} => execute_add_rewards(deps, info),
         ExecuteMsg::RecordSlash { slash_id, amount } => {
             execute_record_slash(deps, info, slash_id, amount)
+        }
+        ExecuteMsg::SyncStakingTokenTransfer { from, to, amount } => {
+            execute_sync_staking_token_transfer(deps, info, from, to, amount)
         }
         ExecuteMsg::Pause {} => execute_pause(deps, info),
         ExecuteMsg::Unpause {} => execute_unpause(deps, info),
@@ -737,6 +746,82 @@ fn execute_claim_rewards(
         .add_message(send_msg)
         .add_attribute("action", "claim_rewards")
         .add_attribute("rewards", rewards))
+}
+
+fn execute_sync_staking_token_transfer(
+    deps: DepsMut,
+    info: MessageInfo,
+    from: String,
+    to: String,
+    amount: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    ensure!(
+        info.sender == config.staking_token,
+        ContractError::Unauthorized {}
+    );
+    ensure!(!amount.is_zero(), ContractError::InvalidAmount {});
+
+    let from_addr = deps.api.addr_validate(&from)?;
+    let to_addr = deps.api.addr_validate(&to)?;
+    ensure!(from_addr != to_addr, ContractError::InvalidAmount {});
+
+    let mut from_stake = USER_STAKES.load(deps.storage, &from_addr)?;
+    ensure!(
+        from_stake.shares >= amount,
+        ContractError::InsufficientBalance {}
+    );
+
+    let (transferred_staked_amount, transferred_reward_debt) =
+        calculate_transfer_accounting(&from_stake, amount)?;
+
+    from_stake.shares = from_stake
+        .shares
+        .checked_sub(amount)
+        .map_err(|_| ContractError::Underflow {})?;
+    from_stake.staked_amount = from_stake
+        .staked_amount
+        .checked_sub(transferred_staked_amount)
+        .map_err(|_| ContractError::Underflow {})?;
+    from_stake.reward_debt = from_stake
+        .reward_debt
+        .checked_sub(transferred_reward_debt)
+        .map_err(|_| ContractError::Underflow {})?;
+
+    if from_stake.shares.is_zero() {
+        USER_STAKES.remove(deps.storage, &from_addr);
+    } else {
+        USER_STAKES.save(deps.storage, &from_addr, &from_stake)?;
+    }
+
+    let mut to_stake = USER_STAKES
+        .may_load(deps.storage, &to_addr)?
+        .unwrap_or(UserStake {
+            shares: Uint128::zero(),
+            staked_amount: Uint128::zero(),
+            reward_debt: Uint128::zero(),
+        });
+    to_stake.shares = to_stake
+        .shares
+        .checked_add(amount)
+        .map_err(|_| ContractError::Overflow {})?;
+    to_stake.staked_amount = to_stake
+        .staked_amount
+        .checked_add(transferred_staked_amount)
+        .map_err(|_| ContractError::Overflow {})?;
+    to_stake.reward_debt = to_stake
+        .reward_debt
+        .checked_add(transferred_reward_debt)
+        .map_err(|_| ContractError::Overflow {})?;
+    USER_STAKES.save(deps.storage, &to_addr, &to_stake)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "sync_staking_token_transfer")
+        .add_attribute("from", from_addr)
+        .add_attribute("to", to_addr)
+        .add_attribute("shares", amount)
+        .add_attribute("staked_amount", transferred_staked_amount)
+        .add_attribute("reward_debt", transferred_reward_debt))
 }
 
 /// HIGH-4 FIX: Compound rewards directly into the user's stake without
@@ -1148,6 +1233,35 @@ fn calculate_rewards(state: &State, user_stake: &UserStake) -> Result<Uint128, C
     // Subtract what was already claimed/accounted for
     let pending = entitled.saturating_sub(user_stake.reward_debt);
     Ok(pending)
+}
+
+fn calculate_transfer_accounting(
+    user_stake: &UserStake,
+    shares_to_transfer: Uint128,
+) -> Result<(Uint128, Uint128), ContractError> {
+    ensure!(
+        !shares_to_transfer.is_zero() && user_stake.shares >= shares_to_transfer,
+        ContractError::InsufficientBalance {}
+    );
+
+    if shares_to_transfer == user_stake.shares {
+        return Ok((user_stake.staked_amount, user_stake.reward_debt));
+    }
+
+    let transferred_staked_amount = user_stake
+        .staked_amount
+        .checked_mul(shares_to_transfer)
+        .map_err(|_| ContractError::Overflow {})?
+        .checked_div(user_stake.shares)
+        .map_err(|_| ContractError::Underflow {})?;
+    let transferred_reward_debt = user_stake
+        .reward_debt
+        .checked_mul(shares_to_transfer)
+        .map_err(|_| ContractError::Overflow {})?
+        .checked_div(user_stake.shares)
+        .map_err(|_| ContractError::Underflow {})?;
+
+    Ok((transferred_staked_amount, transferred_reward_debt))
 }
 
 // ============ FORMAL INVARIANT ASSERTIONS ============

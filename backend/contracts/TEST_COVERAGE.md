@@ -9,18 +9,18 @@ cd backend/contracts
 cargo test
 ```
 
-Observed result: **247 passing tests**.
+Observed result: **303 passing unit tests**.
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            24 |
-| `ai_job_manager` |            55 |
-| `cw20_staking`   |            42 |
-| `governance`     |            49 |
-| `model_registry` |            50 |
-| `seal_manager`   |            27 |
+| `vault`          |            32 |
+| `ai_job_manager` |            72 |
+| `cw20_staking`   |            53 |
+| `governance`     |            53 |
+| `model_registry` |            54 |
+| `seal_manager`   |            39 |
 | Doc tests        |             0 |
-| **Total**        |       **247** |
+| **Total**        |       **303** |
 
 ## Covered Remediation Themes
 
@@ -28,7 +28,7 @@ The passing test set includes coverage for the current hardening work:
 
 - Vault reward index and reward double-claim prevention.
 - Vault unbonding claim-state handling.
-- Vault stAETHEL mint/burn lifecycle for stake, unstake, compound, and restake.
+- Vault stAETHEL mint/burn lifecycle plus transfer-synchronized accounting for direct and delegated transfers.
 - Vault rounding behavior.
 - Vault donation/accounted-balance controls.
 - AI job Paid-state double-claim guard.

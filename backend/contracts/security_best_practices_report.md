@@ -35,7 +35,7 @@ The current code includes remediations for the previously tracked critical and h
 | Vault reward accounting   | Reward index/checkpoint controls prevent repeat reward claims and stale pro-rata reward capture.                                                                    |
 | Vault withdrawal claims   | Claimed-state handling and terminal request state prevent double claim of unbonding requests.                                                                       |
 | Vault rounding            | Share mint/burn rounding is protocol-favorable and covered by security tests.                                                                                       |
-| Vault stAETHEL lifecycle  | Stake, compound, and restake mint stAETHEL; unstake burns stAETHEL through the configured staking token contract.                                                   |
+| Vault stAETHEL lifecycle  | Stake, compound, and restake mint stAETHEL; unstake burns through the configured staking token minter path; transfers synchronize vault accounting through the hook. |
 | Vault donation controls   | Accounted balance tracking and donation controls prevent direct-transfer share price inflation.                                                                     |
 | AI job payment claims     | Paid-state transition prevents repeated settlement of the same verified job.                                                                                        |
 | Governance voting         | Snapshot voting power and quorum controls replace placeholder voting and execution logic.                                                                           |
@@ -56,29 +56,29 @@ Passing test counts:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            24 |
-| `ai_job_manager` |            55 |
-| `cw20_staking`   |            42 |
-| `governance`     |            49 |
-| `model_registry` |            50 |
-| `seal_manager`   |            27 |
+| `vault`          |            32 |
+| `ai_job_manager` |            72 |
+| `cw20_staking`   |            53 |
+| `governance`     |            53 |
+| `model_registry` |            54 |
+| `seal_manager`   |            39 |
 | Doc tests        |             0 |
-| **Total**        |       **247** |
+| **Total**        |       **303** |
 
 ## Audit-Candidate Readiness
 
 The workspace is suitable for an external audit candidate branch after the following evidence is packaged:
 
 - Current source tree and Cargo lockfile.
-- Reproducible `cargo test` output showing 247 passing tests.
+- Reproducible `cargo test` output showing 303 passing unit tests.
 - Commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json` from CI.
 - Detached artifact signatures generated with `RELEASE_SIGNING.md` before launch.
 - Strict release manifest reconciliation against the signed artifact directory.
 - Exact instantiate messages and funds reconciled against reviewed
   cross-contract role/config wiring.
 - Post-instantiate role wiring evidence for contract relationships that cannot
-  be final at first instantiation, including CW20 minter handoff and model
-  registry job-manager authorization.
+  be final at first instantiation, including CW20 transfer-hook wiring, CW20
+  minter handoff, and model registry job-manager authorization.
 - This assurance report and the related security/test coverage documents.
 - `AUDIT_PACKET.md` with residual review items, deployment assumptions, staging drill, and release manifest template.
 

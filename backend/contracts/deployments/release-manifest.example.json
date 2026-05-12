@@ -88,12 +88,14 @@
       "instantiate_funds": [],
       "roles": {
         "initial_minter": "aethel1admin00000000000000000000000000000000000",
-        "minter": "aethel1vault0000000000000000000000000000000000"
+        "minter": "aethel1vault0000000000000000000000000000000000",
+        "transfer_hook": "aethel1vault0000000000000000000000000000000000"
       },
       "config": {
         "symbol": "stAETHEL",
         "decimals": 6,
-        "cap": "1000000000000000"
+        "cap": "1000000000000000",
+        "transfer_hook": "aethel1vault0000000000000000000000000000000000"
       }
     },
     {
@@ -280,6 +282,18 @@
     }
   ],
   "post_instantiate_actions": [
+    {
+      "name": "cw20_staking_set_vault_transfer_hook",
+      "contract": "cw20_staking",
+      "contract_address": "aethel1cw20staking0000000000000000000000000000000",
+      "actor": "aethel1admin00000000000000000000000000000000000",
+      "tx_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+      "message": {
+        "update_transfer_hook": {
+          "hook": "aethel1vault0000000000000000000000000000000000"
+        }
+      }
+    },
     {
       "name": "cw20_staking_set_vault_minter",
       "contract": "cw20_staking",

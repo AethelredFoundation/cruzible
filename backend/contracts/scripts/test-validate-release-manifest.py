@@ -262,6 +262,48 @@ class ReleaseManifestValidationTests(unittest.TestCase):
 
             self.assert_manifest_fails(manifest_path)
 
+    def test_post_instantiate_action_required_for_cw20_transfer_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            manifest["post_instantiate_actions"] = [
+                action
+                for action in manifest["post_instantiate_actions"]
+                if action["name"] != "cw20_staking_set_vault_transfer_hook"
+            ]
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_post_instantiate_action_must_set_vault_transfer_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            action = self.action_by_name(manifest, "cw20_staking_set_vault_transfer_hook")
+            action["message"]["update_transfer_hook"]["hook"] = (
+                "aethel1wrongvault0000000000000000000000000000000"
+            )
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_post_instantiate_action_transfer_hook_precedes_minter_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            actions = manifest["post_instantiate_actions"]
+            hook_index = next(
+                index
+                for index, action in enumerate(actions)
+                if action["name"] == "cw20_staking_set_vault_transfer_hook"
+            )
+            minter_index = next(
+                index
+                for index, action in enumerate(actions)
+                if action["name"] == "cw20_staking_set_vault_minter"
+            )
+            actions[hook_index], actions[minter_index] = actions[minter_index], actions[hook_index]
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
     def test_artifact_reconciliation_rejects_checksum_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

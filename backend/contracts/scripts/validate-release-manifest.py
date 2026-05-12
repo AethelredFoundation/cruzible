@@ -508,11 +508,15 @@ def validate_contract_wiring(contracts: dict[str, dict[str, Any]]) -> None:
     validate_required_role(cw20_roles, "initial_minter", cw20_path)
     if validate_required_role(cw20_roles, "minter", cw20_path) != vault["address"]:
         fail(f"{cw20_path}.roles.minter must match vault address")
+    if validate_required_role(cw20_roles, "transfer_hook", cw20_path) != vault["address"]:
+        fail(f"{cw20_path}.roles.transfer_hook must match vault address")
 
     for role in ("operator", "pauser"):
         validate_required_role(vault_roles, role, vault_path)
     if validate_required_config_string(vault_config, "staking_token", vault_path) != cw20["address"]:
         fail(f"{vault_path}.config.staking_token must match cw20_staking address")
+    if validate_required_config_string(cw20_config, "transfer_hook", cw20_path) != vault["address"]:
+        fail(f"{cw20_path}.config.transfer_hook must match vault address")
     validate_required_config_string(vault_config, "denom", vault_path)
     require_int(vault_config.get("unbonding_period_seconds"), f"{vault_path}.config.unbonding_period_seconds")
 
@@ -551,6 +555,7 @@ def validate_post_instantiate_actions(root: dict[str, Any], contracts: dict[str,
     ai_jobs = contracts["ai_job_manager"]
 
     cw20_minter_action = None
+    cw20_transfer_hook_action = None
     model_registry_action = None
     for index, raw_action in enumerate(actions):
         action = require_mapping(raw_action, f"$.post_instantiate_actions[{index}]")
@@ -569,6 +574,13 @@ def validate_post_instantiate_actions(root: dict[str, Any], contracts: dict[str,
                 fail("cw20_staking_set_vault_minter must target cw20_staking")
             cw20_minter_action = (index, action)
 
+        if name == "cw20_staking_set_vault_transfer_hook":
+            if cw20_transfer_hook_action is not None:
+                fail("$.post_instantiate_actions contains duplicate cw20_staking_set_vault_transfer_hook")
+            if contract != "cw20_staking":
+                fail("cw20_staking_set_vault_transfer_hook must target cw20_staking")
+            cw20_transfer_hook_action = (index, action)
+
         if name == "model_registry_set_ai_job_manager":
             if model_registry_action is not None:
                 fail("$.post_instantiate_actions contains duplicate model_registry_set_ai_job_manager")
@@ -578,11 +590,39 @@ def validate_post_instantiate_actions(root: dict[str, Any], contracts: dict[str,
 
     if cw20_minter_action is None:
         fail("$.post_instantiate_actions must include cw20_staking_set_vault_minter")
+    if cw20_transfer_hook_action is None:
+        fail("$.post_instantiate_actions must include cw20_staking_set_vault_transfer_hook")
     if model_registry_action is None:
         fail("$.post_instantiate_actions must include model_registry_set_ai_job_manager")
 
+    hook_index, hook_action = cw20_transfer_hook_action
     index, action = cw20_minter_action
+    if hook_index > index:
+        fail("cw20_staking_set_vault_transfer_hook must execute before cw20_staking_set_vault_minter")
+
     cw20_roles = require_mapping(cw20.get("roles"), "$.contracts[cw20_staking].roles")
+    if require_string(
+        hook_action.get("contract_address"),
+        f"$.post_instantiate_actions[{hook_index}].contract_address",
+    ) != cw20["address"]:
+        fail("cw20_staking_set_vault_transfer_hook contract_address must match cw20_staking address")
+    if hook_action["actor"] != cw20_roles["initial_minter"]:
+        fail("cw20_staking_set_vault_transfer_hook actor must match cw20_staking initial_minter")
+
+    hook_message = require_mapping(
+        hook_action.get("message"),
+        f"$.post_instantiate_actions[{hook_index}].message",
+    )
+    update_transfer_hook = require_mapping(
+        hook_message.get("update_transfer_hook"),
+        f"$.post_instantiate_actions[{hook_index}].message.update_transfer_hook",
+    )
+    if require_string(
+        update_transfer_hook.get("hook"),
+        f"$.post_instantiate_actions[{hook_index}].message.update_transfer_hook.hook",
+    ) != vault["address"]:
+        fail("cw20_staking_set_vault_transfer_hook message must set the vault as transfer hook")
+
     if require_string(
         action.get("contract_address"),
         f"$.post_instantiate_actions[{index}].contract_address",

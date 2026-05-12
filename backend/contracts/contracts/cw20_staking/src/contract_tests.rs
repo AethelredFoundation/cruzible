@@ -20,7 +20,9 @@ mod tests {
     use cosmwasm_std::testing::{
         mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
     };
-    use cosmwasm_std::{from_json, Addr, Binary, Env, OwnedDeps, Uint128};
+    use cosmwasm_std::{
+        from_json, Addr, Binary, CosmosMsg, Env, OwnedDeps, Response, Uint128, WasmMsg,
+    };
 
     // ============ TEST HELPERS ============
 
@@ -35,6 +37,7 @@ mod tests {
             initial_supply: Uint128::from(1_000_000_000u128),
             minter: "minter".to_string(),
             cap: Some(Uint128::from(10_000_000_000u128)),
+            transfer_hook: None,
         };
         instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
         (deps, env)
@@ -51,6 +54,7 @@ mod tests {
             initial_supply: Uint128::from(1_000_000u128),
             minter: "minter".to_string(),
             cap: None,
+            transfer_hook: None,
         };
         instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
         (deps, env)
@@ -77,6 +81,40 @@ mod tests {
         let res = query(deps.as_ref(), env.clone(), QueryMsg::TokenInfo {}).unwrap();
         let info: TokenInfoResponse = from_json(&res).unwrap();
         info.total_supply
+    }
+
+    fn instantiate_with_transfer_hook(
+        hook: &str,
+    ) -> (OwnedDeps<MockStorage, MockApi, MockQuerier>, Env) {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("minter", &[]);
+        let msg = InstantiateMsg {
+            name: "Staked AETHEL".to_string(),
+            symbol: "stAETHEL".to_string(),
+            decimals: 6,
+            initial_supply: Uint128::from(1_000_000_000u128),
+            minter: "minter".to_string(),
+            cap: Some(Uint128::from(10_000_000_000u128)),
+            transfer_hook: Some(hook.to_string()),
+        };
+        instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+        (deps, env)
+    }
+
+    fn transfer_hook_msg(response: &Response) -> (String, TransferHookExecuteMsg) {
+        assert_eq!(response.messages.len(), 1);
+        match &response.messages[0].msg {
+            CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr,
+                msg,
+                funds,
+            }) => {
+                assert!(funds.is_empty());
+                (contract_addr.clone(), from_json(msg).unwrap())
+            }
+            other => panic!("unexpected message: {:?}", other),
+        }
     }
 
     // ============ INSTANTIATION TESTS ============
@@ -113,6 +151,7 @@ mod tests {
             initial_supply: Uint128::zero(),
             minter: "minter".to_string(),
             cap: None,
+            transfer_hook: None,
         };
         instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
         assert_eq!(query_balance(&deps, &env, "minter"), Uint128::zero());
@@ -142,6 +181,7 @@ mod tests {
             initial_supply: Uint128::zero(),
             minter: "minter".to_string(),
             cap: None,
+            transfer_hook: None,
         };
 
         let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
@@ -161,6 +201,7 @@ mod tests {
             initial_supply: Uint128::zero(),
             minter: "minter".to_string(),
             cap: None,
+            transfer_hook: None,
         };
 
         let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
@@ -180,6 +221,7 @@ mod tests {
             initial_supply: Uint128::zero(),
             minter: "minter".to_string(),
             cap: None,
+            transfer_hook: None,
         };
 
         let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
@@ -199,6 +241,7 @@ mod tests {
             initial_supply: Uint128::from(101u128),
             minter: "minter".to_string(),
             cap: Some(Uint128::from(100u128)),
+            transfer_hook: None,
         };
 
         let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
@@ -272,6 +315,28 @@ mod tests {
         execute(deps.as_mut(), env.clone(), info, msg).unwrap();
         let supply_after = query_supply(&deps, &env);
         assert_eq!(supply_before, supply_after);
+    }
+
+    #[test]
+    fn test_transfer_emits_vault_accounting_hook() {
+        let (mut deps, env) = instantiate_with_transfer_hook("vault");
+        let info = mock_info("minter", &[]);
+        let msg = ExecuteMsg::Transfer {
+            recipient: "alice".to_string(),
+            amount: Uint128::from(500u128),
+        };
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+        let (contract, hook_msg) = transfer_hook_msg(&res);
+
+        assert_eq!(contract, "vault");
+        assert_eq!(
+            hook_msg,
+            TransferHookExecuteMsg::SyncStakingTokenTransfer {
+                from: "minter".to_string(),
+                to: "alice".to_string(),
+                amount: Uint128::from(500u128),
+            }
+        );
     }
 
     // ============ MINT TESTS ============
@@ -353,6 +418,7 @@ mod tests {
             initial_supply: Uint128::MAX,
             minter: "minter".to_string(),
             cap: None,
+            transfer_hook: None,
         };
         instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 
@@ -588,6 +654,48 @@ mod tests {
     }
 
     #[test]
+    fn test_transfer_from_emits_vault_accounting_hook() {
+        let (mut deps, env) = instantiate_with_transfer_hook("vault");
+
+        let info = mock_info("minter", &[]);
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::IncreaseAllowance {
+                spender: "spender".to_string(),
+                amount: Uint128::from(500u128),
+                expires: None,
+            },
+        )
+        .unwrap();
+
+        let info = mock_info("spender", &[]);
+        let res = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::TransferFrom {
+                owner: "minter".to_string(),
+                recipient: "alice".to_string(),
+                amount: Uint128::from(300u128),
+            },
+        )
+        .unwrap();
+        let (contract, hook_msg) = transfer_hook_msg(&res);
+
+        assert_eq!(contract, "vault");
+        assert_eq!(
+            hook_msg,
+            TransferHookExecuteMsg::SyncStakingTokenTransfer {
+                from: "minter".to_string(),
+                to: "alice".to_string(),
+                amount: Uint128::from(300u128),
+            }
+        );
+    }
+
+    #[test]
     fn test_transfer_from_self_transfer_rejected() {
         let (mut deps, env) = default_instantiate();
 
@@ -729,6 +837,28 @@ mod tests {
     }
 
     #[test]
+    fn test_minter_can_burn_from_without_allowance() {
+        let (mut deps, env) = default_instantiate();
+        let info = mock_info("minter", &[]);
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::BurnFrom {
+                owner: "minter".to_string(),
+                amount: Uint128::from(300u128),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            query_balance(&deps, &env, "minter"),
+            Uint128::from(999_999_700u128)
+        );
+        assert_eq!(query_supply(&deps, &env), Uint128::from(999_999_700u128));
+    }
+
+    #[test]
     fn test_burn_from_zero_rejected() {
         let (mut deps, env) = default_instantiate();
         let info = mock_info("burner", &[]);
@@ -847,6 +977,60 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err, ContractError::Unauthorized {});
+    }
+
+    #[test]
+    fn test_update_transfer_hook_success() {
+        let (mut deps, env) = default_instantiate();
+        let info = mock_info("minter", &[]);
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::UpdateTransferHook {
+                hook: Some("vault".to_string()),
+            },
+        )
+        .unwrap();
+
+        let res = execute(
+            deps.as_mut(),
+            env,
+            mock_info("minter", &[]),
+            ExecuteMsg::Transfer {
+                recipient: "alice".to_string(),
+                amount: Uint128::from(100u128),
+            },
+        )
+        .unwrap();
+        let (contract, hook_msg) = transfer_hook_msg(&res);
+
+        assert_eq!(contract, "vault");
+        assert_eq!(
+            hook_msg,
+            TransferHookExecuteMsg::SyncStakingTokenTransfer {
+                from: "minter".to_string(),
+                to: "alice".to_string(),
+                amount: Uint128::from(100u128),
+            }
+        );
+    }
+
+    #[test]
+    fn test_update_transfer_hook_unauthorized() {
+        let (mut deps, env) = default_instantiate();
+        let info = mock_info("not_minter", &[]);
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::UpdateTransferHook {
+                hook: Some("vault".to_string()),
+            },
+        )
+        .unwrap_err();
+
         assert_eq!(err, ContractError::Unauthorized {});
     }
 

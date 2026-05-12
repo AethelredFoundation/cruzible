@@ -21,24 +21,24 @@ The current workspace includes remediations for prior critical findings and pass
 
 Implemented remediation areas:
 
-- Vault reward index, double-claim protection, stAETHEL mint/burn lifecycle, rounding controls, and donation/accounted-balance controls.
+- Vault reward index, double-claim protection, stAETHEL mint/burn lifecycle, transfer-synchronized accounting, rounding controls, and donation/accounted-balance controls.
 - AI job Paid-state guard to prevent repeated settlement.
 - Governance snapshot, quorum, multi-feeder total-bonded oracle, and governance-controlled feeder membership controls.
 - Model registry registration fee amount/denom enforcement, submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates from the AI job manager.
 - Seal manager cross-contract job check.
 
-Vault unstake uses the staking token `BurnFrom` flow, so frontends or transaction builders must obtain user allowance for the vault before unstaking. The web vault flow checks stAETHEL allowance and requests exact approval before submitting an unstake transaction.
+Vault deployments must wire the CW20 staking token to the vault as both final minter and transfer hook. The minter burn path lets the vault burn stAETHEL during unstake without user allowance, while the transfer hook keeps vault shares, stake principal, and reward debt synchronized across `transfer`, `transfer_from`, and `send`.
 
-Local `cargo test` from `backend/contracts` passes with 247 tests:
+Local `cargo test` from `backend/contracts` passes with 303 unit tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            24 |
-| `ai_job_manager` |            55 |
-| `cw20_staking`   |            42 |
-| `governance`     |            49 |
-| `model_registry` |            50 |
-| `seal_manager`   |            27 |
+| `vault`          |            32 |
+| `ai_job_manager` |            72 |
+| `cw20_staking`   |            53 |
+| `governance`     |            53 |
+| `model_registry` |            54 |
+| `seal_manager`   |            39 |
 | Doc tests        |             0 |
 
 ## Build and Test
@@ -65,8 +65,9 @@ release artifacts. Completed staging manifests should be checked with
 after signatures are generated.
 The manifest also records each contract's exact instantiate message and funds,
 plus required post-instantiate actions, including the CW20 staking token
-`UpdateMinter` transaction that hands mint authority to the vault and the model
-registry `UpdateConfig` transaction that authorizes the deployed AI job
+`UpdateTransferHook` transaction that wires transfer accounting, the
+`UpdateMinter` transaction that hands mint authority to the vault, and the
+model registry `UpdateConfig` transaction that authorizes the deployed AI job
 manager.
 
 ## Audit-Candidate Checklist
@@ -74,7 +75,7 @@ manager.
 Before external audit:
 
 - [x] Prior critical remediations implemented in live code.
-- [x] Local `cargo test` passes with 247 tests.
+- [x] Local `cargo test` passes with 303 unit tests.
 - [x] CI workflow enforces test, fmt, clippy, and wasm release build gates.
 - [x] CI workflow uploads commit-scoped wasm artifacts, checksums, and manifest.
 - [x] Known residual review items documented for auditor review.
@@ -82,7 +83,7 @@ Before external audit:
 - [x] Release manifest template is checked in and validated in CI.
 - [x] Release manifest validator reconciles strict staging manifests with signed artifact evidence.
 - [x] Release manifest validator checks instantiate messages and funds against reviewed role/config wiring.
-- [x] Release manifest validator checks required post-instantiate CW20 minter and model registry role wiring actions.
+- [x] Release manifest validator checks required post-instantiate CW20 transfer-hook, CW20 minter, and model registry role wiring actions.
 - [x] Release artifact signing and verification scripts are checked in.
 - [x] Governance feeder quorum, tolerance, mutation, quarantine, capacity, and production authority config is validated.
 - [ ] Staging release manifest captured with code IDs, addresses, checksums, and role owners.

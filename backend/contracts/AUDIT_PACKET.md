@@ -63,12 +63,12 @@ checksums and manifest.
 - Release manifests must record each contract's exact `instantiate_msg` and
   `instantiate_funds`; the validator reconciles these payloads with the
   manifest's role, config, artifact, and cross-contract wiring evidence.
-- The CW20 staking token manifest records the bootstrap minter and the
-  post-instantiate `UpdateMinter` transaction that makes the vault the final
-  minter.
+- The CW20 staking token manifest records the bootstrap minter plus
+  post-instantiate `UpdateTransferHook` and `UpdateMinter` transactions that
+  wire the vault as the accounting hook and final minter.
 - The vault `staking_token` config points to the deployed CW20 staking token.
-- Vault unstake uses the staking token `BurnFrom` flow, so users must approve
-  the vault before unstaking.
+- Vault unstake uses the staking token minter `BurnFrom` flow, so the vault can
+  burn exact stAETHEL shares without user allowance after the minter handoff.
 - Operator, pauser, verifier, feeder, and admin roles are controlled by
   production key management outside this repository.
 - Governance total-bonded feeder submissions must come from independent
@@ -85,9 +85,9 @@ checksums and manifest.
   known, so the staging manifest must record the post-instantiate
   `UpdateConfig` transaction that sets the final AI job manager role.
 - The CW20 staking token is instantiated before the vault address can be
-  wired into token config, so the staging manifest must record the
-  post-instantiate `UpdateMinter` transaction that hands mint authority to the
-  deployed vault.
+  wired into token config, so the staging manifest must record
+  `UpdateTransferHook` before `UpdateMinter` to keep transfer accounting
+  synchronized after mint authority is handed to the deployed vault.
 - Contract instantiation, migration, and address wiring must be recorded in a
   release manifest before any production deployment.
 
@@ -103,7 +103,7 @@ These are not hidden TODOs. They are explicit pre-production review items:
 | Staging deployment manifest        | Open    | Record real code IDs, contract addresses, admins, operators, and artifact checksums.                                       |
 | Staging deployment                 | Open    | Instantiate all contracts on a real chain and exercise core cross-contract flows.                                          |
 | Governance feeder decentralization | Ready   | Production manifests require governance-controlled feeder membership; admin mutation remains explicit bootstrap mode only. |
-| Frontend allowance flow            | Ready   | Vault unstake checks stAETHEL allowance and obtains exact approval before submission.                                      |
+| stAETHEL accounting hook           | Ready   | Release manifests require the vault transfer hook before CW20 mint authority handoff.                                      |
 | Release artifact signing           | Partial | Signing and verification scripts are checked in; production signatures still require release keys.                         |
 
 ## Minimum Staging Drill
@@ -111,13 +111,14 @@ These are not hidden TODOs. They are explicit pre-production review items:
 Before production readiness can be claimed, run a staging drill that covers:
 
 - Instantiate CW20 staking token with the bootstrap minter, instantiate the
-  vault with the deployed token address, then rotate CW20 mint authority to the
-  deployed vault.
+  vault with the deployed token address, set the CW20 transfer hook to the
+  vault, then rotate CW20 mint authority to the deployed vault.
 - Record and verify every contract's instantiate message, admin, funds, code
   ID, instantiate transaction hash, and deployed address.
-- Record and verify the CW20 staking token post-instantiate `UpdateMinter`
-  action that authorizes the deployed vault as final minter.
-- Stake, compound, unstake, approve, burn, unbond, and claim flows.
+- Record and verify the CW20 staking token post-instantiate
+  `UpdateTransferHook` and `UpdateMinter` actions that wire the deployed vault
+  as accounting hook and final minter.
+- Stake, transfer stAETHEL, compound, unstake, burn, unbond, and claim flows.
 - Submit, assign, complete, verify, pay, and seal an AI job.
 - Register and verify a model, submit jobs only against verified model hashes,
   and observe job-count submessages from the authorized job manager.

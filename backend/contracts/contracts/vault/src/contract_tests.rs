@@ -18,7 +18,7 @@ mod security_tests {
         mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
     };
     use cosmwasm_std::{
-        coins, from_json, CosmosMsg, Env, MessageInfo, OwnedDeps, Response, Uint128, WasmMsg,
+        coins, from_json, Addr, CosmosMsg, Env, MessageInfo, OwnedDeps, Response, Uint128, WasmMsg,
     };
 
     // ============ TEST HELPERS ============
@@ -341,6 +341,125 @@ mod security_tests {
                 amount: shares_burned,
             }
         );
+    }
+
+    #[test]
+    fn test_staking_token_transfer_syncs_user_stake_accounting() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "alice", 10_000_000);
+
+        let info = mock_info("staeth", &[]);
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::SyncStakingTokenTransfer {
+                from: "alice".to_string(),
+                to: "bob".to_string(),
+                amount: Uint128::from(5_000_000u128),
+            },
+        )
+        .unwrap();
+
+        let alice = USER_STAKES
+            .load(deps.as_ref().storage, &Addr::unchecked("alice"))
+            .unwrap();
+        let bob = USER_STAKES
+            .load(deps.as_ref().storage, &Addr::unchecked("bob"))
+            .unwrap();
+
+        assert_eq!(alice.shares, Uint128::from(5_000_000u128));
+        assert_eq!(alice.staked_amount, Uint128::from(5_000_000u128));
+        assert_eq!(bob.shares, Uint128::from(5_000_000u128));
+        assert_eq!(bob.staked_amount, Uint128::from(5_000_000u128));
+
+        let info = mock_info("alice", &[]);
+        let err = execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::Unstake {
+                amount: Uint128::from(10_000_000u128),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::InsufficientBalance {});
+
+        let res = unstake(&mut deps, &env, "bob", 5_000_000);
+        assert_eq!(res.attributes[0].value, "unstake");
+    }
+
+    #[test]
+    fn test_staking_token_transfer_moves_reward_debt_with_all_shares() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "alice", 10_000_000);
+
+        let info = mock_info("creator", &coins(2_000_000, "aeth"));
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::AddRewards {}).unwrap();
+
+        let alice_before = USER_STAKES
+            .load(deps.as_ref().storage, &Addr::unchecked("alice"))
+            .unwrap();
+
+        let info = mock_info("staeth", &[]);
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            ExecuteMsg::SyncStakingTokenTransfer {
+                from: "alice".to_string(),
+                to: "bob".to_string(),
+                amount: alice_before.shares,
+            },
+        )
+        .unwrap();
+
+        assert!(USER_STAKES
+            .may_load(deps.as_ref().storage, &Addr::unchecked("alice"))
+            .unwrap()
+            .is_none());
+
+        let bob = USER_STAKES
+            .load(deps.as_ref().storage, &Addr::unchecked("bob"))
+            .unwrap();
+        assert_eq!(bob, alice_before);
+
+        let info = mock_info("bob", &[]);
+        let res = execute(deps.as_mut(), env, info, ExecuteMsg::ClaimRewards {}).unwrap();
+        let rewards: Uint128 = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "rewards")
+            .unwrap()
+            .value
+            .parse()
+            .unwrap();
+
+        assert!(!rewards.is_zero(), "transferred shares must retain rewards");
+    }
+
+    #[test]
+    fn test_staking_token_transfer_sync_rejects_unauthorized_sender() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "alice", 10_000_000);
+
+        let info = mock_info("attacker", &[]);
+        let err = execute(
+            deps.as_mut(),
+            env,
+            info,
+            ExecuteMsg::SyncStakingTokenTransfer {
+                from: "alice".to_string(),
+                to: "bob".to_string(),
+                amount: Uint128::from(1_000_000u128),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, ContractError::Unauthorized {});
     }
 
     // ============ WITHDRAWAL QUEUE ATTACK TESTS ============

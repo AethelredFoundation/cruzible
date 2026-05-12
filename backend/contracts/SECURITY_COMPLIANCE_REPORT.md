@@ -15,7 +15,7 @@ The live code includes remediations for the previously tracked critical issues, 
 | Vault reward index           | Implemented to prevent repeat reward claims and stale reward capture.                                                   |
 | Vault unbonding double claim | Implemented with claim-state tracking and terminal request handling.                                                    |
 | Vault rounding controls      | Implemented with protocol-favorable rounding coverage.                                                                  |
-| Vault stAETHEL lifecycle     | Implemented mint-on-stake/compound/restake and burn-on-unstake contract calls.                                          |
+| Vault stAETHEL lifecycle     | Implemented mint-on-stake/compound/restake, minter burn-on-unstake, and transfer-synchronized accounting.               |
 | Vault donation controls      | Implemented with accounted balance and donation handling.                                                               |
 | AI job Paid state            | Implemented to prevent repeated settlement of the same verified job.                                                    |
 | Governance snapshots         | Implemented to avoid mutable or placeholder vote weight.                                                                |
@@ -28,16 +28,16 @@ The live code includes remediations for the previously tracked critical issues, 
 
 ## Test Evidence
 
-Local `cargo test` from `backend/contracts` passes with 247 total tests:
+Local `cargo test` from `backend/contracts` passes with 303 total unit tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            24 |
-| `ai_job_manager` |            55 |
-| `cw20_staking`   |            42 |
-| `governance`     |            49 |
-| `model_registry` |            50 |
-| `seal_manager`   |            27 |
+| `vault`          |            32 |
+| `ai_job_manager` |            72 |
+| `cw20_staking`   |            53 |
+| `governance`     |            53 |
+| `model_registry` |            54 |
+| `seal_manager`   |            39 |
 | Doc tests        |             0 |
 
 ## Pre-Production Checklist
@@ -45,19 +45,19 @@ Local `cargo test` from `backend/contracts` passes with 247 total tests:
 Completed for audit-candidate state:
 
 - [x] Prior vault criticals remediated.
-- [x] Vault stAETHEL mint/burn lifecycle covered by tests.
+- [x] Vault stAETHEL mint/burn and transfer-accounting lifecycle covered by tests.
 - [x] AI job payment double-claim guard remediated.
 - [x] Governance snapshot, quorum, and feeder-oracle controls remediated.
 - [x] Model registry fee amount/denom, submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates remediated.
 - [x] Seal manager cross-contract job check remediated.
-- [x] Local `cargo test` evidence passes with 247 tests.
+- [x] Local `cargo test` evidence passes with 303 unit tests.
 - [x] CI workflow enforces contract fmt, clippy, tests, dependency audit, and wasm release build.
 - [x] CI workflow uploads commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json`.
 - [x] Residual review items and deployment assumptions are documented in `AUDIT_PACKET.md`.
 - [x] Release manifest template is checked in and validated in CI.
 - [x] Strict release manifest validation reconciles staging records with signed artifact evidence.
 - [x] Release manifest validation reconciles instantiate messages and funds with reviewed role/config wiring.
-- [x] Release manifest validation requires final post-instantiate CW20 minter and model registry role wiring evidence.
+- [x] Release manifest validation requires final post-instantiate CW20 transfer-hook, CW20 minter, and model registry role wiring evidence.
 - [x] Artifact signing and verification scripts are checked in and syntax-checked by CI.
 - [x] Governance feeder oracle config rejects unsafe quorum, tolerance, capacity, and production authority settings.
 
