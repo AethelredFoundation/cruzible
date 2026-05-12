@@ -14,6 +14,7 @@ type CacheEnvelope = {
 };
 
 const CACHE_KEY_PREFIX = 'cruzible:api:';
+const MAX_MEMORY_CACHE_ENTRIES = 1_000;
 
 @injectable()
 export class CacheService {
@@ -83,11 +84,9 @@ export class CacheService {
     if (this.redis) {
       try {
         const cached = await this.redis.get(this.formatKey(key));
-        if (cached === null) {
-          return null;
+        if (cached !== null) {
+          return this.deserialize<T>(cached);
         }
-
-        return this.deserialize<T>(cached);
       } catch (error) {
         logger.warn('Redis cache read failed; using in-memory fallback', {
           key,
@@ -96,6 +95,10 @@ export class CacheService {
       }
     }
 
+    return this.getMemoryEntry<T>(key);
+  }
+
+  private getMemoryEntry<T>(key: string): T | null {
     const entry = this.cache.get(key);
     if (!entry) {
       return null;
@@ -130,27 +133,50 @@ export class CacheService {
       return;
     }
 
+    if (this.redis) {
+      try {
+        await this.redis.set(
+          this.formatKey(key),
+          this.serialize(value),
+          'EX',
+          ttl,
+        );
+        this.cache.delete(key);
+        return;
+      } catch (error) {
+        logger.warn('Redis cache write failed; retained bounded in-memory fallback', {
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    this.setMemoryEntry(key, value, expiresAt);
+  }
+
+  private setMemoryEntry(key: string, value: unknown, expiresAt: number): void {
+    this.cache.delete(key);
     this.cache.set(key, {
       value,
       expiresAt,
     });
+    this.sweepMemoryCache();
+  }
 
-    if (!this.redis) {
-      return;
+  private sweepMemoryCache(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache) {
+      if (entry.expiresAt <= now) {
+        this.cache.delete(key);
+      }
     }
 
-    try {
-      await this.redis.set(
-        this.formatKey(key),
-        this.serialize(value),
-        'EX',
-        ttl,
-      );
-    } catch (error) {
-      logger.warn('Redis cache write failed; retained in-memory fallback', {
-        key,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    while (this.cache.size > MAX_MEMORY_CACHE_ENTRIES) {
+      const oldestKey = this.cache.keys().next().value as string | undefined;
+      if (!oldestKey) {
+        return;
+      }
+      this.cache.delete(oldestKey);
     }
   }
 

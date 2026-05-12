@@ -10,6 +10,10 @@ import { ModelsService } from '../../services/ModelsService';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { validate } from '../../middleware/validate';
 import { ApiError } from '../../utils/ApiError';
+import {
+  MAX_PUBLIC_FILTER_LENGTH,
+  MAX_PUBLIC_PAGINATION_OFFSET,
+} from '../../validation/schemas';
 
 const router = Router();
 const modelsService = container.resolve(ModelsService);
@@ -80,10 +84,17 @@ router.get(
   '/',
   [
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
+    query('offset')
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
     query('category').optional().isIn(MODEL_CATEGORIES),
     query('verified').optional().isBoolean().toBoolean(),
-    query('owner').optional().isString().trim().notEmpty(),
+    query('owner')
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
     query('sort')
       .optional()
       .custom((value) => isAllowedSort(value, MODEL_SORT_FIELDS))

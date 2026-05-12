@@ -15,6 +15,7 @@ import { authenticate, requireRoles } from '../../auth/middleware';
 import { opsRateLimiter } from '../../middleware/rateLimiter';
 import { validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
 
 const router = Router();
 
@@ -77,7 +78,10 @@ router.get(
   '/',
   [
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
+    query('offset')
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
     query('severity').optional().isIn(SEVERITY_VALUES),
     query('type').optional().isIn(TYPE_VALUES),
     validate,

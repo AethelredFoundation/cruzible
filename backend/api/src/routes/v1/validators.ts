@@ -14,6 +14,7 @@ import {
 } from '../../services/ReconciliationScheduler';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { validate } from '../../middleware/validate';
+import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
 import { ApiError } from '../../utils/ApiError';
 import { bytesToHex, computeEligibleUniverseHash } from '../../lib/protocolSdk';
 import type { Validator } from '../../types';
@@ -507,7 +508,10 @@ router.get(
   '/',
   [
     query('limit').optional().isInt({ min: 1, max: 200 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
+    query('offset')
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
     query('status').optional().isIn(UI_STATUSES),
     query('min_voting_power').optional().isInt({ min: 0 }).toInt(),
     validate,

@@ -116,6 +116,39 @@ describe('backend routes', () => {
     });
   });
 
+  it('rejects high-cardinality jobs list query parameters before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { JobsService } = await import('../src/services/JobsService');
+    const cache = new CacheService();
+    const jobs = {
+      getJobs: vi.fn(),
+    } as unknown as JobsService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(JobsService, jobs);
+
+    const { jobsRouter } = await import('../src/routes/v1/jobs');
+    const app = express();
+    app.use('/v1/jobs', jobsRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const offsetResponse = await fetch(`${baseUrl}/v1/jobs?offset=10001`);
+      const oversizedFilterResponse = await fetch(
+        `${baseUrl}/v1/jobs?creator=${'a'.repeat(129)}`,
+      );
+
+      expect(offsetResponse.status).toBe(400);
+      expect(oversizedFilterResponse.status).toBe(400);
+      expect((jobs.getJobs as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    });
+  });
+
   it('serves the jobs queue through the registered jobs service without falling through to :id', async () => {
     const { CacheService } = await import('../src/services/CacheService');
     const { JobsService } = await import('../src/services/JobsService');

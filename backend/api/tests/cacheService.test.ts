@@ -55,6 +55,10 @@ afterEach(() => {
 });
 
 describe("CacheService", () => {
+  function memoryCacheSize(service: unknown): number {
+    return (service as { cache: Map<string, unknown> }).cache.size;
+  }
+
   it("stores and expires values in the in-memory fallback", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-27T00:00:00.000Z"));
@@ -82,6 +86,7 @@ describe("CacheService", () => {
     await service.connect();
     await service.set("reconciliation:live", { status: "GREEN" }, 15);
 
+    expect(memoryCacheSize(service)).toBe(0);
     expect(RedisConstructor).toHaveBeenCalledWith(
       "redis://127.0.0.1:6379",
       expect.objectContaining({
@@ -108,6 +113,43 @@ describe("CacheService", () => {
     await service.disconnect();
 
     expect(redisClient.quit).toHaveBeenCalled();
+  });
+
+  it("bounds high-cardinality in-memory fallback entries", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-27T00:00:00.000Z"));
+
+    const { CacheService } = await import("../src/services/CacheService");
+    const service = new CacheService();
+
+    for (let index = 0; index < 1_050; index += 1) {
+      await service.set(`public:list:${index}`, { index }, 60);
+    }
+
+    expect(memoryCacheSize(service)).toBe(1_000);
+    await expect(service.get("public:list:0")).resolves.toBeNull();
+    await expect(service.get("public:list:1049")).resolves.toEqual({
+      index: 1049,
+    });
+  });
+
+  it("uses bounded memory only when Redis writes fail", async () => {
+    const { redisClient } = installRedisMock({
+      set: vi.fn().mockRejectedValue(new Error("write failed")),
+    });
+    process.env.REDIS_URL = "redis://127.0.0.1:6379";
+
+    const { CacheService } = await import("../src/services/CacheService");
+    const service = new CacheService();
+
+    await service.connect();
+    await service.set("reconciliation:live", { status: "GREEN" }, 15);
+
+    expect(redisClient.set).toHaveBeenCalled();
+    expect(memoryCacheSize(service)).toBe(1);
+    await expect(service.get("reconciliation:live")).resolves.toEqual({
+      status: "GREEN",
+    });
   });
 
   it("falls back to memory when Redis is unavailable outside production", async () => {

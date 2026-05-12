@@ -10,6 +10,10 @@ import { CacheService } from '../../services/CacheService';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ApiError } from '../../utils/ApiError';
 import { validate } from '../../middleware/validate';
+import {
+  MAX_PUBLIC_FILTER_LENGTH,
+  MAX_PUBLIC_PAGINATION_OFFSET,
+} from '../../validation/schemas';
 
 const router = Router();
 const jobsService = container.resolve(JobsService);
@@ -72,13 +76,24 @@ function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolea
 router.get('/',
   [
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
+    query('offset')
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
     query('status').optional().isIn([
       'pending', 'assigned', 'computing', 'completed', 
       'verified', 'failed', 'expired', 'cancelled'
     ]),
-    query('model_hash').optional().isString().trim(),
-    query('creator').optional().isString().trim(),
+    query('model_hash')
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
+    query('creator')
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
     query('sort')
       .optional()
       .custom((value) => isAllowedSort(value, JOB_SORT_FIELDS))
@@ -177,7 +192,11 @@ router.get('/stats',
  */
 router.get('/pricing',
   [
-    query('model_hash').optional().isString().trim(),
+    query('model_hash')
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
     query('estimated_cpu_cycles')
       .optional()
       .isInt({ min: 1, max: MAX_ESTIMATED_CPU_CYCLES })

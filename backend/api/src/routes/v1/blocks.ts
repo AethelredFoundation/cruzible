@@ -9,6 +9,7 @@ import { BlockchainService } from '../../services/BlockchainService';
 import { CacheService } from '../../services/CacheService';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ApiError } from '../../utils/ApiError';
+import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
 
 const router = Router();
 const blockchainService = container.resolve(BlockchainService);
@@ -55,7 +56,10 @@ const validate = (req: Request, res: Response, next: NextFunction) => {
 router.get('/',
   [
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
+    query('offset')
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
     query('height').optional().isInt({ min: 1 }).toInt(),
     validate,
   ],
@@ -188,7 +192,10 @@ router.get('/:height',
 router.get('/:height/transactions',
   [
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
+    query('offset')
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {

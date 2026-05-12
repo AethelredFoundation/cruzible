@@ -10,6 +10,10 @@ import { SealsService } from '../../services/SealsService';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { validate } from '../../middleware/validate';
 import { ApiError } from '../../utils/ApiError';
+import {
+  MAX_PUBLIC_FILTER_LENGTH,
+  MAX_PUBLIC_PAGINATION_OFFSET,
+} from '../../validation/schemas';
 
 const router = Router();
 const sealsService = container.resolve(SealsService);
@@ -71,10 +75,21 @@ router.get(
   '/',
   [
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
+    query('offset')
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
     query('status').optional().isIn(SEAL_STATUSES),
-    query('requester').optional().isString().trim().notEmpty(),
-    query('job_id').optional().isString().trim().notEmpty(),
+    query('requester')
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
+    query('job_id')
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
     query('sort')
       .optional()
       .custom((value) => isAllowedSort(value, SEAL_SORT_FIELDS))

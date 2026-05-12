@@ -8,6 +8,9 @@
 
 import { z } from 'zod';
 
+export const MAX_PUBLIC_PAGINATION_OFFSET = 10_000;
+export const MAX_PUBLIC_FILTER_LENGTH = 128;
+
 // =============================================================================
 // PRIMITIVE SCHEMAS
 // =============================================================================
@@ -143,9 +146,13 @@ export const PaginationSchema = z.object({
     .or(z.number())
     .default('0')
     .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-    .refine((val) => Number.isInteger(val) && val >= 0, {
-      message: 'Offset must be a non-negative integer',
-    }),
+    .refine(
+      (val) =>
+        Number.isInteger(val) && val >= 0 && val <= MAX_PUBLIC_PAGINATION_OFFSET,
+      {
+        message: `Offset must be an integer between 0 and ${MAX_PUBLIC_PAGINATION_OFFSET}`,
+      },
+    ),
 });
 
 /**
