@@ -101,7 +101,36 @@ export const aethelredDevnet = defineChain({
 // Active Chain Selection
 // ---------------------------------------------------------------------------
 
-const CHAIN_ENV = process.env.NEXT_PUBLIC_CHAIN_ENV || "testnet";
+export type AethelredChainEnv = "mainnet" | "testnet" | "devnet";
+
+const DEFAULT_NON_PRODUCTION_CHAIN_ENV: AethelredChainEnv = "testnet";
+const SUPPORTED_CHAIN_ENVS = new Set<AethelredChainEnv>([
+  "mainnet",
+  "testnet",
+  "devnet",
+]);
+
+function resolveChainEnv(): AethelredChainEnv {
+  const rawChainEnv = process.env.NEXT_PUBLIC_CHAIN_ENV?.trim();
+
+  if (!rawChainEnv) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("NEXT_PUBLIC_CHAIN_ENV is required in production");
+    }
+
+    return DEFAULT_NON_PRODUCTION_CHAIN_ENV;
+  }
+
+  if (!SUPPORTED_CHAIN_ENVS.has(rawChainEnv as AethelredChainEnv)) {
+    throw new Error(
+      "NEXT_PUBLIC_CHAIN_ENV must be one of mainnet, testnet, or devnet",
+    );
+  }
+
+  return rawChainEnv as AethelredChainEnv;
+}
+
+export const CHAIN_ENV = resolveChainEnv();
 
 export const activeChain =
   CHAIN_ENV === "mainnet"
