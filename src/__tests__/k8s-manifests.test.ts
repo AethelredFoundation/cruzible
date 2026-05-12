@@ -11,6 +11,14 @@ const frontendManifest = readFileSync(
   resolve(repoRoot, "k8s/base/frontend.yaml"),
   "utf8",
 );
+const kustomizationManifest = readFileSync(
+  resolve(repoRoot, "k8s/base/kustomization.yaml"),
+  "utf8",
+);
+const imageVerificationPolicy = readFileSync(
+  resolve(repoRoot, "k8s/base/image-verification-policy.yaml"),
+  "utf8",
+);
 
 function getImageRefs(manifest: string): string[] {
   return Array.from(manifest.matchAll(/^\s*image:\s*(\S+)\s*$/gm)).map(
@@ -78,6 +86,40 @@ describe("Kubernetes base manifests", () => {
     );
     expect(images.filter((image) => image.includes(":latest"))).toEqual([]);
     expect(images.filter((image) => !image.includes("@sha256:"))).toEqual([]);
+  });
+
+  it("enforces signed image and provenance admission for Cruzible images", () => {
+    expect(kustomizationManifest).toContain("image-verification-policy.yaml");
+    expect(imageVerificationPolicy).toContain("kind: ClusterPolicy");
+    expect(imageVerificationPolicy).toContain(
+      "name: cruzible-verify-signed-images",
+    );
+    expect(imageVerificationPolicy).toContain(
+      "validationFailureAction: Enforce",
+    );
+    expect(imageVerificationPolicy).toContain("failurePolicy: Fail");
+    expect(imageVerificationPolicy).toContain("verifyImages:");
+    expect(imageVerificationPolicy).toContain("required: true");
+    expect(imageVerificationPolicy).toContain("verifyDigest: true");
+    expect(imageVerificationPolicy).toContain("mutateDigest: false");
+    expect(imageVerificationPolicy).toContain(
+      "ghcr.io/aethelred/cruzible/api@sha256:*",
+    );
+    expect(imageVerificationPolicy).toContain(
+      "ghcr.io/aethelred/cruzible/api-indexer@sha256:*",
+    );
+    expect(imageVerificationPolicy).toContain(
+      "ghcr.io/aethelred/cruzible/frontend@sha256:*",
+    );
+    expect(imageVerificationPolicy).toContain(
+      "issuer: https://token.actions.githubusercontent.com",
+    );
+    expect(imageVerificationPolicy).toContain(
+      "subject: https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main",
+    );
+    expect(imageVerificationPolicy).toContain(
+      "type: https://slsa.dev/provenance/v1",
+    );
   });
 
   it("keeps every workload on a restricted pod and container profile", () => {

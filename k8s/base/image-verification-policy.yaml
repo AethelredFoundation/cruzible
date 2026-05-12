@@ -1,0 +1,44 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cruzible-verify-signed-images
+  annotations:
+    policies.kyverno.io/title: Verify Cruzible signed images
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+spec:
+  background: true
+  failurePolicy: Fail
+  validationFailureAction: Enforce
+  webhookTimeoutSeconds: 10
+  rules:
+    - name: require-sigstore-signatures-and-provenance
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            - ghcr.io/aethelred/cruzible/api@sha256:*
+            - ghcr.io/aethelred/cruzible/api-indexer@sha256:*
+            - ghcr.io/aethelred/cruzible/frontend@sha256:*
+          mutateDigest: false
+          required: true
+          verifyDigest: true
+          attestors:
+            - entries:
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subject: https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://slsa.dev/provenance/v1
+              attestors:
+                - entries:
+                    - keyless:
+                        issuer: https://token.actions.githubusercontent.com
+                        subject: https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main
+                        rekor:
+                          url: https://rekor.sigstore.dev

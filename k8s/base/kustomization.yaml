@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - backend.yaml
   - frontend.yaml
+  - image-verification-policy.yaml
