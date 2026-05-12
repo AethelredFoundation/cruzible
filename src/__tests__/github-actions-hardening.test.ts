@@ -162,6 +162,17 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain("--tag cruzible-api-indexer:ci");
   });
 
+  it("runs Python SDK conformance tests in CI", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+
+    expect(workflow).toContain("python-sdk:");
+    expect(workflow).toContain("uses: actions/setup-python@v6");
+    expect(workflow).toContain("PYTHONPATH: sdk/python/src");
+    expect(workflow).toContain(
+      'python -m unittest discover -s sdk/python/tests -p "test_*.py"',
+    );
+  });
+
   it("publishes signed and provenanced release images only from manual main runs", () => {
     const workflow = readWorkflow("ci-cd.yml");
     const releaseJob = workflowJobBlocks(workflow).find(

@@ -25,4 +25,10 @@ describe("gitignore secret hardening", () => {
       expect(gitignore).toContain(pattern);
     }
   });
+
+  it("keeps Python runtime caches out of version control", () => {
+    expect(gitignore).toContain(".pytest_cache/");
+    expect(gitignore).toContain("__pycache__/");
+    expect(gitignore).toContain("*.py[cod]");
+  });
 });
