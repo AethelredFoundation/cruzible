@@ -30,6 +30,8 @@ const MODEL_CATEGORIES = [
 ] as const;
 
 const MODEL_SORT_FIELDS = ['registered_at', 'total_jobs', 'name'] as const;
+const MAX_MODEL_HASH_LENGTH = 128;
+const MODEL_HASH_PATTERN = /^[A-Za-z0-9._:-]+$/;
 
 function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolean {
   if (typeof value !== 'string' || value.length === 0) {
@@ -157,7 +159,15 @@ router.get(
 router.get(
   '/:modelHash',
   [
-    param('modelHash').isString().trim().notEmpty().isLength({ max: 128 }),
+    param('modelHash')
+      .isString()
+      .trim()
+      .notEmpty()
+      .isLength({ max: MAX_MODEL_HASH_LENGTH })
+      .matches(MODEL_HASH_PATTERN)
+      .withMessage(
+        `modelHash must be a ${MAX_MODEL_HASH_LENGTH}-character-or-shorter URL-safe identifier`,
+      ),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {

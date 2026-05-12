@@ -21,6 +21,8 @@ const cacheService = container.resolve(CacheService);
 
 const SEAL_STATUSES = ['active', 'revoked', 'expired', 'superseded'] as const;
 const SEAL_SORT_FIELDS = ['created_at', 'expires_at'] as const;
+const MAX_SEAL_ID_LENGTH = 64;
+const SEAL_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolean {
   if (typeof value !== 'string' || value.length === 0) {
@@ -151,7 +153,18 @@ router.get(
  */
 router.get(
   '/:id',
-  [param('id').isString().trim().notEmpty().isLength({ max: 128 }), validate],
+  [
+    param('id')
+      .isString()
+      .trim()
+      .notEmpty()
+      .isLength({ max: MAX_SEAL_ID_LENGTH })
+      .matches(SEAL_ID_PATTERN)
+      .withMessage(
+        `id must be a ${MAX_SEAL_ID_LENGTH}-character-or-shorter alphanumeric identifier`,
+      ),
+    validate,
+  ],
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const cacheKey = `seals:${id}`;
