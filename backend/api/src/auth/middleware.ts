@@ -13,6 +13,56 @@ import {
 import { auditPrivilegedAccess } from '../middleware/privilegedAudit';
 import { logger } from '../utils/logger';
 
+type AuthFailureResponse = {
+  statusCode: 401 | 403 | 500;
+  error: 'Unauthorized' | 'Forbidden' | 'Internal Server Error';
+  message: string;
+  wwwAuthenticateError?: 'invalid_request' | 'invalid_token';
+};
+
+function writeAuthFailureResponse(
+  req: Request,
+  res: Response,
+  response: AuthFailureResponse,
+): void {
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (response.statusCode === 401) {
+    const challenge = response.wwwAuthenticateError
+      ? `Bearer realm="cruzible", error="${response.wwwAuthenticateError}"`
+      : 'Bearer realm="cruzible"';
+    res.setHeader('WWW-Authenticate', challenge);
+  }
+
+  res.status(response.statusCode).json({
+    success: false,
+    error: response.error,
+    message: response.message,
+    requestId: req.requestId ?? 'unknown',
+  });
+}
+
+function rejectAuthentication(
+  req: Request,
+  res: Response,
+  reason: string,
+  message: string,
+  wwwAuthenticateError: 'invalid_request' | 'invalid_token' = 'invalid_token',
+): void {
+  auditPrivilegedAccess(req, res, {
+    principalType: 'wallet',
+    decision: 'rejected',
+    reason,
+  });
+
+  writeAuthFailureResponse(req, res, {
+    statusCode: 401,
+    error: 'Unauthorized',
+    message,
+    wwwAuthenticateError,
+  });
+}
+
 /**
  * JWT Authentication middleware
  * Validates JWT token from Authorization header
@@ -26,21 +76,25 @@ export async function authenticate(
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
-      res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        message: 'Authorization header missing',
-      });
+      rejectAuthentication(
+        req,
+        res,
+        'missing_authorization_header',
+        'Authorization header missing',
+        'invalid_request',
+      );
       return;
     }
 
     const parts = authHeader.split(' ');
     if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        message: 'Invalid authorization format. Use: Bearer <token>',
-      });
+      rejectAuthentication(
+        req,
+        res,
+        'invalid_authorization_format',
+        'Invalid authorization format. Use: Bearer <token>',
+        'invalid_request',
+      );
       return;
     }
 
@@ -48,14 +102,10 @@ export async function authenticate(
 
     // Verify token
     const decoded = verifyAccessToken(token) as NonNullable<Request['user']>;
-    
+
     // Check token expiration
     if (decoded.exp && decoded.exp < Date.now() / 1000) {
-      res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        message: 'Token expired',
-      });
+      rejectAuthentication(req, res, 'access_token_expired', 'Token expired');
       return;
     }
 
@@ -63,11 +113,12 @@ export async function authenticate(
       logger.warn('Revoked access token rejected', {
         address: decoded.address,
       });
-      res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        message: 'Access token revoked',
-      });
+      rejectAuthentication(
+        req,
+        res,
+        'access_token_revoked',
+        'Access token revoked',
+      );
       return;
     }
 
@@ -76,17 +127,13 @@ export async function authenticate(
   } catch (error) {
     if (error instanceof JsonWebTokenError) {
       logger.warn('Invalid JWT token', { error: error.message });
-      res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        message: 'Invalid token',
-      });
+      rejectAuthentication(req, res, 'invalid_access_token', 'Invalid token');
       return;
     }
 
     logger.error('Authentication error', { error });
-    res.status(500).json({
-      success: false,
+    writeAuthFailureResponse(req, res, {
+      statusCode: 500,
       error: 'Internal Server Error',
       message: 'Authentication failed',
     });
@@ -135,12 +182,23 @@ export async function optionalAuth(
  * Requires user to have at least one of the specified roles
  */
 export function requireRoles(...allowedRoles: string[]) {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
     if (!req.user) {
-      res.status(401).json({
-        success: false,
+      auditPrivilegedAccess(req, res, {
+        principalType: 'wallet',
+        requiredRoles: allowedRoles,
+        decision: 'rejected',
+        reason: 'authentication_required',
+      });
+      writeAuthFailureResponse(req, res, {
+        statusCode: 401,
         error: 'Unauthorized',
         message: 'Authentication required',
+        wwwAuthenticateError: 'invalid_request',
       });
       return;
     }
@@ -148,8 +206,12 @@ export function requireRoles(...allowedRoles: string[]) {
     try {
       const tokenRoles = req.user.roles;
       const currentRoles = resolveRolesForAddress(req.user.address);
-      const hasTokenRole = tokenRoles.some(role => allowedRoles.includes(role));
-      const hasCurrentRole = currentRoles.some(role => allowedRoles.includes(role));
+      const hasTokenRole = tokenRoles.some((role) =>
+        allowedRoles.includes(role),
+      );
+      const hasCurrentRole = currentRoles.some((role) =>
+        allowedRoles.includes(role),
+      );
 
       if (!hasTokenRole || !hasCurrentRole) {
         auditPrivilegedAccess(req, res, {
@@ -159,7 +221,9 @@ export function requireRoles(...allowedRoles: string[]) {
           currentRoles,
           requiredRoles: allowedRoles,
           decision: 'rejected',
-          reason: hasTokenRole ? 'role_no_longer_current' : 'missing_required_role',
+          reason: hasTokenRole
+            ? 'role_no_longer_current'
+            : 'missing_required_role',
         });
         logger.warn('Insufficient permissions', {
           address: req.user.address,
@@ -167,8 +231,8 @@ export function requireRoles(...allowedRoles: string[]) {
           tokenRoles,
           currentRoles,
         });
-        res.status(403).json({
-          success: false,
+        writeAuthFailureResponse(req, res, {
+          statusCode: 403,
           error: 'Forbidden',
           message: 'Insufficient permissions',
         });
@@ -189,10 +253,11 @@ export function requireRoles(...allowedRoles: string[]) {
           address: req.user.address,
           required: allowedRoles,
         });
-        res.status(401).json({
-          success: false,
+        writeAuthFailureResponse(req, res, {
+          statusCode: 401,
           error: 'Unauthorized',
           message: 'Access token revoked',
+          wwwAuthenticateError: 'invalid_token',
         });
         return;
       }
@@ -214,8 +279,8 @@ export function requireRoles(...allowedRoles: string[]) {
       next();
     } catch (error) {
       logger.error('Authorization freshness check failed', { error });
-      res.status(500).json({
-        success: false,
+      writeAuthFailureResponse(req, res, {
+        statusCode: 500,
         error: 'Internal Server Error',
         message: 'Authorization failed',
       });
@@ -237,7 +302,9 @@ export function userRateLimiter(options: {
   return (req: Request, res: Response, next: NextFunction): void => {
     const identifier = req.user?.address || req.ip || 'anonymous';
     const now = Date.now();
-    const maxRequests = req.user ? options.maxAuthenticated : options.maxUnauthenticated;
+    const maxRequests = req.user
+      ? options.maxAuthenticated
+      : options.maxUnauthenticated;
 
     const record = requests.get(identifier);
 

@@ -29,7 +29,38 @@ describe('auth middleware', () => {
       const body = await response.json();
 
       expect(response.status).toBe(401);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('www-authenticate')).toContain(
+        'Bearer realm="cruzible"',
+      );
+      expect(body.requestId).toBe('unknown');
       expect(body.message).toContain('Authorization header missing');
+    });
+  });
+
+  it('rejects malformed bearer headers with no-store auth metadata', async () => {
+    const app = express();
+    app.use(rateLimiter);
+    app.get('/protected', authenticate, (req, res) => {
+      res.json({ address: req.user?.address });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: 'Token abc' },
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('www-authenticate')).toContain(
+        'error="invalid_request"',
+      );
+      expect(body).toMatchObject({
+        error: 'Unauthorized',
+        message: 'Invalid authorization format. Use: Bearer <token>',
+        requestId: 'unknown',
+      });
     });
   });
 
@@ -86,6 +117,10 @@ describe('auth middleware', () => {
       const body = await response.json();
 
       expect(response.status).toBe(401);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('www-authenticate')).toContain(
+        'error="invalid_token"',
+      );
       expect(body.message).toContain('Access token revoked');
     });
   });
@@ -111,6 +146,8 @@ describe('auth middleware', () => {
       const body = await response.json();
 
       expect(response.status).toBe(403);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('www-authenticate')).toBeNull();
       expect(body.message).toContain('Insufficient permissions');
     });
   });
@@ -172,12 +209,10 @@ describe('auth routes', () => {
     delete process.env.DATABASE_URL;
 
     const { authRouter } = await import('../src/routes/v1/auth');
-    const { authenticate: routeAuthenticate } = await import(
-      '../src/auth/middleware'
-    );
-    const { rateLimiter: routeRateLimiter } = await import(
-      '../src/middleware/rateLimiter'
-    );
+    const { authenticate: routeAuthenticate } =
+      await import('../src/auth/middleware');
+    const { rateLimiter: routeRateLimiter } =
+      await import('../src/middleware/rateLimiter');
     const { errorHandler } = await import('../src/middleware/errorHandler');
 
     const app = express();
