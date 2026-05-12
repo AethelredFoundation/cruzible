@@ -520,6 +520,71 @@ describe("auth routes", () => {
     );
   });
 
+  it("rejects production request-body refresh tokens for refresh and logout", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const { config } = await import("../src/config");
+      const originalIsProduction = config.isProduction;
+      const originalCorsOrigins = [...config.corsOrigins];
+
+      try {
+        const challenge = await (
+          await fetch(`${baseUrl}/v1/auth/nonce`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: "aeth1operator" }),
+          })
+        ).json();
+        const loginTokens = await (
+          await fetch(`${baseUrl}/v1/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              address: "aeth1operator",
+              message: challenge.message,
+              signature: "test-signature",
+            }),
+          })
+        ).json();
+
+        (config as any).isProduction = true;
+        (config as any).corsOrigins = ["https://app.example"];
+
+        const refreshResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://app.example",
+          },
+          body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+        });
+        const refreshBody = await refreshResponse.json();
+        const logoutResponse = await fetch(`${baseUrl}/v1/auth/logout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://app.example",
+          },
+          body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+        });
+        const logoutBody = await logoutResponse.json();
+
+        expect(refreshResponse.status).toBe(400);
+        expect(refreshBody.message).toBe(
+          "Refresh tokens must be sent via HttpOnly cookies in production",
+        );
+        expect(refreshResponse.headers.get("set-cookie")).toBeNull();
+        expect(logoutResponse.status).toBe(400);
+        expect(logoutBody.message).toBe(
+          "Refresh tokens must be sent via HttpOnly cookies in production",
+        );
+        expect(logoutResponse.headers.get("set-cookie")).toBeNull();
+      } finally {
+        (config as any).isProduction = originalIsProduction;
+        (config as any).corsOrigins = originalCorsOrigins;
+      }
+    });
+  });
+
   it("rotates refresh tokens and rejects replay of the old token", async () => {
     await withAuthRoutes(async (baseUrl) => {
       const challenge = await (

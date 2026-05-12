@@ -155,6 +155,13 @@ function readRefreshTokenFromRequest(req: Request): {
     req.body ?? {},
   );
   if (bodyRefreshToken) {
+    if (config.isProduction) {
+      throw new ApiError(
+        400,
+        "Refresh tokens must be sent via HttpOnly cookies in production",
+      );
+    }
+
     return { token: bodyRefreshToken, source: "body" };
   }
 
