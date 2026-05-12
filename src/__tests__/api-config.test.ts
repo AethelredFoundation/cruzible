@@ -76,8 +76,7 @@ describe("frontend API config", () => {
   it("rejects API URLs outside the v1 root", () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
-    process.env.NEXT_PUBLIC_API_URL =
-      "https://api.testnet.aethelred.org/admin";
+    process.env.NEXT_PUBLIC_API_URL = "https://api.testnet.aethelred.org/admin";
 
     expect(() => getApiV1BaseUrl()).toThrow(
       "NEXT_PUBLIC_API_URL path must be empty or /v1",

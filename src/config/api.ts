@@ -65,10 +65,7 @@ function normalizeConfiguredApiUrl(configuredUrl: string): string {
     );
   }
 
-  if (
-    parsed.protocol !== "https:" &&
-    !(chainEnv === "devnet" && isLocalHost)
-  ) {
+  if (parsed.protocol !== "https:" && !(chainEnv === "devnet" && isLocalHost)) {
     throw new Error(
       "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost",
     );

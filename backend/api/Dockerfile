@@ -4,8 +4,9 @@
 # ============ BASE ============
 FROM node:20-alpine AS base
 
-# Install dependencies
-RUN apk add --no-cache dumb-init curl
+# Runtime packages only. Native npm modules are compiled in the dependencies
+# stage so production images do not carry compilers or Python.
+RUN apk add --no-cache dumb-init curl libstdc++
 
 WORKDIR /app
 
@@ -13,6 +14,10 @@ WORKDIR /app
 FROM base AS dependencies
 
 WORKDIR /app/backend/api
+
+# @sentry/profiling-node and similar native packages require node-gyp tooling
+# during npm ci. Keep these build packages out of the production stage.
+RUN apk add --no-cache python3 make g++
 
 # Copy package files from the repository-root build context.
 COPY backend/api/package*.json ./
