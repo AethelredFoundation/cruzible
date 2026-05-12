@@ -2,49 +2,55 @@
 # Pre-commit hook for Cruzible
 # Runs linting and tests before allowing commits
 
-echo "🔍 Running pre-commit checks..."
+STASH_CREATED=0
 
-# Stash unstaged changes
-git stash -q --keep-index
+restore_stash() {
+    if [ "$STASH_CREATED" -eq 1 ]; then
+        git stash pop -q
+    fi
+}
+
+trap restore_stash EXIT
+
+echo "Running pre-commit checks..."
+
+# Stash tracked unstaged changes without touching an existing stash stack.
+if ! git diff --quiet; then
+    git stash push -q --keep-index -m "cruzible-pre-commit-unstaged"
+    STASH_CREATED=1
+fi
 
 # Run linting
-echo "📋 Running ESLint..."
+echo "Running ESLint..."
 npm run lint
 if [ $? -ne 0 ]; then
-    echo "❌ ESLint failed. Fix errors before committing."
-    git stash pop -q
+    echo "ESLint failed. Fix errors before committing."
     exit 1
 fi
 
 # Run formatting check
-echo "🎨 Checking formatting..."
+echo "Checking formatting..."
 npm run format:check
 if [ $? -ne 0 ]; then
-    echo "❌ Formatting check failed. Run 'npm run format' to fix."
-    git stash pop -q
+    echo "Formatting check failed. Run 'npm run format' to fix."
     exit 1
 fi
 
 # Run type checking
-echo "🔎 Running TypeScript check..."
+echo "Running TypeScript check..."
 npm run type-check
 if [ $? -ne 0 ]; then
-    echo "❌ TypeScript check failed. Fix type errors before committing."
-    git stash pop -q
+    echo "TypeScript check failed. Fix type errors before committing."
     exit 1
 fi
 
 # Run unit tests (only affected files)
-echo "🧪 Running unit tests..."
+echo "Running unit tests..."
 npm run test:changed
 if [ $? -ne 0 ]; then
-    echo "❌ Unit tests failed. Fix tests before committing."
-    git stash pop -q
+    echo "Unit tests failed. Fix tests before committing."
     exit 1
 fi
 
-# Restore unstaged changes
-git stash pop -q
-
-echo "✅ All pre-commit checks passed!"
+echo "All pre-commit checks passed!"
 exit 0
