@@ -6,13 +6,15 @@ interface SEOHeadProps {
   path?: string;
 }
 
+export const CANONICAL_APP_ORIGIN = "https://vault.aethelred.org";
+
 /**
  * Consistent SEO head component for all AethelVault pages.
  * Generates title, OG tags, Twitter card, and canonical URL.
  */
 export function SEOHead({ title, description, path = "" }: SEOHeadProps) {
   const fullTitle = `${title} | Cruzible`;
-  const baseUrl = "https://cruzible.aethelred.org";
+  const baseUrl = CANONICAL_APP_ORIGIN;
   const ogImage = `${baseUrl}/og-image.svg`;
 
   return (

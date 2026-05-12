@@ -128,7 +128,7 @@ describe("Next.js security config", () => {
     vi.stubEnv("NODE_ENV", "production");
 
     const response = middleware(
-      new NextRequest("https://cruzible.aethelred.network/vault"),
+      new NextRequest("https://vault.aethelred.org/vault"),
     );
     const csp = response.headers.get("Content-Security-Policy");
 

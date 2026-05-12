@@ -21,6 +21,8 @@ import {
 
 const WALLETCONNECT_PROJECT_ID =
   process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
+const APP_ORIGIN = "https://vault.aethelred.org";
+const APP_LOGO_URL = `${APP_ORIGIN}/cruzible-logo.png`;
 
 // ---------------------------------------------------------------------------
 // Connectors
@@ -37,8 +39,8 @@ const connectors = [
           metadata: {
             name: "Cruzible by Aethelred",
             description: "TEE-verified liquid staking protocol",
-            url: "https://cruzible.aethelred.network",
-            icons: ["https://cruzible.aethelred.network/icon.png"],
+            url: APP_ORIGIN,
+            icons: [APP_LOGO_URL],
           },
           showQrModal: true,
         }),
@@ -46,7 +48,7 @@ const connectors = [
     : []),
   coinbaseWallet({
     appName: "Cruzible by Aethelred",
-    appLogoUrl: "https://cruzible.aethelred.network/icon.png",
+    appLogoUrl: APP_LOGO_URL,
   }),
 ];
 

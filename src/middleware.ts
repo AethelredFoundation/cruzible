@@ -97,6 +97,7 @@ export function buildContentSecurityPolicy({
       "data:",
       "blob:",
       "https://api.aethelred.io",
+      "https://vault.aethelred.org",
       "https://cruzible.aethelred.org",
       "https://cruzible.aethelred.network",
     ],
