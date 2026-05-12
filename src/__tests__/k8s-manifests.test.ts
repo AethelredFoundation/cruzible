@@ -176,6 +176,13 @@ describe("Kubernetes base manifests", () => {
     );
   });
 
+  it("uses a production-safe CORS origin in the base backend config", () => {
+    expect(backendManifest).toContain(
+      'cors.origins: "https://vault.aethelred.org"',
+    );
+    expect(backendManifest).not.toContain("cruzible.example");
+  });
+
   it("requires immutable image digests instead of floating tags", () => {
     const images = getImageRefs(`${backendManifest}\n${frontendManifest}`);
 
