@@ -10,16 +10,17 @@
  * - Indexer metrics (if enabled)
  */
 
-import { Router, Request, Response } from 'express';
-import { container } from 'tsyringe';
-import { PrismaClient } from '@prisma/client';
-import { IndexerService } from '../services/IndexerService';
-import { BlockchainService } from '../services/BlockchainService';
-import { ReconciliationScheduler } from '../services/ReconciliationScheduler';
-import { AlertService } from '../services/AlertService';
-import { config } from '../config';
-import { logger } from '../utils/logger';
-import { requireOperationalAccess } from '../middleware/operationalAccess';
+import { Router, Request, Response } from "express";
+import { container } from "tsyringe";
+import { PrismaClient } from "@prisma/client";
+import { IndexerService } from "../services/IndexerService";
+import { BlockchainService } from "../services/BlockchainService";
+import { ReconciliationScheduler } from "../services/ReconciliationScheduler";
+import { AlertService } from "../services/AlertService";
+import { config } from "../config";
+import { logger } from "../utils/logger";
+import { requireOperationalAccess } from "../middleware/operationalAccess";
+import { noStore } from "../middleware/noStore";
 
 const router = Router();
 
@@ -44,7 +45,7 @@ function getPrisma(): PrismaClient {
 // ---------------------------------------------------------------------------
 
 interface ProbeResult {
-  status: 'ok' | 'degraded' | 'error';
+  status: "ok" | "degraded" | "error";
   latencyMs?: number;
   message?: string;
 }
@@ -63,10 +64,11 @@ interface ReadinessChecks {
   };
 }
 
-const PRODUCTION_PROBE_FAILURE_MESSAGE = 'Probe failed; see server logs for details.';
+const PRODUCTION_PROBE_FAILURE_MESSAGE =
+  "Probe failed; see server logs for details.";
 
 function toClientProbeResult(result: ProbeResult): ProbeResult {
-  if (!config.isProduction || result.status !== 'error') {
+  if (!config.isProduction || result.status !== "error") {
     return result;
   }
 
@@ -81,11 +83,12 @@ async function checkDatabase(): Promise<ProbeResult> {
   const start = Date.now();
   try {
     await getPrisma().$queryRaw`SELECT 1`;
-    return { status: 'ok', latencyMs: Date.now() - start };
+    return { status: "ok", latencyMs: Date.now() - start };
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown database error';
-    logger.error('Health check: database probe failed', { error: message });
-    return { status: 'error', latencyMs: Date.now() - start, message };
+    const message =
+      err instanceof Error ? err.message : "Unknown database error";
+    logger.error("Health check: database probe failed", { error: message });
+    return { status: "error", latencyMs: Date.now() - start, message };
   }
 }
 
@@ -95,14 +98,16 @@ async function checkBlockchainRpc(): Promise<ProbeResult> {
     const blockchainService = container.resolve(BlockchainService);
     const height = await blockchainService.getLatestHeight();
     return {
-      status: 'ok',
+      status: "ok",
       latencyMs: Date.now() - start,
       message: `Latest block height: ${height}`,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown RPC error';
-    logger.error('Health check: blockchain RPC probe failed', { error: message });
-    return { status: 'error', latencyMs: Date.now() - start, message };
+    const message = err instanceof Error ? err.message : "Unknown RPC error";
+    logger.error("Health check: blockchain RPC probe failed", {
+      error: message,
+    });
+    return { status: "error", latencyMs: Date.now() - start, message };
   }
 }
 
@@ -129,7 +134,7 @@ function getUptime(): { seconds: number; human: string } {
   if (hours > 0) parts.push(`${hours}h`);
   if (minutes > 0) parts.push(`${minutes}m`);
   parts.push(`${secs}s`);
-  return { seconds: uptimeSeconds, human: parts.join(' ') };
+  return { seconds: uptimeSeconds, human: parts.join(" ") };
 }
 
 function readinessResponseBody(
@@ -138,7 +143,7 @@ function readinessResponseBody(
 ): Record<string, unknown> {
   const body = {
     ready,
-    status: ready ? 'ready' : 'not_ready',
+    status: ready ? "ready" : "not_ready",
     timestamp: new Date().toISOString(),
   };
 
@@ -162,113 +167,132 @@ function readinessResponseBody(
  * degraded, 503 when any critical system (DB, RPC, indexer lag >500, or
  * reconciliation CRITICAL) is failing.
  */
-router.get('/', requireOperationalAccess, async (_req: Request, res: Response) => {
-  // Run probes in parallel
-  const [dbResult, rpcResult] = await Promise.allSettled([
-    checkDatabase(),
-    checkBlockchainRpc(),
-  ]);
+router.get(
+  "/",
+  requireOperationalAccess,
+  noStore,
+  async (_req: Request, res: Response) => {
+    // Run probes in parallel
+    const [dbResult, rpcResult] = await Promise.allSettled([
+      checkDatabase(),
+      checkBlockchainRpc(),
+    ]);
 
-  const db = dbResult.status === 'fulfilled' ? dbResult.value : { status: 'error' as const, message: 'probe threw' };
-  const rpc = rpcResult.status === 'fulfilled' ? rpcResult.value : { status: 'error' as const, message: 'probe threw' };
-  const clientDb = toClientProbeResult(db);
-  const clientRpc = toClientProbeResult(rpc);
+    const db =
+      dbResult.status === "fulfilled"
+        ? dbResult.value
+        : { status: "error" as const, message: "probe threw" };
+    const rpc =
+      rpcResult.status === "fulfilled"
+        ? rpcResult.value
+        : { status: "error" as const, message: "probe threw" };
+    const clientDb = toClientProbeResult(db);
+    const clientRpc = toClientProbeResult(rpc);
 
-  // Indexer metrics (optional)
-  let indexer: Record<string, unknown> | null = null;
-  try {
-    if (config.indexerEnabled) {
-      const indexerService = container.resolve(IndexerService);
-      indexer = indexerService.getMetrics();
-    }
-  } catch {
-    // Indexer not registered or not started
-  }
-
-  // Reconciliation status (optional)
-  let reconciliation: Record<string, unknown> | null = null;
-
-  // Indexer lag check (if enabled)
-  let indexerDegraded = false;
-  let indexerCritical = false;
-  try {
-    if (config.indexerEnabled) {
-      const indexerService = container.resolve(IndexerService);
-      const metrics = indexerService.getMetrics();
-      const lag = typeof metrics.lag === 'number' ? metrics.lag : 0;
-      // >100 blocks behind → degraded; >500 blocks behind → critical
-      if (lag > 500) {
-        indexerCritical = true;
-      } else if (lag > 100) {
-        indexerDegraded = true;
+    // Indexer metrics (optional)
+    let indexer: Record<string, unknown> | null = null;
+    try {
+      if (config.indexerEnabled) {
+        const indexerService = container.resolve(IndexerService);
+        indexer = indexerService.getMetrics();
       }
-    }
-  } catch {
-    // Indexer not registered
-  }
-
-  // Reconciliation status check
-  let reconciliationDegraded = false;
-  let reconciliationCritical = false;
-  try {
-    const scheduler = container.resolve(ReconciliationScheduler);
-    const latestResult = scheduler.getLatestResult();
-    const alertServiceInstance = container.resolve(AlertService);
-    const activeCritical = await alertServiceInstance.getActiveCriticalCount();
-
-    if (latestResult?.status === 'CRITICAL' || activeCritical > 0) {
-      reconciliationCritical = true;
-    } else if (latestResult?.status === 'WARNING') {
-      reconciliationDegraded = true;
+    } catch {
+      // Indexer not registered or not started
     }
 
-    reconciliation = {
-      lastRun: latestResult?.timestamp ?? null,
-      epoch: latestResult?.epoch ?? null,
-      epochSource: latestResult?.epochSource ?? null,
-      status: latestResult?.status ?? 'UNKNOWN',
-      lastDurationMs: latestResult?.durationMs ?? null,
-      activeCriticalAlerts: activeCritical,
-    };
-  } catch {
-    // Scheduler not registered or not started
-  }
+    // Reconciliation status (optional)
+    let reconciliation: Record<string, unknown> | null = null;
 
-  // Determine overall status — now gates on ALL operational signals
-  const coreOk = db.status === 'ok' && rpc.status === 'ok';
-  const coreError = db.status === 'error' || rpc.status === 'error';
-  const anyDegraded = indexerDegraded || reconciliationDegraded
-    || db.status === 'degraded' || rpc.status === 'degraded';
-  const anyCritical = coreError || indexerCritical || reconciliationCritical;
+    // Indexer lag check (if enabled)
+    let indexerDegraded = false;
+    let indexerCritical = false;
+    try {
+      if (config.indexerEnabled) {
+        const indexerService = container.resolve(IndexerService);
+        const metrics = indexerService.getMetrics();
+        const lag = typeof metrics.lag === "number" ? metrics.lag : 0;
+        // >100 blocks behind → degraded; >500 blocks behind → critical
+        if (lag > 500) {
+          indexerCritical = true;
+        } else if (lag > 100) {
+          indexerDegraded = true;
+        }
+      }
+    } catch {
+      // Indexer not registered
+    }
 
-  const overallStatus = anyCritical ? 'unhealthy' : !coreOk || anyDegraded ? 'degraded' : 'healthy';
-  const httpStatus = anyCritical ? 503 : !coreOk || anyDegraded ? 200 : 200;
+    // Reconciliation status check
+    let reconciliationDegraded = false;
+    let reconciliationCritical = false;
+    try {
+      const scheduler = container.resolve(ReconciliationScheduler);
+      const latestResult = scheduler.getLatestResult();
+      const alertServiceInstance = container.resolve(AlertService);
+      const activeCritical =
+        await alertServiceInstance.getActiveCriticalCount();
 
-  const uptime = getUptime();
+      if (latestResult?.status === "CRITICAL" || activeCritical > 0) {
+        reconciliationCritical = true;
+      } else if (latestResult?.status === "WARNING") {
+        reconciliationDegraded = true;
+      }
 
-  res.status(httpStatus).json({
-    ok: overallStatus === 'healthy',
-    status: overallStatus,
-    service: 'cruzible-api',
-    version: config.version,
-    environment: config.env,
-    timestamp: new Date().toISOString(),
-    uptime,
-    checks: {
-      database: clientDb,
-      blockchainRpc: clientRpc,
-    },
-    memory: getMemoryUsage(),
-    ...(indexer ? { indexer } : {}),
-    ...(reconciliation ? { reconciliation } : {}),
-  });
-});
+      reconciliation = {
+        lastRun: latestResult?.timestamp ?? null,
+        epoch: latestResult?.epoch ?? null,
+        epochSource: latestResult?.epochSource ?? null,
+        status: latestResult?.status ?? "UNKNOWN",
+        lastDurationMs: latestResult?.durationMs ?? null,
+        activeCriticalAlerts: activeCritical,
+      };
+    } catch {
+      // Scheduler not registered or not started
+    }
+
+    // Determine overall status — now gates on ALL operational signals
+    const coreOk = db.status === "ok" && rpc.status === "ok";
+    const coreError = db.status === "error" || rpc.status === "error";
+    const anyDegraded =
+      indexerDegraded ||
+      reconciliationDegraded ||
+      db.status === "degraded" ||
+      rpc.status === "degraded";
+    const anyCritical = coreError || indexerCritical || reconciliationCritical;
+
+    const overallStatus = anyCritical
+      ? "unhealthy"
+      : !coreOk || anyDegraded
+        ? "degraded"
+        : "healthy";
+    const httpStatus = anyCritical ? 503 : !coreOk || anyDegraded ? 200 : 200;
+
+    const uptime = getUptime();
+
+    res.status(httpStatus).json({
+      ok: overallStatus === "healthy",
+      status: overallStatus,
+      service: "cruzible-api",
+      version: config.version,
+      environment: config.env,
+      timestamp: new Date().toISOString(),
+      uptime,
+      checks: {
+        database: clientDb,
+        blockchainRpc: clientRpc,
+      },
+      memory: getMemoryUsage(),
+      ...(indexer ? { indexer } : {}),
+      ...(reconciliation ? { reconciliation } : {}),
+    });
+  },
+);
 
 /**
  * GET /health/live
  * Kubernetes-style liveness probe. Minimal check — is the process alive?
  */
-router.get('/live', (_req: Request, res: Response) => {
+router.get("/live", (_req: Request, res: Response) => {
   res.status(200).json({ ok: true, timestamp: new Date().toISOString() });
 });
 
@@ -278,18 +302,24 @@ router.get('/live', (_req: Request, res: Response) => {
  * up: database, RPC, indexer lag (if enabled), and reconciliation status.
  * Returns 503 when any critical signal fails.
  */
-router.get('/ready', async (_req: Request, res: Response) => {
+router.get("/ready", async (_req: Request, res: Response) => {
   const [dbResult, rpcResult] = await Promise.allSettled([
     checkDatabase(),
     checkBlockchainRpc(),
   ]);
 
-  const db = dbResult.status === 'fulfilled' ? dbResult.value : { status: 'error' as const, message: 'probe threw' };
-  const rpc = rpcResult.status === 'fulfilled' ? rpcResult.value : { status: 'error' as const, message: 'probe threw' };
+  const db =
+    dbResult.status === "fulfilled"
+      ? dbResult.value
+      : { status: "error" as const, message: "probe threw" };
+  const rpc =
+    rpcResult.status === "fulfilled"
+      ? rpcResult.value
+      : { status: "error" as const, message: "probe threw" };
   const clientDb = toClientProbeResult(db);
   const clientRpc = toClientProbeResult(rpc);
 
-  const coreReady = db.status === 'ok' && rpc.status === 'ok';
+  const coreReady = db.status === "ok" && rpc.status === "ok";
 
   // Indexer readiness (critical lag = not ready)
   let indexerReady = true;
@@ -298,7 +328,7 @@ router.get('/ready', async (_req: Request, res: Response) => {
     if (config.indexerEnabled) {
       const indexerService = container.resolve(IndexerService);
       const metrics = indexerService.getMetrics();
-      indexerLag = typeof metrics.lag === 'number' ? metrics.lag : 0;
+      indexerLag = typeof metrics.lag === "number" ? metrics.lag : 0;
       if (indexerLag > 500) {
         indexerReady = false;
       }
@@ -311,7 +341,12 @@ router.get('/ready', async (_req: Request, res: Response) => {
   let reconciliationReady = true;
   let reconciliationStatus: string | null = null;
   let activeCriticalAlerts = 0;
-  let latestResult: { epoch?: number; epochSource?: string; status?: string; timestamp?: string } | null = null;
+  let latestResult: {
+    epoch?: number;
+    epochSource?: string;
+    status?: string;
+    timestamp?: string;
+  } | null = null;
   try {
     const scheduler = container.resolve(ReconciliationScheduler);
     latestResult = scheduler.getLatestResult();
@@ -320,7 +355,7 @@ router.get('/ready', async (_req: Request, res: Response) => {
     const alertServiceInstance = container.resolve(AlertService);
     activeCriticalAlerts = await alertServiceInstance.getActiveCriticalCount();
 
-    if (latestResult?.status === 'CRITICAL' || activeCriticalAlerts > 0) {
+    if (latestResult?.status === "CRITICAL" || activeCriticalAlerts > 0) {
       reconciliationReady = false;
     }
   } catch {
@@ -337,7 +372,7 @@ router.get('/ready', async (_req: Request, res: Response) => {
     reconciliation: {
       epoch: latestResult?.epoch ?? null,
       epochSource: latestResult?.epochSource ?? null,
-      status: reconciliationStatus ?? 'UNKNOWN',
+      status: reconciliationStatus ?? "UNKNOWN",
       lastRun: latestResult?.timestamp ?? null,
       activeCriticalAlerts,
       ready: reconciliationReady,

@@ -216,17 +216,20 @@ describe("ApiGateway lifecycle (server.ts)", () => {
 
         expect(unauthorizedHealth.status).toBe(401);
         expect(authorizedHealth.status).toBe(200);
+        expect(authorizedHealth.headers.get("cache-control")).toBe("no-store");
         expect(publicLive.status).toBe(200);
         expect(publicReady.status).toBe(200);
         expect(publicReadyBody.ready).toBe(true);
         expect(publicReadyBody.checks).toBeUndefined();
         expect(unauthorizedMetrics.status).toBe(401);
         expect(authorizedMetrics.status).toBe(200);
+        expect(authorizedMetrics.headers.get("cache-control")).toBe("no-store");
         expect(authorizedMetrics.headers.get("content-type")).toContain(
           "text/plain",
         );
         expect(unauthorizedDocs.status).toBe(401);
         expect(authorizedDocs.status).toBe(200);
+        expect(authorizedDocs.headers.get("cache-control")).toBe("no-store");
       });
     } finally {
       Object.assign(config as any, originalConfig);

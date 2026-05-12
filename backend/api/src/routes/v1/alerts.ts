@@ -6,23 +6,29 @@
  * JWT authentication.
  */
 
-import { Router, Request, Response } from 'express';
-import { query } from 'express-validator';
-import { container } from 'tsyringe';
-import { AlertService, AlertSeverity, AlertType } from '../../services/AlertService';
-import { ReconciliationScheduler } from '../../services/ReconciliationScheduler';
-import { authenticate, requireRoles } from '../../auth/middleware';
-import { opsRateLimiter } from '../../middleware/rateLimiter';
-import { validate } from '../../middleware/validate';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
+import { Router, Request, Response } from "express";
+import { query } from "express-validator";
+import { container } from "tsyringe";
+import {
+  AlertService,
+  AlertSeverity,
+  AlertType,
+} from "../../services/AlertService";
+import { ReconciliationScheduler } from "../../services/ReconciliationScheduler";
+import { authenticate, requireRoles } from "../../auth/middleware";
+import { opsRateLimiter } from "../../middleware/rateLimiter";
+import { noStore } from "../../middleware/noStore";
+import { validate } from "../../middleware/validate";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { MAX_PUBLIC_PAGINATION_OFFSET } from "../../validation/schemas";
 
 const router = Router();
 
 // All alert routes require authenticated operators or admins.
 router.use(opsRateLimiter);
 router.use(authenticate);
-router.use(requireRoles('operator', 'admin'));
+router.use(requireRoles("operator", "admin"));
+router.use(noStore);
 
 const alertService = container.resolve(AlertService);
 const reconciliationScheduler = container.resolve(ReconciliationScheduler);
@@ -75,15 +81,15 @@ const TYPE_VALUES = Object.values(AlertType);
  *         description: Unauthorized
  */
 router.get(
-  '/',
+  "/",
   [
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset')
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset")
       .optional()
       .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
       .toInt(),
-    query('severity').optional().isIn(SEVERITY_VALUES),
-    query('type').optional().isIn(TYPE_VALUES),
+    query("severity").optional().isIn(SEVERITY_VALUES),
+    query("type").optional().isIn(TYPE_VALUES),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -130,7 +136,7 @@ router.get(
  *         description: Unauthorized
  */
 router.get(
-  '/summary',
+  "/summary",
   asyncHandler(async (_req: Request, res: Response) => {
     const summary = await alertService.getAlertSummary();
     res.json(summary);
@@ -148,7 +154,8 @@ router.get(
 const reconciliationStatusRouter = Router();
 reconciliationStatusRouter.use(opsRateLimiter);
 reconciliationStatusRouter.use(authenticate);
-reconciliationStatusRouter.use(requireRoles('operator', 'admin'));
+reconciliationStatusRouter.use(requireRoles("operator", "admin"));
+reconciliationStatusRouter.use(noStore);
 
 /**
  * @swagger
@@ -167,14 +174,15 @@ reconciliationStatusRouter.use(requireRoles('operator', 'admin'));
  *         description: No reconciliation has run yet
  */
 reconciliationStatusRouter.get(
-  '/status',
+  "/status",
   asyncHandler(async (_req: Request, res: Response) => {
     const result = reconciliationScheduler.getLatestResult();
 
     if (!result) {
       res.status(404).json({
-        error: 'Not Found',
-        message: 'No reconciliation result available yet. The scheduler may not have run.',
+        error: "Not Found",
+        message:
+          "No reconciliation result available yet. The scheduler may not have run.",
       });
       return;
     }

@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { authenticate, requireRoles } from "../../auth/middleware";
 import { opsRateLimiter } from "../../middleware/rateLimiter";
+import { noStore } from "../../middleware/noStore";
 import {
   listPrivilegedAuditEvents,
   type PrivilegedAuditRecord,
@@ -15,6 +16,7 @@ const MAX_AUDIT_PAGINATION_OFFSET = 10_000;
 router.use(opsRateLimiter);
 router.use(authenticate);
 router.use(requireRoles("operator", "admin"));
+router.use(noStore);
 
 const DateTimeSchema = z
   .string()

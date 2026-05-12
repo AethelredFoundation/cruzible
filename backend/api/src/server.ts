@@ -27,6 +27,7 @@ import { swaggerSpec } from "./config/swagger";
 import { errorHandler } from "./middleware/errorHandler";
 import { rateLimiter } from "./middleware/rateLimiter";
 import { metricsHandler, metricsMiddleware } from "./middleware/metrics";
+import { noStore } from "./middleware/noStore";
 import { requireOperationalAccess } from "./middleware/operationalAccess";
 import { requestId } from "./middleware/requestId";
 import { requestLogger } from "./middleware/requestLogger";
@@ -245,7 +246,12 @@ export class ApiGateway {
 
   private initializeRoutes(): void {
     if (config.metricsEnabled) {
-      this.app.get("/metrics", requireOperationalAccess, metricsHandler);
+      this.app.get(
+        "/metrics",
+        requireOperationalAccess,
+        noStore,
+        metricsHandler,
+      );
     }
 
     // Health routes are mounted after the global limiter. Liveness/readiness
@@ -256,6 +262,7 @@ export class ApiGateway {
       this.app.use(
         "/docs",
         requireOperationalAccess,
+        noStore,
         swaggerUi.serve,
         swaggerUi.setup(swaggerSpec, {
           explorer: true,
