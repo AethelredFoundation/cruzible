@@ -416,6 +416,47 @@ mod tests {
     }
 
     #[test]
+    fn test_register_untrusted_storage_uri_rejected() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env = env_at_block(&env, 100);
+        let mut msg = register_msg("hash1");
+
+        if let ExecuteMsg::RegisterModel { storage_uri, .. } = &mut msg {
+            *storage_uri = "javascript:alert(1)".to_string();
+        }
+
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Storage URI must use ipfs://, ar://, or a trusted content gateway"));
+    }
+
+    #[test]
+    fn test_register_trusted_gateway_storage_uri_works() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env = env_at_block(&env, 100);
+        let mut msg = register_msg("hash1");
+
+        if let ExecuteMsg::RegisterModel { storage_uri, .. } = &mut msg {
+            *storage_uri = "https://ipfs.io/ipfs/QmTest123".to_string();
+        }
+
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let model_res = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::Model {
+                model_hash: "hash1".to_string(),
+            },
+        )
+        .unwrap();
+        let model: Model = from_json(&model_res).unwrap();
+        assert_eq!(model.storage_uri, "https://ipfs.io/ipfs/QmTest123");
+    }
+
+    #[test]
     fn test_register_oversized_schema_rejected() {
         let (mut deps, env) = instantiate_no_fee();
         let info = mock_info("user1", &[]);
@@ -564,6 +605,75 @@ mod tests {
         let model: Model = from_json(&model_res).unwrap();
         assert_eq!(model.name, "New Name Only");
         assert_eq!(model.storage_uri, "ipfs://QmTest123"); // Unchanged
+    }
+
+    #[test]
+    fn test_update_model_rejects_empty_name() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env_100 = env_at_block(&env, 100);
+
+        execute(
+            deps.as_mut(),
+            env_100.clone(),
+            info.clone(),
+            register_msg("hash1"),
+        )
+        .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env_100,
+            info,
+            ExecuteMsg::UpdateModel {
+                model_hash: "hash1".to_string(),
+                name: Some("".to_string()),
+                storage_uri: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("Name must be 1-256 characters"));
+    }
+
+    #[test]
+    fn test_update_model_rejects_untrusted_storage_uri() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env_100 = env_at_block(&env, 100);
+
+        execute(
+            deps.as_mut(),
+            env_100.clone(),
+            info.clone(),
+            register_msg("hash1"),
+        )
+        .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env_100.clone(),
+            info,
+            ExecuteMsg::UpdateModel {
+                model_hash: "hash1".to_string(),
+                name: None,
+                storage_uri: Some("https://evil.example/model.json".to_string()),
+            },
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Storage URI must use ipfs://, ar://, or a trusted content gateway"));
+
+        let model_res = query(
+            deps.as_ref(),
+            env_100,
+            QueryMsg::Model {
+                model_hash: "hash1".to_string(),
+            },
+        )
+        .unwrap();
+        let model: Model = from_json(&model_res).unwrap();
+        assert_eq!(model.storage_uri, "ipfs://QmTest123");
     }
 
     #[test]

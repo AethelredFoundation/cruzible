@@ -45,6 +45,19 @@ pub enum ContractError {
 const MAX_MODELS_PER_OWNER: u64 = 500;
 /// Rate limit: minimum blocks between registrations per address
 const REGISTRATION_COOLDOWN_BLOCKS: u64 = 5;
+const MAX_MODEL_NAME_LENGTH: usize = 256;
+const MAX_MODEL_HASH_LENGTH: usize = 128;
+const MAX_ARCHITECTURE_LENGTH: usize = 256;
+const MAX_VERSION_LENGTH: usize = 64;
+const MAX_STORAGE_URI_LENGTH: usize = 2048;
+const MAX_SCHEMA_LENGTH: usize = 10240;
+const TRUSTED_STORAGE_URI_PREFIXES: [&str; 5] = [
+    "ipfs://",
+    "ar://",
+    "https://ipfs.io/ipfs/",
+    "https://cloudflare-ipfs.com/ipfs/",
+    "https://gateway.pinata.cloud/ipfs/",
+];
 
 fn validated_registration_payment(
     funds: &[Coin],
@@ -69,6 +82,42 @@ fn validated_registration_payment(
                 "Invalid registration fee: required exactly {} {}, got {}",
                 registration_fee, registration_fee_denom, paid
             ),
+        )));
+    }
+
+    Ok(())
+}
+
+fn ensure_non_empty_bounded(value: &str, field: &str, max_len: usize) -> Result<(), ContractError> {
+    if value.is_empty() || value.len() > max_len {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!("{field} must be 1-{max_len} characters"),
+        )));
+    }
+    Ok(())
+}
+
+fn validate_storage_uri(storage_uri: &str) -> Result<(), ContractError> {
+    ensure_non_empty_bounded(storage_uri, "Storage URI", MAX_STORAGE_URI_LENGTH)?;
+
+    if storage_uri.trim() != storage_uri
+        || storage_uri
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace())
+    {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            "Storage URI must not contain whitespace or control characters",
+        )));
+    }
+
+    let lower_uri = storage_uri.to_ascii_lowercase();
+    let trusted = TRUSTED_STORAGE_URI_PREFIXES
+        .iter()
+        .any(|prefix| lower_uri.starts_with(prefix) && storage_uri.len() > prefix.len());
+
+    if !trusted {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            "Storage URI must use ipfs://, ar://, or a trusted content gateway",
         )));
     }
 
@@ -350,32 +399,12 @@ fn execute_register_model(
     }
 
     // MED-6: Input validation — prevent empty/oversized strings
-    if name.is_empty() || name.len() > 256 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Name must be 1-256 characters",
-        )));
-    }
-    if model_hash.is_empty() || model_hash.len() > 128 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Model hash must be 1-128 characters",
-        )));
-    }
-    if architecture.is_empty() || architecture.len() > 256 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Architecture must be 1-256 characters",
-        )));
-    }
-    if version.is_empty() || version.len() > 64 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Version must be 1-64 characters",
-        )));
-    }
-    if storage_uri.is_empty() || storage_uri.len() > 2048 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Storage URI must be 1-2048 characters",
-        )));
-    }
-    if input_schema.len() > 10240 || output_schema.len() > 10240 {
+    ensure_non_empty_bounded(&name, "Name", MAX_MODEL_NAME_LENGTH)?;
+    ensure_non_empty_bounded(&model_hash, "Model hash", MAX_MODEL_HASH_LENGTH)?;
+    ensure_non_empty_bounded(&architecture, "Architecture", MAX_ARCHITECTURE_LENGTH)?;
+    ensure_non_empty_bounded(&version, "Version", MAX_VERSION_LENGTH)?;
+    validate_storage_uri(&storage_uri)?;
+    if input_schema.len() > MAX_SCHEMA_LENGTH || output_schema.len() > MAX_SCHEMA_LENGTH {
         return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
             "Schema must be at most 10240 characters",
         )));
@@ -458,9 +487,11 @@ fn execute_update_model(
     }
 
     if let Some(n) = name {
+        ensure_non_empty_bounded(&n, "Name", MAX_MODEL_NAME_LENGTH)?;
         model.name = n;
     }
     if let Some(uri) = storage_uri {
+        validate_storage_uri(&uri)?;
         model.storage_uri = uri;
     }
 
