@@ -33,6 +33,7 @@ import { config } from "../../config";
 
 const router = Router();
 const RefreshTokenRequestBodySchema = RefreshTokenBodySchema.partial();
+type RefreshTokenSource = "body" | "cookie";
 
 router.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Cache-Control", "no-store");
@@ -112,19 +113,58 @@ function readCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-function readRefreshTokenFromRequest(req: Request): string {
+function isAllowedRequestOrigin(origin: string): boolean {
+  return config.corsOrigins.includes(origin);
+}
+
+function readRefererOrigin(req: Request): string | undefined {
+  const referer = req.get("referer");
+  if (!referer) {
+    return undefined;
+  }
+
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function assertTrustedCookieAuthOrigin(req: Request): void {
+  const origin = req.get("origin");
+  if (origin && !isAllowedRequestOrigin(origin)) {
+    throw new ApiError(403, "Untrusted auth request origin");
+  }
+
+  const refererOrigin = readRefererOrigin(req);
+  if (!origin && refererOrigin && !isAllowedRequestOrigin(refererOrigin)) {
+    throw new ApiError(403, "Untrusted auth request origin");
+  }
+
+  if (config.isProduction && !origin && !refererOrigin) {
+    throw new ApiError(403, "Missing auth request origin");
+  }
+}
+
+function readRefreshTokenFromRequest(req: Request): {
+  token: string;
+  source: RefreshTokenSource;
+} {
   const { refresh_token: bodyRefreshToken } = parseRequest(
     RefreshTokenRequestBodySchema,
     req.body ?? {},
   );
-  const refreshToken =
-    bodyRefreshToken ?? readCookie(req, refreshTokenCookieName());
+  if (bodyRefreshToken) {
+    return { token: bodyRefreshToken, source: "body" };
+  }
 
+  const refreshToken = readCookie(req, refreshTokenCookieName());
   if (!refreshToken) {
     throw new ApiError(401, "Invalid refresh token");
   }
 
-  return refreshToken;
+  assertTrustedCookieAuthOrigin(req);
+  return { token: refreshToken, source: "cookie" };
 }
 
 function authTokenResponse(tokens: AuthTokens) {
@@ -183,7 +223,7 @@ router.post(
 router.post(
   "/refresh",
   asyncHandler(async (req: Request, res: Response) => {
-    const refreshToken = readRefreshTokenFromRequest(req);
+    const { token: refreshToken } = readRefreshTokenFromRequest(req);
     let tokens;
     try {
       tokens = await refreshAccessToken(refreshToken, sessionContext(req));
@@ -198,7 +238,7 @@ router.post(
 router.post(
   "/logout",
   asyncHandler(async (req: Request, res: Response) => {
-    const refreshToken = readRefreshTokenFromRequest(req);
+    const { token: refreshToken } = readRefreshTokenFromRequest(req);
     try {
       await revokeRefreshToken(refreshToken);
     } catch {

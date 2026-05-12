@@ -347,6 +347,63 @@ describe("auth routes", () => {
     });
   });
 
+  it("rejects production cookie refresh requests from untrusted origins", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const { config } = await import("../src/config");
+      const originalIsProduction = config.isProduction;
+      const originalCorsOrigins = [...config.corsOrigins];
+
+      try {
+        (config as any).isProduction = true;
+        (config as any).corsOrigins = ["https://app.example"];
+
+        const challenge = await (
+          await fetch(`${baseUrl}/v1/auth/nonce`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: "aeth1operator" }),
+          })
+        ).json();
+        const loginResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        });
+        const loginRefreshCookie = getRefreshCookie(loginResponse);
+
+        const rejectedOrigin = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: {
+            Cookie: loginRefreshCookie,
+            Origin: "https://evil.example",
+          },
+        });
+        const missingOrigin = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: { Cookie: loginRefreshCookie },
+        });
+        const acceptedOrigin = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: {
+            Cookie: loginRefreshCookie,
+            Origin: "https://app.example",
+          },
+        });
+
+        expect(rejectedOrigin.status).toBe(403);
+        expect(missingOrigin.status).toBe(403);
+        expect(acceptedOrigin.status).toBe(200);
+      } finally {
+        (config as any).isProduction = originalIsProduction;
+        (config as any).corsOrigins = originalCorsOrigins;
+      }
+    });
+  });
+
   it("keeps refresh tokens out of JSON bodies when response exposure is disabled", async () => {
     await withAuthRoutes(
       async (baseUrl) => {
