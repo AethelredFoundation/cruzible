@@ -85,6 +85,12 @@ describe("getTrustedModelStorageUrl", () => {
       null,
     );
     expect(getTrustedModelStorageUrl("http://ipfs.io/ipfs/bafy123")).toBe(null);
+    expect(getTrustedModelStorageUrl("https://ipfs.io/not-ipfs/bafy123")).toBe(
+      null,
+    );
+    expect(
+      getTrustedModelStorageUrl("https://user:pass@ipfs.io/ipfs/bafy123"),
+    ).toBe(null);
   });
 
   it("normalizes decentralized storage schemes to trusted gateways", () => {

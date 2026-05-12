@@ -98,8 +98,7 @@ export function getSafeExternalUrl(value?: string | null): string | null {
   }
 }
 
-const TRUSTED_MODEL_STORAGE_HOSTS = new Set([
-  "arweave.net",
+const TRUSTED_IPFS_GATEWAY_HOSTS = new Set([
   "cloudflare-ipfs.com",
   "gateway.pinata.cloud",
   "ipfs.io",
@@ -116,8 +115,20 @@ export function getTrustedModelStorageUrl(
     const url = new URL(value);
     const host = url.hostname.toLowerCase();
 
-    if (url.protocol === "https:" && TRUSTED_MODEL_STORAGE_HOSTS.has(host)) {
-      return url.toString();
+    if (url.username || url.password) {
+      return null;
+    }
+
+    if (url.protocol === "https:" && TRUSTED_IPFS_GATEWAY_HOSTS.has(host)) {
+      const cidPath = url.pathname.replace(/^\/+/, "");
+      return cidPath.startsWith("ipfs/") && cidPath.length > "ipfs/".length
+        ? url.toString()
+        : null;
+    }
+
+    if (url.protocol === "https:" && host === "arweave.net") {
+      const txPath = url.pathname.replace(/^\/+/, "");
+      return txPath ? url.toString() : null;
     }
 
     if (url.protocol === "ipfs:") {
