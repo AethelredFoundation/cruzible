@@ -381,6 +381,25 @@ describe("backend config hardening", () => {
     ).rejects.toThrow("Refusing to start without DATABASE_URL in production");
   });
 
+  it("rejects unsupported database URL protocols", async () => {
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        DATABASE_URL: "mysql://cruzible:secret@db.cruzible.org:3306/cruzible",
+      }),
+    ).rejects.toThrow("DATABASE_URL must use postgresql:// or postgres://");
+  });
+
+  it("rejects database URL fragments", async () => {
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        DATABASE_URL:
+          "postgresql://cruzible:secret@db.cruzible.org:5432/cruzible#token",
+      }),
+    ).rejects.toThrow("DATABASE_URL must not contain fragments");
+  });
+
   it("rejects missing REDIS_URL in production", async () => {
     await expect(
       loadConfigWithEnv({
@@ -484,6 +503,36 @@ describe("backend config hardening", () => {
     ).rejects.toThrow(
       "INDEXER_WS_URL must not contain credentials or fragments",
     );
+  });
+
+  it("rejects unsupported RPC and indexer URL protocols", async () => {
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        RPC_URL: "ftp://rpc.cruzible.test",
+      }),
+    ).rejects.toThrow("RPC_URL must use http:// or https://");
+
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        INDEXER_RPC_URL: "wss://rpc.cruzible.test/ws",
+      }),
+    ).rejects.toThrow("INDEXER_RPC_URL must use http:// or https://");
+
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        INDEXER_WS_URL: "https://rpc.cruzible.test",
+      }),
+    ).rejects.toThrow("INDEXER_WS_URL must use ws:// or wss://");
+
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        WS_URL: "https://rpc.cruzible.test",
+      }),
+    ).rejects.toThrow("WS_URL must use ws:// or wss://");
   });
 
   it("rejects alert webhook credentials and fragments", async () => {

@@ -195,6 +195,13 @@ const defaultSecrets = new Set([
 const indexerWsUrl =
   parsedEnv.INDEXER_WS_URL ?? parsedEnv.WS_URL ?? DEFAULT_INDEXER_WS_URL;
 const indexerRpcUrl = parsedEnv.INDEXER_RPC_URL ?? DEFAULT_INDEXER_RPC_URL;
+requireUrlProtocol(parsedEnv.RPC_URL, "RPC_URL", ["http:", "https:"]);
+requireUrlProtocol(parsedEnv.INDEXER_RPC_URL, "INDEXER_RPC_URL", [
+  "http:",
+  "https:",
+]);
+requireUrlProtocol(parsedEnv.INDEXER_WS_URL, "INDEXER_WS_URL", ["ws:", "wss:"]);
+requireUrlProtocol(parsedEnv.WS_URL, "WS_URL", ["ws:", "wss:"]);
 rejectUrlUserInfoAndFragment(parsedEnv.RPC_URL, "RPC_URL");
 rejectUrlUserInfoAndFragment(parsedEnv.INDEXER_RPC_URL, "INDEXER_RPC_URL");
 rejectUrlUserInfoAndFragment(parsedEnv.INDEXER_WS_URL, "INDEXER_WS_URL");
@@ -211,6 +218,25 @@ const metricsEnabled = parsedEnv.METRICS_ENABLED ?? true;
 const apiDocsEnabled = parsedEnv.API_DOCS_ENABLED ?? !isProduction;
 const authExposeRefreshTokenInBody =
   parsedEnv.AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY ?? !isProduction;
+
+function formatUrlProtocols(protocols: readonly string[]): string {
+  return protocols.map((protocol) => `${protocol}//`).join(" or ");
+}
+
+function requireUrlProtocol(
+  value: string | undefined,
+  envName: string,
+  protocols: readonly string[],
+): void {
+  if (!value) {
+    return;
+  }
+
+  const parsed = new URL(value);
+  if (!protocols.includes(parsed.protocol)) {
+    throw new Error(`${envName} must use ${formatUrlProtocols(protocols)}`);
+  }
+}
 
 function requireProductionConfig(value: unknown, message: string): void {
   if (value === undefined || value === null || value === "") {
@@ -340,6 +366,24 @@ function parseCorsOrigins(value: string, production: boolean): string[] {
   });
 
   return [...new Set(normalizedOrigins)];
+}
+
+function parseDatabaseUrl(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new URL(value);
+
+  if (parsed.protocol !== "postgresql:" && parsed.protocol !== "postgres:") {
+    throw new Error("DATABASE_URL must use postgresql:// or postgres://");
+  }
+
+  if (parsed.hash) {
+    throw new Error("DATABASE_URL must not contain fragments");
+  }
+
+  return parsed.href;
 }
 
 function parseRedisUrl(
@@ -529,6 +573,7 @@ if (isProduction && trustProxy === true) {
 }
 
 const corsOrigins = parseCorsOrigins(parsedEnv.CORS_ORIGINS, isProduction);
+const databaseUrl = parseDatabaseUrl(parsedEnv.DATABASE_URL);
 const redisUrl = parseRedisUrl(parsedEnv.REDIS_URL, isProduction);
 const alertWebhookUrl = parseAlertWebhookUrl(
   parsedEnv.ALERT_WEBHOOK_URL,
@@ -560,7 +605,7 @@ export const config = {
   port: parsedEnv.PORT,
   version: process.env.npm_package_version || "1.0.0",
   rpcUrl: parsedEnv.RPC_URL,
-  databaseUrl: parsedEnv.DATABASE_URL,
+  databaseUrl,
   redisUrl,
   corsOrigins,
   jwtSecret: parsedEnv.JWT_SECRET,
