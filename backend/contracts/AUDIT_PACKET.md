@@ -76,7 +76,9 @@ checksums and manifest.
   bounded tolerance, mutation cooldown, quarantine, epoch invalidation, and
   production-mode governance-controlled feeder membership.
 - Seal creation depends on the configured AI job manager address returning
-  canonical job state, and every active seal receives a bounded expiration.
+  canonical job state; when the upstream job response includes model, input,
+  output, and assigned-validator evidence, the seal must bind to that evidence,
+  and every active seal receives a bounded expiration.
 - Job submission requires a registered, verified model hash. Verified AI jobs
   emit an error-handled model registry `IncrementJobCount` submessage from the
   configured AI job manager address after deployment, so registry-side stats
@@ -119,8 +121,8 @@ Before production readiness can be claimed, run a staging drill that covers:
   `UpdateTransferHook` and `UpdateMinter` actions that wire the deployed vault
   as accounting hook and final minter.
 - Stake, transfer stAETHEL, compound, unstake, burn, unbond, and claim flows.
-- Submit, assign, complete, verify, pay, and seal an AI job with default and
-  max seal-expiration checks.
+- Submit, assign, complete, verify, pay, and seal an AI job with commitment,
+  assigned-validator, default-expiration, and max-expiration checks.
 - Register and verify a model, submit jobs only against verified model hashes,
   and observe job-count submessages from the authorized job manager.
 - Record and verify the model registry post-instantiate `UpdateConfig` action

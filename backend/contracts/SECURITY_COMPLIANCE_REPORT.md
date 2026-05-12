@@ -24,11 +24,11 @@ The live code includes remediations for the previously tracked critical issues, 
 | Governance quorum            | Implemented to gate proposal execution.                                                                                 |
 | Model registry fees          | Implemented registration fee amount and denom enforcement.                                                              |
 | Model registry authorization | Implemented submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates. |
-| Seal manager job provenance  | Implemented cross-contract job checks and bounded expiration before seal creation.                                      |
+| Seal manager job provenance  | Implemented cross-contract job evidence binding and bounded expiration before seal creation.                            |
 
 ## Test Evidence
 
-Local `cargo test` from `backend/contracts` passes with 308 total unit tests:
+Local `cargo test` from `backend/contracts` passes with 312 total unit tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
@@ -37,7 +37,7 @@ Local `cargo test` from `backend/contracts` passes with 308 total unit tests:
 | `cw20_staking`   |            53 |
 | `governance`     |            53 |
 | `model_registry` |            54 |
-| `seal_manager`   |            42 |
+| `seal_manager`   |            46 |
 | Doc tests        |             0 |
 
 ## Pre-Production Checklist
@@ -49,8 +49,8 @@ Completed for audit-candidate state:
 - [x] AI job payment double-claim guard remediated.
 - [x] Governance snapshot, quorum, and feeder-oracle controls remediated.
 - [x] Model registry fee amount/denom, submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates remediated.
-- [x] Seal manager cross-contract job check and bounded expiration remediated.
-- [x] Local `cargo test` evidence passes with 308 unit tests.
+- [x] Seal manager cross-contract job evidence binding and bounded expiration remediated.
+- [x] Local `cargo test` evidence passes with 312 unit tests.
 - [x] CI workflow enforces contract fmt, clippy, tests, dependency audit, and wasm release build.
 - [x] CI workflow uploads commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json`.
 - [x] Residual review items and deployment assumptions are documented in `AUDIT_PACKET.md`.

@@ -31,7 +31,27 @@ mod tests {
                 let response = JobResponse {
                     id: response_id.clone(),
                     status: status.clone(),
+                    validator: None,
+                    model_hash: None,
+                    input_hash: None,
+                    output_hash: None,
                 };
+                SystemResult::Ok(ContractResult::Ok(to_json_binary(&response).unwrap()))
+            }
+            _ => SystemResult::Err(cosmwasm_std::SystemError::InvalidRequest {
+                error: "unimplemented".to_string(),
+                request: cosmwasm_std::Binary::default(),
+            }),
+        });
+        deps
+    }
+
+    fn mock_deps_with_job_response(
+        response: JobResponse,
+    ) -> OwnedDeps<MemoryStorage, MockApi, MockQuerier> {
+        let mut deps = mock_dependencies();
+        deps.querier.update_wasm(move |query| match query {
+            cosmwasm_std::WasmQuery::Smart { .. } => {
                 SystemResult::Ok(ContractResult::Ok(to_json_binary(&response).unwrap()))
             }
             _ => SystemResult::Err(cosmwasm_std::SystemError::InvalidRequest {
@@ -75,6 +95,10 @@ mod tests {
                 let response = JobResponse {
                     id: response_id.clone(),
                     status: status.clone(),
+                    validator: None,
+                    model_hash: None,
+                    input_hash: None,
+                    output_hash: None,
                 };
                 SystemResult::Ok(ContractResult::Ok(to_json_binary(&response).unwrap()))
             }
@@ -209,6 +233,124 @@ mod tests {
         assert_eq!(seal.status, SealStatus::Active);
         assert_eq!(seal.validators.len(), 3);
         assert_eq!(seal.model_commitment, "model_hash_abc");
+    }
+
+    #[test]
+    fn create_seal_matches_upstream_job_evidence() {
+        let mut deps = mock_deps_with_job_response(JobResponse {
+            id: "job123".to_string(),
+            status: JobStatusResponse::Verified,
+            validator: Some(VALIDATOR1.to_string()),
+            model_hash: Some("model_hash".to_string()),
+            input_hash: Some("input_hash".to_string()),
+            output_hash: Some("output_hash".to_string()),
+        });
+        setup_contract(deps.as_mut());
+
+        let info = mock_info(REQUESTER, &[]);
+        let msg = ExecuteMsg::CreateSeal {
+            job_id: "job123".to_string(),
+            model_commitment: "model_hash".to_string(),
+            input_commitment: "input_hash".to_string(),
+            output_commitment: "output_hash".to_string(),
+            validator_addresses: vec![
+                VALIDATOR1.to_string(),
+                VALIDATOR2.to_string(),
+                VALIDATOR3.to_string(),
+            ],
+            expiration: None,
+        };
+
+        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "action" && a.value == "create_seal"));
+    }
+
+    #[test]
+    fn create_seal_rejects_mismatched_job_commitment() {
+        let mut deps = mock_deps_with_job_response(JobResponse {
+            id: "job123".to_string(),
+            status: JobStatusResponse::Verified,
+            validator: Some(VALIDATOR1.to_string()),
+            model_hash: Some("model_hash".to_string()),
+            input_hash: Some("input_hash".to_string()),
+            output_hash: Some("canonical_output".to_string()),
+        });
+        setup_contract(deps.as_mut());
+
+        let info = mock_info(REQUESTER, &[]);
+        let msg = ExecuteMsg::CreateSeal {
+            job_id: "job123".to_string(),
+            model_commitment: "model_hash".to_string(),
+            input_commitment: "input_hash".to_string(),
+            output_commitment: "fake_output".to_string(),
+            validator_addresses: vec![
+                VALIDATOR1.to_string(),
+                VALIDATOR2.to_string(),
+                VALIDATOR3.to_string(),
+            ],
+            expiration: None,
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("output_commitment"));
+    }
+
+    #[test]
+    fn create_seal_rejects_missing_assigned_validator() {
+        let mut deps = mock_deps_with_job_response(JobResponse {
+            id: "job123".to_string(),
+            status: JobStatusResponse::Verified,
+            validator: Some(VALIDATOR3.to_string()),
+            model_hash: Some("model_hash".to_string()),
+            input_hash: Some("input_hash".to_string()),
+            output_hash: Some("output_hash".to_string()),
+        });
+        setup_contract(deps.as_mut());
+
+        let info = mock_info(REQUESTER, &[]);
+        let msg = ExecuteMsg::CreateSeal {
+            job_id: "job123".to_string(),
+            model_commitment: "model_hash".to_string(),
+            input_commitment: "input_hash".to_string(),
+            output_commitment: "output_hash".to_string(),
+            validator_addresses: vec![
+                VALIDATOR1.to_string(),
+                VALIDATOR2.to_string(),
+                "validator4".to_string(),
+            ],
+            expiration: None,
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidSealStatus {});
+    }
+
+    #[test]
+    fn create_seal_rejects_empty_commitment() {
+        let mut deps = mock_deps_with_wasm();
+        setup_contract(deps.as_mut());
+
+        let info = mock_info(REQUESTER, &[]);
+        let msg = ExecuteMsg::CreateSeal {
+            job_id: "job123".to_string(),
+            model_commitment: " ".to_string(),
+            input_commitment: "input_hash".to_string(),
+            output_commitment: "output_hash".to_string(),
+            validator_addresses: vec![
+                VALIDATOR1.to_string(),
+                VALIDATOR2.to_string(),
+                VALIDATOR3.to_string(),
+            ],
+            expiration: None,
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("model_commitment"));
     }
 
     #[test]

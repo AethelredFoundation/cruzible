@@ -9,7 +9,7 @@ cd backend/contracts
 cargo test
 ```
 
-Observed result: **308 passing unit tests**.
+Observed result: **312 passing unit tests**.
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
@@ -18,9 +18,9 @@ Observed result: **308 passing unit tests**.
 | `cw20_staking`   |            53 |
 | `governance`     |            53 |
 | `model_registry` |            54 |
-| `seal_manager`   |            42 |
+| `seal_manager`   |            46 |
 | Doc tests        |             0 |
-| **Total**        |       **308** |
+| **Total**        |       **312** |
 
 ## Covered Remediation Themes
 
@@ -35,7 +35,7 @@ The passing test set includes coverage for the current hardening work:
 - Governance snapshot, quorum, feeder oracle, and governance-controlled feeder membership controls.
 - Model registry registration fee amount and denom enforcement.
 - Model registry job-manager authorization, AI job manager submit-time verified-model checks, and liveness-safe verified-job count updates.
-- Seal manager cross-contract job verification and bounded expiration.
+- Seal manager cross-contract job verification, job evidence binding, and bounded expiration.
 
 ## Coverage Limits
 

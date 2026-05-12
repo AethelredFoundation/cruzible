@@ -16,6 +16,7 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:seal-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_COMMITMENT_LENGTH: usize = 256;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -58,6 +59,14 @@ pub enum AiJobManagerQueryMsg {
 pub struct JobResponse {
     pub id: String,
     pub status: JobStatusResponse,
+    #[serde(default)]
+    pub validator: Option<String>,
+    #[serde(default)]
+    pub model_hash: Option<String>,
+    #[serde(default)]
+    pub input_hash: Option<String>,
+    #[serde(default)]
+    pub output_hash: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -307,8 +316,20 @@ fn execute_create_seal(
     expiration: Option<u64>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
+    validate_commitment("model_commitment", &model_commitment)?;
+    validate_commitment("input_commitment", &input_commitment)?;
+    validate_commitment("output_commitment", &output_commitment)?;
+
+    let job = ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
     let validators = validate_unique_validators(deps.api, &config, validator_addresses)?;
+    validate_seal_matches_job(
+        deps.api,
+        &job,
+        &validators,
+        &model_commitment,
+        &input_commitment,
+        &output_commitment,
+    )?;
 
     let expiration_seconds = resolve_seal_expiration(&config, expiration)?;
     let expires_at = Some(env.block.time.plus_seconds(expiration_seconds));
@@ -341,7 +362,11 @@ fn execute_create_seal(
         .add_attribute("job_id", job_id))
 }
 
-fn ensure_sealable_job(deps: Deps, config: &Config, job_id: &str) -> Result<(), ContractError> {
+fn ensure_sealable_job(
+    deps: Deps,
+    config: &Config,
+    job_id: &str,
+) -> Result<JobResponse, ContractError> {
     let job_response: JobResponse = deps
         .querier
         .query_wasm_smart(
@@ -367,7 +392,7 @@ fn ensure_sealable_job(deps: Deps, config: &Config, job_id: &str) -> Result<(), 
     }
 
     match job_response.status {
-        JobStatusResponse::Verified | JobStatusResponse::Paid => Ok(()),
+        JobStatusResponse::Verified | JobStatusResponse::Paid => Ok(job_response),
         _ => Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
             format!(
                 "Job '{}' is not in a valid state for sealing (status: {:?})",
@@ -375,6 +400,61 @@ fn ensure_sealable_job(deps: Deps, config: &Config, job_id: &str) -> Result<(), 
             ),
         ))),
     }
+}
+
+fn validate_commitment(name: &str, value: &str) -> Result<(), ContractError> {
+    if value.trim().is_empty() {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("{} must not be empty", name),
+        });
+    }
+    if value.len() > MAX_COMMITMENT_LENGTH {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "{} cannot exceed {} characters",
+                name, MAX_COMMITMENT_LENGTH
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn validate_seal_matches_job(
+    api: &dyn cosmwasm_std::Api,
+    job: &JobResponse,
+    validators: &[Addr],
+    model_commitment: &str,
+    input_commitment: &str,
+    output_commitment: &str,
+) -> Result<(), ContractError> {
+    if let Some(model_hash) = &job.model_hash {
+        if model_hash != model_commitment {
+            return Err(ContractError::InvalidConfig {
+                reason: "model_commitment must match job model_hash".to_string(),
+            });
+        }
+    }
+    if let Some(input_hash) = &job.input_hash {
+        if input_hash != input_commitment {
+            return Err(ContractError::InvalidConfig {
+                reason: "input_commitment must match job input_hash".to_string(),
+            });
+        }
+    }
+    if let Some(output_hash) = &job.output_hash {
+        if output_hash != output_commitment {
+            return Err(ContractError::InvalidConfig {
+                reason: "output_commitment must match job output_hash".to_string(),
+            });
+        }
+    }
+    if let Some(validator) = &job.validator {
+        let validator = api.addr_validate(validator)?;
+        if !validators.contains(&validator) {
+            return Err(ContractError::InvalidSealStatus {});
+        }
+    }
+    Ok(())
 }
 
 fn validate_unique_validators(
