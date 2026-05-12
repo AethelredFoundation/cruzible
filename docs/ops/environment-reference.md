@@ -100,27 +100,38 @@ These variables are validated or consumed by `backend/api` in the current snapsh
 
 The variables below are referenced by `backend/infra/docker-compose.yml`. They should be treated as scaffold inputs, not proof that the current API runtime consumes each value directly.
 
-| Variable                  | Used by                           | Notes                                                   |
-| ------------------------- | --------------------------------- | ------------------------------------------------------- |
-| `CHAIN_ID`                | node / seed-node scaffolding      | Defaults to testnet-style values in the updated example |
-| `MONIKER`                 | node / seed-node scaffolding      | Human-readable node name                                |
-| `MINIMUM_GAS_PRICES`      | node scaffolding                  | Passed into the node container                          |
-| `PRUNING`                 | node scaffolding                  | Passed into the node container                          |
-| `INDEXER`                 | node scaffolding                  | Passed into the node container                          |
-| `CORS_ORIGINS`            | api-gateway / indexer scaffold    | Required; production rejects wildcard or local origins  |
-| `DB_USER`                 | postgres + compose-generated URLs | Shared Compose credential input                         |
-| `DB_PASSWORD`             | postgres + compose-generated URLs | Shared Compose credential input                         |
-| `DB_NAME`                 | postgres + health checks          | Shared Compose database name                            |
-| `INDEXER_START_HEIGHT`    | indexer scaffold                  | Compose maps this to API runtime `INDEXER_START_BLOCK`  |
-| `POSTGRES_IMAGE_DIGEST`   | postgres scaffold                 | Immutable third-party image digest                      |
-| `REDIS_IMAGE_DIGEST`      | redis scaffold                    | Immutable third-party image digest                      |
-| `NGINX_IMAGE_DIGEST`      | nginx scaffold                    | Immutable third-party image digest                      |
-| `PROMETHEUS_IMAGE_DIGEST` | prometheus scaffold               | Immutable third-party image digest                      |
-| `GRAFANA_USER`            | grafana scaffold                  | Grafana bootstrap user                                  |
-| `GRAFANA_PASSWORD`        | grafana scaffold                  | Grafana bootstrap password                              |
-| `GRAFANA_ROOT_URL`        | grafana scaffold                  | Grafana external URL                                    |
-| `GRAFANA_IMAGE_DIGEST`    | grafana scaffold                  | Immutable third-party image digest                      |
-| `JAEGER_IMAGE_DIGEST`     | jaeger scaffold                   | Immutable third-party image digest                      |
+| Variable                             | Used by                        | Notes                                                                 |
+| ------------------------------------ | ------------------------------ | --------------------------------------------------------------------- |
+| `RPC_URL`                            | api-gateway / indexer          | Required chain RPC URL                                                 |
+| `GRPC_URL`                           | api-gateway passthrough        | Required by the Compose contract even though backend config ignores it |
+| `CORS_ORIGINS`                       | api-gateway / indexer          | Required; production rejects wildcard or local origins                 |
+| `DATABASE_URL_FILE`                  | api-gateway / indexer / secret | File containing the Prisma PostgreSQL URL                              |
+| `REDIS_URL_FILE`                     | api-gateway / indexer / secret | File containing the Redis URL, including auth when Redis auth is used  |
+| `REDIS_PASSWORD_FILE`                | redis secret                   | File containing the Redis `requirepass` value                          |
+| `DB_USER`                            | postgres                       | PostgreSQL bootstrap user                                              |
+| `DB_PASSWORD_FILE`                   | postgres secret                | File containing the PostgreSQL bootstrap password                      |
+| `DB_NAME`                            | postgres + health checks       | Shared Compose database name                                           |
+| `JWT_SECRET_FILE`                    | api-gateway / indexer / secret | File containing the API JWT signing secret                             |
+| `JWT_REFRESH_SECRET_FILE`            | api-gateway / indexer / secret | File containing the API refresh-token signing secret                   |
+| `OPERATIONAL_ENDPOINTS_TOKEN_FILE`   | api-gateway / prometheus       | File containing the operational bearer token for metrics/docs/health   |
+| `INDEXER_RPC_URL`                    | indexer                        | JSON-RPC endpoint used by the indexer service                          |
+| `INDEXER_WS_URL`                     | indexer                        | WebSocket endpoint used by the indexer service                         |
+| `INDEXER_START_HEIGHT`               | indexer                        | Compose maps this to API runtime `INDEXER_START_BLOCK`                 |
+| `INDEXER_EXPECTED_CHAIN_ID`          | indexer                        | Required chain ID guard                                                |
+| `CRUZIBLE_VAULT_ADDRESS`             | indexer                        | Required non-zero vault contract address                               |
+| `STAETHEL_ADDRESS`                   | indexer                        | Required non-zero liquid staking token address                         |
+| `STABLECOIN_BRIDGE_ADDRESS`          | indexer                        | Required non-zero stablecoin bridge address                            |
+| `POSTGRES_IMAGE_DIGEST`              | postgres                       | Immutable third-party image digest                                     |
+| `REDIS_IMAGE_DIGEST`                 | redis                          | Immutable third-party image digest                                     |
+| `NGINX_IMAGE_DIGEST`                 | nginx                          | Immutable third-party image digest                                     |
+| `PROMETHEUS_IMAGE_DIGEST`            | prometheus                     | Immutable third-party image digest                                     |
+| `GRAFANA_USER`                       | grafana                        | Grafana bootstrap user                                                 |
+| `GRAFANA_PASSWORD_FILE`              | grafana secret                 | File containing the Grafana bootstrap password                         |
+| `GRAFANA_ROOT_URL`                   | grafana                        | Required Grafana external URL                                          |
+| `GRAFANA_IMAGE_DIGEST`               | grafana                        | Immutable third-party image digest                                     |
+| `JAEGER_IMAGE_DIGEST`                | jaeger                         | Immutable third-party image digest                                     |
+| `NGINX_TLS_CERT_FILE`                | nginx secret                   | File containing the TLS certificate                                    |
+| `NGINX_TLS_KEY_FILE`                 | nginx secret                   | File containing the TLS private key                                    |
 
 ## 5. Important Caveats
 
@@ -136,9 +147,9 @@ The variables below are referenced by `backend/infra/docker-compose.yml`. They s
 - Operators can inspect non-secret refresh-session metadata via `GET /v1/auth/sessions/:address` and revoke active wallet refresh sessions plus outstanding access tokens via `POST /v1/auth/sessions/:address/revoke`.
 - Privileged wallet and operational-token gates emit `privileged_access_audit` log events with request ID, principal type, decision, outcome, and response status for audit correlation. When `DATABASE_URL` is configured, the same decisions are persisted in append-only `PrivilegedAuditEvent` rows with hashed IP/user-agent values and hash-linked evidence.
 - Rejected privileged access attempts also emit sanitized `PRIVILEGED_ACCESS_REJECTED` alerts; audit persistence failures emit critical `PRIVILEGED_AUDIT_PERSISTENCE_FAILURE` alerts without raw IP, user-agent, or token values.
-- Operational surfaces (`/metrics` and `/docs`) use `OPERATIONAL_ENDPOINTS_TOKEN` in production, accepted as `Authorization: Bearer <token>` or `X-Operational-Token: <token>`. Configure Prometheus or ingress probes with that credential instead of exposing these endpoints anonymously.
+- Operational surfaces (`/metrics` and `/docs`) use `OPERATIONAL_ENDPOINTS_TOKEN` in production, accepted as `Authorization: Bearer <token>` or `X-Operational-Token: <token>`. The checked-in Prometheus baseline reads this token from `/run/secrets/cruzible_operational_token` instead of exposing metrics anonymously.
 - Alert history uses PostgreSQL when `DATABASE_URL` is configured and falls back to in-memory history only when database-backed API state is unavailable.
-- `backend/infra/docker-compose.yml` still references additional config directories that are not checked in.
+- `backend/infra/docker-compose.yml` includes checked-in nginx, Redis, Prometheus, Grafana, and PostgreSQL init baselines, but it still requires real secret files, TLS material, immutable image digests, and staging validation.
 - `backend/infra/docker-compose.yml` binds internal API, database, RPC, cache, and observability ports to loopback by default; only nginx and the P2P listener are public-facing in the scaffold.
 - `k8s/base/` expects environment overlays to replace checked-in image placeholders with immutable `sha256` digests before rollout.
 - `k8s/base/backend.yaml` expects non-secret runtime config in `cruzible-api-config` and secret values in `cruzible-api-secrets` with keys `database-url`, `redis-url`, `jwt-secret`, `jwt-refresh-secret`, and `operational-endpoints-token`.

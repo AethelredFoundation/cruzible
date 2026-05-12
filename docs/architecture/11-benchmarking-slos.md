@@ -74,11 +74,11 @@ cargo test --all
 
 - Full `/health` is a token-gated diagnostic endpoint in production; liveness and readiness automation should use `/health/live` and `/health/ready`.
 - Some frontend pages still include preview or mock fallback data. User-perceived performance should be interpreted in that context.
-- The API exposes Prometheus-compatible process and HTTP metrics at `/metrics`, but the checked-in Compose monitoring stack is incomplete because referenced config assets are missing from `backend/infra/`.
+- The API exposes Prometheus-compatible process and HTTP metrics at `/metrics`; the Compose monitoring baseline now includes Prometheus scrape config, alert rules, and a Grafana dashboard provider that use the operational token rather than exposing metrics anonymously.
 - `CacheService` uses Redis when `REDIS_URL` is configured and production startup requires Redis. Alert history is database-backed when `DATABASE_URL` is configured.
 
 ## 6. Known Measurement Gaps
 
 - There is no checked-in Lighthouse budget or automated frontend performance gate.
-- There is no checked-in Prometheus or Grafana configuration bundle matching the Compose references.
+- The checked-in Prometheus/Grafana bundle is a baseline; it still needs staging calibration against real production traffic, alert routing, and incident-response ownership.
 - The repository does not currently include a complete turnkey deployment that can be treated as the canonical performance environment.

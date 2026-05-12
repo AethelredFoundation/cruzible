@@ -17,7 +17,7 @@ services:
       - RPC_URL=${RPC_URL:?set RPC_URL}
       - GRPC_URL=${GRPC_URL:?set GRPC_URL}
       - DATABASE_URL_FILE=/run/secrets/cruzible_database_url
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL_FILE=/run/secrets/cruzible_redis_url
       - JWT_SECRET_FILE=/run/secrets/cruzible_jwt_secret
       - JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS}
@@ -28,6 +28,7 @@ services:
       - INDEXER_ENABLED=false
     secrets:
       - cruzible_database_url
+      - cruzible_redis_url
       - cruzible_jwt_secret
       - cruzible_jwt_refresh_secret
       - cruzible_operational_token
@@ -67,7 +68,7 @@ services:
       - NODE_ENV=production
       - RPC_URL=${RPC_URL:?set RPC_URL}
       - DATABASE_URL_FILE=/run/secrets/cruzible_database_url
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL_FILE=/run/secrets/cruzible_redis_url
       - JWT_SECRET_FILE=/run/secrets/cruzible_jwt_secret
       - JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS}
@@ -83,6 +84,7 @@ services:
       - STABLECOIN_BRIDGE_ADDRESS=${STABLECOIN_BRIDGE_ADDRESS:?set STABLECOIN_BRIDGE_ADDRESS}
     secrets:
       - cruzible_database_url
+      - cruzible_redis_url
       - cruzible_jwt_secret
       - cruzible_jwt_refresh_secret
     depends_on:
@@ -182,11 +184,20 @@ services:
     volumes:
       - redis-data:/data
       - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command:
+      - "sh"
+      - "-c"
+      - 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$$(cat /run/secrets/cruzible_redis_password)"'
+    secrets:
+      - cruzible_redis_password
     networks:
       - aethelred-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        [
+          "CMD-SHELL",
+          'redis-cli -a "$$(cat /run/secrets/cruzible_redis_password)" ping | grep PONG',
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -209,8 +220,10 @@ services:
       - "443:443"
     volumes:
       - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./config/nginx/ssl:/etc/nginx/ssl:ro
       - nginx-cache:/var/cache/nginx
+    secrets:
+      - cruzible_tls_certificate
+      - cruzible_tls_private_key
     depends_on:
       - api-gateway
     networks:
@@ -223,7 +236,7 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://localhost/health",
+          "http://localhost/nginx-health",
         ]
       interval: 10s
       timeout: 5s
@@ -240,6 +253,8 @@ services:
       - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./config/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
+    secrets:
+      - cruzible_operational_token
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -265,7 +280,7 @@ services:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:?set GRAFANA_USER}
       - GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/cruzible_grafana_password
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3002}
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:?set GRAFANA_ROOT_URL}
     secrets:
       - cruzible_grafana_password
     networks:
@@ -308,6 +323,10 @@ volumes:
 secrets:
   cruzible_database_url:
     file: ${DATABASE_URL_FILE:?set DATABASE_URL_FILE}
+  cruzible_redis_url:
+    file: ${REDIS_URL_FILE:?set REDIS_URL_FILE}
+  cruzible_redis_password:
+    file: ${REDIS_PASSWORD_FILE:?set REDIS_PASSWORD_FILE}
   cruzible_db_password:
     file: ${DB_PASSWORD_FILE:?set DB_PASSWORD_FILE}
   cruzible_jwt_secret:
@@ -318,3 +337,7 @@ secrets:
     file: ${OPERATIONAL_ENDPOINTS_TOKEN_FILE:?set OPERATIONAL_ENDPOINTS_TOKEN_FILE}
   cruzible_grafana_password:
     file: ${GRAFANA_PASSWORD_FILE:?set GRAFANA_PASSWORD_FILE}
+  cruzible_tls_certificate:
+    file: ${NGINX_TLS_CERT_FILE:?set NGINX_TLS_CERT_FILE}
+  cruzible_tls_private_key:
+    file: ${NGINX_TLS_KEY_FILE:?set NGINX_TLS_KEY_FILE}

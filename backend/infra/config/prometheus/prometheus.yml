@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    service: cruzible
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: cruzible-api
+    metrics_path: /metrics
+    scheme: http
+    bearer_token_file: /run/secrets/cruzible_operational_token
+    static_configs:
+      - targets:
+          - api-gateway:3000

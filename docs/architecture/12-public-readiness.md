@@ -41,7 +41,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | Documentation baseline             | Good       | Core README, backend README, runbook, env reference, and readiness docs now describe checked-in surfaces instead of inferred ones                                                                                                  |
 | Config examples                    | Good       | Frontend and backend examples now separate runtime inputs from scaffold-only values                                                                                                                                                |
 | API observability                  | Partial    | Public liveness/readiness probes are implemented, full `/health`, `/metrics`, and `/docs` are token-gated in production, alert history is database-backed when `DATABASE_URL` is configured, and API cache uses Redis when `REDIS_URL` is configured |
-| Deployment scaffolding             | Partial    | Compose now builds API and indexer targets from the repository root; referenced config directories still need to be supplied and staged                                                                                            |
+| Deployment scaffolding             | Partial    | Compose now builds API and indexer targets from the repository root and includes checked-in nginx, Redis, Prometheus, Grafana, and PostgreSQL init baselines; operator secrets, TLS material, immutable image digests, and staging validation are still required |
 | Kubernetes readiness               | Partial    | Frontend, API gateway, and indexer manifests are checked in with fail-closed config/secret requirements; staging validation is still required                                                                                      |
 | Admin/ops authentication bootstrap | Partial    | Wallet-backed nonce login, context-bound refresh rotation, logout revocation, refresh-session incident endpoints, current-role checks, access-token revocation watermarks, append-only privileged audit evidence, and operator audit retrieval/export endpoints exist; production startup now requires at least one configured operator/admin wallet and deployments must apply auth migrations |
 | Realtime gateway                   | Partial    | Production Socket.IO handshakes require allowed origins plus access or operational tokens, and active connections are capped per client IP; end-to-end staging validation is still required |
@@ -51,7 +51,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 
 ## 5. Launch Blockers From The Current Repo State
 
-- Supply and stage-test the config directories referenced by `backend/infra/docker-compose.yml`.
+- Stage-test `backend/infra/docker-compose.yml` with real secret files, Redis credentials, TLS certificate/key files, immutable third-party image digests, and operator-approved external origins.
 - Capture a contract staging release manifest with wasm checksums, code IDs, contract addresses, and role owners.
 - Stage-test `k8s/base/` with real `cruzible-api-config` values and a provisioned `cruzible-api-secrets` Secret.
 - Build frontend images with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` Docker build args; frontend public-data requests fail closed when the API URL is missing, points at the wrong network, or uses a lookalike origin instead of the approved chain-specific API origin.
@@ -62,7 +62,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 
 - Secrets are provisioned externally and rotated outside version control.
 - PostgreSQL and RPC endpoints are operator-managed dependencies.
-- Compose and Kubernetes artifacts in this repository are scaffolding, not complete deployment truth.
+- Compose and Kubernetes artifacts in this repository are hardened scaffolding, not complete deployment truth.
 - Full operational diagnostics require `OPERATIONAL_ENDPOINTS_TOKEN`; protected
   `/v1` operational endpoints require externally provisioned JWTs.
 - Some frontend surfaces are still preview-oriented and should not be mistaken for proof of live on-chain wiring.

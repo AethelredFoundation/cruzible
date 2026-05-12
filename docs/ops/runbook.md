@@ -12,7 +12,7 @@ This runbook covers the surfaces that are implemented in the current repository:
 - CosmWasm contracts in `backend/contracts`
 - Readiness and environment documentation in `docs/`
 
-This runbook does not assume that every checked-in infrastructure artifact is turnkey. In particular, `backend/infra/docker-compose.yml` and environment-specific Kubernetes config/secrets still have gaps called out below.
+This runbook does not assume that every checked-in infrastructure artifact is turnkey. In particular, `backend/infra/docker-compose.yml` still requires operator-provisioned secrets, TLS material, immutable image digests, and staging validation; environment-specific Kubernetes config/secrets also remain outside this base.
 
 ## 2. Preflight Assumptions
 
@@ -20,6 +20,7 @@ This runbook does not assume that every checked-in infrastructure artifact is tu
 - Operators can provide a reachable Redis instance for `REDIS_URL`.
 - Operators can provide a reachable Aethelred RPC endpoint for `RPC_URL`.
 - JWT secrets are provisioned externally and are not left at development defaults.
+- Compose operators can provide file-backed PostgreSQL, Redis, JWT, operational-token, Grafana, and nginx TLS secrets.
 - Operator/admin wallet addresses are provisioned through `AUTH_OPERATOR_ADDRESSES`
   and `AUTH_ADMIN_ADDRESSES`.
 - Backend env is injected by the runtime environment. `backend/api` does not auto-load `.env` files.
@@ -108,6 +109,15 @@ The API deployment probes `/health/live` for liveness and `/health/ready` for
 readiness. The API service and pods expose Prometheus scrape annotations for
 `/metrics`. The indexer manifest runs one `api-indexer` worker replica and does
 not expose an HTTP service.
+
+### Compose baseline
+
+`backend/infra/docker-compose.yml` includes checked-in baselines for Redis,
+nginx, Prometheus, Grafana, and the PostgreSQL initialization mount. Before
+using it outside local staging, provide all required `*_FILE` secrets, immutable
+third-party image digests, `GRAFANA_ROOT_URL`, and nginx TLS certificate/key
+files. Prometheus scrapes `/metrics` with the same
+`OPERATIONAL_ENDPOINTS_TOKEN` that gates operational API surfaces in production.
 
 ## 4. Health and Readiness
 
@@ -230,7 +240,7 @@ npm run db:migrate:deploy
 
 ## 8. Known Operator Gaps In This Repo Snapshot
 
-- `backend/infra/docker-compose.yml` references config directories that are not checked in.
+- `backend/infra/docker-compose.yml` requires operator-provisioned secret files, Redis credentials, TLS certificate/key files, immutable third-party image digests, and a staging dry run before it can be treated as production-ready.
 - `k8s/base/backend.yaml` contains fail-closed placeholder config and requires environment-specific values plus the `cruzible-api-secrets` Secret before rollout.
 - Production database-backed auth and alert state requires the `AuthNonce`,
   `AuthRefreshSession`, and `AlertEvent` Prisma migrations to be applied with
@@ -250,5 +260,5 @@ npm run db:migrate:deploy
   `/v1/auth/login`, `/v1/auth/refresh`, and `/v1/auth/logout`.
 - Confirm operator session incident response with `/v1/auth/sessions/:address`
   and `/v1/auth/sessions/:address/revoke`.
-- Treat `backend/infra/docker-compose.yml` as a hardened baseline until the missing config assets are supplied and tested in staging.
+- Treat `backend/infra/docker-compose.yml` as a hardened baseline until required secrets, TLS material, image digests, and staging validation are complete.
 - Verify all externally referenced health probes and rollout steps against the deployed environment, not just the repo.
