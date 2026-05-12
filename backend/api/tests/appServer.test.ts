@@ -233,7 +233,7 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     }
   });
 
-  it("serves non-credentialed CORS preflights for browser API clients", async () => {
+  it("serves credentialed CORS preflights for browser API clients", async () => {
     await registerMockServices();
     const { config } = await import("../src/config");
     const originalConfig = {
@@ -279,6 +279,30 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     } finally {
       Object.assign(config as any, originalConfig);
     }
+  });
+
+  it("accepts only bounded safe client request IDs", async () => {
+    await registerMockServices();
+    const { createAppServer } = await import("../src/server");
+    const api = createAppServer();
+
+    await withHttpServer(api.app, async (baseUrl) => {
+      const safeRequestId = "audit-safe_123:abc.def";
+      const safeResponse = await fetch(`${baseUrl}/health/live`, {
+        headers: { "X-Request-ID": safeRequestId },
+      });
+      const unsafeRequestId = '=HYPERLINK("https://example.invalid","x")';
+      const unsafeResponse = await fetch(`${baseUrl}/health/live`, {
+        headers: { "X-Request-ID": unsafeRequestId },
+      });
+      const generatedRequestId = unsafeResponse.headers.get("x-request-id");
+
+      expect(safeResponse.headers.get("x-request-id")).toBe(safeRequestId);
+      expect(generatedRequestId).not.toBe(unsafeRequestId);
+      expect(generatedRequestId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    });
   });
 
   it("rejects malformed JSON as a safe client error", async () => {
