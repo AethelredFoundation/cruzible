@@ -101,6 +101,11 @@ describe("Docker Compose production scaffold", () => {
     expect(composeManifest).toContain('"127.0.0.1:14250:14250"');
   });
 
+  it("pins API proxy trust to the nginx hop", () => {
+    expect(composeManifest).toContain("TRUST_PROXY=1");
+    expect(composeManifest).not.toContain("TRUST_PROXY=true");
+  });
+
   it("does not build the incomplete node scaffold in the production stack", () => {
     expect(composeManifest).not.toContain("context: ../node");
     expect(composeManifest).not.toContain("aethelred-node:");

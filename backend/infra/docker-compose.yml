@@ -21,6 +21,7 @@ services:
       - JWT_SECRET_FILE=/run/secrets/cruzible_jwt_secret
       - JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS}
+      - TRUST_PROXY=1
       - METRICS_ENABLED=${METRICS_ENABLED:-true}
       - API_DOCS_ENABLED=${API_DOCS_ENABLED:-false}
       - OPERATIONAL_ENDPOINTS_TOKEN_FILE=/run/secrets/cruzible_operational_token
