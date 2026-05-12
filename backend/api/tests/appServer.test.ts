@@ -1,13 +1,13 @@
-import 'reflect-metadata';
-import { container } from 'tsyringe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { withHttpServer } from './helpers/http';
+import "reflect-metadata";
+import { container } from "tsyringe";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withHttpServer } from "./helpers/http";
 
 // ---------------------------------------------------------------------------
 // Mocks — hoisted by vitest before any imports
 // ---------------------------------------------------------------------------
 
-vi.mock('@prisma/client', () => {
+vi.mock("@prisma/client", () => {
   const MockPrismaClient = vi.fn().mockImplementation(function () {
     return {
       $queryRaw: vi.fn().mockResolvedValue([1]),
@@ -17,7 +17,7 @@ vi.mock('@prisma/client', () => {
   return { PrismaClient: MockPrismaClient };
 });
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock("../src/utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
@@ -25,7 +25,7 @@ vi.mock('../src/utils/logger', () => ({
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('ApiGateway lifecycle (server.ts)', () => {
+describe("ApiGateway lifecycle (server.ts)", () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -47,19 +47,19 @@ describe('ApiGateway lifecycle (server.ts)', () => {
   async function registerMockServices() {
     // Core services used by start() / shutdown()
     const { BlockchainService } =
-      await import('../src/services/BlockchainService');
-    const { CacheService } = await import('../src/services/CacheService');
+      await import("../src/services/BlockchainService");
+    const { CacheService } = await import("../src/services/CacheService");
     const { ReconciliationScheduler } =
-      await import('../src/services/ReconciliationScheduler');
-    const { IndexerService } = await import('../src/services/IndexerService');
+      await import("../src/services/ReconciliationScheduler");
+    const { IndexerService } = await import("../src/services/IndexerService");
 
     // Route-level services resolved at module scope in v1 routes
-    const { JobsService } = await import('../src/services/JobsService');
+    const { JobsService } = await import("../src/services/JobsService");
     const { ReconciliationService } =
-      await import('../src/services/ReconciliationService');
-    const { AlertService } = await import('../src/services/AlertService');
+      await import("../src/services/ReconciliationService");
+    const { AlertService } = await import("../src/services/AlertService");
     const { StablecoinBridgeService } =
-      await import('../src/services/StablecoinBridgeService');
+      await import("../src/services/StablecoinBridgeService");
 
     container.registerInstance(BlockchainService, {
       initialize: vi.fn().mockResolvedValue(undefined),
@@ -122,9 +122,9 @@ describe('ApiGateway lifecycle (server.ts)', () => {
   // Startup
   // -----------------------------------------------------------------------
 
-  it('createAppServer() returns an ApiGateway without side effects', async () => {
+  it("createAppServer() returns an ApiGateway without side effects", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
+    const { createAppServer } = await import("../src/server");
 
     const api = createAppServer();
 
@@ -135,10 +135,10 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     expect(api.httpServer.listening).toBe(false);
   }, 10_000);
 
-  it('configures explicit HTTP timeout and socket-drain limits', async () => {
+  it("configures explicit HTTP timeout and socket-drain limits", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
-    const { config } = await import('../src/config');
+    const { createAppServer } = await import("../src/server");
+    const { config } = await import("../src/config");
 
     const api = createAppServer();
 
@@ -151,9 +151,9 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     );
   });
 
-  it('refuses to expose production operational routes without a token', async () => {
+  it("refuses to expose production operational routes without a token", async () => {
     await registerMockServices();
-    const { config } = await import('../src/config');
+    const { config } = await import("../src/config");
     const originalConfig = {
       isProduction: config.isProduction,
       metricsEnabled: config.metricsEnabled,
@@ -167,26 +167,26 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     (config as any).operationalEndpointsToken = undefined;
 
     try {
-      const { createAppServer } = await import('../src/server');
+      const { createAppServer } = await import("../src/server");
 
       expect(() => createAppServer()).toThrow(
-        'Refusing to expose operational endpoints in production without OPERATIONAL_ENDPOINTS_TOKEN',
+        "Refusing to expose operational endpoints in production without OPERATIONAL_ENDPOINTS_TOKEN",
       );
     } finally {
       Object.assign(config as any, originalConfig);
     }
   });
 
-  it('protects production metrics and docs with the operational token', async () => {
+  it("protects production metrics and docs with the operational token", async () => {
     await registerMockServices();
-    const { config } = await import('../src/config');
+    const { config } = await import("../src/config");
     const originalConfig = {
       isProduction: config.isProduction,
       metricsEnabled: config.metricsEnabled,
       apiDocsEnabled: config.apiDocsEnabled,
       operationalEndpointsToken: config.operationalEndpointsToken,
     };
-    const operationalToken = '12345678901234567890123456789012';
+    const operationalToken = "12345678901234567890123456789012";
 
     (config as any).isProduction = true;
     (config as any).metricsEnabled = true;
@@ -194,7 +194,7 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     (config as any).operationalEndpointsToken = operationalToken;
 
     try {
-      const { createAppServer } = await import('../src/server');
+      const { createAppServer } = await import("../src/server");
       const api = createAppServer();
 
       await withHttpServer(api.app, async (baseUrl) => {
@@ -222,8 +222,8 @@ describe('ApiGateway lifecycle (server.ts)', () => {
         expect(publicReadyBody.checks).toBeUndefined();
         expect(unauthorizedMetrics.status).toBe(401);
         expect(authorizedMetrics.status).toBe(200);
-        expect(authorizedMetrics.headers.get('content-type')).toContain(
-          'text/plain',
+        expect(authorizedMetrics.headers.get("content-type")).toContain(
+          "text/plain",
         );
         expect(unauthorizedDocs.status).toBe(401);
         expect(authorizedDocs.status).toBe(200);
@@ -233,101 +233,101 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     }
   });
 
-  it('serves non-credentialed CORS preflights for browser API clients', async () => {
+  it("serves non-credentialed CORS preflights for browser API clients", async () => {
     await registerMockServices();
-    const { config } = await import('../src/config');
+    const { config } = await import("../src/config");
     const originalConfig = {
       corsOrigins: config.corsOrigins,
     };
 
-    (config as any).corsOrigins = ['https://app.example'];
+    (config as any).corsOrigins = ["https://app.example"];
 
     try {
-      const { createAppServer } = await import('../src/server');
+      const { createAppServer } = await import("../src/server");
       const api = createAppServer();
 
       await withHttpServer(api.app, async (baseUrl) => {
         const response = await fetch(`${baseUrl}/v1/jobs`, {
-          method: 'OPTIONS',
+          method: "OPTIONS",
           headers: {
-            Origin: 'https://app.example',
-            'Access-Control-Request-Method': 'POST',
-            'Access-Control-Request-Headers':
-              'Content-Type, Authorization, X-Request-ID, X-Operational-Token, X-Client-Name, X-Client-Version',
+            Origin: "https://app.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers":
+              "Content-Type, Authorization, X-Request-ID, X-Operational-Token, X-Client-Name, X-Client-Version",
           },
         });
 
-        const methods = response.headers.get('access-control-allow-methods');
-        const headers = response.headers.get('access-control-allow-headers');
+        const methods = response.headers.get("access-control-allow-methods");
+        const headers = response.headers.get("access-control-allow-headers");
 
         expect(response.status).toBe(204);
-        expect(response.headers.get('access-control-allow-origin')).toBe(
-          'https://app.example',
+        expect(response.headers.get("access-control-allow-origin")).toBe(
+          "https://app.example",
         );
-        expect(
-          response.headers.get('access-control-allow-credentials'),
-        ).toBeNull();
-        expect(methods).toContain('GET');
-        expect(methods).toContain('POST');
-        expect(methods).toContain('OPTIONS');
-        expect(methods).not.toContain('PUT');
-        expect(methods).not.toContain('DELETE');
-        expect(headers).not.toContain('X-Operational-Token');
-        expect(headers).toContain('X-Client-Name');
-        expect(headers).toContain('X-Client-Version');
+        expect(response.headers.get("access-control-allow-credentials")).toBe(
+          "true",
+        );
+        expect(methods).toContain("GET");
+        expect(methods).toContain("POST");
+        expect(methods).toContain("OPTIONS");
+        expect(methods).not.toContain("PUT");
+        expect(methods).not.toContain("DELETE");
+        expect(headers).not.toContain("X-Operational-Token");
+        expect(headers).toContain("X-Client-Name");
+        expect(headers).toContain("X-Client-Version");
       });
     } finally {
       Object.assign(config as any, originalConfig);
     }
   });
 
-  it('rejects malformed JSON as a safe client error', async () => {
+  it("rejects malformed JSON as a safe client error", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
+    const { createAppServer } = await import("../src/server");
     const api = createAppServer();
 
     await withHttpServer(api.app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/v1/jobs`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        method: "POST",
+        headers: { "content-type": "application/json" },
         body: '{"broken"',
       });
       const body = await response.json();
 
       expect(response.status).toBe(400);
       expect(body).toMatchObject({
-        error: 'BadRequest',
-        message: 'Malformed request body',
+        error: "BadRequest",
+        message: "Malformed request body",
       });
       expect(body.requestId).toEqual(expect.any(String));
     });
   });
 
-  it('rejects oversized JSON as a safe payload-too-large error', async () => {
+  it("rejects oversized JSON as a safe payload-too-large error", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
+    const { createAppServer } = await import("../src/server");
     const api = createAppServer();
 
     await withHttpServer(api.app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/v1/jobs`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ payload: 'x'.repeat(1_100_000) }),
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ payload: "x".repeat(1_100_000) }),
       });
       const body = await response.json();
 
       expect(response.status).toBe(413);
       expect(body).toMatchObject({
-        error: 'PayloadTooLarge',
-        message: 'Request body exceeds the maximum allowed size',
+        error: "PayloadTooLarge",
+        message: "Request body exceeds the maximum allowed size",
       });
       expect(body.requestId).toEqual(expect.any(String));
     });
   });
 
-  it('applies the global rate limit before parsing request bodies', async () => {
+  it("applies the global rate limit before parsing request bodies", async () => {
     await registerMockServices();
-    const { config } = await import('../src/config');
+    const { config } = await import("../src/config");
     const originalConfig = {
       rateLimitWindowMs: config.rateLimitWindowMs,
       rateLimitMax: config.rateLimitMax,
@@ -337,14 +337,14 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     (config as any).rateLimitMax = 1;
 
     try {
-      const { createAppServer } = await import('../src/server');
+      const { createAppServer } = await import("../src/server");
       const api = createAppServer();
 
       await withHttpServer(api.app, async (baseUrl) => {
         const first = await fetch(`${baseUrl}/v1/jobs`);
         const second = await fetch(`${baseUrl}/v1/jobs`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          method: "POST",
+          headers: { "content-type": "application/json" },
           body: '{"broken"',
         });
         const body = await second.json();
@@ -352,8 +352,8 @@ describe('ApiGateway lifecycle (server.ts)', () => {
         expect(first.status).toBe(200);
         expect(second.status).toBe(429);
         expect(body).toMatchObject({
-          error: 'TooManyRequests',
-          message: 'Rate limit exceeded',
+          error: "TooManyRequests",
+          message: "Rate limit exceeded",
         });
       });
     } finally {
@@ -361,14 +361,14 @@ describe('ApiGateway lifecycle (server.ts)', () => {
     }
   });
 
-  it('start() binds to a port, wires up the scheduler, and health responds', async () => {
+  it("start() binds to a port, wires up the scheduler, and health responds", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
+    const { createAppServer } = await import("../src/server");
 
     const api = createAppServer();
 
     // Override config.port to 0 so the OS picks a random free port
-    const { config } = await import('../src/config');
+    const { config } = await import("../src/config");
     const originalPort = config.port;
     (config as any).port = 0;
 
@@ -381,12 +381,12 @@ describe('ApiGateway lifecycle (server.ts)', () => {
       expect(address).not.toBeNull();
 
       const port =
-        typeof address === 'object' && address !== null ? address.port : 0;
+        typeof address === "object" && address !== null ? address.port : 0;
       expect(port).toBeGreaterThan(0);
 
       // Verify that start() wired up the reconciliation scheduler
       const { ReconciliationScheduler } =
-        await import('../src/services/ReconciliationScheduler');
+        await import("../src/services/ReconciliationScheduler");
       const scheduler = container.resolve(ReconciliationScheduler);
       expect(scheduler.start).toHaveBeenCalledTimes(1);
 
@@ -403,10 +403,10 @@ describe('ApiGateway lifecycle (server.ts)', () => {
   // Shutdown
   // -----------------------------------------------------------------------
 
-  it('shutdown() closes the HTTP server and stops services', async () => {
+  it("shutdown() closes the HTTP server and stops services", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
-    const { config } = await import('../src/config');
+    const { createAppServer } = await import("../src/server");
+    const { config } = await import("../src/config");
     const originalPort = config.port;
     (config as any).port = 0;
 
@@ -419,17 +419,17 @@ describe('ApiGateway lifecycle (server.ts)', () => {
 
     // Services should have been torn down
     const { ReconciliationScheduler } =
-      await import('../src/services/ReconciliationScheduler');
+      await import("../src/services/ReconciliationScheduler");
     const scheduler = container.resolve(ReconciliationScheduler);
     expect(scheduler.stop).toHaveBeenCalled();
 
     (config as any).port = originalPort;
   });
 
-  it('shutdown() is idempotent — calling twice is a no-op', async () => {
+  it("shutdown() is idempotent — calling twice is a no-op", async () => {
     await registerMockServices();
-    const { createAppServer } = await import('../src/server');
-    const { config } = await import('../src/config');
+    const { createAppServer } = await import("../src/server");
+    const { config } = await import("../src/config");
     const originalPort = config.port;
     (config as any).port = 0;
 

@@ -74,6 +74,7 @@ const envSchema = z.object({
     .string()
     .regex(/^\d+[hd]$/)
     .default("7d"),
+  AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY: optionalBooleanSchema,
   TRUST_PROXY: z.string().default("loopback"),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(120),
@@ -207,6 +208,8 @@ const authOperatorAddresses = parseAddressList(
 );
 const metricsEnabled = parsedEnv.METRICS_ENABLED ?? true;
 const apiDocsEnabled = parsedEnv.API_DOCS_ENABLED ?? !isProduction;
+const authExposeRefreshTokenInBody =
+  parsedEnv.AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY ?? !isProduction;
 
 function requireProductionConfig(value: unknown, message: string): void {
   if (value === undefined || value === null || value === "") {
@@ -425,6 +428,12 @@ if (isProduction) {
     );
   }
 
+  if (parsedEnv.AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY) {
+    throw new Error(
+      "Refusing to expose refresh tokens in response bodies in production",
+    );
+  }
+
   if (authAdminAddresses.length === 0 && authOperatorAddresses.length === 0) {
     throw new Error(
       "Refusing to start production API without AUTH_OPERATOR_ADDRESSES or AUTH_ADMIN_ADDRESSES",
@@ -514,6 +523,7 @@ export const config = {
   jwtRefreshSecret: parsedEnv.JWT_REFRESH_SECRET,
   jwtExpiresIn: parsedEnv.JWT_EXPIRES_IN,
   jwtRefreshExpiresIn: parsedEnv.JWT_REFRESH_EXPIRES_IN,
+  jwtRefreshCookieMaxAgeMs: parseDurationMs(parsedEnv.JWT_REFRESH_EXPIRES_IN),
   trustProxy,
   rateLimitWindowMs: parsedEnv.RATE_LIMIT_WINDOW_MS,
   rateLimitMax: parsedEnv.RATE_LIMIT_MAX,
@@ -525,6 +535,7 @@ export const config = {
   authAdminAddresses,
   authOperatorAddresses,
   authNonceTtlMs: parsedEnv.AUTH_NONCE_TTL_MS,
+  authExposeRefreshTokenInBody,
   authRateLimitWindowMs: parsedEnv.AUTH_RATE_LIMIT_WINDOW_MS,
   authRateLimitMax: parsedEnv.AUTH_RATE_LIMIT_MAX,
   opsRateLimitWindowMs: parsedEnv.OPS_RATE_LIMIT_WINDOW_MS,

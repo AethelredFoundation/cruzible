@@ -19,6 +19,7 @@ const CONFIG_ENV_KEYS = [
   "JWT_REFRESH_SECRET_FILE",
   "JWT_EXPIRES_IN",
   "JWT_REFRESH_EXPIRES_IN",
+  "AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY",
   "TRUST_PROXY",
   "RATE_LIMIT_WINDOW_MS",
   "RATE_LIMIT_MAX",
@@ -225,6 +226,17 @@ describe("backend config hardening", () => {
     );
   });
 
+  it("rejects refresh token response-body exposure in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY: "true",
+      }),
+    ).rejects.toThrow(
+      "Refusing to expose refresh tokens in response bodies in production",
+    );
+  });
+
   it("accepts explicit production-safe configuration", async () => {
     const { config } = await loadConfigWithEnv({
       ...productionBaseEnv,
@@ -282,6 +294,8 @@ describe("backend config hardening", () => {
     expect(config.redisUrl).toBe(redisUrl);
     expect(config.jwtSecret).toBe(jwtSecret);
     expect(config.jwtRefreshSecret).toBe(jwtRefreshSecret);
+    expect(config.jwtRefreshCookieMaxAgeMs).toBe(604_800_000);
+    expect(config.authExposeRefreshTokenInBody).toBe(false);
     expect(config.operationalEndpointsToken).toBe(operationalToken);
     expect(config.alertWebhookUrl).toBe(alertWebhookUrl);
   });
