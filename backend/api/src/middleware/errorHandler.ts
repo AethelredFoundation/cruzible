@@ -1,7 +1,7 @@
-import type { NextFunction, Request, Response } from 'express';
-import { ApiError } from '../utils/ApiError';
-import { logger } from '../utils/logger';
-import { config } from '../config';
+import type { NextFunction, Request, Response } from "express";
+import { ApiError } from "../utils/ApiError";
+import { logger } from "../utils/logger";
+import { config } from "../config";
 
 type BodyParserError = Error & {
   status?: number;
@@ -22,32 +22,32 @@ function bodyParserErrorResponse(error: unknown):
 
   const parserError = error as BodyParserError;
   const statusCode = parserError.statusCode ?? parserError.status;
-  const type = parserError.type ?? '';
+  const type = parserError.type ?? "";
 
-  if (type === 'entity.too.large' || statusCode === 413) {
+  if (type === "entity.too.large" || statusCode === 413) {
     return {
       statusCode: 413,
-      error: 'PayloadTooLarge',
-      message: 'Request body exceeds the maximum allowed size',
+      error: "PayloadTooLarge",
+      message: "Request body exceeds the maximum allowed size",
     };
   }
 
-  if (type === 'encoding.unsupported' || statusCode === 415) {
+  if (type === "encoding.unsupported" || statusCode === 415) {
     return {
       statusCode: 415,
-      error: 'UnsupportedMediaType',
-      message: 'Request body encoding is not supported',
+      error: "UnsupportedMediaType",
+      message: "Request body encoding is not supported",
     };
   }
 
   if (
-    type === 'entity.parse.failed' ||
-    (statusCode === 400 && type.startsWith('entity.'))
+    type === "entity.parse.failed" ||
+    (statusCode === 400 && type.startsWith("entity."))
   ) {
     return {
       statusCode: 400,
-      error: 'BadRequest',
-      message: 'Malformed request body',
+      error: "BadRequest",
+      message: "Malformed request body",
     };
   }
 
@@ -60,7 +60,10 @@ export function errorHandler(
   res: Response,
   next: NextFunction,
 ): void {
-  void next;
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
 
   if (error instanceof ApiError) {
     // L-03 FIX: Only expose error details in non-production environments.
@@ -79,7 +82,7 @@ export function errorHandler(
 
   const parserError = bodyParserErrorResponse(error);
   if (parserError) {
-    logger.warn('Rejected malformed request body', {
+    logger.warn("Rejected malformed request body", {
       requestId: req.requestId,
       statusCode: parserError.statusCode,
       error: parserError.error,
@@ -94,11 +97,11 @@ export function errorHandler(
   }
 
   // Server-side only — never sent to client
-  logger.error('Unhandled API error', { requestId: req.requestId, error });
+  logger.error("Unhandled API error", { requestId: req.requestId, error });
 
   res.status(500).json({
-    error: 'InternalServerError',
-    message: 'Unexpected server error',
+    error: "InternalServerError",
+    message: "Unexpected server error",
     requestId: req.requestId,
   });
 }
