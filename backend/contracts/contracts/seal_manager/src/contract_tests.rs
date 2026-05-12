@@ -212,6 +212,90 @@ mod tests {
     }
 
     #[test]
+    fn create_seal_without_expiration_uses_default_expiration() {
+        let mut deps = mock_deps_with_wasm();
+        let config = setup_contract(deps.as_mut());
+        let env = mock_env();
+
+        let info = mock_info(REQUESTER, &[]);
+        let msg = ExecuteMsg::CreateSeal {
+            job_id: "job123".to_string(),
+            model_commitment: "model_hash".to_string(),
+            input_commitment: "input_hash".to_string(),
+            output_commitment: "output_hash".to_string(),
+            validator_addresses: vec![
+                VALIDATOR1.to_string(),
+                VALIDATOR2.to_string(),
+                VALIDATOR3.to_string(),
+            ],
+            expiration: None,
+        };
+
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let seal_id = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "seal_id")
+            .unwrap()
+            .value
+            .clone();
+        let seal = seals().load(&deps.storage, seal_id).unwrap();
+
+        assert_eq!(
+            seal.expires_at,
+            Some(env.block.time.plus_seconds(config.default_expiration))
+        );
+    }
+
+    #[test]
+    fn create_seal_rejects_zero_expiration() {
+        let mut deps = mock_deps_with_wasm();
+        setup_contract(deps.as_mut());
+
+        let info = mock_info(REQUESTER, &[]);
+        let msg = ExecuteMsg::CreateSeal {
+            job_id: "job123".to_string(),
+            model_commitment: "model_hash".to_string(),
+            input_commitment: "input_hash".to_string(),
+            output_commitment: "output_hash".to_string(),
+            validator_addresses: vec![
+                VALIDATOR1.to_string(),
+                VALIDATOR2.to_string(),
+                VALIDATOR3.to_string(),
+            ],
+            expiration: Some(0),
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("greater than zero"));
+    }
+
+    #[test]
+    fn create_seal_rejects_expiration_above_max() {
+        let mut deps = mock_deps_with_wasm();
+        let config = setup_contract(deps.as_mut());
+
+        let info = mock_info(REQUESTER, &[]);
+        let msg = ExecuteMsg::CreateSeal {
+            job_id: "job123".to_string(),
+            model_commitment: "model_hash".to_string(),
+            input_commitment: "input_hash".to_string(),
+            output_commitment: "output_hash".to_string(),
+            validator_addresses: vec![
+                VALIDATOR1.to_string(),
+                VALIDATOR2.to_string(),
+                VALIDATOR3.to_string(),
+            ],
+            expiration: Some(config.max_expiration + 1),
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("max_expiration"));
+    }
+
+    #[test]
     fn create_seal_rejects_completed_job() {
         let mut deps = mock_deps_with_job_status("job123", JobStatusResponse::Completed);
         setup_contract(deps.as_mut());

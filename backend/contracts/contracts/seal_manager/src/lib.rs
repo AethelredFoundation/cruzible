@@ -310,8 +310,8 @@ fn execute_create_seal(
     ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
     let validators = validate_unique_validators(deps.api, &config, validator_addresses)?;
 
-    let expires_at =
-        expiration.map(|exp| env.block.time.plus_seconds(exp.min(config.max_expiration)));
+    let expiration_seconds = resolve_seal_expiration(&config, expiration)?;
+    let expires_at = Some(env.block.time.plus_seconds(expiration_seconds));
 
     let count = SEAL_COUNT.load(deps.storage)?;
     let seal_id = generate_seal_id(&job_id, &info.sender, count);
@@ -396,6 +396,21 @@ fn validate_unique_validators(
     }
 
     Ok(validators)
+}
+
+fn resolve_seal_expiration(config: &Config, expiration: Option<u64>) -> Result<u64, ContractError> {
+    let expiration = expiration.unwrap_or(config.default_expiration);
+    if expiration == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "expiration must be greater than zero".to_string(),
+        });
+    }
+    if expiration > config.max_expiration {
+        return Err(ContractError::InvalidConfig {
+            reason: "expiration cannot exceed max_expiration".to_string(),
+        });
+    }
+    Ok(expiration)
 }
 
 fn validate_validator_bounds(

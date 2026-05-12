@@ -42,7 +42,7 @@ The current code includes remediations for the previously tracked critical and h
 | Governance feeder oracle  | Multi-feeder median consensus rejects unsafe quorum, tolerance, feeder capacity, and authority settings.                                                            |
 | Model registry fees       | Registration fee amount and denom enforcement is active.                                                                                                            |
 | Model registry job counts | Submit-time jobs require verified models; normal job-count updates are emitted by the authorized job manager, with admin mutation retained for controlled recovery. |
-| Seal manager provenance   | Seal creation verifies the referenced job through the configured job manager.                                                                                       |
+| Seal manager provenance   | Seal creation verifies the referenced job through the configured job manager and enforces default/max expiration.                                                   |
 
 ## Current Test Evidence
 
@@ -61,16 +61,16 @@ Passing test counts:
 | `cw20_staking`   |            53 |
 | `governance`     |            53 |
 | `model_registry` |            54 |
-| `seal_manager`   |            39 |
+| `seal_manager`   |            42 |
 | Doc tests        |             0 |
-| **Total**        |       **305** |
+| **Total**        |       **308** |
 
 ## Audit-Candidate Readiness
 
 The workspace is suitable for an external audit candidate branch after the following evidence is packaged:
 
 - Current source tree and Cargo lockfile.
-- Reproducible `cargo test` output showing 305 passing unit tests.
+- Reproducible `cargo test` output showing 308 passing unit tests.
 - Commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json` from CI.
 - Detached artifact signatures generated with `RELEASE_SIGNING.md` before launch.
 - Strict release manifest reconciliation against the signed artifact directory.

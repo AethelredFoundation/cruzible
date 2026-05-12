@@ -33,7 +33,7 @@ Contracts reviewed:
 | Governance feeder control   | Admin-only feeder membership could centralize oracle control.       | Remediated for production mode with governance-authorized feeder mutations.                                                 |
 | Model registry fees         | Registration fee was not enforced.                                  | Remediated with fee amount and denom validation.                                                                            |
 | Model registry usage counts | Public job-count mutation could corrupt metrics.                    | Remediated with submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates. |
-| Seal provenance             | Seals could be created without verified upstream job evidence.      | Remediated with cross-contract job verification.                                                                            |
+| Seal provenance             | Seals could be created without verified upstream job evidence or bounded expiration. | Remediated with cross-contract job verification and default/max expiration enforcement.                                      |
 
 ## Current Test Evidence
 
@@ -46,9 +46,9 @@ Local `cargo test` from `backend/contracts` passes:
 | `cw20_staking`   |            53 |
 | `governance`     |            53 |
 | `model_registry` |            54 |
-| `seal_manager`   |            39 |
+| `seal_manager`   |            42 |
 | Doc tests        |             0 |
-| **Total**        |       **305** |
+| **Total**        |       **308** |
 
 ## Residual Review Focus
 
