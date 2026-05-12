@@ -23,6 +23,9 @@ const MODEL_REGISTRY_INCREMENT_REPLY_ID: u64 = 1;
 const BASIS_POINTS_DENOMINATOR: u64 = 10_000;
 const MAX_PLATFORM_FEE_BPS: u64 = 2_000;
 const MAX_REQUIRED_TEE_TYPE: u8 = 3;
+const MAX_PAYMENT_DENOM_LENGTH: usize = 128;
+const MAX_AUTHORIZED_VALIDATORS: usize = 64;
+const MAX_AUTHORIZED_MEASUREMENTS: usize = 64;
 const MIN_TEE_QUOTE_BYTES: usize = 256;
 const MIN_REPORT_DATA_BYTES: usize = 32;
 const REPORT_DATA_DIGEST_BYTES: usize = 32;
@@ -429,9 +432,15 @@ fn validate_instantiate_config(msg: &InstantiateMsg) -> Result<(), ContractError
 }
 
 fn validate_payment_denom(denom: &str) -> Result<(), ContractError> {
-    if denom.trim().is_empty() || denom.chars().any(char::is_whitespace) {
+    if denom.trim().is_empty()
+        || denom.len() > MAX_PAYMENT_DENOM_LENGTH
+        || denom.chars().any(char::is_whitespace)
+    {
         return Err(ContractError::InvalidConfig {
-            reason: "payment_denom must not be empty or contain whitespace".to_string(),
+            reason: format!(
+                "payment_denom must not be empty, exceed {} bytes, or contain whitespace",
+                MAX_PAYMENT_DENOM_LENGTH
+            ),
         });
     }
     Ok(())
@@ -503,7 +512,7 @@ fn validate_validator_set(
     api: &dyn cosmwasm_std::Api,
     validators: Vec<String>,
 ) -> Result<Vec<Addr>, ContractError> {
-    if validators.is_empty() {
+    if validators.is_empty() || validators.len() > MAX_AUTHORIZED_VALIDATORS {
         return Err(ContractError::InvalidValidatorSet {});
     }
 
@@ -523,7 +532,7 @@ fn validate_validator_set(
 }
 
 fn validate_measurement_set(measurements: Vec<String>) -> Result<Vec<String>, ContractError> {
-    if measurements.is_empty() {
+    if measurements.is_empty() || measurements.len() > MAX_AUTHORIZED_MEASUREMENTS {
         return Err(ContractError::InvalidMeasurementSet {});
     }
 

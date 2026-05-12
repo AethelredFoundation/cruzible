@@ -27,6 +27,10 @@ mod tests {
         "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
     // ============ HELPER FUNCTIONS ============
+    fn measurement_for(index: usize) -> String {
+        format!("{index:064x}")
+    }
+
     fn mock_dependencies_with_model_response(
         verified: Option<bool>,
     ) -> OwnedDeps<MockStorage, MockApi, MockQuerier> {
@@ -218,6 +222,18 @@ mod tests {
     }
 
     #[test]
+    fn instantiate_rejects_oversized_payment_denom() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let mut msg = default_instantiate_msg();
+        msg.payment_denom = "a".repeat(MAX_PAYMENT_DENOM_LENGTH + 1);
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("payment_denom"));
+    }
+
+    #[test]
     fn instantiate_rejects_timeout_bounds() {
         let mut deps = mock_dependencies_with_registered_model();
         let info = mock_info(ADMIN, &[]);
@@ -309,6 +325,19 @@ mod tests {
     }
 
     #[test]
+    fn instantiate_rejects_oversized_validator_set() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let mut msg = default_instantiate_msg();
+        msg.validators = (0..=MAX_AUTHORIZED_VALIDATORS)
+            .map(|index| format!("validator{index}"))
+            .collect();
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidValidatorSet {}));
+    }
+
+    #[test]
     fn instantiate_without_authorized_measurements_fails() {
         let mut deps = mock_dependencies_with_registered_model();
         let info = mock_info(ADMIN, &[]);
@@ -324,6 +353,19 @@ mod tests {
             validators: vec![VALIDATOR.to_string()],
             authorized_measurements: vec![],
         };
+
+        let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidMeasurementSet {}));
+    }
+
+    #[test]
+    fn instantiate_rejects_oversized_measurement_set() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let info = mock_info(ADMIN, &[]);
+        let mut msg = default_instantiate_msg();
+        msg.authorized_measurements = (0..=MAX_AUTHORIZED_MEASUREMENTS)
+            .map(measurement_for)
+            .collect();
 
         let err = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         assert!(matches!(err, ContractError::InvalidMeasurementSet {}));
@@ -1556,6 +1598,37 @@ mod tests {
     }
 
     #[test]
+    fn update_config_oversized_validator_set_fails() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let (_config, admin_info) = setup_contract(deps.as_mut());
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                min_payment: None,
+                platform_fee_bps: None,
+                required_tee_type: None,
+                validators: Some(
+                    (0..=MAX_AUTHORIZED_VALIDATORS)
+                        .map(|index| format!("validator{index}"))
+                        .collect(),
+                ),
+                authorized_measurements: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContractError::InvalidValidatorSet {}));
+
+        let config = CONFIG.load(&deps.storage).unwrap();
+        assert_eq!(
+            config.authorized_validators,
+            vec![Addr::unchecked(VALIDATOR)]
+        );
+    }
+
+    #[test]
     fn update_config_rotates_authorized_measurements() {
         let mut deps = mock_dependencies_with_registered_model();
         let (_config, admin_info) = setup_contract(deps.as_mut());
@@ -1600,6 +1673,37 @@ mod tests {
                 required_tee_type: None,
                 validators: None,
                 authorized_measurements: Some(vec![]),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContractError::InvalidMeasurementSet {}));
+
+        let config = CONFIG.load(&deps.storage).unwrap();
+        assert_eq!(
+            config.authorized_measurements,
+            vec![AUTHORIZED_MEASUREMENT.to_string()]
+        );
+    }
+
+    #[test]
+    fn update_config_oversized_measurement_set_fails() {
+        let mut deps = mock_dependencies_with_registered_model();
+        let (_config, admin_info) = setup_contract(deps.as_mut());
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                min_payment: None,
+                platform_fee_bps: None,
+                required_tee_type: None,
+                validators: None,
+                authorized_measurements: Some(
+                    (0..=MAX_AUTHORIZED_MEASUREMENTS)
+                        .map(measurement_for)
+                        .collect(),
+                ),
             },
         )
         .unwrap_err();
