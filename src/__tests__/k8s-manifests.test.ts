@@ -130,7 +130,9 @@ function expectSecretFileMount(
   expect(deployment).toContain("mountPath: /var/run/secrets/cruzible-api");
   expect(deployment).toContain("readOnly: true");
   expect(deployment).toContain("secretName: cruzible-api-secrets");
-  expect(deployment).toContain("defaultMode: 0400");
+  expect(deployment).toContain("fsGroup: 1001");
+  expect(deployment).toContain("defaultMode: 0440");
+  expect(deployment).not.toContain("defaultMode: 0400");
 
   for (const [envName, fileName] of secretFileEnv) {
     expect(deployment).toContain(`name: ${envName}`);

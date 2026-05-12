@@ -172,7 +172,7 @@ spec:
         - name: api-secret-files
           secret:
             secretName: cruzible-api-secrets
-            defaultMode: 0400
+            defaultMode: 0440
             items:
               - key: database-url
                 path: database-url
@@ -376,7 +376,7 @@ spec:
         - name: api-secret-files
           secret:
             secretName: cruzible-api-secrets
-            defaultMode: 0400
+            defaultMode: 0440
             items:
               - key: database-url
                 path: database-url
