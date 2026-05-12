@@ -18,6 +18,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { logger } from "../utils/logger";
 import { config } from "../config";
 import { assertPublicHostnameResolution } from "../utils/networkSafety";
+import { redactRecord } from "../utils/redaction";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +69,7 @@ export interface AlertSummary {
 
 /** Maximum number of alerts to keep in the ring buffer. */
 const MAX_ALERT_HISTORY = 100;
+const ALERT_METADATA_MAX_DEPTH = 5;
 
 function webhookOriginForLogs(value: string): string {
   try {
@@ -136,12 +138,15 @@ export class AlertService {
     }
 
     // Build alert record
+    const safeMetadata = redactRecord(metadata, {
+      maxDepth: ALERT_METADATA_MAX_DEPTH,
+    });
     const alert: Alert = {
       id: `alert_${randomUUID()}`,
       severity,
       type,
       message,
-      metadata,
+      metadata: safeMetadata,
       timestamp: new Date(now).toISOString(),
       delivered: false,
     };

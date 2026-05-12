@@ -168,6 +168,78 @@ describe("AlertService", () => {
     }
   });
 
+  it("redacts sensitive alert metadata before delivery and storage", async () => {
+    process.env.ALERT_WEBHOOK_URL = "https://alerts.cruzible.test/hook";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const upsertSpy = vi.fn().mockResolvedValue({});
+    const { AlertService, AlertSeverity, AlertType } =
+      await import("../src/services/AlertService");
+    const service = new AlertService();
+    (
+      service as unknown as {
+        prisma: { alertEvent: { upsert: typeof upsertSpy } };
+      }
+    ).prisma = { alertEvent: { upsert: upsertSpy } };
+
+    try {
+      const alert = await service.sendAlert(
+        AlertSeverity.CRITICAL,
+        AlertType.RECONCILIATION_MISMATCH,
+        "Reconciliation mismatch",
+        {
+          requestId: "alert-redaction-test",
+          apiKey: "api-secret",
+          refreshToken: "refresh-secret",
+          cctpNonce: "42",
+          nested: {
+            privateKey: "private-key-secret",
+            safe: "visible",
+          },
+          entries: [{ signature: "sig-secret", amount: 1 }],
+        },
+      );
+      (service as unknown as { prisma: null }).prisma = null;
+      const history = await service.getAlertHistory({ limit: 1 });
+      const webhookBody = JSON.parse(
+        String(fetchSpy.mock.calls[0][1]?.body),
+      ) as { metadata: Record<string, unknown> };
+      const persisted = upsertSpy.mock.calls[0][0].create.metadata as Record<
+        string,
+        unknown
+      >;
+      const serializedLogs = errorSpy.mock.calls
+        .map((call) => call.map((part) => JSON.stringify(part)).join(" "))
+        .join("\n");
+
+      const expectedMetadata = {
+        requestId: "alert-redaction-test",
+        apiKey: "[REDACTED]",
+        refreshToken: "[REDACTED]",
+        cctpNonce: "42",
+        nested: {
+          privateKey: "[REDACTED]",
+          safe: "visible",
+        },
+        entries: [{ signature: "[REDACTED]", amount: 1 }],
+      };
+
+      expect(alert?.metadata).toEqual(expectedMetadata);
+      expect(history.data[0].metadata).toEqual(expectedMetadata);
+      expect(webhookBody.metadata).toEqual(expectedMetadata);
+      expect(persisted).toEqual(expectedMetadata);
+      expect(serializedLogs).not.toContain("api-secret");
+      expect(serializedLogs).not.toContain("refresh-secret");
+      expect(serializedLogs).not.toContain("private-key-secret");
+      expect(serializedLogs).not.toContain("sig-secret");
+    } finally {
+      fetchSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
   it("blocks production webhooks that resolve to private addresses before fetch", async () => {
     process.env = productionWebhookEnv();
     lookupMock.mockResolvedValueOnce([{ address: "10.0.0.5", family: 4 }]);
