@@ -101,6 +101,30 @@ jobs:
             --build-arg NEXT_PUBLIC_CHAIN_ENV=testnet \
             -t cruzible-frontend:ci .
 
+      - name: Verify frontend container runtime metadata
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require("node:child_process");
+
+          const [image] = JSON.parse(
+            execFileSync("docker", ["image", "inspect", "cruzible-frontend:ci"], {
+              encoding: "utf8",
+            }),
+          );
+          const config = image.Config ?? {};
+          const healthcheck = config.Healthcheck?.Test?.join(" ") ?? "";
+
+          if (config.User !== "nextjs") {
+            throw new Error(`Expected non-root frontend user nextjs, got ${config.User || "<empty>"}`);
+          }
+          if (JSON.stringify(config.Entrypoint) !== JSON.stringify(["dumb-init", "--"])) {
+            throw new Error(`Expected dumb-init entrypoint, got ${JSON.stringify(config.Entrypoint)}`);
+          }
+          if (!healthcheck.includes("http://127.0.0.1:3000/api/health")) {
+            throw new Error(`Expected /api/health container healthcheck, got ${healthcheck || "<empty>"}`);
+          }
+          NODE
+
   frontend-e2e:
     name: Frontend E2E
     runs-on: ubuntu-latest

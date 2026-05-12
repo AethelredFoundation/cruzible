@@ -162,6 +162,24 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain("--tag cruzible-api-indexer:ci");
   });
 
+  it("builds and inspects the frontend runtime container in CI", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+
+    expect(workflow).toContain("Build frontend container");
+    expect(workflow).toContain(
+      "NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org",
+    );
+    expect(workflow).toContain("NEXT_PUBLIC_CHAIN_ENV=testnet");
+    expect(workflow).toContain("-t cruzible-frontend:ci .");
+    expect(workflow).toContain("Verify frontend container runtime metadata");
+    expect(workflow).toContain(
+      '"docker", ["image", "inspect", "cruzible-frontend:ci"]',
+    );
+    expect(workflow).toContain('config.User !== "nextjs"');
+    expect(workflow).toContain('["dumb-init", "--"]');
+    expect(workflow).toContain("http://127.0.0.1:3000/api/health");
+  });
+
   it("runs Python SDK conformance tests in CI", () => {
     const workflow = readWorkflow("ci-cd.yml");
 
