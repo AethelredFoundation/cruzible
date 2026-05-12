@@ -545,6 +545,40 @@ mod tests {
     }
 
     #[test]
+    fn start_computing_expired_assigned_job_fails_without_progressing() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+
+        let info = mock_info(VALIDATOR, &[]);
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            info.clone(),
+            ExecuteMsg::AssignJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let mut expired_env = mock_env();
+        expired_env.block.height = mock_env().block.height + 1001;
+        let err = execute(
+            deps.as_mut(),
+            expired_env,
+            info,
+            ExecuteMsg::StartComputing {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::JobExpired {}));
+        let job = jobs().load(&deps.storage, job_id).unwrap();
+        assert_eq!(job.status, JobStatus::Assigned);
+    }
+
+    #[test]
     fn start_computing_not_assigned_validator_fails() {
         let mut deps = mock_dependencies_with_registered_model();
         setup_contract(deps.as_mut());
@@ -636,6 +670,54 @@ mod tests {
         assert_eq!(job.output_hash, Some("output789".to_string()));
         assert!(job.verification_score.is_some());
         assert!(job.actual_payment.is_some());
+    }
+
+    #[test]
+    fn complete_expired_computing_job_fails_without_progressing() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+
+        let info = mock_info(VALIDATOR, &[]);
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            info.clone(),
+            ExecuteMsg::AssignJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            info.clone(),
+            ExecuteMsg::StartComputing {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let mut expired_env = mock_env();
+        expired_env.block.height = mock_env().block.height + 1001;
+        let err = execute(
+            deps.as_mut(),
+            expired_env,
+            info,
+            ExecuteMsg::CompleteJob {
+                job_id: job_id.clone(),
+                output_hash: "output789".to_string(),
+                tee_attestation: mock_tee_attestation(),
+                compute_metrics: mock_compute_metrics(),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::JobExpired {}));
+        let job = jobs().load(&deps.storage, job_id).unwrap();
+        assert_eq!(job.status, JobStatus::Computing);
+        assert_eq!(job.output_hash, None);
+        assert_eq!(job.actual_payment, None);
     }
 
     #[test]

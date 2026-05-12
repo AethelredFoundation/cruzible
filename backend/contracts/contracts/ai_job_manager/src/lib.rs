@@ -442,6 +442,13 @@ fn validate_timeout_bounds(min_timeout: u64, max_timeout: u64) -> Result<(), Con
     Ok(())
 }
 
+fn ensure_job_not_expired(env: &Env, job: &Job) -> Result<(), ContractError> {
+    if env.block.height > job.created_at + job.timeout {
+        return Err(ContractError::JobExpired {});
+    }
+    Ok(())
+}
+
 fn validate_min_payment(min_payment: Uint128) -> Result<(), ContractError> {
     if min_payment.is_zero() {
         return Err(ContractError::InvalidConfig {
@@ -709,10 +716,7 @@ fn execute_assign_job(
         });
     }
 
-    // Check not expired
-    if env.block.height > job.created_at + job.timeout {
-        return Err(ContractError::JobExpired {});
-    }
+    ensure_job_not_expired(&env, &job)?;
 
     // Assign validator
     job.validator = Some(info.sender.clone());
@@ -738,7 +742,7 @@ fn execute_assign_job(
 
 fn execute_start_computing(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     job_id: String,
 ) -> Result<Response, ContractError> {
@@ -755,6 +759,8 @@ fn execute_start_computing(
             current: job.status.as_str().to_string(),
         });
     }
+
+    ensure_job_not_expired(&env, &job)?;
 
     job.status = JobStatus::Computing;
     jobs().save(deps.storage, job_id.clone(), &job)?;
@@ -787,6 +793,8 @@ fn execute_complete_job(
             current: job.status.as_str().to_string(),
         });
     }
+
+    ensure_job_not_expired(&env, &job)?;
 
     // Verify TEE attestation
     if config.required_tee_type != 0 {
