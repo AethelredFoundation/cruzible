@@ -81,17 +81,44 @@ function checkoutBlocks(workflow: string): string[] {
   return blocks;
 }
 
+function jobPermissionWrites(jobBlock: string): string[] {
+  const permissionBlock = jobBlock.match(
+    /\n    permissions:\n(?<permissions>(?:      [a-z-]+: (?:read|write)\n)+)/,
+  );
+
+  return Array.from(
+    (permissionBlock?.groups?.permissions ?? "").matchAll(
+      /^\s+([a-z-]+): write$/gm,
+    ),
+  )
+    .map((match) => match[1])
+    .sort();
+}
+
 describe("GitHub Actions workflow hardening", () => {
   it("uses least-privilege job permissions", () => {
     for (const file of workflowFiles) {
       const workflow = readWorkflow(file);
       expect(workflow).toMatch(/^permissions:\n(?:  [a-z-]+: read\n)+/m);
       expect(workflow).not.toContain("write-all");
-      expect(workflow).not.toMatch(/^\s+[a-z-]+:\s+write$/m);
 
       for (const job of workflowJobBlocks(workflow)) {
         expect(job.block, `${file}:${job.name}`).toMatch(
-          /\n    permissions:\n(?:      [a-z-]+: read\n)+/,
+          /\n    permissions:\n(?:      [a-z-]+: (?:read|write)\n)+/,
+        );
+
+        if (file === "ci-cd.yml" && job.name === "release-images") {
+          expect(job.block).toContain("contents: read");
+          expect(jobPermissionWrites(job.block)).toEqual([
+            "attestations",
+            "id-token",
+            "packages",
+          ]);
+          continue;
+        }
+
+        expect(jobPermissionWrites(job.block), `${file}:${job.name}`).toEqual(
+          [],
         );
       }
     }
@@ -133,5 +160,50 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain("--tag cruzible-api:ci");
     expect(workflow).toContain("--target indexer");
     expect(workflow).toContain("--tag cruzible-api-indexer:ci");
+  });
+
+  it("publishes signed and provenanced release images only from manual main runs", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const releaseJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "release-images",
+    );
+
+    expect(releaseJob?.block).toContain(
+      "if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+    );
+    expect(releaseJob?.block).toContain("packages: write");
+    expect(releaseJob?.block).toContain("id-token: write");
+    expect(releaseJob?.block).toContain("attestations: write");
+    expect(releaseJob?.block).toContain(
+      "image: ghcr.io/aethelred/cruzible/frontend",
+    );
+    expect(releaseJob?.block).toContain(
+      "image: ghcr.io/aethelred/cruzible/api",
+    );
+    expect(releaseJob?.block).toContain(
+      "image: ghcr.io/aethelred/cruzible/api-indexer",
+    );
+    expect(releaseJob?.block).toContain(
+      "uses: docker/build-push-action@v7.1.0",
+    );
+    expect(releaseJob?.block).toContain("push: true");
+    expect(releaseJob?.block).toContain("sbom: true");
+    expect(releaseJob?.block).toContain("provenance: mode=max");
+    expect(releaseJob?.block).toContain(
+      "uses: sigstore/cosign-installer@v4.1.2",
+    );
+    expect(releaseJob?.block).toContain("cosign sign --yes");
+    expect(releaseJob?.block).toContain(
+      "uses: actions/attest-build-provenance@v4.1.0",
+    );
+    expect(releaseJob?.block).toContain(
+      "RELEASE_NEXT_PUBLIC_API_URL repository variable is required",
+    );
+    expect(releaseJob?.block).toContain(
+      "NEXT_PUBLIC_API_URL=${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}",
+    );
+    expect(releaseJob?.block).toContain(
+      "NEXT_PUBLIC_CHAIN_ENV=${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}",
+    );
   });
 });
