@@ -1,8 +1,32 @@
 import "reflect-metadata";
+import { lookup } from "node:dns/promises";
 import { container } from "tsyringe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(),
+}));
+
 const originalEnv = { ...process.env };
+const lookupMock = vi.mocked(lookup);
+
+function productionWebhookEnv(): NodeJS.ProcessEnv {
+  return {
+    ...originalEnv,
+    NODE_ENV: "production",
+    RPC_URL: "https://rpc.cruzible.test",
+    DATABASE_URL: "postgresql://cruzible:secret@db.cruzible.test:5432/cruzible",
+    REDIS_URL: "redis://cache.cruzible.test:6379",
+    CORS_ORIGINS: "https://vault.cruzible.test",
+    JWT_SECRET: "s".repeat(32),
+    JWT_REFRESH_SECRET: "r".repeat(32),
+    AUTH_OPERATOR_ADDRESSES: "aeth1operator00000",
+    INDEXER_ENABLED: "false",
+    ALERT_RATE_LIMIT_MS: "60000",
+    ALERT_WEBHOOK_URL: "https://alerts.cruzible.test/hook",
+    AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY: "false",
+  };
+}
 
 describe("AlertService", () => {
   beforeEach(() => {
@@ -15,6 +39,7 @@ describe("AlertService", () => {
     };
     delete process.env.DATABASE_URL;
     delete process.env.ALERT_WEBHOOK_URL;
+    lookupMock.mockReset();
   });
 
   afterEach(() => {
@@ -138,6 +163,34 @@ describe("AlertService", () => {
         message: "Reconciliation mismatch",
         metadata: { epoch: 42 },
       });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("blocks production webhooks that resolve to private addresses before fetch", async () => {
+    process.env = productionWebhookEnv();
+    lookupMock.mockResolvedValueOnce([{ address: "10.0.0.5", family: 4 }]);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const { AlertService, AlertSeverity, AlertType } =
+      await import("../src/services/AlertService");
+    const service = new AlertService();
+    (service as unknown as { prisma: null }).prisma = null;
+
+    try {
+      await service.sendAlert(
+        AlertSeverity.CRITICAL,
+        AlertType.RECONCILIATION_MISMATCH,
+        "Reconciliation mismatch",
+      );
+
+      expect(lookupMock).toHaveBeenCalledWith("alerts.cruzible.test", {
+        all: true,
+        verbatim: true,
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       fetchSpy.mockRestore();
     }

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { rejectUrlUserInfoAndFragment } from "../utils/urlRedaction";
+import { isPrivateOrLocalHostname } from "../utils/networkSafety";
 
 const DEFAULT_INDEXER_WS_URL = "ws://127.0.0.1:8546";
 const DEFAULT_INDEXER_RPC_URL = "http://127.0.0.1:8545";
@@ -267,23 +268,6 @@ function parseAddressList(value: string, envName: string): string[] {
   }
 
   return [...new Set(addresses)];
-}
-
-function isPrivateOrLocalHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
-
-  return (
-    normalized === "localhost" ||
-    normalized === "127.0.0.1" ||
-    normalized.startsWith("127.") ||
-    normalized === "::1" ||
-    normalized === "[::1]" ||
-    normalized === "0.0.0.0" ||
-    normalized.startsWith("10.") ||
-    normalized.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized) ||
-    normalized.startsWith("169.254.")
-  );
 }
 
 function parseCorsOrigins(value: string, production: boolean): string[] {

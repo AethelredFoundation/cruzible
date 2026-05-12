@@ -17,6 +17,7 @@ import { singleton } from "tsyringe";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { logger } from "../utils/logger";
 import { config } from "../config";
+import { assertPublicHostnameResolution } from "../utils/networkSafety";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -291,6 +292,13 @@ export class AlertService {
     }
 
     try {
+      if (config.isProduction) {
+        await assertPublicHostnameResolution(
+          new URL(this.webhookUrl).hostname,
+          "ALERT_WEBHOOK_URL",
+        );
+      }
+
       const response = await fetch(this.webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
