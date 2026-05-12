@@ -24,6 +24,8 @@ const JOB_SORT_FIELDS = ['created_at', 'completed_at', 'priority', 'verification
 const MAX_ESTIMATED_CPU_CYCLES = 10_000_000_000_000;
 const MAX_ESTIMATED_MEMORY_MB = 1_048_576;
 const MAX_JOB_QUEUE_LIMIT = 100;
+const MAX_JOB_ID_LENGTH = 64;
+const JOB_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolean {
   if (typeof value !== 'string' || value.length === 0) {
@@ -33,6 +35,16 @@ function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolea
   const [field, direction = 'desc'] = value.split(':');
   return allowedFields.includes(field) && ['asc', 'desc'].includes(direction);
 }
+
+const jobIdValidator = param('id')
+  .isString()
+  .trim()
+  .notEmpty()
+  .isLength({ max: MAX_JOB_ID_LENGTH })
+  .matches(JOB_ID_PATTERN)
+  .withMessage(
+    `id must be a ${MAX_JOB_ID_LENGTH}-character-or-shorter alphanumeric identifier`,
+  );
 
 /**
  * @swagger
@@ -274,7 +286,7 @@ router.get('/queue',
  *         description: Job not found
  */
 router.get('/:id',
-  [param('id').isString().trim().notEmpty(), validate],
+  [jobIdValidator, validate],
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
@@ -315,7 +327,7 @@ router.get('/:id',
  *         description: Verification attempts
  */
 router.get('/:id/verifications',
-  [param('id').isString().trim().notEmpty(), validate],
+  [jobIdValidator, validate],
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     

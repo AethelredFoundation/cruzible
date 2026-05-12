@@ -186,7 +186,9 @@ describe('backend routes', () => {
       expect(response.status).toBe(200);
       expect(body[0].id).toBe('queued-job-1');
       expect((jobs.getJobQueue as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(5);
-      expect((jobs.getJobById as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+      expect(
+        (jobs.getJobById as ReturnType<typeof vi.fn>).mock.calls,
+      ).toHaveLength(0);
     });
   });
 
@@ -286,6 +288,45 @@ describe('backend routes', () => {
       expect(response.status).toBe(400);
       expect(body.error).toBe('Validation failed');
       expect((jobs.getJobQueue as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    });
+  });
+
+  it('rejects unsafe job identifiers before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { JobsService } = await import('../src/services/JobsService');
+    const cache = new CacheService();
+    const jobs = {
+      getJobById: vi.fn(),
+      getJobVerifications: vi.fn(),
+    } as unknown as JobsService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(JobsService, jobs);
+
+    const { jobsRouter } = await import('../src/routes/v1/jobs');
+    const app = express();
+    app.use('/v1/jobs', jobsRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const oversizedIdResponse = await fetch(
+        `${baseUrl}/v1/jobs/${'a'.repeat(65)}`,
+      );
+      const invalidIdResponse = await fetch(
+        `${baseUrl}/v1/jobs/${encodeURIComponent('bad<script>')}/verifications`,
+      );
+
+      expect(oversizedIdResponse.status).toBe(400);
+      expect(invalidIdResponse.status).toBe(400);
+      expect((jobs.getJobById as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+      expect(
+        (jobs.getJobVerifications as ReturnType<typeof vi.fn>).mock.calls,
+      ).toHaveLength(0);
     });
   });
 
