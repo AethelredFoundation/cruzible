@@ -51,12 +51,12 @@ function buildApiHeaders(
 }
 
 export function apiRequest(endpoint: string, options: RequestInit = {}) {
-  const { headers, credentials, cache, body, ...rest } = options;
+  const { headers, body, ...rest } = options;
 
   return fetch(getApiUrl(endpoint), {
-    credentials: credentials ?? "include",
-    cache: cache ?? "no-store",
     ...rest,
+    credentials: "include",
+    cache: "no-store",
     body,
     headers: buildApiHeaders(headers, body),
   });

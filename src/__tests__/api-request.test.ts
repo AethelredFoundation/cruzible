@@ -37,25 +37,25 @@ describe("apiRequest", () => {
     expect(headers.get("X-Client-Version")).toBe("1.0.0");
   });
 
-  it("allows callers to override credentials deliberately", async () => {
+  it("does not allow callers to weaken credential handling", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
 
     await apiRequest("/validators", { credentials: "omit" });
 
     expect(getLastRequestOptions(fetchMock)).toMatchObject({
-      credentials: "omit",
+      credentials: "include",
     });
   });
 
-  it("allows callers to opt into explicit cache behavior", async () => {
+  it("does not allow callers to opt into API response caching", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
 
     await apiRequest("/validators", { cache: "force-cache" });
 
     expect(getLastRequestOptions(fetchMock)).toMatchObject({
-      cache: "force-cache",
+      cache: "no-store",
     });
   });
 
