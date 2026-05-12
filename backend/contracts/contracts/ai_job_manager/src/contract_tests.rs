@@ -144,6 +144,25 @@ mod tests {
         }
     }
 
+    fn mock_bound_tee_attestation(
+        storage: &MockStorage,
+        job_id: &str,
+        output_hash: &str,
+    ) -> TEEAttestation {
+        let job = jobs().load(storage, job_id.to_string()).unwrap();
+        let mut attestation = mock_tee_attestation();
+        attestation.report_data = Binary(
+            tee_report_data_digest(
+                &job,
+                &Addr::unchecked(VALIDATOR),
+                output_hash,
+                attestation.quote_version,
+            )
+            .to_vec(),
+        );
+        attestation
+    }
+
     fn mock_compute_metrics() -> ComputeMetrics {
         ComputeMetrics {
             cpu_cycles: 1_000_000_000,
@@ -668,7 +687,7 @@ mod tests {
         .unwrap();
 
         // Complete
-        let tee_attestation = mock_tee_attestation();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         let compute_metrics = mock_compute_metrics();
 
         let msg = ExecuteMsg::CompleteJob {
@@ -689,6 +708,56 @@ mod tests {
         assert_eq!(job.output_hash, Some("output789".to_string()));
         assert!(job.verification_score.is_some());
         assert!(job.actual_payment.is_some());
+    }
+
+    #[test]
+    fn complete_job_rejects_unbound_report_data() {
+        let mut deps = mock_dependencies_with_registered_model();
+        setup_contract(deps.as_mut());
+        let (job_id, _) = setup_job(deps.as_mut(), CREATOR, 10000);
+
+        let validator_info = mock_info(VALIDATOR, &[]);
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::AssignJob {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info.clone(),
+            ExecuteMsg::StartComputing {
+                job_id: job_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let mut tee_attestation =
+            mock_bound_tee_attestation(&deps.storage, &job_id, "different_output");
+        tee_attestation.quote_version = 3;
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            validator_info,
+            ExecuteMsg::CompleteJob {
+                job_id: job_id.clone(),
+                output_hash: "output789".to_string(),
+                tee_attestation,
+                compute_metrics: mock_compute_metrics(),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidAttestation {}));
+        let job = jobs().load(&deps.storage, job_id).unwrap();
+        assert_eq!(job.status, JobStatus::Computing);
+        assert_eq!(job.output_hash, None);
+        assert_eq!(job.actual_payment, None);
     }
 
     #[test]
@@ -885,7 +954,7 @@ mod tests {
         )
         .unwrap();
 
-        let tee_attestation = mock_tee_attestation();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         let compute_metrics = mock_compute_metrics();
 
         execute(
@@ -1173,7 +1242,7 @@ mod tests {
         )
         .unwrap();
 
-        let tee_attestation = mock_tee_attestation();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         let compute_metrics = mock_compute_metrics();
 
         execute(
@@ -1240,6 +1309,8 @@ mod tests {
             },
         )
         .unwrap();
+        let low_cost_tee_attestation =
+            mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         execute(
             deps.as_mut(),
             mock_env(),
@@ -1247,7 +1318,7 @@ mod tests {
             ExecuteMsg::CompleteJob {
                 job_id: job_id.clone(),
                 output_hash: "output789".to_string(),
-                tee_attestation: mock_tee_attestation(),
+                tee_attestation: low_cost_tee_attestation,
                 compute_metrics: low_cost_compute_metrics(),
             },
         )
@@ -1694,7 +1765,7 @@ mod tests {
         )
         .unwrap();
 
-        let tee_attestation = mock_tee_attestation();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         let compute_metrics = mock_compute_metrics();
 
         execute(
@@ -1914,7 +1985,7 @@ mod tests {
         )
         .unwrap();
 
-        let tee_attestation = mock_tee_attestation();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         let compute_metrics = mock_compute_metrics();
 
         execute(
@@ -1997,6 +2068,7 @@ mod tests {
             },
         )
         .unwrap();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         execute(
             deps.as_mut(),
             mock_env(),
@@ -2004,7 +2076,7 @@ mod tests {
             ExecuteMsg::CompleteJob {
                 job_id: job_id.clone(),
                 output_hash: "output789".to_string(),
-                tee_attestation: mock_tee_attestation(),
+                tee_attestation,
                 compute_metrics: mock_compute_metrics(),
             },
         )
@@ -2102,6 +2174,7 @@ mod tests {
             },
         )
         .unwrap();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         execute(
             deps.as_mut(),
             mock_env(),
@@ -2109,7 +2182,7 @@ mod tests {
             ExecuteMsg::CompleteJob {
                 job_id: job_id.clone(),
                 output_hash: "output789".to_string(),
-                tee_attestation: mock_tee_attestation(),
+                tee_attestation,
                 compute_metrics: mock_compute_metrics(),
             },
         )
@@ -2163,6 +2236,7 @@ mod tests {
             },
         )
         .unwrap();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id1, "out1");
         execute(
             deps.as_mut(),
             mock_env(),
@@ -2179,7 +2253,7 @@ mod tests {
             ExecuteMsg::CompleteJob {
                 job_id: job_id1.clone(),
                 output_hash: "out1".to_string(),
-                tee_attestation: mock_tee_attestation(),
+                tee_attestation,
                 compute_metrics: mock_compute_metrics(),
             },
         )
@@ -2263,6 +2337,7 @@ mod tests {
             },
         )
         .unwrap();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         execute(
             deps.as_mut(),
             mock_env(),
@@ -2270,7 +2345,7 @@ mod tests {
             ExecuteMsg::CompleteJob {
                 job_id: job_id.clone(),
                 output_hash: "output789".to_string(),
-                tee_attestation: mock_tee_attestation(),
+                tee_attestation,
                 compute_metrics: mock_compute_metrics(),
             },
         )
@@ -2324,6 +2399,7 @@ mod tests {
             },
         )
         .unwrap();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         execute(
             deps.as_mut(),
             mock_env(),
@@ -2340,7 +2416,7 @@ mod tests {
             ExecuteMsg::CompleteJob {
                 job_id: job_id.clone(),
                 output_hash: "output789".to_string(),
-                tee_attestation: mock_tee_attestation(),
+                tee_attestation,
                 compute_metrics: mock_compute_metrics(),
             },
         )
@@ -2438,6 +2514,7 @@ mod tests {
             },
         )
         .unwrap();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         execute(
             deps.as_mut(),
             mock_env(),
@@ -2454,7 +2531,7 @@ mod tests {
             ExecuteMsg::CompleteJob {
                 job_id: job_id.clone(),
                 output_hash: "output789".to_string(),
-                tee_attestation: mock_tee_attestation(),
+                tee_attestation,
                 compute_metrics: mock_compute_metrics(),
             },
         )
@@ -2554,6 +2631,7 @@ mod tests {
             },
         )
         .unwrap();
+        let tee_attestation = mock_bound_tee_attestation(&deps.storage, &job_id, "output789");
         execute(
             deps.as_mut(),
             mock_env(),
@@ -2561,7 +2639,7 @@ mod tests {
             ExecuteMsg::CompleteJob {
                 job_id: job_id.clone(),
                 output_hash: "output789".to_string(),
-                tee_attestation: mock_tee_attestation(),
+                tee_attestation,
                 compute_metrics: mock_compute_metrics(),
             },
         )

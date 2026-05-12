@@ -25,6 +25,7 @@ const MAX_PLATFORM_FEE_BPS: u64 = 2_000;
 const MAX_REQUIRED_TEE_TYPE: u8 = 3;
 const MIN_TEE_QUOTE_BYTES: usize = 256;
 const MIN_REPORT_DATA_BYTES: usize = 32;
+const REPORT_DATA_DIGEST_BYTES: usize = 32;
 const MIN_ENCLAVE_KEY_BYTES: usize = 32;
 
 // ============ ERRORS ============
@@ -843,6 +844,9 @@ fn execute_complete_job(
     {
         return Err(ContractError::InvalidAttestation {});
     }
+    if !tee_report_data_matches_job(&job, &info.sender, &output_hash, &tee_attestation) {
+        return Err(ContractError::InvalidAttestation {});
+    }
 
     // Calculate payment based on compute metrics
     let base_cost = compute_metrics.cpu_cycles as u128 / 1_000_000; // Simplified
@@ -1464,6 +1468,48 @@ fn generate_job_id(model_hash: &str, input_hash: &str, creator: &Addr, nonce: u6
     let data = format!("{}:{}:{}:{}", model_hash, input_hash, creator, nonce);
     let hash = Sha256::digest(data.as_bytes());
     format!("job_{}", hex::encode(&hash[..16]))
+}
+
+fn update_attestation_digest_field(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value.as_bytes());
+}
+
+fn tee_report_data_digest(
+    job: &Job,
+    validator: &Addr,
+    output_hash: &str,
+    quote_version: u16,
+) -> [u8; REPORT_DATA_DIGEST_BYTES] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"cruzible:ai_job_manager:tee_report_data:v1");
+    update_attestation_digest_field(&mut hasher, &job.id);
+    update_attestation_digest_field(&mut hasher, &job.model_hash);
+    update_attestation_digest_field(&mut hasher, &job.input_hash);
+    update_attestation_digest_field(&mut hasher, output_hash);
+    update_attestation_digest_field(&mut hasher, job.creator.as_str());
+    update_attestation_digest_field(&mut hasher, validator.as_str());
+    hasher.update(quote_version.to_be_bytes());
+
+    let digest = hasher.finalize();
+    let mut report_data = [0u8; REPORT_DATA_DIGEST_BYTES];
+    report_data.copy_from_slice(&digest[..REPORT_DATA_DIGEST_BYTES]);
+    report_data
+}
+
+fn tee_report_data_matches_job(
+    job: &Job,
+    validator: &Addr,
+    output_hash: &str,
+    attestation: &TEEAttestation,
+) -> bool {
+    let expected = tee_report_data_digest(job, validator, output_hash, attestation.quote_version);
+
+    attestation
+        .report_data
+        .as_slice()
+        .get(..REPORT_DATA_DIGEST_BYTES)
+        == Some(expected.as_slice())
 }
 
 /// SECURITY: Actually remove the job from the pending queue.
