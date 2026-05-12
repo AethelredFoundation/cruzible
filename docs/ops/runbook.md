@@ -146,7 +146,9 @@ curl -s http://localhost:3001/v1/reconciliation/live?validator_limit=50 | jq
 - Database and RPC are hard requirements for readiness.
 - Indexer lag above 100 blocks degrades health; above 500 blocks makes the service not ready.
 - Reconciliation `WARNING` degrades health; `CRITICAL` makes the service not ready.
-- `/health` and `/docs` are exempt from the global rate limiter.
+- Only `/health/live` is exempt from the global rate limiter. `/health/ready`,
+  full `/health`, `/metrics`, and `/docs` remain rate-limited; full `/health`,
+  `/metrics`, and `/docs` are also token-gated in production.
 
 ## 5. Reconciliation and Alerts
 
