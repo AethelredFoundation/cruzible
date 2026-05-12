@@ -175,12 +175,15 @@ describe('auth routes', () => {
     const { authenticate: routeAuthenticate } = await import(
       '../src/auth/middleware'
     );
+    const { rateLimiter: routeRateLimiter } = await import(
+      '../src/middleware/rateLimiter'
+    );
     const { errorHandler } = await import('../src/middleware/errorHandler');
 
     const app = express();
     app.use(express.json());
     app.use('/v1/auth', authRouter);
-    app.get('/protected', routeAuthenticate, (req, res) => {
+    app.get('/protected', routeRateLimiter, routeAuthenticate, (req, res) => {
       res.json({ address: req.user?.address });
     });
     app.use(errorHandler);
