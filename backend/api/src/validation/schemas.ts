@@ -10,6 +10,63 @@ import { z } from 'zod';
 
 export const MAX_PUBLIC_PAGINATION_OFFSET = 10_000;
 export const MAX_PUBLIC_FILTER_LENGTH = 128;
+const DECIMAL_INTEGER_PATTERN = /^(0|[1-9]\d*)$/;
+const DECIMAL_AMOUNT_PATTERN = /^(0|[1-9]\d*)(\.\d+)?$/;
+const MAX_DECIMAL_AMOUNT_LENGTH = 80;
+
+type IntegerParamOptions = {
+  min: number;
+  max: number;
+  defaultValue?: number;
+};
+
+function normalizeStrictIntegerParam(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!DECIMAL_INTEGER_PATTERN.test(trimmed)) {
+    return Number.NaN;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
+}
+
+function integerParamSchema(options: IntegerParamOptions) {
+  const schema = z.preprocess(
+    normalizeStrictIntegerParam,
+    z.number().int().safe().min(options.min).max(options.max),
+  );
+
+  return options.defaultValue === undefined
+    ? schema
+    : schema.default(options.defaultValue);
+}
+
+function decimalAmountSchema(
+  label: string,
+  min: number,
+  minMessage: string,
+) {
+  return z
+    .string()
+    .trim()
+    .min(1, `${label} is required`)
+    .max(MAX_DECIMAL_AMOUNT_LENGTH, `${label} is too long`)
+    .regex(DECIMAL_AMOUNT_PATTERN, `Invalid ${label}`)
+    .refine((val) => {
+      const parsed = Number(val);
+      return Number.isFinite(parsed) && parsed >= min;
+    }, minMessage);
+}
+
+const AmountFilterSchema = z
+  .string()
+  .trim()
+  .max(MAX_DECIMAL_AMOUNT_LENGTH, 'Amount filter is too long')
+  .regex(DECIMAL_AMOUNT_PATTERN, 'Invalid amount format');
 
 // =============================================================================
 // PRIMITIVE SCHEMAS
@@ -20,12 +77,11 @@ export const MAX_PUBLIC_FILTER_LENGTH = 128;
  * Accepts either a numeric string from URL params or a plain number.
  */
 export const BlockHeightSchema = z
-  .string()
-  .or(z.number())
-  .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-  .refine((val) => Number.isInteger(val) && val >= 1, {
-    message: 'Block height must be a positive integer (>= 1)',
-  });
+  .preprocess(
+    normalizeStrictIntegerParam,
+    z.number().int().safe().min(1),
+  )
+  .describe('Block height must be a positive integer (>= 1)');
 
 /**
  * Transaction hash: exactly 64 lower-case hex characters.
@@ -82,10 +138,11 @@ export const HashSchema = z
  * Positive integer from a query/path parameter.
  */
 export const PositiveIntegerSchema = z
-  .string()
-  .or(z.number())
-  .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-  .refine((val) => Number.isInteger(val) && val >= 0, 'Must be a non-negative integer');
+  .preprocess(
+    normalizeStrictIntegerParam,
+    z.number().int().safe().min(0),
+  )
+  .describe('Must be a non-negative integer');
 
 // =============================================================================
 // PAGINATION & SORTING
@@ -145,44 +202,24 @@ export const SortParamSchema = z
  * Standard pagination: limit (1-100, default 50), offset (>= 0, default 0).
  */
 export const PaginationSchema = z.object({
-  limit: z
-    .string()
-    .or(z.number())
-    .default('50')
-    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-    .refine((val) => Number.isInteger(val) && val >= 1 && val <= 100, {
-      message: 'Limit must be an integer between 1 and 100',
-    }),
-  offset: z
-    .string()
-    .or(z.number())
-    .default('0')
-    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-    .refine(
-      (val) =>
-        Number.isInteger(val) && val >= 0 && val <= MAX_PUBLIC_PAGINATION_OFFSET,
-      {
-        message: `Offset must be an integer between 0 and ${MAX_PUBLIC_PAGINATION_OFFSET}`,
-      },
-    ),
+  limit: integerParamSchema({ min: 1, max: 100, defaultValue: 50 }),
+  offset: integerParamSchema({
+    min: 0,
+    max: MAX_PUBLIC_PAGINATION_OFFSET,
+    defaultValue: 0,
+  }),
 });
 
 /**
  * Page-based pagination (kept for backward-compat).
  */
 export const PagePaginationSchema = z.object({
-  page: z
-    .string()
-    .or(z.number())
-    .default('1')
-    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-    .refine((val) => val >= 1, 'Page must be at least 1'),
-  limit: z
-    .string()
-    .or(z.number())
-    .default('50')
-    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-    .refine((val) => val >= 1 && val <= 100, 'Limit must be between 1 and 100'),
+  page: integerParamSchema({
+    min: 1,
+    max: Number.MAX_SAFE_INTEGER,
+    defaultValue: 1,
+  }),
+  limit: integerParamSchema({ min: 1, max: 100, defaultValue: 50 }),
 });
 
 // =============================================================================
@@ -215,17 +252,14 @@ export const ListTransactionsQuerySchema = PaginationSchema.extend({
   tx_type: z
     .enum(['transfer', 'stake', 'unstake', 'submit_job', 'vote', 'claim'])
     .optional(),
-  min_amount: z.string().regex(/^\d+(\.\d+)?$/, 'Invalid amount format').optional(),
-  max_amount: z.string().regex(/^\d+(\.\d+)?$/, 'Invalid amount format').optional(),
+  min_amount: AmountFilterSchema.optional(),
+  max_amount: AmountFilterSchema.optional(),
 });
 
 export const SubmitTransactionBodySchema = z.object({
   sender: AddressSchema,
   recipient: AddressSchema,
-  amount: z
-    .string()
-    .refine((val) => !isNaN(parseFloat(val)), 'Invalid amount')
-    .refine((val) => parseFloat(val) > 0, 'Amount must be positive'),
+  amount: decimalAmountSchema('amount', Number.MIN_VALUE, 'Amount must be positive'),
   denom: z.string().min(1).max(20),
   memo: z.string().max(256).optional(),
   gas_limit: z.number().int().min(1).max(10_000_000).default(200_000),
@@ -247,10 +281,7 @@ export const ListValidatorsQuerySchema = PaginationSchema.extend({
 export const DelegateBodySchema = z.object({
   delegator: AddressSchema,
   validator: AddressSchema,
-  amount: z
-    .string()
-    .refine((val) => !isNaN(parseFloat(val)), 'Invalid amount')
-    .refine((val) => parseFloat(val) > 0, 'Amount must be positive'),
+  amount: decimalAmountSchema('amount', Number.MIN_VALUE, 'Amount must be positive'),
 });
 
 // =============================================================================
@@ -286,10 +317,7 @@ export const SubmitJobBodySchema = z.object({
   proof_type: z.enum(['tee_attestation', 'zk_proof', 'mpc_proof', 'optimistic']),
   priority: z.number().int().min(0).max(100).default(50),
   timeout: z.number().int().min(100).max(10_000),
-  max_payment: z
-    .string()
-    .refine((val) => !isNaN(parseFloat(val)), 'Invalid payment amount')
-    .refine((val) => parseFloat(val) >= 1000, 'Payment too small'),
+  max_payment: decimalAmountSchema('payment amount', 1000, 'Payment too small'),
 });
 
 export const AssignJobBodySchema = z.object({
@@ -302,18 +330,12 @@ export const AssignJobBodySchema = z.object({
 // =============================================================================
 
 export const StakeBodySchema = z.object({
-  amount: z
-    .string()
-    .refine((val) => !isNaN(parseFloat(val)), 'Invalid amount')
-    .refine((val) => parseFloat(val) >= 1_000_000, 'Amount below minimum stake'),
+  amount: decimalAmountSchema('amount', 1_000_000, 'Amount below minimum stake'),
   validator: AddressSchema.optional(),
 });
 
 export const UnstakeBodySchema = z.object({
-  amount: z
-    .string()
-    .refine((val) => !isNaN(parseFloat(val)), 'Invalid amount')
-    .refine((val) => parseFloat(val) > 0, 'Amount must be positive'),
+  amount: decimalAmountSchema('amount', Number.MIN_VALUE, 'Amount must be positive'),
 });
 
 export const ClaimRewardsBodySchema = z.object({
@@ -325,11 +347,10 @@ export const ClaimRewardsBodySchema = z.object({
 // =============================================================================
 
 export const GetProposalParamsSchema = z.object({
-  proposal_id: z
-    .string()
-    .or(z.number())
-    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-    .refine((val) => val > 0, 'Invalid proposal ID'),
+  proposal_id: integerParamSchema({
+    min: 1,
+    max: Number.MAX_SAFE_INTEGER,
+  }),
 });
 
 export const ListProposalsQuerySchema = PaginationSchema.extend({
@@ -340,10 +361,7 @@ export const ListProposalsQuerySchema = PaginationSchema.extend({
 export const SubmitProposalBodySchema = z.object({
   title: z.string().min(1).max(256),
   description: z.string().min(1).max(10_000),
-  deposit: z
-    .string()
-    .refine((val) => !isNaN(parseFloat(val)), 'Invalid deposit')
-    .refine((val) => parseFloat(val) >= 1_000_000, 'Deposit below minimum'),
+  deposit: decimalAmountSchema('deposit', 1_000_000, 'Deposit below minimum'),
 });
 
 export const VoteBodySchema = z.object({
@@ -356,14 +374,11 @@ export const VoteBodySchema = z.object({
 // =============================================================================
 
 export const ReconciliationLiveQuerySchema = z.object({
-  validator_limit: z
-    .string()
-    .or(z.number())
-    .default('200')
-    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
-    .refine((val) => Number.isInteger(val) && val >= 1 && val <= 500, {
-      message: 'validator_limit must be an integer between 1 and 500',
-    }),
+  validator_limit: integerParamSchema({
+    min: 1,
+    max: 500,
+    defaultValue: 200,
+  }),
 });
 
 // =============================================================================
