@@ -16,9 +16,20 @@ import { bytesToHex, computeEligibleUniverseHash } from '../lib/protocolSdk';
 type ExtendedQueryClient = QueryClient & {
   staking: {
     validator(address: string): Promise<{ validator?: any }>;
-    validators(status: string, paginationKey: Uint8Array): Promise<{ validators: any[] }>;
+    validators(
+      status: string,
+      paginationKey: Uint8Array,
+    ): Promise<{
+      validators: any[];
+      pagination?: {
+        nextKey?: Uint8Array | null;
+        total?: bigint | number;
+      };
+    }>;
   };
 };
+
+const MAX_VALIDATOR_PAGINATION_PAGES = 100;
 
 @injectable()
 export class BlockchainService {
@@ -225,16 +236,44 @@ export class BlockchainService {
     status?: string;
   }): Promise<PaginatedResponse<Validator>> {
     if (!this.queryClient) throw new Error('Client not initialized');
-    
-    const { limit = 50, offset = 0, status = 'BOND_STATUS_BONDED' } = options;
-    
-    const response = await this.queryClient.staking.validators(
-      status,
-      Buffer.from(String(offset))
-    );
 
-    const validators: Validator[] = response.validators
-      .slice(0, limit)
+    const { limit = 50, offset = 0, status = 'BOND_STATUS_BONDED' } = options;
+    const targetCount = offset + limit;
+    const rawValidators: any[] = [];
+    const seenPaginationKeys = new Set<string>();
+    let paginationKey = new Uint8Array();
+    let hasMore = false;
+
+    for (let page = 0; page < MAX_VALIDATOR_PAGINATION_PAGES; page++) {
+      const response = await this.queryClient.staking.validators(
+        status,
+        paginationKey,
+      );
+      rawValidators.push(...response.validators);
+
+      const nextKey = response.pagination?.nextKey ?? new Uint8Array();
+      hasMore = nextKey.length > 0;
+
+      if (!hasMore || rawValidators.length >= targetCount) {
+        break;
+      }
+
+      const nextKeyHex = Buffer.from(nextKey).toString('hex');
+      if (seenPaginationKeys.has(nextKeyHex)) {
+        logger.warn('Stopping validator pagination after repeated next key', {
+          status,
+          page,
+        });
+        hasMore = true;
+        break;
+      }
+
+      seenPaginationKeys.add(nextKeyHex);
+      paginationKey = new Uint8Array(nextKey);
+    }
+
+    const validators: Validator[] = rawValidators
+      .slice(offset, offset + limit)
       .map((v) => ({
         address: v.operatorAddress,
         moniker: v.description?.moniker || '',
@@ -263,8 +302,8 @@ export class BlockchainService {
       pagination: {
         limit,
         offset,
-        total: response.validators.length, // Approximate
-        hasMore: response.validators.length === limit,
+        total: rawValidators.length, // Approximate; Cosmos pagination total is not always populated.
+        hasMore: hasMore || rawValidators.length > offset + validators.length,
       },
       protocol: {
         eligibleUniverseHash,
@@ -313,12 +352,16 @@ export class BlockchainService {
 
     const [latestHeight, validators] = await Promise.all([
       this.getLatestHeight(),
-      this.queryClient.staking.validators('BOND_STATUS_BONDED', Buffer.from('')),
+      this.getValidators({
+        limit: 10_000,
+        offset: 0,
+        status: 'BOND_STATUS_BONDED',
+      }),
     ]);
 
     // Calculate total staked
-    const totalStaked = validators.validators.reduce(
-      (acc, v) => acc + BigInt(v.tokens),
+    const totalStaked = validators.data.reduce(
+      (acc, validator) => acc + BigInt(validator.tokens),
       BigInt(0)
     );
 
@@ -326,8 +369,9 @@ export class BlockchainService {
       blockHeight: latestHeight,
       totalTransactions: 0, // Would need indexer
       totalAccounts: 0, // Would need indexer
-      totalValidators: validators.validators.length,
-      activeValidators: validators.validators.filter((v) => !v.jailed).length,
+      totalValidators: validators.data.length,
+      activeValidators: validators.data.filter((validator) => !validator.jailed)
+        .length,
       totalStaked: totalStaked.toString(),
       inflationRate: 0.07, // Would query mint module
       communityPool: '0', // Would query distribution
