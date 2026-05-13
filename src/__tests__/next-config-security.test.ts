@@ -90,7 +90,7 @@ describe("Next.js security config", () => {
     const csp = buildContentSecurityPolicy({
       nonce: "test-nonce",
       nodeEnv: "production",
-      apiUrl: "https://api.cruzible.test/v1",
+      apiUrl: "https://api.testnet.aethelred.org/v1",
     });
 
     expect(csp).toContain("default-src 'self'");
@@ -107,7 +107,9 @@ describe("Next.js security config", () => {
     );
     expect(csp).toContain("img-src 'self' data: blob:");
     expect(csp).toContain("font-src 'self' data:");
-    expect(csp).toContain("connect-src 'self' https://api.cruzible.test");
+    expect(csp).toContain(
+      "connect-src 'self' https://api.testnet.aethelred.org",
+    );
     expect(csp).toContain("https://api.aethelred.io");
     expect(csp).toContain("https://api.testnet.aethelred.org");
     expect(csp).toContain("wss://evm-ws-testnet.aethelred.network");
@@ -116,6 +118,34 @@ describe("Next.js security config", () => {
     expect(csp).toContain("form-action 'self'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("upgrade-insecure-requests");
+  });
+
+  it("fails closed on unsafe production API origins in CSP", () => {
+    const lookalikeCsp = buildContentSecurityPolicy({
+      nonce: "test-nonce",
+      nodeEnv: "production",
+      apiUrl: "https://api.testnet.aethelred.org.evil.example/v1",
+    });
+    const localhostCsp = buildContentSecurityPolicy({
+      nonce: "test-nonce",
+      nodeEnv: "production",
+      apiUrl: "http://localhost:3001/v1",
+    });
+    const credentialedCsp = buildContentSecurityPolicy({
+      nonce: "test-nonce",
+      nodeEnv: "production",
+      apiUrl: "https://user:pass@api.testnet.aethelred.org/v1",
+    });
+
+    expect(getCspDirective(lookalikeCsp, "connect-src")).not.toContain(
+      "https://api.testnet.aethelred.org.evil.example",
+    );
+    expect(getCspDirective(localhostCsp, "connect-src")).not.toContain(
+      "http://localhost:3001",
+    );
+    expect(getCspDirective(credentialedCsp, "connect-src")).not.toContain(
+      "https://user:pass@",
+    );
   });
 
   it("does not set a stale static CSP header from next.config", async () => {

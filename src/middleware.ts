@@ -6,16 +6,43 @@ type CspOptions = {
   apiUrl?: string;
 };
 
-function sourceForUrl(value?: string): string | null {
+const ALLOWED_PRODUCTION_API_ORIGINS = new Set([
+  "https://api.aethelred.io",
+  "https://api.mainnet.aethelred.org",
+  "https://api.testnet.aethelred.org",
+]);
+
+function sourceForUrl(
+  value: string | undefined,
+  isProduction: boolean,
+): string | null {
   if (!value) {
     return null;
   }
 
+  let parsed: URL;
+
   try {
-    return new URL(value).origin;
+    parsed = new URL(value);
   } catch {
     return null;
   }
+
+  if (
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    (parsed.protocol !== "https:" && parsed.protocol !== "http:")
+  ) {
+    return null;
+  }
+
+  if (isProduction && !ALLOWED_PRODUCTION_API_ORIGINS.has(parsed.origin)) {
+    return null;
+  }
+
+  return parsed.origin;
 }
 
 function uniqueSources(sources: Array<string | null>): string[] {
@@ -41,7 +68,7 @@ export function buildContentSecurityPolicy({
 
   const isProduction = nodeEnv === "production";
   const nonceSource = `'nonce-${nonce}'`;
-  const configuredApiOrigin = sourceForUrl(apiUrl);
+  const configuredApiOrigin = sourceForUrl(apiUrl, isProduction);
   const devnetSources = isProduction
     ? []
     : [
