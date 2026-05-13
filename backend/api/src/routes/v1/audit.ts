@@ -9,9 +9,12 @@ import {
 } from "../../services/PrivilegedAuditService";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ApiError } from "../../utils/ApiError";
+import { integerParamSchema } from "../../validation/schemas";
 
 const router = Router();
 const MAX_AUDIT_PAGINATION_OFFSET = 10_000;
+const SAFE_AUDIT_ACTOR_PATTERN = /^[a-z0-9._:-]{1,64}$/;
+const SAFE_AUDIT_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/;
 
 router.use(opsRateLimiter);
 router.use(authenticate);
@@ -25,23 +28,31 @@ const DateTimeSchema = z
   .transform((value) => new Date(value));
 
 const AuditQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  offset: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(MAX_AUDIT_PAGINATION_OFFSET)
-    .default(0),
+  limit: integerParamSchema({ min: 1, max: 100, defaultValue: 50 }),
+  offset: integerParamSchema({
+    min: 0,
+    max: MAX_AUDIT_PAGINATION_OFFSET,
+    defaultValue: 0,
+  }),
   decision: z.enum(["allowed", "rejected"]).optional(),
   principal_type: z.enum(["wallet", "operational-token"]).optional(),
-  actor_address: z.string().trim().toLowerCase().min(1).max(64).optional(),
-  request_id: z.string().trim().min(1).max(128).optional(),
+  actor_address: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(SAFE_AUDIT_ACTOR_PATTERN, "Invalid actor address filter")
+    .optional(),
+  request_id: z
+    .string()
+    .trim()
+    .regex(SAFE_AUDIT_REQUEST_ID_PATTERN, "Invalid request ID filter")
+    .optional(),
   from: DateTimeSchema.optional(),
   to: DateTimeSchema.optional(),
 });
 
 const AuditExportQuerySchema = AuditQuerySchema.extend({
-  limit: z.coerce.number().int().min(1).max(1000).default(1000),
+  limit: integerParamSchema({ min: 1, max: 1000, defaultValue: 1000 }),
   format: z.enum(["ndjson", "csv"]).default("ndjson"),
 });
 

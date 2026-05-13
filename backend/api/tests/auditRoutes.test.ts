@@ -208,4 +208,33 @@ describe("audit routes", () => {
       expect(JSON.stringify(body.details)).toContain("10000");
     });
   });
+
+  it("rejects malformed audit query filters before retrieval", async () => {
+    const { app, operatorToken } = await buildAuditApp();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const headers = { Authorization: `Bearer ${operatorToken}` };
+      const partialLimit = await fetch(
+        `${baseUrl}/v1/audit/privileged-access?limit=10abc`,
+        { headers },
+      );
+      const blankOffset = await fetch(
+        `${baseUrl}/v1/audit/privileged-access?offset=`,
+        { headers },
+      );
+      const unsafeActor = await fetch(
+        `${baseUrl}/v1/audit/privileged-access?actor_address=aeth1operator%20OR%201%3D1`,
+        { headers },
+      );
+      const unsafeRequestId = await fetch(
+        `${baseUrl}/v1/audit/privileged-access?request_id=%3DHYPERLINK%28%22https%3A%2F%2Fexample.invalid%22%29`,
+        { headers },
+      );
+
+      expect(partialLimit.status).toBe(400);
+      expect(blankOffset.status).toBe(400);
+      expect(unsafeActor.status).toBe(400);
+      expect(unsafeRequestId.status).toBe(400);
+    });
+  });
 });

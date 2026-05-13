@@ -34,7 +34,7 @@ function normalizeStrictIntegerParam(value: unknown): unknown {
   return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
 }
 
-function integerParamSchema(options: IntegerParamOptions) {
+export function integerParamSchema(options: IntegerParamOptions) {
   const schema = z.preprocess(
     normalizeStrictIntegerParam,
     z.number().int().safe().min(options.min).max(options.max),
