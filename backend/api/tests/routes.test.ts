@@ -1406,6 +1406,47 @@ describe('backend routes', () => {
     });
   });
 
+  it('rejects oversized validator voting power filters before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { BlockchainService } = await import('../src/services/BlockchainService');
+    const { ReconciliationScheduler } = await import('../src/services/ReconciliationScheduler');
+    const cache = new CacheService();
+    const blockchain = {
+      getValidators: vi.fn(),
+      getValidator: vi.fn(),
+    } as unknown as BlockchainService;
+    const reconciliationScheduler = {
+      getLatestResult: vi.fn().mockReturnValue(null),
+    } as unknown as ReconciliationScheduler;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(BlockchainService, blockchain);
+    registerTestInstance(ReconciliationScheduler, reconciliationScheduler);
+
+    const { validatorsRouter } = await import('../src/routes/v1/validators');
+    const app = express();
+    app.use('/v1/validators', validatorsRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/validators?min_voting_power=${'9'.repeat(40)}`,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe('Validation failed');
+      expect(
+        (blockchain.getValidators as ReturnType<typeof vi.fn>).mock.calls,
+      ).toHaveLength(0);
+    });
+  });
+
   it('wires /v1/validators through the shared v1 router with validator intelligence metadata', async () => {
     const { CacheService } = await import('../src/services/CacheService');
     const { BlockchainService } = await import('../src/services/BlockchainService');

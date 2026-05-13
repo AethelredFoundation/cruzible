@@ -26,6 +26,8 @@ const cacheService = container.resolve(CacheService);
 const reconciliationScheduler = container.resolve(ReconciliationScheduler);
 
 const UI_STATUSES = ['active', 'inactive', 'jailed'] as const;
+const MAX_VOTING_POWER_FILTER_DIGITS = 39;
+const VOTING_POWER_FILTER_PATTERN = /^\d{1,39}$/;
 const CHAIN_STATUS_GROUPS = {
   active: ['BOND_STATUS_BONDED'],
   inactive: ['BOND_STATUS_UNBONDED', 'BOND_STATUS_UNBONDING'],
@@ -107,6 +109,10 @@ function parseTokenAmount(value: string): bigint {
   } catch {
     return 0n;
   }
+}
+
+function parseVotingPowerFilter(value: string | undefined): bigint | undefined {
+  return value === undefined ? undefined : BigInt(value);
 }
 
 function getLifecycleStatus(validator: Validator): UiStatus | 'inactive' {
@@ -515,7 +521,14 @@ router.get(
       .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
       .toInt(),
     query('status').optional().isIn(UI_STATUSES),
-    query('min_voting_power').optional().isInt({ min: 0 }).toInt(),
+    query('min_voting_power')
+      .optional()
+      .isString()
+      .trim()
+      .matches(VOTING_POWER_FILTER_PATTERN)
+      .withMessage(
+        `min_voting_power must be a decimal integer up to ${MAX_VOTING_POWER_FILTER_DIGITS} digits`,
+      ),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -528,8 +541,9 @@ router.get(
       limit?: number;
       offset?: number;
       status?: UiStatus;
-      min_voting_power?: number;
+      min_voting_power?: string;
     };
+    const minVotingPower = parseVotingPowerFilter(min_voting_power);
 
     const cacheKey = [
       'validators:list',
@@ -557,8 +571,8 @@ router.get(
         }
 
         if (
-          typeof min_voting_power === 'number' &&
-          parseTokenAmount(validator.tokens) < BigInt(min_voting_power)
+          minVotingPower !== undefined &&
+          parseTokenAmount(validator.tokens) < minVotingPower
         ) {
           return false;
         }
