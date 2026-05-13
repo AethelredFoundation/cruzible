@@ -52,6 +52,8 @@ const MAX_VERSION_LENGTH: usize = 64;
 const MAX_STORAGE_URI_LENGTH: usize = 2048;
 const MAX_SCHEMA_LENGTH: usize = 10240;
 const MAX_QUERY_LIMIT: usize = 100;
+const MAX_REGISTRATION_FEE_DENOM_LENGTH: usize = 128;
+const MAX_VERIFIERS: usize = 64;
 const TRUSTED_STORAGE_URI_PREFIXES: [&str; 6] = [
     "ipfs://",
     "ar://",
@@ -596,10 +598,15 @@ fn execute_increment_job_count(
 const MAX_REGISTRATION_FEE: u128 = 1_000_000_000_000; // 1M tokens with 6 decimals
 
 fn validate_registration_fee_denom(denom: &str) -> StdResult<()> {
-    if denom.trim().is_empty() || denom.chars().any(char::is_whitespace) {
-        return Err(cosmwasm_std::StdError::generic_err(
-            "registration_fee_denom must not be empty or contain whitespace",
-        ));
+    if denom.trim().is_empty()
+        || denom.len() > MAX_REGISTRATION_FEE_DENOM_LENGTH
+        || denom
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
+    {
+        return Err(cosmwasm_std::StdError::generic_err(format!(
+            "registration_fee_denom must be 1-{MAX_REGISTRATION_FEE_DENOM_LENGTH} characters without whitespace or control characters"
+        )));
     }
     Ok(())
 }
@@ -610,6 +617,9 @@ fn validate_verifier_set(
     verifiers: Vec<String>,
 ) -> Result<Vec<Addr>, ContractError> {
     if verification_required && verifiers.is_empty() {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+    if verifiers.len() > MAX_VERIFIERS {
         return Err(ContractError::InvalidVerifierSet {});
     }
 
@@ -704,6 +714,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 .owner
                 .prefix(addr)
                 .range(deps.storage, None, None, cosmwasm_std::Order::Descending)
+                .take(MAX_QUERY_LIMIT)
                 .filter_map(|r| r.ok().map(|(_, m)| m))
                 .collect();
             to_json_binary(&models_list)
@@ -787,6 +798,9 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, Co
     validate_registration_fee_denom(&msg.registration_fee_denom)?;
     let legacy = LEGACY_CONFIG.load(deps.storage)?;
     if legacy.verification_required && legacy.verifiers.is_empty() {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+    if legacy.verifiers.len() > MAX_VERIFIERS {
         return Err(ContractError::InvalidVerifierSet {});
     }
     let config = Config {
