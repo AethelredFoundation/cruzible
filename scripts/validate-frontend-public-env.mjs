@@ -16,6 +16,11 @@ const MAINNET_REQUIRED_KEYS = [
   "NEXT_PUBLIC_USDT_TOKEN_ADDRESS",
   "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID",
 ];
+const DEVTOOLS_URL_KEYS = [
+  "NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL",
+  "NEXT_PUBLIC_DEVTOOLS_NEXTJS_URL",
+  "NEXT_PUBLIC_DEVTOOLS_RPC_URL",
+];
 
 export class FrontendPublicEnvError extends Error {
   constructor(message) {
@@ -31,6 +36,47 @@ function isLocalApiHost(hostname) {
     hostname === "::1" ||
     hostname === "[::1]"
   );
+}
+
+function assertValidLocalDevtoolsOrigin(env, key) {
+  const value = env[key]?.trim();
+  if (!value) {
+    return;
+  }
+
+  let parsed;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new FrontendPublicEnvError(`${key} must be an absolute URL.`);
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new FrontendPublicEnvError(`${key} must use http or https.`);
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new FrontendPublicEnvError(`${key} must not include credentials.`);
+  }
+
+  if (parsed.search || parsed.hash) {
+    throw new FrontendPublicEnvError(
+      `${key} must not include query strings or fragments.`,
+    );
+  }
+
+  if (parsed.pathname.replace(/\/+$/, "")) {
+    throw new FrontendPublicEnvError(
+      `${key} must be a service origin, not a deep path.`,
+    );
+  }
+
+  if (!isLocalApiHost(parsed.hostname.toLowerCase())) {
+    throw new FrontendPublicEnvError(
+      `${key} must point to localhost when devtools are enabled.`,
+    );
+  }
 }
 
 function assertValidAddress(env, key) {
@@ -80,6 +126,18 @@ export function validateFrontendPublicEnv(env = process.env) {
     throw new FrontendPublicEnvError(
       "NEXT_PUBLIC_CHAIN_ENV must be one of mainnet, testnet, or devnet.",
     );
+  }
+
+  if (env.NEXT_PUBLIC_ENABLE_DEVTOOLS?.trim() === "true") {
+    if (chainEnv !== "devnet") {
+      throw new FrontendPublicEnvError(
+        "NEXT_PUBLIC_ENABLE_DEVTOOLS may only be true when NEXT_PUBLIC_CHAIN_ENV=devnet.",
+      );
+    }
+
+    for (const key of DEVTOOLS_URL_KEYS) {
+      assertValidLocalDevtoolsOrigin(env, key);
+    }
   }
 
   let parsedApiUrl;

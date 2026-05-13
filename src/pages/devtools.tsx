@@ -22,14 +22,10 @@ import {
   type LiveReconciliationDocument,
 } from "@/lib/reconciliation";
 import { getApiV1BaseUrl } from "@/config/api";
+import { getDevtoolsServiceUrls } from "@/config/devtools";
 import { isDevtoolsEnabled } from "@/config/features";
 
-const FASTAPI_URL =
-  process.env.NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL || "http://127.0.0.1:8000";
-const NEXTJS_URL =
-  process.env.NEXT_PUBLIC_DEVTOOLS_NEXTJS_URL || "http://127.0.0.1:3000";
-const RPC_URL =
-  process.env.NEXT_PUBLIC_DEVTOOLS_RPC_URL || "http://127.0.0.1:26657";
+const DEVTOOLS_URLS = getDevtoolsServiceUrls();
 
 export const getServerSideProps: GetServerSideProps = async () => {
   if (!isDevtoolsEnabled()) {
@@ -116,15 +112,22 @@ export default function DeveloperToolsDashboard() {
     queryFn: async () => {
       const [rpc, fastapi, nextjsHealth, nextjsVerify, fastapiRecent] =
         await Promise.all([
-          timedFetchJson("Mock RPC", `${RPC_URL}/health`),
-          timedFetchJson("FastAPI Verifier", `${FASTAPI_URL}/health`),
-          timedFetchJson("Next.js Verifier Health", `${NEXTJS_URL}/api/health`),
-          timedPostJson("Next.js Verify Route", `${NEXTJS_URL}/api/verify`, {
-            prompt: "urgent wire transfer override",
-          }),
+          timedFetchJson("Mock RPC", `${DEVTOOLS_URLS.rpc}/health`),
+          timedFetchJson("FastAPI Verifier", `${DEVTOOLS_URLS.fastapi}/health`),
+          timedFetchJson(
+            "Next.js Verifier Health",
+            `${DEVTOOLS_URLS.nextjs}/api/health`,
+          ),
+          timedPostJson(
+            "Next.js Verify Route",
+            `${DEVTOOLS_URLS.nextjs}/api/verify`,
+            {
+              prompt: "urgent wire transfer override",
+            },
+          ),
           timedFetchJson(
             "FastAPI Recent Verifications",
-            `${FASTAPI_URL}/verify/recent?limit=5`,
+            `${DEVTOOLS_URLS.fastapi}/verify/recent?limit=5`,
           ),
         ]);
 
@@ -309,9 +312,9 @@ export default function DeveloperToolsDashboard() {
               title="Local Endpoints"
               icon={Cpu}
               items={[
-                `Mock RPC: ${RPC_URL}`,
-                `FastAPI Verifier: ${FASTAPI_URL}`,
-                `Next.js Verifier: ${NEXTJS_URL}`,
+                `Mock RPC: ${DEVTOOLS_URLS.rpc}`,
+                `FastAPI Verifier: ${DEVTOOLS_URLS.fastapi}`,
+                `Next.js Verifier: ${DEVTOOLS_URLS.nextjs}`,
                 `Backend API: ${getApiV1BaseUrl()}`,
                 `Dashboard: http://127.0.0.1:3101/devtools`,
               ]}

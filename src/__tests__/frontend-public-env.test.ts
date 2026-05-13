@@ -137,4 +137,48 @@ describe("frontend public build environment validation", () => {
       chainEnv: "devnet",
     });
   });
+
+  it("only allows public devtools to be enabled for devnet builds", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_ENABLE_DEVTOOLS may only be true when NEXT_PUBLIC_CHAIN_ENV=devnet.",
+    );
+  });
+
+  it("rejects non-local public devtools URLs when enabled", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
+        NEXT_PUBLIC_CHAIN_ENV: "devnet",
+        NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
+        NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL: "https://verifier.example.com",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL must point to localhost when devtools are enabled.",
+    );
+  });
+
+  it("accepts local public devtools URLs for explicit devnet builds", () => {
+    expect(
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
+        NEXT_PUBLIC_CHAIN_ENV: "devnet",
+        NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
+        NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL: "http://127.0.0.1:8000",
+        NEXT_PUBLIC_DEVTOOLS_NEXTJS_URL: "http://localhost:3000",
+        NEXT_PUBLIC_DEVTOOLS_RPC_URL: "http://[::1]:26657",
+      }),
+    ).toEqual({
+      apiOrigin: "http://localhost:3001",
+      chainEnv: "devnet",
+    });
+  });
 });
