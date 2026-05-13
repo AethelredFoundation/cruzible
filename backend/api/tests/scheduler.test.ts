@@ -138,6 +138,38 @@ describe('ReconciliationScheduler lifecycle and overlap guard', () => {
     scheduler.stop();
   });
 
+  it('keeps raw tick failure details out of public reconciliation checks', async () => {
+    const { scheduler } = createScheduler({
+      getLatestHeight: vi.fn().mockRejectedValue(
+        new Error('dial tcp secret-rpc.internal:26657: connection refused'),
+      ),
+    });
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const result = scheduler.getLatestResult();
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('CRITICAL');
+
+    const tickCheck = result!.checks.find(
+      (check) => check.name === 'tick_execution',
+    );
+    expect(tickCheck).toMatchObject({
+      status: 'CRITICAL',
+      message:
+        'Reconciliation tick failed. Operator logs contain internal diagnostics.',
+      metadata: { errorType: 'Error' },
+    });
+
+    const publicPayload = JSON.stringify(result);
+    expect(publicPayload).not.toContain('secret-rpc.internal');
+    expect(publicPayload).not.toContain('26657');
+    expect(publicPayload).not.toContain('connection refused');
+
+    scheduler.stop();
+  });
+
   it('start() is idempotent — second call is a no-op', async () => {
     const { scheduler } = createScheduler();
 

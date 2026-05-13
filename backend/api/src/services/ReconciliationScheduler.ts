@@ -81,6 +81,14 @@ const CACHE_TTL_SECONDS = 600;
 /** Epoch staleness multiplier — if epoch hasn't changed in 2x epoch duration → warning. */
 const EPOCH_STALE_MULTIPLIER = 2;
 
+/** Public scheduler checks must not echo raw exception text or upstream internals. */
+const PUBLIC_TICK_FAILURE_MESSAGE =
+  'Reconciliation tick failed. Operator logs contain internal diagnostics.';
+
+/** Public stablecoin checks must stay generic while logs retain the raw failure. */
+const PUBLIC_STABLECOIN_FAILURE_MESSAGE =
+  'Stablecoin checks failed. Operator logs contain internal diagnostics.';
+
 // ---------------------------------------------------------------------------
 // Known Stablecoin Assets — backend-side symbol registry
 // ---------------------------------------------------------------------------
@@ -105,6 +113,10 @@ const ASSET_ID_TO_SYMBOL: ReadonlyMap<string, string> = new Map(
     symbol,
   ]),
 );
+
+function classifyErrorForPublicCheck(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
+}
 
 // ---------------------------------------------------------------------------
 // Service
@@ -263,7 +275,8 @@ export class ReconciliationScheduler {
         checks.push({
           name: 'tick_execution',
           status: 'CRITICAL',
-          message: `Reconciliation tick failed: ${error instanceof Error ? error.message : String(error)}`,
+          message: PUBLIC_TICK_FAILURE_MESSAGE,
+          metadata: { errorType: classifyErrorForPublicCheck(error) },
         });
         overallStatus = 'CRITICAL';
       }
@@ -694,7 +707,8 @@ export class ReconciliationScheduler {
       checks.push({
         name: 'stablecoin_bridge',
         status: 'WARNING',
-        message: `Stablecoin checks failed: ${error instanceof Error ? error.message : String(error)}`,
+        message: PUBLIC_STABLECOIN_FAILURE_MESSAGE,
+        metadata: { errorType: classifyErrorForPublicCheck(error) },
       });
     }
 
