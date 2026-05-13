@@ -40,6 +40,31 @@ function installValidatorQueryClient(
   });
 }
 
+function makeRawTransaction(id: number) {
+  return {
+    hash: Uint8Array.from([id]),
+    height: 100,
+    index: id,
+    txResult: {
+      gasUsed: 10,
+      gasWanted: 20,
+      code: 0,
+      log: '',
+    },
+  };
+}
+
+function installTmClient(
+  service: BlockchainService,
+  txSearch: ReturnType<typeof vi.fn>,
+) {
+  Object.assign(service as unknown as { tmClient: unknown }, {
+    tmClient: {
+      txSearch,
+    },
+  });
+}
+
 describe('BlockchainService', () => {
   it('walks validator pagination keys before applying offsets', async () => {
     const service = new BlockchainService();
@@ -93,5 +118,46 @@ describe('BlockchainService', () => {
       'aethvaloper1',
     ]);
     expect(result.pagination.hasMore).toBe(true);
+  });
+
+  it('honors transaction offsets inside Tendermint search pages', async () => {
+    const service = new BlockchainService();
+    const txSearch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        totalCount: 4,
+        txs: [makeRawTransaction(1), makeRawTransaction(2)],
+      })
+      .mockResolvedValueOnce({
+        totalCount: 4,
+        txs: [makeRawTransaction(3), makeRawTransaction(4)],
+      });
+    installTmClient(service, txSearch);
+
+    const result = await service.getBlockTransactions(100, {
+      limit: 2,
+      offset: 1,
+    });
+
+    expect(result.data.map((transaction) => transaction.hash)).toEqual([
+      '02',
+      '03',
+    ]);
+    expect(result.pagination).toMatchObject({
+      limit: 2,
+      offset: 1,
+      total: 4,
+      hasMore: true,
+    });
+    expect(txSearch.mock.calls[0][0]).toMatchObject({
+      query: 'tx.height=100',
+      per_page: 2,
+      page: 1,
+    });
+    expect(txSearch.mock.calls[1][0]).toMatchObject({
+      query: 'tx.height=100',
+      per_page: 2,
+      page: 2,
+    });
   });
 });

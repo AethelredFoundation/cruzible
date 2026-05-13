@@ -150,21 +150,19 @@ export class BlockchainService {
 
     // Search for transactions in block
     const query = `tx.height=${height}`;
-    const response: TxSearchResponse = await this.tmClient.txSearch({
+    const { transactions, totalCount } = await this.searchTransactions(
       query,
-      per_page: limit,
-      page: Math.floor(offset / limit) + 1,
-    });
-
-    const transactions = response.txs.map(this.mapTransactionResponse);
+      limit,
+      offset,
+    );
 
     return {
       data: transactions,
       pagination: {
         limit,
         offset,
-        total: response.totalCount,
-        hasMore: offset + transactions.length < response.totalCount,
+        total: totalCount,
+        hasMore: offset + transactions.length < totalCount,
       },
     };
   }
@@ -198,21 +196,19 @@ export class BlockchainService {
       };
     }
 
-    const response = await this.tmClient.txSearch({
+    const { transactions, totalCount } = await this.searchTransactions(
       query,
-      per_page: limit,
-      page: Math.floor(offset / limit) + 1,
-    });
-
-    const transactions = response.txs.map(this.mapTransactionResponse);
+      limit,
+      offset,
+    );
 
     return {
       data: transactions,
       pagination: {
         limit,
         offset,
-        total: response.totalCount,
-        hasMore: offset + transactions.length < response.totalCount,
+        total: totalCount,
+        hasMore: offset + transactions.length < totalCount,
       },
     };
   }
@@ -379,6 +375,46 @@ export class BlockchainService {
   }
 
   // ============== HELPER METHODS ==============
+
+  private async searchTransactions(
+    query: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ transactions: Transaction[]; totalCount: number }> {
+    if (!this.tmClient) throw new Error('Client not initialized');
+
+    const pageSize = limit;
+    let page = Math.floor(offset / pageSize) + 1;
+    let skip = offset % pageSize;
+    let totalCount = 0;
+    const transactions: Transaction[] = [];
+
+    while (transactions.length < limit) {
+      const response: TxSearchResponse = await this.tmClient.txSearch({
+        query,
+        per_page: pageSize,
+        page,
+      });
+      totalCount = response.totalCount;
+
+      const pageTransactions = response.txs
+        .slice(skip)
+        .map(this.mapTransactionResponse);
+      transactions.push(...pageTransactions);
+
+      if (
+        offset + transactions.length >= totalCount ||
+        response.txs.length < pageSize
+      ) {
+        break;
+      }
+
+      page++;
+      skip = 0;
+    }
+
+    return { transactions: transactions.slice(0, limit), totalCount };
+  }
 
   private mapBlockResponse(response: any): Block {
     const block = response.block;
