@@ -53,7 +53,7 @@ export interface ModelDetailRecord {
   updatedAt: string | null;
   usage: ModelUsageStats;
   lineage: ModelLineageRecord;
-  source: "detail" | "list-fallback";
+  source: "detail";
 }
 
 export interface ModelsListResult {
@@ -339,24 +339,12 @@ export async function fetchModelDetail(
     };
   }
 
-  if ([404, 405, 501].includes(response.status)) {
-    const universe = await fetchAllModels();
-    const fallbackModel = universe.models.find(
-      (entry) => entry.modelHash === modelHash,
-    );
+  if (response.status === 404) {
+    throw new Error("Model not found");
+  }
 
-    if (!fallbackModel) {
-      throw new Error("Model not found");
-    }
-
-    return {
-      registry: fallbackModel,
-      sizeBytes: null,
-      updatedAt: null,
-      usage: normalizeUsageStats({}, fallbackModel.totalJobs),
-      lineage: normalizeLineageRecord(undefined),
-      source: "list-fallback",
-    };
+  if ([405, 501].includes(response.status)) {
+    throw new Error("Model detail endpoint is unavailable");
   }
 
   throw new Error("Failed to fetch model detail");

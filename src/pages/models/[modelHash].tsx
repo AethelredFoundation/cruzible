@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle,
   ArrowRight,
   Bot,
   CheckCircle2,
@@ -110,12 +109,6 @@ export default function ModelDetailPage() {
                     <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-200">
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       Verified
-                    </span>
-                  ) : null}
-                  {model?.source === "list-fallback" ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      List fallback
                     </span>
                   ) : null}
                 </div>
@@ -448,9 +441,9 @@ export default function ModelDetailPage() {
                         not quality rankings or unverified performance claims.
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-                        When the detail endpoint is unavailable, the page
-                        downgrades transparently to a live list fallback rather
-                        than inventing lineage data.
+                        When the detail endpoint is unavailable, the page fails
+                        closed instead of substituting list data for
+                        authoritative lineage.
                       </div>
                     </div>
                   </GlassCard>
