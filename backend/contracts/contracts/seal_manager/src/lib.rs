@@ -18,6 +18,8 @@ const CONTRACT_NAME: &str = "crates.io:seal-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_COMMITMENT_LENGTH: usize = 256;
 const MAX_QUERY_LIMIT: usize = 100;
+const MAX_BATCH_VERIFY_IDS: usize = 100;
+const MAX_VALIDATORS: u32 = 64;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -463,6 +465,10 @@ fn validate_unique_validators(
     config: &Config,
     validator_addresses: Vec<String>,
 ) -> Result<Vec<Addr>, ContractError> {
+    if validator_addresses.len() > config.max_validators as usize {
+        return Err(ContractError::InvalidSealStatus {});
+    }
+
     let mut validators = Vec::new();
     for validator in validator_addresses {
         let validator_addr = api.addr_validate(&validator)?;
@@ -506,6 +512,11 @@ fn validate_validator_bounds(
     if min_validators > max_validators {
         return Err(ContractError::InvalidConfig {
             reason: "min_validators cannot exceed max_validators".to_string(),
+        });
+    }
+    if max_validators > MAX_VALIDATORS {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("max_validators cannot exceed {MAX_VALIDATORS}"),
         });
     }
     Ok(())
@@ -692,6 +703,12 @@ fn execute_batch_verify(
     env: Env,
     seal_ids: Vec<String>,
 ) -> Result<Response, ContractError> {
+    if seal_ids.is_empty() || seal_ids.len() > MAX_BATCH_VERIFY_IDS {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("seal_ids must contain 1-{MAX_BATCH_VERIFY_IDS} entries"),
+        });
+    }
+
     let mut verified = 0u64;
     let mut failed = 0u64;
     let mut response = Response::new();
@@ -794,6 +811,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 .job_id
                 .prefix(job_id)
                 .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+                .take(MAX_QUERY_LIMIT)
                 .filter_map(|r| r.ok().map(|(_, s)| s))
                 .collect();
             to_json_binary(&seals_list)

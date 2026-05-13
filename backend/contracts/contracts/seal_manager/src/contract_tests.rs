@@ -214,6 +214,22 @@ mod tests {
         assert!(err.to_string().contains("default_expiration"));
     }
 
+    #[test]
+    fn instantiate_rejects_max_validators_above_cap() {
+        let mut deps = mock_deps_with_wasm();
+        let msg = InstantiateMsg {
+            ai_job_manager: AI_JOB_MANAGER.to_string(),
+            min_validators: 3,
+            max_validators: MAX_VALIDATORS + 1,
+            default_expiration: 86400 * 30,
+            max_expiration: 86400 * 365,
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("max_validators"));
+    }
+
     // ============ CREATE SEAL TESTS ============
 
     #[test]
@@ -576,6 +592,27 @@ mod tests {
             input_commitment: "input_hash".to_string(),
             output_commitment: "output_hash".to_string(),
             validator_addresses: validators, // 15, max is 10
+            expiration: None,
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidSealStatus {}));
+    }
+
+    #[test]
+    fn create_seal_rejects_oversized_raw_validator_payload() {
+        let mut deps = mock_deps_with_wasm();
+        setup_contract(deps.as_mut());
+
+        let info = mock_info(REQUESTER, &[]);
+        let validators: Vec<String> = (0..=10).map(|_| VALIDATOR1.to_string()).collect();
+
+        let msg = ExecuteMsg::CreateSeal {
+            job_id: "job123".to_string(),
+            model_commitment: "model_hash".to_string(),
+            input_commitment: "input_hash".to_string(),
+            output_commitment: "output_hash".to_string(),
+            validator_addresses: validators,
             expiration: None,
         };
 
@@ -1158,6 +1195,34 @@ mod tests {
             .any(|a| a.key == "total" && a.value == "2"));
     }
 
+    #[test]
+    fn batch_verify_rejects_oversized_payload() {
+        let mut deps = mock_deps_with_wasm();
+        setup_contract(deps.as_mut());
+
+        let msg = ExecuteMsg::BatchVerify {
+            seal_ids: (0..=MAX_BATCH_VERIFY_IDS)
+                .map(|index| format!("seal_{index}"))
+                .collect(),
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), mock_info("anyone", &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("seal_ids"));
+    }
+
+    #[test]
+    fn batch_verify_rejects_empty_payload() {
+        let mut deps = mock_deps_with_wasm();
+        setup_contract(deps.as_mut());
+
+        let msg = ExecuteMsg::BatchVerify { seal_ids: vec![] };
+
+        let err = execute(deps.as_mut(), mock_env(), mock_info("anyone", &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("seal_ids"));
+    }
+
     // ============ UPDATE CONFIG TESTS ============
 
     #[test]
@@ -1208,6 +1273,21 @@ mod tests {
         let err = execute(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
         assert!(matches!(err, ContractError::InvalidConfig { .. }));
         assert!(err.to_string().contains("min_validators"));
+    }
+
+    #[test]
+    fn update_config_rejects_max_validators_above_cap() {
+        let mut deps = mock_deps_with_wasm();
+        setup_contract(deps.as_mut());
+
+        let msg = ExecuteMsg::UpdateConfig {
+            min_validators: None,
+            max_validators: Some(MAX_VALIDATORS + 1),
+        };
+
+        let err = execute(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("max_validators"));
     }
 
     // ============ QUERY TESTS ============
@@ -1372,6 +1452,32 @@ mod tests {
 
         assert_eq!(seals.len(), 1);
         assert_eq!(seals[0].id, seal_id);
+    }
+
+    #[test]
+    fn query_job_history_caps_limit() {
+        let mut deps = mock_deps_with_wasm();
+        setup_contract(deps.as_mut());
+
+        for _ in 0..(MAX_QUERY_LIMIT + 5) {
+            create_seal(
+                deps.as_mut(),
+                REQUESTER,
+                vec![VALIDATOR1, VALIDATOR2, VALIDATOR3],
+            );
+        }
+
+        let res = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::JobSealHistory {
+                job_id: "job123".to_string(),
+            },
+        )
+        .unwrap();
+        let seals: Vec<Seal> = from_json(&res).unwrap();
+
+        assert_eq!(seals.len(), MAX_QUERY_LIMIT);
     }
 
     #[test]
