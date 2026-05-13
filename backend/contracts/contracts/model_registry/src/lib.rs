@@ -730,12 +730,17 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn query_list_models(
     deps: Deps,
-    _category: Option<String>,
-    _owner: Option<String>,
+    category: Option<String>,
+    owner: Option<String>,
     verified: Option<bool>,
     limit: Option<u32>,
 ) -> StdResult<Vec<Model>> {
     let limit = limit.unwrap_or(50).min(MAX_QUERY_LIMIT as u32) as usize;
+    let category_filter = normalize_category_filter(category)?;
+    let owner_filter = owner
+        .as_deref()
+        .map(|owner| deps.api.addr_validate(owner))
+        .transpose()?;
 
     let models_list: Vec<Model> = if let Some(v) = verified {
         let v_str = if v {
@@ -748,18 +753,75 @@ fn query_list_models(
             .verified
             .prefix(v_str)
             .range(deps.storage, None, None, cosmwasm_std::Order::Descending)
-            .take(limit)
             .filter_map(|r| r.ok().map(|(_, m)| m))
+            .filter(|model| model_matches_filters(model, &category_filter, owner_filter.as_ref()))
+            .take(limit)
             .collect()
     } else {
         models()
             .range(deps.storage, None, None, cosmwasm_std::Order::Descending)
-            .take(limit)
             .filter_map(|r| r.ok().map(|(_, m)| m))
+            .filter(|model| model_matches_filters(model, &category_filter, owner_filter.as_ref()))
+            .take(limit)
             .collect()
     };
 
     Ok(models_list)
+}
+
+fn normalize_category_filter(category: Option<String>) -> StdResult<Option<String>> {
+    let Some(category) = category else {
+        return Ok(None);
+    };
+
+    let normalized = match category.trim().to_ascii_lowercase().as_str() {
+        "general" => "General",
+        "medical" => "Medical",
+        "scientific" => "Scientific",
+        "financial" => "Financial",
+        "legal" => "Legal",
+        "educational" => "Educational",
+        "environmental" => "Environmental",
+        _ => {
+            return Err(cosmwasm_std::StdError::generic_err(
+                "invalid model category filter",
+            ))
+        }
+    };
+
+    Ok(Some(normalized.to_string()))
+}
+
+fn model_category_key(category: &ModelCategory) -> &'static str {
+    match category {
+        ModelCategory::General => "General",
+        ModelCategory::Medical => "Medical",
+        ModelCategory::Scientific => "Scientific",
+        ModelCategory::Financial => "Financial",
+        ModelCategory::Legal => "Legal",
+        ModelCategory::Educational => "Educational",
+        ModelCategory::Environmental => "Environmental",
+    }
+}
+
+fn model_matches_filters(
+    model: &Model,
+    category_filter: &Option<String>,
+    owner_filter: Option<&Addr>,
+) -> bool {
+    if let Some(category) = category_filter {
+        if model_category_key(&model.category) != category {
+            return false;
+        }
+    }
+
+    if let Some(owner) = owner_filter {
+        if model.owner.as_str() != owner.as_str() {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// L-09 FIX: Typed response struct replacing serde_json::json! macro

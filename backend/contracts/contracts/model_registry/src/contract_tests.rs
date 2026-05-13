@@ -68,12 +68,16 @@ mod tests {
     }
 
     fn register_msg(hash: &str) -> ExecuteMsg {
+        register_msg_with_category(hash, ModelCategory::General)
+    }
+
+    fn register_msg_with_category(hash: &str, category: ModelCategory) -> ExecuteMsg {
         ExecuteMsg::RegisterModel {
             name: format!("Model {}", hash),
             model_hash: hash.to_string(),
             architecture: "transformer".to_string(),
             version: "1.0.0".to_string(),
-            category: ModelCategory::General,
+            category,
             input_schema: r#"{"type":"string"}"#.to_string(),
             output_schema: r#"{"type":"string"}"#.to_string(),
             storage_uri: "ipfs://QmTest123".to_string(),
@@ -1311,6 +1315,99 @@ mod tests {
         .unwrap();
         let models: Vec<Model> = from_json(&res).unwrap();
         assert_eq!(models.len(), 2);
+    }
+
+    #[test]
+    fn test_query_list_models_filters_owner() {
+        let (mut deps, env) = instantiate_no_fee();
+        let env_100 = env_at_block(&env, 100);
+        let env_110 = env_at_block(&env, 110);
+
+        let user1 = mock_info("user1", &[]);
+        execute(
+            deps.as_mut(),
+            env_100.clone(),
+            user1.clone(),
+            register_msg("hash1"),
+        )
+        .unwrap();
+        execute(deps.as_mut(), env_110.clone(), user1, register_msg("hash2")).unwrap();
+
+        let user2 = mock_info("user2", &[]);
+        execute(deps.as_mut(), env_100.clone(), user2, register_msg("hash3")).unwrap();
+
+        let res = query(
+            deps.as_ref(),
+            env_100,
+            QueryMsg::ListModels {
+                category: None,
+                owner: Some("user1".to_string()),
+                verified: None,
+                limit: None,
+            },
+        )
+        .unwrap();
+        let models: Vec<Model> = from_json(&res).unwrap();
+        assert_eq!(models.len(), 2);
+        assert!(models
+            .iter()
+            .all(|model| model.owner == Addr::unchecked("user1")));
+    }
+
+    #[test]
+    fn test_query_list_models_filters_category() {
+        let (mut deps, env) = instantiate_no_fee();
+        let env_100 = env_at_block(&env, 100);
+        let env_110 = env_at_block(&env, 110);
+
+        let info = mock_info("user1", &[]);
+        execute(
+            deps.as_mut(),
+            env_100.clone(),
+            info.clone(),
+            register_msg_with_category("medical", ModelCategory::Medical),
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            env_110.clone(),
+            info,
+            register_msg_with_category("legal", ModelCategory::Legal),
+        )
+        .unwrap();
+
+        let res = query(
+            deps.as_ref(),
+            env_100,
+            QueryMsg::ListModels {
+                category: Some("medical".to_string()),
+                owner: None,
+                verified: None,
+                limit: None,
+            },
+        )
+        .unwrap();
+        let models: Vec<Model> = from_json(&res).unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].category, ModelCategory::Medical);
+    }
+
+    #[test]
+    fn test_query_list_models_rejects_invalid_category_filter() {
+        let (deps, env) = instantiate_no_fee();
+
+        let err = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::ListModels {
+                category: Some("unknown".to_string()),
+                owner: None,
+                verified: None,
+                limit: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("invalid model category"));
     }
 
     #[test]
