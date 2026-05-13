@@ -1269,6 +1269,34 @@ mod tests {
     }
 
     #[test]
+    fn query_list_seals_caps_limit() {
+        let mut deps = mock_deps_with_wasm();
+        setup_contract(deps.as_mut());
+
+        for _ in 0..(MAX_QUERY_LIMIT + 5) {
+            create_seal(
+                deps.as_mut(),
+                REQUESTER,
+                vec![VALIDATOR1, VALIDATOR2, VALIDATOR3],
+            );
+        }
+
+        let res = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::ListSeals {
+                status: None,
+                requester: None,
+                limit: Some(u32::MAX),
+            },
+        )
+        .unwrap();
+
+        let seals: Vec<Seal> = from_json(&res).unwrap();
+        assert_eq!(seals.len(), MAX_QUERY_LIMIT);
+    }
+
+    #[test]
     fn query_verify_active_seal() {
         let mut deps = mock_deps_with_wasm();
         setup_contract(deps.as_mut());

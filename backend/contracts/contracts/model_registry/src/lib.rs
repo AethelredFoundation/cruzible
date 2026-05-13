@@ -51,6 +51,7 @@ const MAX_ARCHITECTURE_LENGTH: usize = 256;
 const MAX_VERSION_LENGTH: usize = 64;
 const MAX_STORAGE_URI_LENGTH: usize = 2048;
 const MAX_SCHEMA_LENGTH: usize = 10240;
+const MAX_QUERY_LIMIT: usize = 100;
 const TRUSTED_STORAGE_URI_PREFIXES: [&str; 6] = [
     "ipfs://",
     "ar://",
@@ -723,7 +724,7 @@ fn query_list_models(
     verified: Option<bool>,
     limit: Option<u32>,
 ) -> StdResult<Vec<Model>> {
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = limit.unwrap_or(50).min(MAX_QUERY_LIMIT as u32) as usize;
 
     let models_list: Vec<Model> = if let Some(v) = verified {
         let v_str = if v {

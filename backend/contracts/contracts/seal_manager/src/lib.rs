@@ -17,6 +17,7 @@ use thiserror::Error;
 const CONTRACT_NAME: &str = "crates.io:seal-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_COMMITMENT_LENGTH: usize = 256;
+const MAX_QUERY_LIMIT: usize = 100;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -814,7 +815,7 @@ fn query_list_seals(
     requester: Option<String>,
     limit: Option<u32>,
 ) -> StdResult<Vec<Seal>> {
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = limit.unwrap_or(50).min(MAX_QUERY_LIMIT as u32) as usize;
     let requester_addr = requester.map(Addr::unchecked);
     let seals_list: Vec<Seal> = seals()
         .range(deps.storage, None, None, cosmwasm_std::Order::Descending)

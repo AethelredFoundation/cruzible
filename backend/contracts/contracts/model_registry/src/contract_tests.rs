@@ -1327,6 +1327,37 @@ mod tests {
     }
 
     #[test]
+    fn test_query_list_models_caps_limit() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+
+        for index in 0..(MAX_QUERY_LIMIT + 5) {
+            let env_i = env_at_block(&env, 100 + index as u64 * 10);
+            execute(
+                deps.as_mut(),
+                env_i,
+                info.clone(),
+                register_msg(&format!("hash{}", index)),
+            )
+            .unwrap();
+        }
+
+        let res = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::ListModels {
+                category: None,
+                owner: None,
+                verified: None,
+                limit: Some(u32::MAX),
+            },
+        )
+        .unwrap();
+        let models: Vec<Model> = from_json(&res).unwrap();
+        assert_eq!(models.len(), MAX_QUERY_LIMIT);
+    }
+
+    #[test]
     fn test_query_stats() {
         let (mut deps, env) = instantiate_no_fee();
         let env_100 = env_at_block(&env, 100);
