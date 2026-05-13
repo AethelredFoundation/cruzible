@@ -653,6 +653,37 @@ describe("backend config hardening", () => {
     expect(config.httpMaxRequestsPerSocket).toBe(250);
   });
 
+  it("rejects non-decimal numeric environment values", async () => {
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        RATE_LIMIT_MAX: "0x10",
+      }),
+    ).rejects.toThrow(/RATE_LIMIT_MAX/);
+
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        PORT: "1e3",
+      }),
+    ).rejects.toThrow(/PORT/);
+  });
+
+  it("treats blank numeric environment values as unset defaults", async () => {
+    const { config } = await loadConfigWithEnv({
+      NODE_ENV: "development",
+      RATE_LIMIT_MAX: "",
+      RECONCILIATION_RATE_WARN_PCT: "",
+      RECONCILIATION_RATE_CRIT_PCT: "",
+      RECONCILIATION_TVL_DRIFT_PCT: "",
+    });
+
+    expect(config.rateLimitMax).toBe(120);
+    expect(config.reconciliationRateWarnThreshold).toBe(0.01);
+    expect(config.reconciliationRateCriticalThreshold).toBe(0.05);
+    expect(config.reconciliationTvlDriftThreshold).toBe(0.02);
+  });
+
   it("parses operational endpoint controls", async () => {
     const { config } = await loadConfigWithEnv({
       NODE_ENV: "development",

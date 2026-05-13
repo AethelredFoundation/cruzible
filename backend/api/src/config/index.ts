@@ -11,6 +11,8 @@ const AUTH_ROLE_ADDRESS_PATTERN = /^aeth1[0-9a-z]{5,}$/;
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
 const MAX_PRODUCTION_ACCESS_TOKEN_MS = 15 * 60 * 1000;
 const MAX_PRODUCTION_REFRESH_TOKEN_MS = 30 * 24 * 60 * 60 * 1000;
+const DECIMAL_INTEGER_ENV_PATTERN = /^(0|[1-9]\d*)$/;
+const DECIMAL_NUMBER_ENV_PATTERN = /^(0|[1-9]\d*)(\.\d+)?$/;
 const FILE_BACKED_ENV_KEYS = [
   "DATABASE_URL",
   "REDIS_URL",
@@ -37,6 +39,73 @@ const optionalSecretSchema = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z.string().min(32).optional(),
 );
+
+type NumberEnvOptions = {
+  min: number;
+  max?: number;
+  defaultValue: number;
+};
+
+function emptyStringAsUnset(value: unknown): unknown {
+  return typeof value === "string" && value.trim() === "" ? undefined : value;
+}
+
+function integerEnvSchema(options: NumberEnvOptions) {
+  return z.preprocess(
+    (value) => {
+      const normalizedValue = emptyStringAsUnset(value);
+      if (
+        normalizedValue === undefined ||
+        typeof normalizedValue !== "string"
+      ) {
+        return normalizedValue;
+      }
+
+      const trimmed = normalizedValue.trim();
+      if (!DECIMAL_INTEGER_ENV_PATTERN.test(trimmed)) {
+        return Number.NaN;
+      }
+
+      const parsed = Number(trimmed);
+      return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
+    },
+    z
+      .number()
+      .int()
+      .safe()
+      .min(options.min)
+      .max(options.max ?? Number.MAX_SAFE_INTEGER)
+      .default(options.defaultValue),
+  );
+}
+
+function decimalEnvSchema(options: NumberEnvOptions) {
+  return z.preprocess(
+    (value) => {
+      const normalizedValue = emptyStringAsUnset(value);
+      if (
+        normalizedValue === undefined ||
+        typeof normalizedValue !== "string"
+      ) {
+        return normalizedValue;
+      }
+
+      const trimmed = normalizedValue.trim();
+      if (!DECIMAL_NUMBER_ENV_PATTERN.test(trimmed)) {
+        return Number.NaN;
+      }
+
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : Number.NaN;
+    },
+    z
+      .number()
+      .min(options.min)
+      .max(options.max ?? Number.MAX_SAFE_INTEGER)
+      .default(options.defaultValue),
+  );
+}
+
 const optionalPositiveIntegerStringSchema = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z
@@ -60,7 +129,7 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  PORT: integerEnvSchema({ min: 1, max: 65535, defaultValue: 3001 }),
   RPC_URL: z.string().url().default("http://127.0.0.1:26657"),
   DATABASE_URL: optionalUrlSchema,
   REDIS_URL: optionalUrlSchema,
@@ -77,29 +146,52 @@ const envSchema = z.object({
     .default("7d"),
   AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY: optionalBooleanSchema,
   TRUST_PROXY: z.string().default("loopback"),
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
-  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(120),
-  HTTP_HEADERS_TIMEOUT_MS: z.coerce.number().int().min(1000).default(65_000),
-  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).default(120_000),
-  HTTP_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().min(1000).default(5_000),
-  HTTP_MAX_REQUESTS_PER_SOCKET: z.coerce.number().int().min(1).default(1000),
+  RATE_LIMIT_WINDOW_MS: integerEnvSchema({ min: 1000, defaultValue: 60_000 }),
+  RATE_LIMIT_MAX: integerEnvSchema({ min: 1, defaultValue: 120 }),
+  HTTP_HEADERS_TIMEOUT_MS: integerEnvSchema({
+    min: 1000,
+    defaultValue: 65_000,
+  }),
+  HTTP_REQUEST_TIMEOUT_MS: integerEnvSchema({
+    min: 1000,
+    defaultValue: 120_000,
+  }),
+  HTTP_KEEP_ALIVE_TIMEOUT_MS: integerEnvSchema({
+    min: 1000,
+    defaultValue: 5_000,
+  }),
+  HTTP_MAX_REQUESTS_PER_SOCKET: integerEnvSchema({
+    min: 1,
+    defaultValue: 1000,
+  }),
   ALLOW_MOCK_SIGNATURES: z
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
   AUTH_ADMIN_ADDRESSES: z.string().default(""),
   AUTH_OPERATOR_ADDRESSES: z.string().default(""),
-  AUTH_NONCE_TTL_MS: z.coerce.number().int().min(30_000).default(300_000),
-  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
-  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
-  OPS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
-  OPS_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(60),
-  PUBLIC_EXPENSIVE_RATE_LIMIT_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(60_000),
-  PUBLIC_EXPENSIVE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(30),
+  AUTH_NONCE_TTL_MS: integerEnvSchema({
+    min: 30_000,
+    defaultValue: 300_000,
+  }),
+  AUTH_RATE_LIMIT_WINDOW_MS: integerEnvSchema({
+    min: 1000,
+    defaultValue: 60_000,
+  }),
+  AUTH_RATE_LIMIT_MAX: integerEnvSchema({ min: 1, defaultValue: 10 }),
+  OPS_RATE_LIMIT_WINDOW_MS: integerEnvSchema({
+    min: 1000,
+    defaultValue: 60_000,
+  }),
+  OPS_RATE_LIMIT_MAX: integerEnvSchema({ min: 1, defaultValue: 60 }),
+  PUBLIC_EXPENSIVE_RATE_LIMIT_WINDOW_MS: integerEnvSchema({
+    min: 1000,
+    defaultValue: 60_000,
+  }),
+  PUBLIC_EXPENSIVE_RATE_LIMIT_MAX: integerEnvSchema({
+    min: 1,
+    defaultValue: 30,
+  }),
   METRICS_ENABLED: optionalBooleanSchema,
   API_DOCS_ENABLED: optionalBooleanSchema,
   OPERATIONAL_ENDPOINTS_TOKEN: optionalSecretSchema,
@@ -111,7 +203,7 @@ const envSchema = z.object({
   CRUZIBLE_VAULT_ADDRESS: evmAddressSchema,
   STAETHEL_ADDRESS: evmAddressSchema,
   STABLECOIN_BRIDGE_ADDRESS: evmAddressSchema,
-  INDEXER_START_BLOCK: z.coerce.number().int().min(0).default(0),
+  INDEXER_START_BLOCK: integerEnvSchema({ min: 0, defaultValue: 0 }),
   INDEXER_EXPECTED_CHAIN_ID: optionalPositiveIntegerStringSchema,
   INDEXER_ENABLED: z
     .enum(["true", "false"])
@@ -120,19 +212,39 @@ const envSchema = z.object({
 
   // Alerting
   ALERT_WEBHOOK_URL: optionalUrlSchema,
-  ALERT_RATE_LIMIT_MS: z.coerce.number().int().min(1000).default(300_000),
+  ALERT_RATE_LIMIT_MS: integerEnvSchema({
+    min: 1000,
+    defaultValue: 300_000,
+  }),
 
   // Reconciliation
-  RECONCILIATION_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(300_000),
-  RECONCILIATION_MIN_VALIDATORS: z.coerce.number().int().min(1).default(4),
-  RECONCILIATION_EPOCH_DURATION_S: z.coerce.number().int().min(1).default(3600),
-  RECONCILIATION_RATE_WARN_PCT: z.coerce.number().min(0).max(1).default(0.01),
-  RECONCILIATION_RATE_CRIT_PCT: z.coerce.number().min(0).max(1).default(0.05),
-  RECONCILIATION_TVL_DRIFT_PCT: z.coerce.number().min(0).max(1).default(0.02),
+  RECONCILIATION_INTERVAL_MS: integerEnvSchema({
+    min: 1000,
+    defaultValue: 300_000,
+  }),
+  RECONCILIATION_MIN_VALIDATORS: integerEnvSchema({
+    min: 1,
+    defaultValue: 4,
+  }),
+  RECONCILIATION_EPOCH_DURATION_S: integerEnvSchema({
+    min: 1,
+    defaultValue: 3600,
+  }),
+  RECONCILIATION_RATE_WARN_PCT: decimalEnvSchema({
+    min: 0,
+    max: 1,
+    defaultValue: 0.01,
+  }),
+  RECONCILIATION_RATE_CRIT_PCT: decimalEnvSchema({
+    min: 0,
+    max: 1,
+    defaultValue: 0.05,
+  }),
+  RECONCILIATION_TVL_DRIFT_PCT: decimalEnvSchema({
+    min: 0,
+    max: 1,
+    defaultValue: 0.02,
+  }),
 });
 
 function stripTrailingNewlines(value: string): string {
