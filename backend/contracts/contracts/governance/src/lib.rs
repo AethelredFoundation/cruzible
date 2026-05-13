@@ -18,6 +18,11 @@ const CONTRACT_NAME: &str = "crates.io:aethelred-governance";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BASIS_POINTS_DENOMINATOR: u64 = 10_000;
 const MAX_FEEDERS: usize = 50;
+const MAX_DEPOSIT_DENOM_LENGTH: usize = 128;
+const MAX_PROPOSAL_TITLE_LENGTH: usize = 140;
+const MAX_PROPOSAL_DESCRIPTION_LENGTH: usize = 10_000;
+const MAX_PROPOSAL_MESSAGES: usize = 16;
+const MAX_PROPOSAL_MESSAGES_BYTES: usize = 32_768;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -477,6 +482,7 @@ fn validate_instantiate_msg(msg: &InstantiateMsg) -> Result<(), ContractError> {
             reason: "voting_period must be greater than zero".to_string(),
         });
     }
+    validate_deposit_denom(&msg.deposit_denom)?;
     if msg.snapshot_period == 0 {
         return Err(ContractError::InvalidConfig {
             reason: "snapshot_period must be greater than zero".to_string(),
@@ -534,6 +540,61 @@ fn validate_instantiate_msg(msg: &InstantiateMsg) -> Result<(), ContractError> {
             reason:
                 "governance-managed feeders require initial_feeders to satisfy min_feeder_quorum"
                     .to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_deposit_denom(denom: &str) -> Result<(), ContractError> {
+    if denom.trim().is_empty()
+        || denom.len() > MAX_DEPOSIT_DENOM_LENGTH
+        || denom
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
+    {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "deposit_denom must be 1-{MAX_DEPOSIT_DENOM_LENGTH} characters without whitespace or control characters"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_non_empty_bounded_text(
+    field: &str,
+    value: &str,
+    max_len: usize,
+) -> Result<(), ContractError> {
+    if value.trim().is_empty() || value.len() > max_len {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("{field} must be 1-{max_len} characters"),
+        });
+    }
+    Ok(())
+}
+
+fn validate_proposal_payload(
+    title: &str,
+    description: &str,
+    messages: &[CosmosMsg<Empty>],
+) -> Result<(), ContractError> {
+    ensure_non_empty_bounded_text("title", title, MAX_PROPOSAL_TITLE_LENGTH)?;
+    ensure_non_empty_bounded_text("description", description, MAX_PROPOSAL_DESCRIPTION_LENGTH)?;
+
+    if messages.len() > MAX_PROPOSAL_MESSAGES {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("messages cannot exceed {MAX_PROPOSAL_MESSAGES} entries"),
+        });
+    }
+
+    let serialized = to_json_binary(messages)?;
+    if serialized.len() > MAX_PROPOSAL_MESSAGES_BYTES {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "messages payload cannot exceed {MAX_PROPOSAL_MESSAGES_BYTES} serialized bytes"
+            ),
         });
     }
 
@@ -607,6 +668,7 @@ fn execute_submit_proposal(
     messages: Vec<CosmosMsg<Empty>>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    validate_proposal_payload(&title, &description, &messages)?;
 
     // Require the configured anti-spam deposit before creating durable state,
     // and reject unrelated denoms so deposits cannot strand assets.
@@ -1599,6 +1661,32 @@ mod tests {
     }
 
     #[test]
+    fn test_instantiate_rejects_invalid_deposit_denom() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            deposit_denom: "bad denom".to_string(),
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("deposit_denom"));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_oversized_deposit_denom() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            deposit_denom: "u".repeat(MAX_DEPOSIT_DENOM_LENGTH + 1),
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("deposit_denom"));
+    }
+
+    #[test]
     fn test_governance_managed_feeders_require_initial_quorum() {
         let mut deps = mock_dependencies();
         let msg = InstantiateMsg {
@@ -1693,6 +1781,100 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err, ContractError::UnexpectedFunds {});
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_empty_title() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(1_000_000, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: " ".to_string(),
+                description: "valid description".to_string(),
+                messages: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("title"));
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_oversized_description() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(1_000_000, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: "Bounded proposal".to_string(),
+                description: "a".repeat(MAX_PROPOSAL_DESCRIPTION_LENGTH + 1),
+                messages: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("description"));
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_too_many_messages() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(1_000_000, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: "Too many messages".to_string(),
+                description: "message count must be bounded".to_string(),
+                messages: (0..=MAX_PROPOSAL_MESSAGES)
+                    .map(|_| CosmosMsg::Custom(Empty {}))
+                    .collect(),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("messages"));
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_oversized_message_payload() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(1_000_000, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: "Oversized message".to_string(),
+                description: "serialized message bytes must be bounded".to_string(),
+                messages: vec![CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+                    contract_addr: "target_contract".to_string(),
+                    msg: Binary::from(vec![0u8; MAX_PROPOSAL_MESSAGES_BYTES + 1]),
+                    funds: vec![],
+                })],
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("messages payload"));
         assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
     }
 
