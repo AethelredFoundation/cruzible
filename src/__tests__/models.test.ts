@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchModelDetail } from "@/lib/models";
+import { fetchAllModels, fetchModelDetail } from "@/lib/models";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -71,6 +71,44 @@ describe("fetchModelDetail", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "http://localhost:3001/v1/models/missing-model",
+    );
+  });
+});
+
+describe("fetchAllModels", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("caps broad model universe fetches to prevent client-side request storms", async () => {
+    const pageModels = Array.from({ length: 100 }, (_, index) => ({
+      modelHash: `model-${index}`,
+      name: `Model ${index}`,
+      owner: "owner",
+      architecture: "transformer",
+      version: "1.0.0",
+      category: "GENERAL",
+      inputSchema: "{}",
+      outputSchema: "{}",
+      storageUri: "ipfs://model",
+      registeredAt: "2026-01-01T00:00:00.000Z",
+      verified: true,
+      totalJobs: index,
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(jsonResponse({ models: pageModels, total: 10_000 })),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllModels();
+
+    expect(result.total).toBe(10_000);
+    expect(result.models).toHaveLength(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(10);
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(
+      "http://localhost:3001/v1/models?limit=100&offset=900&sort=registered_at%3Adesc",
     );
   });
 });

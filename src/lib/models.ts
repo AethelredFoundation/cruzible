@@ -1,6 +1,7 @@
 import { apiJson, apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 
 const MODELS_PAGE_SIZE = 100;
+const MAX_MODELS_UNIVERSE_SIZE = 1_000;
 
 export interface ModelRegistryRecord {
   modelHash: string;
@@ -283,11 +284,12 @@ export async function fetchAllModels(
     return firstPage;
   }
 
+  const boundedTotal = Math.min(firstPage.total, MAX_MODELS_UNIVERSE_SIZE);
   const requests: Promise<ModelsListResult>[] = [];
 
   for (
     let offset = firstPage.models.length;
-    offset < firstPage.total;
+    offset < boundedTotal;
     offset += MODELS_PAGE_SIZE
   ) {
     requests.push(
@@ -306,7 +308,7 @@ export async function fetchAllModels(
     models: [
       ...firstPage.models,
       ...remainingPages.flatMap((page) => page.models),
-    ],
+    ].slice(0, boundedTotal),
   };
 }
 
