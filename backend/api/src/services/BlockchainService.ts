@@ -30,6 +30,16 @@ type ExtendedQueryClient = QueryClient & {
 };
 
 const MAX_VALIDATOR_PAGINATION_PAGES = 100;
+const TENDERMINT_EVENT_ADDRESS_PATTERN = /^[A-Za-z0-9]{1,64}$/;
+
+function normalizeTendermintEventAddress(address: string): string {
+  const normalized = address.trim();
+  if (!TENDERMINT_EVENT_ADDRESS_PATTERN.test(normalized)) {
+    throw new Error('Invalid transaction address filter');
+  }
+
+  return normalized;
+}
 
 @injectable()
 export class BlockchainService {
@@ -185,7 +195,8 @@ export class BlockchainService {
     if (block) {
       query = `tx.height=${block}`;
     } else if (address) {
-      query = `transfer.recipient='${address}' OR transfer.sender='${address}'`;
+      const normalizedAddress = normalizeTendermintEventAddress(address);
+      query = `transfer.recipient='${normalizedAddress}' OR transfer.sender='${normalizedAddress}'`;
     }
 
     if (!query) {

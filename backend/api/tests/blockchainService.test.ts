@@ -160,4 +160,39 @@ describe('BlockchainService', () => {
       page: 2,
     });
   });
+
+  it('normalizes safe transaction address filters before Tendermint search', async () => {
+    const service = new BlockchainService();
+    const txSearch = vi.fn().mockResolvedValueOnce({
+      totalCount: 0,
+      txs: [],
+    });
+    installTmClient(service, txSearch);
+
+    await service.getTransactions({
+      address: '  aeth1recipient  ',
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(txSearch.mock.calls[0][0]).toMatchObject({
+      query:
+        "transfer.recipient='aeth1recipient' OR transfer.sender='aeth1recipient'",
+      per_page: 10,
+      page: 1,
+    });
+  });
+
+  it('rejects unsafe transaction address filters before Tendermint search', async () => {
+    const service = new BlockchainService();
+    const txSearch = vi.fn();
+    installTmClient(service, txSearch);
+
+    await expect(
+      service.getTransactions({
+        address: "aeth1recipient' OR tx.height>0",
+      }),
+    ).rejects.toThrow('Invalid transaction address filter');
+    expect(txSearch).not.toHaveBeenCalled();
+  });
 });
