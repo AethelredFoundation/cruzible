@@ -188,6 +188,39 @@ describe('backend routes', () => {
     });
   });
 
+  it('rejects malformed jobs sort parameters before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { JobsService } = await import('../src/services/JobsService');
+    const cache = new CacheService();
+    const jobs = {
+      getJobs: vi.fn(),
+    } as unknown as JobsService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(JobsService, jobs);
+
+    const { jobsRouter } = await import('../src/routes/v1/jobs');
+    const app = express();
+    app.use('/v1/jobs', jobsRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/jobs?sort=created_at:desc:ignored`,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe('Validation failed');
+      expect((jobs.getJobs as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    });
+  });
+
   it('serves the jobs queue through the registered jobs service without falling through to :id', async () => {
     const { CacheService } = await import('../src/services/CacheService');
     const { JobsService } = await import('../src/services/JobsService');
@@ -1005,6 +1038,39 @@ describe('backend routes', () => {
     });
   });
 
+  it('rejects malformed models sort parameters before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { ModelsService } = await import('../src/services/ModelsService');
+    const cache = new CacheService();
+    const models = {
+      getModels: vi.fn(),
+    } as unknown as ModelsService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(ModelsService, models);
+
+    const { modelsRouter } = await import('../src/routes/v1/models');
+    const app = express();
+    app.use('/v1/models', modelsRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/models?sort=registered_at:desc:ignored`,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe('Validation failed');
+      expect((models.getModels as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    });
+  });
+
   it('wires /v1/seals through the shared v1 router and forwards frontend filters', async () => {
     const { CacheService } = await import('../src/services/CacheService');
     const { BlockchainService } = await import('../src/services/BlockchainService');
@@ -1304,6 +1370,39 @@ describe('backend routes', () => {
       expect(
         (seals.getSealById as ReturnType<typeof vi.fn>).mock.calls,
       ).toHaveLength(0);
+    });
+  });
+
+  it('rejects malformed seals sort parameters before service calls', async () => {
+    const { CacheService } = await import('../src/services/CacheService');
+    const { SealsService } = await import('../src/services/SealsService');
+    const cache = new CacheService();
+    const seals = {
+      getSeals: vi.fn(),
+    } as unknown as SealsService;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(SealsService, seals);
+
+    const { sealsRouter } = await import('../src/routes/v1/seals');
+    const app = express();
+    app.use('/v1/seals', sealsRouter);
+    app.use((err: any, _req: any, res: any, _next: any) => {
+      res.status(err.statusCode || err.status || 500).json({
+        error: err.message || 'Internal Server Error',
+        details: err.details || undefined,
+      });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/seals?sort=created_at:desc:ignored`,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe('Validation failed');
+      expect((seals.getSeals as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
     });
   });
 

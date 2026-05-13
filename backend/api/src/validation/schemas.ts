@@ -107,6 +107,26 @@ const ALLOWED_SORT_FIELDS = [
 
 const ALLOWED_SORT_ORDERS = ['asc', 'desc'] as const;
 
+export function isAllowedPublicSort(
+  value: unknown,
+  allowedFields: readonly string[],
+): value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    return false;
+  }
+
+  const parts = value.split(':');
+  if (parts.length !== 2) {
+    return false;
+  }
+
+  const [field, order] = parts;
+  return (
+    allowedFields.includes(field) &&
+    (ALLOWED_SORT_ORDERS as readonly string[]).includes(order)
+  );
+}
+
 /**
  * Sort parameter: "field:order" where both parts are whitelisted.
  */
@@ -115,15 +135,7 @@ export const SortParamSchema = z
   .trim()
   .default('created_at:desc')
   .refine(
-    (val) => {
-      const parts = val.split(':');
-      if (parts.length !== 2) return false;
-      const [field, order] = parts;
-      return (
-        (ALLOWED_SORT_FIELDS as readonly string[]).includes(field) &&
-        (ALLOWED_SORT_ORDERS as readonly string[]).includes(order)
-      );
-    },
+    (val) => isAllowedPublicSort(val, ALLOWED_SORT_FIELDS),
     {
       message: `Sort must be "field:order" where field is one of [${ALLOWED_SORT_FIELDS.join(', ')}] and order is asc|desc`,
     },

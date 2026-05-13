@@ -12,6 +12,7 @@ import { ApiError } from '../../utils/ApiError';
 import { validate } from '../../middleware/validate';
 import { publicExpensiveRateLimiter } from '../../middleware/rateLimiter';
 import {
+  isAllowedPublicSort,
   MAX_PUBLIC_FILTER_LENGTH,
   MAX_PUBLIC_PAGINATION_OFFSET,
 } from '../../validation/schemas';
@@ -26,15 +27,6 @@ const MAX_ESTIMATED_MEMORY_MB = 1_048_576;
 const MAX_JOB_QUEUE_LIMIT = 100;
 const MAX_JOB_ID_LENGTH = 64;
 const JOB_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
-
-function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolean {
-  if (typeof value !== 'string' || value.length === 0) {
-    return false;
-  }
-
-  const [field, direction = 'desc'] = value.split(':');
-  return allowedFields.includes(field) && ['asc', 'desc'].includes(direction);
-}
 
 const jobIdValidator = param('id')
   .isString()
@@ -109,7 +101,7 @@ router.get('/',
       .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
     query('sort')
       .optional()
-      .custom((value) => isAllowedSort(value, JOB_SORT_FIELDS))
+      .custom((value) => isAllowedPublicSort(value, JOB_SORT_FIELDS))
       .withMessage(
         `sort must be one of: ${JOB_SORT_FIELDS.join(', ')} with :asc or :desc`,
       ),

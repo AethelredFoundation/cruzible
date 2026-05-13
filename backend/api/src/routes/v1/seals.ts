@@ -11,6 +11,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { validate } from '../../middleware/validate';
 import { ApiError } from '../../utils/ApiError';
 import {
+  isAllowedPublicSort,
   MAX_PUBLIC_FILTER_LENGTH,
   MAX_PUBLIC_PAGINATION_OFFSET,
 } from '../../validation/schemas';
@@ -23,15 +24,6 @@ const SEAL_STATUSES = ['active', 'revoked', 'expired', 'superseded'] as const;
 const SEAL_SORT_FIELDS = ['created_at', 'expires_at'] as const;
 const MAX_SEAL_ID_LENGTH = 64;
 const SEAL_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
-
-function isAllowedSort(value: unknown, allowedFields: readonly string[]): boolean {
-  if (typeof value !== 'string' || value.length === 0) {
-    return false;
-  }
-
-  const [field, direction = 'desc'] = value.split(':');
-  return allowedFields.includes(field) && ['asc', 'desc'].includes(direction);
-}
 
 /**
  * @swagger
@@ -94,7 +86,7 @@ router.get(
       .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
     query('sort')
       .optional()
-      .custom((value) => isAllowedSort(value, SEAL_SORT_FIELDS))
+      .custom((value) => isAllowedPublicSort(value, SEAL_SORT_FIELDS))
       .withMessage(`sort must be one of: ${SEAL_SORT_FIELDS.join(', ')} with :asc or :desc`),
     validate,
   ],
