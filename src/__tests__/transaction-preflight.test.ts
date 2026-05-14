@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertContractSimulation,
   getPreflightFailureMessage,
+  getTransactionFailureMessage,
 } from "@/lib/transactionPreflight";
 
 const simulateContractMock = vi.fn();
@@ -86,5 +87,22 @@ describe("transaction preflight", () => {
     expect(message).not.toContain("\n");
     expect(message.length).toBeLessThanOrEqual(280);
     expect(message.endsWith("...")).toBe(true);
+  });
+
+  it("redacts provider URLs, credentials, and token-like values", () => {
+    const message = getTransactionFailureMessage(
+      new Error(
+        "RPC failed at https://user:pass@rpc.example/path?access_token=super-secret with Authorization Bearer abc.def.ghi and signature=0xdeadbeef",
+      ),
+    );
+
+    expect(message).toContain("https://rpc.example");
+    expect(message).toContain("Bearer [REDACTED]");
+    expect(message).toContain("signature=[REDACTED]");
+    expect(message).not.toContain("user:pass");
+    expect(message).not.toContain("access_token");
+    expect(message).not.toContain("super-secret");
+    expect(message).not.toContain("abc.def.ghi");
+    expect(message).not.toContain("0xdeadbeef");
   });
 });

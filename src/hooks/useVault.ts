@@ -30,7 +30,10 @@ import { getContractAddress } from "@/config/contracts";
 import { activeChain } from "@/config/wagmi";
 import { useApp, type AppContextValue } from "@/contexts/AppContext";
 import { needsTokenApproval } from "@/lib/allowance";
-import { assertContractSimulation } from "@/lib/transactionPreflight";
+import {
+  assertContractSimulation,
+  getTransactionFailureMessage,
+} from "@/lib/transactionPreflight";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,9 +117,10 @@ async function assertLiveExchangeRate(
     addNotification(
       "error",
       "Quote Check Failed",
-      err?.shortMessage ||
-        err?.message ||
+      getTransactionFailureMessage(
+        err,
         "Could not verify the live vault exchange rate before signing.",
+      ),
     );
     return false;
   }
@@ -395,7 +399,7 @@ export function useStake() {
           addNotification(
             "error",
             "Stake Failed",
-            err?.shortMessage || err?.message || "Unknown error",
+            getTransactionFailureMessage(err),
           );
         }
         return undefined;
@@ -600,7 +604,7 @@ export function useUnstake() {
           addNotification(
             "error",
             "Unstake Failed",
-            err?.shortMessage || err?.message || "Unknown error",
+            getTransactionFailureMessage(err),
           );
         }
         return undefined;
@@ -716,7 +720,7 @@ export function useWithdraw() {
           addNotification(
             "error",
             "Withdrawal Failed",
-            err?.shortMessage || err?.message || "Unknown error",
+            getTransactionFailureMessage(err),
           );
         }
         return undefined;
@@ -829,7 +833,7 @@ export function useClaimRewards() {
           addNotification(
             "error",
             "Claim Failed",
-            err?.shortMessage || err?.message || "Unknown error",
+            getTransactionFailureMessage(err),
           );
         }
         return undefined;

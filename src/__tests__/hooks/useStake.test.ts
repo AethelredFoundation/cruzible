@@ -53,6 +53,8 @@ vi.mock("@/contexts/AppContext", () => ({
 
 vi.mock("@/lib/transactionPreflight", () => ({
   assertContractSimulation: mocks.assertContractSimulation,
+  getTransactionFailureMessage: (error: unknown, fallback = "Unknown error") =>
+    error instanceof Error ? error.message : fallback,
 }));
 
 vi.mock("wagmi", () => ({

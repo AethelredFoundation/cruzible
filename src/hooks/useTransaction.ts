@@ -15,6 +15,7 @@ import {
   type Hash,
   type TransactionReceipt,
 } from "viem";
+import { getTransactionFailureMessage } from "@/lib/transactionPreflight";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -167,7 +168,7 @@ export function useTransaction(): UseTransactionReturn {
         setState({
           status: isRejection ? "rejected" : "error",
           hash: undefined,
-          error: err instanceof Error ? err : new Error(String(err)),
+          error: new Error(getTransactionFailureMessage(err)),
           receipt: null,
         });
 

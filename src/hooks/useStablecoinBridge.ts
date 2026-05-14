@@ -37,7 +37,10 @@ import {
   getStablecoinBridgeLimitBlockReason,
   isAllowedCctpDomain,
 } from "@/lib/stablecoinBridgeGuards";
-import { assertContractSimulation } from "@/lib/transactionPreflight";
+import {
+  assertContractSimulation,
+  getTransactionFailureMessage,
+} from "@/lib/transactionPreflight";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -431,7 +434,7 @@ export function useBridgeOut() {
           addNotification(
             "error",
             "Bridge Failed",
-            err?.shortMessage || err?.message || "Unknown error",
+            getTransactionFailureMessage(err),
           );
         }
         return undefined;

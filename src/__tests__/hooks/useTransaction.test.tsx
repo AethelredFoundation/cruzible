@@ -152,4 +152,32 @@ describe("useTransaction", () => {
     expect(result.current.state.status).toBe("rejected");
     expect(result.current.state.hash).toBeUndefined();
   });
+
+  it("stores sanitized provider errors in transaction state", async () => {
+    mocks.writeContractAsync.mockRejectedValueOnce(
+      new Error(
+        "RPC failed at https://user:pass@rpc.example/path?token=super-secret with signature=0xdeadbeef",
+      ),
+    );
+    const { result } = renderHook(() => useTransaction());
+
+    await act(async () => {
+      await result.current.send({
+        address: CONTRACT_ADDRESS,
+        abi: [],
+        functionName: "stake",
+      });
+    });
+
+    expect(result.current.state.status).toBe("error");
+    expect(result.current.state.error?.message).toContain(
+      "https://rpc.example",
+    );
+    expect(result.current.state.error?.message).toContain(
+      "signature=[REDACTED]",
+    );
+    expect(result.current.state.error?.message).not.toContain("user:pass");
+    expect(result.current.state.error?.message).not.toContain("super-secret");
+    expect(result.current.state.error?.message).not.toContain("0xdeadbeef");
+  });
 });
