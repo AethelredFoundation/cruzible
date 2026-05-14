@@ -763,6 +763,68 @@ def validate_strict_url(value: str, path: str) -> None:
         fail(f"{path} must not use localhost or reserved test/example domains in strict mode")
 
 
+def validate_release_authorities(root: dict[str, Any], *, strict: bool) -> dict[str, set[str]]:
+    authorities = require_mapping(root.get("release_authorities"), "$.release_authorities")
+    required_authorities = {
+        "artifact_signers": 1,
+        "artifact_uploaders": 1,
+        "contract_admins": 1,
+        "deployers": 1,
+        "operator_signoff_approvers": 2,
+    }
+    authority_sets: dict[str, set[str]] = {}
+
+    for key, min_length in required_authorities.items():
+        values = require_unique_string_list(
+            authorities.get(key),
+            f"$.release_authorities.{key}",
+            min_length=min_length,
+        )
+        if strict:
+            for index, value in enumerate(values):
+                reject_strict_placeholder_text(value, f"$.release_authorities.{key}[{index}]")
+        authority_sets[key] = set(values)
+
+    source = require_mapping(root.get("source"), "$.source")
+    signer_id = require_string(source.get("signer_id"), "$.source.signer_id")
+    if signer_id not in authority_sets["artifact_signers"]:
+        fail("$.source.signer_id must be listed in $.release_authorities.artifact_signers")
+
+    signoff = require_mapping(root.get("operator_signoff"), "$.operator_signoff")
+    prepared_by = require_string(signoff.get("prepared_by"), "$.operator_signoff.prepared_by")
+    if strict:
+        reject_strict_placeholder_text(prepared_by, "$.operator_signoff.prepared_by")
+    approved_by = require_unique_string_list(
+        signoff.get("approved_by"),
+        "$.operator_signoff.approved_by",
+        min_length=2,
+    )
+    for index, approver in enumerate(approved_by):
+        if strict:
+            reject_strict_placeholder_text(approver, f"$.operator_signoff.approved_by[{index}]")
+        if approver not in authority_sets["operator_signoff_approvers"]:
+            fail("$.operator_signoff.approved_by entries must be listed in release authorities")
+
+    return authority_sets
+
+
+def validate_post_instantiate_authorities(root: dict[str, Any], authority_sets: dict[str, set[str]]) -> None:
+    deployers = authority_sets["deployers"]
+    for index, action in enumerate(
+        require_list(root.get("post_instantiate_actions"), "$.post_instantiate_actions")
+    ):
+        action_obj = require_mapping(action, f"$.post_instantiate_actions[{index}]")
+        actor = require_string(
+            action_obj.get("actor"),
+            f"$.post_instantiate_actions[{index}].actor",
+        )
+        if actor not in deployers:
+            fail(
+                f"$.post_instantiate_actions[{index}].actor must be listed in "
+                "$.release_authorities.deployers"
+            )
+
+
 def validate_strict_release_evidence(root: dict[str, Any]) -> None:
     release_id = require_string(root.get("release_id"), "$.release_id")
     reject_strict_placeholder_text(release_id, "$.release_id")
@@ -944,6 +1006,7 @@ def validate_manifest(path: Path, *, strict: bool = False, artifact_dir: Path | 
 
     artifacts = require_list(root.get("artifacts"), "$.artifacts")
     contracts = require_list(root.get("contracts"), "$.contracts")
+    authority_sets = validate_release_authorities(root, strict=strict)
 
     artifact_by_name: dict[str, dict[str, Any]] = {}
     code_ids: set[int] = set()
@@ -970,7 +1033,12 @@ def validate_manifest(path: Path, *, strict: bool = False, artifact_dir: Path | 
         )
         if not TX_RE.fullmatch(upload_tx_hash):
             fail(f"artifact {name} upload_tx_hash must be 64 hex characters")
-        require_string(artifact.get("uploaded_by"), f"$.artifacts[{index}].uploaded_by")
+        uploaded_by = require_string(artifact.get("uploaded_by"), f"$.artifacts[{index}].uploaded_by")
+        if uploaded_by not in authority_sets["artifact_uploaders"]:
+            fail(
+                f"$.artifacts[{index}].uploaded_by must be listed in "
+                "$.release_authorities.artifact_uploaders"
+            )
         artifact_by_name[name] = artifact
 
     missing_artifacts = set(EXPECTED_ARTIFACTS) - set(artifact_by_name)
@@ -1002,7 +1070,12 @@ def validate_manifest(path: Path, *, strict: bool = False, artifact_dir: Path | 
         )
         if not TX_RE.fullmatch(instantiate_tx_hash):
             fail(f"contract {name} instantiate_tx_hash must be 64 hex characters")
-        require_string(contract.get("admin"), f"$.contracts[{index}].admin")
+        admin = require_string(contract.get("admin"), f"$.contracts[{index}].admin")
+        if admin not in authority_sets["contract_admins"]:
+            fail(
+                f"$.contracts[{index}].admin must be listed in "
+                "$.release_authorities.contract_admins"
+            )
         roles = require_mapping(contract.get("roles"), f"$.contracts[{index}].roles")
         config = require_mapping(contract.get("config"), f"$.contracts[{index}].config")
         if name == "governance":
@@ -1015,6 +1088,7 @@ def validate_manifest(path: Path, *, strict: bool = False, artifact_dir: Path | 
     validate_contract_instantiation(contract_by_name)
     validate_contract_wiring(contract_by_name)
     validate_post_instantiate_actions(root, contract_by_name)
+    validate_post_instantiate_authorities(root, authority_sets)
     if strict:
         validate_strict_release_evidence(root)
     if artifact_dir is not None:

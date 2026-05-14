@@ -14,6 +14,16 @@
     "signatures_file": "cosmwasm-contracts-${GIT_SHA}/signatures.json",
     "signer_id": "aethelred-contracts-release"
   },
+  "release_authorities": {
+    "artifact_signers": ["aethelred-contracts-release"],
+    "artifact_uploaders": ["aethel1uploader000000000000000000000000000000000"],
+    "contract_admins": ["aethel1admin00000000000000000000000000000000000"],
+    "deployers": ["aethel1admin00000000000000000000000000000000000"],
+    "operator_signoff_approvers": [
+      "Ramesh Tamilselvan",
+      "Aethelred Release Reviewer"
+    ]
+  },
   "artifacts": [
     {
       "name": "vault",
@@ -323,6 +333,7 @@
   ],
   "operator_signoff": {
     "prepared_by": "Ramesh Tamilselvan",
+    "approved_by": ["Ramesh Tamilselvan", "Aethelred Release Reviewer"],
     "prepared_at": "2026-04-27T00:00:00Z",
     "notes": "Example manifest. Replace every value with staging deployment evidence before use."
   }

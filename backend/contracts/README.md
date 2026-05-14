@@ -70,7 +70,9 @@ plus required post-instantiate actions, including the CW20 staking token
 `UpdateTransferHook` transaction that wires transfer accounting, the
 `UpdateMinter` transaction that hands mint authority to the vault, and the
 model registry `UpdateConfig` transaction that authorizes the deployed AI job
-manager.
+manager. It also records release authority allowlists for artifact signers,
+artifact uploaders, contract admins, deployers, and operator sign-off
+approvers; the validator rejects deployment evidence outside those allowlists.
 
 ## Audit-Candidate Checklist
 
@@ -86,6 +88,7 @@ Before external audit:
 - [x] Release manifest validator reconciles strict staging manifests with signed artifact evidence.
 - [x] Release manifest validator checks instantiate messages and funds against reviewed role/config wiring.
 - [x] Release manifest validator checks required post-instantiate CW20 transfer-hook, CW20 minter, and model registry role wiring actions.
+- [x] Release manifest validator enforces artifact signer, uploader, deployer, contract admin, and two-approver sign-off authority.
 - [x] Release artifact signing and verification scripts are checked in.
 - [x] Governance feeder quorum, tolerance, mutation, quarantine, capacity, and production authority config is validated.
 - [ ] Staging release manifest captured with code IDs, addresses, checksums, and role owners.

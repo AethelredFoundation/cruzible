@@ -176,6 +176,58 @@ class ReleaseManifestValidationTests(unittest.TestCase):
 
             self.assert_manifest_fails(manifest_path, strict=True, artifact_dir=artifact_dir)
 
+    def test_artifact_uploader_must_be_release_authorized(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            manifest["artifacts"][0]["uploaded_by"] = "aethel1unauthorizeduploader000000000000000000000"
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_contract_admin_must_be_release_authorized(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            self.contract_by_name(manifest, "vault")["admin"] = "aethel1unauthorizedadmin0000000000000000000000000"
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_post_instantiate_actor_must_be_release_authorized(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            action = self.action_by_name(manifest, "cw20_staking_set_vault_transfer_hook")
+            action["actor"] = "aethel1unauthorizeddeployer000000000000000000000"
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_source_signer_must_be_release_authorized(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            manifest["source"]["signer_id"] = "unauthorized-contracts-release"
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_operator_signoff_requires_two_authorized_approvers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            manifest["operator_signoff"]["approved_by"] = ["Ramesh Tamilselvan"]
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_operator_signoff_approvers_must_be_release_authorized(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            manifest["operator_signoff"]["approved_by"] = [
+                "Ramesh Tamilselvan",
+                "Unauthorized Approver",
+            ]
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
     def test_strict_manifest_rejects_example_release_id(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = self.strict_manifest()
