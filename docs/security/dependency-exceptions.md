@@ -1,6 +1,6 @@
 # Dependency Security Exceptions
 
-> Last reviewed on 2026-05-03.
+> Last reviewed on 2026-05-14.
 > This register tracks dependency advisories that remain after local remediation
 > and require either upstream fixes or an intentional product decision.
 
@@ -24,4 +24,4 @@ No active production dependency exceptions are accepted in this branch.
 
 | Package | Advisory | Closure evidence |
 | --- | --- | --- |
-| `next` -> `postcss` | `GHSA-qx2v-qp2m-jg93` | `npm ls postcss next` resolves `postcss@8.5.10` under `next@15.5.15`; `npm audit --omit=dev --audit-level=high` reports zero production vulnerabilities at the repository root. |
+| `next` -> `postcss` | `GHSA-qx2v-qp2m-jg93` | `npm ls postcss next` resolves `postcss@8.5.10` under `next@15.5.18`; `npm audit --omit=dev --audit-level=high` reports zero production vulnerabilities at the repository root. |
