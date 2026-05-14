@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from "react";
-import { useAccount, useConnect } from "wagmi";
+import { useConnect } from "wagmi";
 import { useApp } from "@/contexts/AppContext";
 import { truncateAddress, formatNumber } from "@/lib/utils";
 import { activeChain } from "@/config/wagmi";
@@ -154,7 +154,7 @@ export function WalletButton() {
         onClick={() => {
           // If only one connector available, connect directly
           if (connectors.length <= 1) {
-            connectWallet();
+            connectWallet(connectors[0]);
           } else {
             setShowConnectorModal(!showConnectorModal);
           }
@@ -185,7 +185,7 @@ export function WalletButton() {
               <button
                 key={connector.uid}
                 onClick={() => {
-                  connectWallet();
+                  connectWallet(connector);
                   setShowConnectorModal(false);
                 }}
                 className="w-full flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-800/50 px-3 py-2.5 text-sm text-gray-200 hover:bg-gray-700/50 hover:border-gray-600 transition-colors"

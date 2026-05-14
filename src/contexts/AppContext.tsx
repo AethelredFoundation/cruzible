@@ -29,6 +29,7 @@ import {
   useReadContracts,
   useSwitchChain,
   useBlockNumber,
+  type Connector,
 } from "wagmi";
 
 import { formatUnits, zeroAddress } from "viem";
@@ -89,7 +90,7 @@ export interface Notification {
 export interface AppContextValue {
   // Wallet (real blockchain state)
   wallet: WalletState;
-  connectWallet: () => void;
+  connectWallet: (connector?: Connector) => void;
   disconnectWallet: () => void;
   switchNetwork: () => void;
 
@@ -256,16 +257,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     chainId,
   ]);
 
-  // Connect: use the first available connector (MetaMask/injected preferred)
-  const connectWallet = useCallback(() => {
-    const injectedConnector = connectors.find(
-      (c) => c.id === "injected" || c.id === "metaMask",
-    );
-    const connector = injectedConnector || connectors[0];
-    if (connector) {
-      connect({ connector, chainId: activeChain.id });
-    }
-  }, [connect, connectors]);
+  // Connect: honor explicit user choice, otherwise prefer injected wallets.
+  const connectWallet = useCallback(
+    (selectedConnector?: Connector) => {
+      const injectedConnector = connectors.find(
+        (c) => c.id === "injected" || c.id === "metaMask",
+      );
+      const connector = selectedConnector || injectedConnector || connectors[0];
+      if (connector) {
+        connect({ connector, chainId: activeChain.id });
+      }
+    },
+    [connect, connectors],
+  );
 
   const disconnectWallet = useCallback(() => {
     disconnect();

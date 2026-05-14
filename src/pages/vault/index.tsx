@@ -560,7 +560,7 @@ function OverviewTab({
               Connect Wallet to view your position
             </p>
             <button
-              onClick={connectWallet}
+              onClick={() => connectWallet()}
               className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition-colors"
             >
               Connect Wallet
@@ -1388,7 +1388,7 @@ function StakeTab() {
 
             {!wallet.connected && (
               <button
-                onClick={connectWallet}
+                onClick={() => connectWallet()}
                 className="w-full mt-3 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
               >
                 Connect Wallet
@@ -2285,7 +2285,7 @@ function RewardsTab({
             />
             {!wallet.connected ? (
               <button
-                onClick={connectWallet}
+                onClick={() => connectWallet()}
                 className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
               >
                 Connect Wallet
