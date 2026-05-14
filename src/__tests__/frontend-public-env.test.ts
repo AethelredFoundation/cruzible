@@ -113,6 +113,33 @@ describe("frontend public build environment validation", () => {
     });
   });
 
+  it("rejects malformed optional public contract addresses", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_GOVERNANCE_ADDRESS: "not-an-address",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_GOVERNANCE_ADDRESS must be blank or a non-zero EVM address.",
+    );
+  });
+
+  it("rejects zero optional public contract addresses outside mainnet", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_CRUZIBLE_ADDRESS:
+          "0x0000000000000000000000000000000000000000",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_CRUZIBLE_ADDRESS must be blank or a non-zero EVM address.",
+    );
+  });
+
   it("rejects lookalike production API origins", () => {
     expect(() =>
       validateFrontendPublicEnv({

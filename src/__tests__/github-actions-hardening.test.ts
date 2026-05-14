@@ -223,11 +223,38 @@ describe("GitHub Actions workflow hardening", () => {
     expect(releaseJob?.block).toContain(
       "RELEASE_NEXT_PUBLIC_API_URL repository variable is required",
     );
+    for (const variable of [
+      "RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS",
+      "RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS",
+      "RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS",
+      "RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS",
+      "RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS",
+      "RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS",
+      "RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID",
+    ]) {
+      expect(releaseJob?.block).toContain(
+        `${variable} repository variable is required for mainnet`,
+      );
+    }
     expect(releaseJob?.block).toContain(
       "NEXT_PUBLIC_API_URL=${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}",
     );
     expect(releaseJob?.block).toContain(
       "NEXT_PUBLIC_CHAIN_ENV=${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}",
     );
+    for (const buildArg of [
+      "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
+      "NEXT_PUBLIC_STAETHEL_ADDRESS",
+      "NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS",
+      "NEXT_PUBLIC_GOVERNANCE_ADDRESS",
+      "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS",
+      "NEXT_PUBLIC_USDC_TOKEN_ADDRESS",
+      "NEXT_PUBLIC_USDT_TOKEN_ADDRESS",
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID",
+    ]) {
+      expect(releaseJob?.block).toContain(
+        `${buildArg}=\${{ vars.RELEASE_${buildArg} }}`,
+      );
+    }
   });
 });

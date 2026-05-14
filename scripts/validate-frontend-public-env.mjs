@@ -7,14 +7,22 @@ const productionApiOriginsByChain = {
 };
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
-const MAINNET_REQUIRED_KEYS = [
+const MAINNET_REQUIRED_ADDRESS_KEYS = [
   "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
   "NEXT_PUBLIC_STAETHEL_ADDRESS",
   "NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS",
   "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS",
   "NEXT_PUBLIC_USDC_TOKEN_ADDRESS",
   "NEXT_PUBLIC_USDT_TOKEN_ADDRESS",
-  "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID",
+];
+const PUBLIC_ADDRESS_KEYS = [
+  "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
+  "NEXT_PUBLIC_STAETHEL_ADDRESS",
+  "NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS",
+  "NEXT_PUBLIC_GOVERNANCE_ADDRESS",
+  "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS",
+  "NEXT_PUBLIC_USDC_TOKEN_ADDRESS",
+  "NEXT_PUBLIC_USDT_TOKEN_ADDRESS",
 ];
 const DEVTOOLS_URL_KEYS = [
   "NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL",
@@ -79,15 +87,26 @@ function assertValidLocalDevtoolsOrigin(env, key) {
   }
 }
 
-function assertValidAddress(env, key) {
+function assertValidAddress(env, key, { required = false } = {}) {
   const value = env[key]?.trim();
+  if (!value) {
+    if (!required) {
+      return;
+    }
+
+    throw new FrontendPublicEnvError(
+      `${key} must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=mainnet.`,
+    );
+  }
+
   if (
-    !value ||
     !EVM_ADDRESS_PATTERN.test(value) ||
     value.toLowerCase() === ZERO_EVM_ADDRESS
   ) {
     throw new FrontendPublicEnvError(
-      `${key} must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=mainnet.`,
+      required
+        ? `${key} must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=mainnet.`
+        : `${key} must be blank or a non-zero EVM address.`,
     );
   }
 }
@@ -195,19 +214,22 @@ export function validateFrontendPublicEnv(env = process.env) {
 
   assertAllowedProductionApiOrigin(chainEnv, parsedApiUrl.origin);
 
-  if (chainEnv === "mainnet") {
-    for (const key of MAINNET_REQUIRED_KEYS) {
-      if (key === "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID") {
-        if (!env[key]?.trim()) {
-          throw new FrontendPublicEnvError(
-            "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=mainnet.",
-          );
-        }
-        continue;
-      }
+  const requiredMainnetAddressKeys = new Set(
+    chainEnv === "mainnet" ? MAINNET_REQUIRED_ADDRESS_KEYS : [],
+  );
+  for (const key of PUBLIC_ADDRESS_KEYS) {
+    assertValidAddress(env, key, {
+      required: requiredMainnetAddressKeys.has(key),
+    });
+  }
 
-      assertValidAddress(env, key);
-    }
+  if (
+    chainEnv === "mainnet" &&
+    !env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim()
+  ) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=mainnet.",
+    );
   }
 
   return {

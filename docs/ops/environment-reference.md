@@ -40,6 +40,23 @@ docker build \
   -t cruzible-frontend:staging .
 ```
 
+Mainnet frontend release images must also pass the compiled public contract
+configuration as Docker build args:
+
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_API_URL=https://api.mainnet.aethelred.org \
+  --build-arg NEXT_PUBLIC_CHAIN_ENV=mainnet \
+  --build-arg NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x... \
+  --build-arg NEXT_PUBLIC_STAETHEL_ADDRESS=0x... \
+  --build-arg NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS=0x... \
+  --build-arg NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS=0x... \
+  --build-arg NEXT_PUBLIC_USDC_TOKEN_ADDRESS=0x... \
+  --build-arg NEXT_PUBLIC_USDT_TOKEN_ADDRESS=0x... \
+  --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=... \
+  -t cruzible-frontend:mainnet .
+```
+
 Use `NEXT_PUBLIC_CHAIN_ENV=devnet` for localhost API builds. Production
 `mainnet` and `testnet` builds reject localhost, lookalike domains, and any API
 origin other than the exact approved origin for that chain.
