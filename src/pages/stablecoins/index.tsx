@@ -37,7 +37,6 @@ import {
   getAllStablecoins,
   getEnabledStablecoins,
   isStablecoinEnabled,
-  type StablecoinAsset,
   type CCTPDomainName,
 } from "@/lib/constants";
 import {
@@ -47,93 +46,17 @@ import {
 } from "@/hooks/useStablecoinBridge";
 import { formatUnits, parseUnits } from "viem";
 import { needsTokenApproval } from "@/lib/allowance";
-import { apiRequest, parseApiJsonResponse } from "@/lib/api-request";
+import {
+  fetchStablecoinBridgeHistory,
+  formatStablecoinAmount,
+  shortStablecoinHash,
+} from "@/lib/stablecoinHistory";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 type StablecoinTab = "bridge" | "balances" | "history";
-
-interface StablecoinBridgeEvent {
-  id: string;
-  assetId: string;
-  eventType: string;
-  sender: string;
-  amount: string;
-  destDomain: number | null;
-  txHash: string;
-  blockNumber: string;
-  logIndex: number;
-  timestamp: string;
-}
-
-interface StablecoinBridgeHistoryResponse {
-  data: StablecoinBridgeEvent[];
-  pagination: {
-    total: number;
-    limit: number;
-    offset: number;
-  };
-}
-
-type StablecoinBridgeHistoryRow = StablecoinBridgeEvent & {
-  symbol: string;
-  decimals: number;
-};
-
-function trimFormattedUnits(value: string): string {
-  return value.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "");
-}
-
-function formatStablecoinAmount(amount: string, decimals: number): string {
-  try {
-    return trimFormattedUnits(formatUnits(BigInt(amount), decimals));
-  } catch {
-    return "unavailable";
-  }
-}
-
-function shortHash(value: string): string {
-  return value.length > 14
-    ? `${value.slice(0, 8)}...${value.slice(-6)}`
-    : value;
-}
-
-async function fetchStablecoinBridgeHistory(
-  assets: StablecoinAsset[],
-): Promise<StablecoinBridgeHistoryRow[]> {
-  const histories = await Promise.all(
-    assets.map(async (asset) => {
-      const response = await apiRequest(
-        `/stablecoins/${asset.assetId}/history?limit=25`,
-      );
-      const payload =
-        await parseApiJsonResponse<StablecoinBridgeHistoryResponse>(response);
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to load ${asset.symbol} bridge history (${response.status})`,
-        );
-      }
-
-      return payload.data.map((event) => ({
-        ...event,
-        symbol: asset.symbol,
-        decimals: asset.decimals,
-      }));
-    }),
-  );
-
-  return histories
-    .flat()
-    .sort(
-      (left, right) =>
-        new Date(right.timestamp).getTime() -
-        new Date(left.timestamp).getTime(),
-    )
-    .slice(0, 25);
-}
 
 // ============================================================================
 // PHASE BADGE
@@ -552,10 +475,10 @@ function HistoryTab() {
                         {formatStablecoinAmount(event.amount, event.decimals)}
                       </td>
                       <td className="py-4 px-4 font-mono text-xs text-gray-400">
-                        {shortHash(event.sender)}
+                        {shortStablecoinHash(event.sender)}
                       </td>
                       <td className="py-4 px-4 font-mono text-xs text-gray-400">
-                        {shortHash(event.txHash)}
+                        {shortStablecoinHash(event.txHash)}
                       </td>
                       <td className="py-4 pl-4 text-right text-xs text-gray-500">
                         {new Date(event.timestamp).toLocaleString()}
