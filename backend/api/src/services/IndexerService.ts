@@ -18,7 +18,7 @@
  *  - Graceful shutdown with in-flight work completion
  */
 
-import { injectable } from "tsyringe";
+import { singleton } from "tsyringe";
 import { PrismaClient } from "@prisma/client";
 import {
   WebSocketProvider,
@@ -221,7 +221,7 @@ interface IndexerConfig {
 // Service
 // ---------------------------------------------------------------------------
 
-@injectable()
+@singleton()
 export class IndexerService {
   private prisma: PrismaClient;
   private wsProvider: WebSocketProvider | null = null;

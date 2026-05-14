@@ -82,6 +82,7 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     container.registerInstance(ReconciliationScheduler, {
       start: vi.fn(),
       stop: vi.fn(),
+      shutdown: vi.fn().mockResolvedValue(undefined),
       getLatestResult: vi.fn().mockReturnValue(null),
     } as any);
 
@@ -95,17 +96,20 @@ describe("ApiGateway lifecycle (server.ts)", () => {
       getJobs: vi.fn().mockResolvedValue({ data: [], total: 0 }),
       getJob: vi.fn().mockResolvedValue(null),
       submitJob: vi.fn().mockResolvedValue(null),
+      disconnect: vi.fn().mockResolvedValue(undefined),
     } as any);
 
     container.registerInstance(ReconciliationService, {
       getLatestResult: vi.fn().mockReturnValue(null),
       getHistory: vi.fn().mockReturnValue([]),
+      disconnect: vi.fn().mockResolvedValue(undefined),
     } as any);
 
     container.registerInstance(AlertService, {
       getActiveCriticalCount: vi.fn().mockReturnValue(0),
       sendAlert: vi.fn().mockResolvedValue(undefined),
       getHistory: vi.fn().mockReturnValue([]),
+      disconnect: vi.fn().mockResolvedValue(undefined),
     } as any);
 
     container.registerInstance(StablecoinBridgeService, {
@@ -116,6 +120,7 @@ describe("ApiGateway lifecycle (server.ts)", () => {
         pagination: { total: 0, limit: 50, offset: 0 },
       }),
       getStatus: vi.fn().mockResolvedValue(null),
+      disconnect: vi.fn().mockResolvedValue(undefined),
     } as any);
   }
 
@@ -486,7 +491,7 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     const { ReconciliationScheduler } =
       await import("../src/services/ReconciliationScheduler");
     const scheduler = container.resolve(ReconciliationScheduler);
-    expect(scheduler.stop).toHaveBeenCalled();
+    expect(scheduler.shutdown).toHaveBeenCalled();
 
     (config as any).port = originalPort;
   });

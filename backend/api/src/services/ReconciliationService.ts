@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient } from "@prisma/client";
-import { injectable } from "tsyringe";
+import { singleton } from "tsyringe";
 import { BlockchainService } from "./BlockchainService";
 import {
   bytesToHex,
@@ -140,12 +140,22 @@ type LiveStakeSnapshotBuildResult = {
   stake_snapshot?: LiveReconciliationDocument["stake_snapshot"];
 };
 
-@injectable()
+@singleton()
 export class ReconciliationService {
   private prisma: PrismaClient;
+  private disconnected = false;
 
   constructor(private blockchainService: BlockchainService) {
     this.prisma = new PrismaClient();
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.disconnected) {
+      return;
+    }
+
+    this.disconnected = true;
+    await this.prisma.$disconnect();
   }
 
   private async getCurrentEpoch(

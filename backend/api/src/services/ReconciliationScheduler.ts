@@ -17,7 +17,7 @@
  * The scheduler supports graceful start/stop and is registered via tsyringe DI.
  */
 
-import { injectable } from "tsyringe";
+import { singleton } from "tsyringe";
 import { PrismaClient } from "@prisma/client";
 import { keccak256, toUtf8Bytes } from "ethers";
 import { BlockchainService } from "./BlockchainService";
@@ -129,9 +129,12 @@ function classifyErrorForPublicCheck(error: unknown): string {
 // Service
 // ---------------------------------------------------------------------------
 
-@injectable()
+const RECONCILIATION_SHUTDOWN_TIMEOUT_MS = 10_000;
+
+@singleton()
 export class ReconciliationScheduler {
   private prisma: PrismaClient;
+  private disconnected = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private tickInFlight = false;
@@ -204,6 +207,35 @@ export class ReconciliationScheduler {
     }
 
     logger.info("ReconciliationScheduler stopped");
+  }
+
+  async shutdown(): Promise<void> {
+    this.stop();
+
+    const shutdownStartedAt = Date.now();
+    while (
+      this.tickInFlight &&
+      Date.now() - shutdownStartedAt < RECONCILIATION_SHUTDOWN_TIMEOUT_MS
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    if (this.tickInFlight) {
+      logger.warn(
+        "ReconciliationScheduler shutdown timed out with tick active",
+      );
+    }
+
+    await this.disconnect();
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.disconnected) {
+      return;
+    }
+
+    this.disconnected = true;
+    await this.prisma.$disconnect();
   }
 
   /**

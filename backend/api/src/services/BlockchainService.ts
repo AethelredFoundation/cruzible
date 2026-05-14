@@ -4,7 +4,7 @@
  * Handles all blockchain interactions using CosmJS and Tendermint RPC
  */
 
-import { injectable } from "tsyringe";
+import { singleton } from "tsyringe";
 import { Tendermint34Client, TxSearchResponse } from "@cosmjs/tendermint-rpc";
 import {
   StargateClient,
@@ -55,7 +55,7 @@ function normalizeTendermintEventAddress(address: string): string {
   return normalized;
 }
 
-@injectable()
+@singleton()
 export class BlockchainService {
   private tmClient: Tendermint34Client | null = null;
   private sgClient: StargateClient | null = null;

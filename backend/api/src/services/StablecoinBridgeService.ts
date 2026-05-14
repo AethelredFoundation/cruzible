@@ -8,7 +8,7 @@
  * which processes on-chain events and persists them to the database.
  */
 
-import { injectable, inject } from "tsyringe";
+import { inject, singleton } from "tsyringe";
 import { PrismaClient } from "@prisma/client";
 import { logger } from "../utils/logger";
 import { errorContext } from "../utils/errorContext";
@@ -68,9 +68,20 @@ export interface PaginatedResult<T> {
 // Service
 // ---------------------------------------------------------------------------
 
-@injectable()
+@singleton()
 export class StablecoinBridgeService {
+  private disconnected = false;
+
   constructor(@inject(PrismaClient) private readonly prisma: PrismaClient) {}
+
+  async disconnect(): Promise<void> {
+    if (this.disconnected) {
+      return;
+    }
+
+    this.disconnected = true;
+    await this.prisma.$disconnect();
+  }
 
   // -----------------------------------------------------------------------
   // Configs

@@ -51,6 +51,13 @@ import { BlockchainService } from "./services/BlockchainService";
 import { CacheService } from "./services/CacheService";
 import { IndexerService } from "./services/IndexerService";
 import { ReconciliationScheduler } from "./services/ReconciliationScheduler";
+import { AlertService } from "./services/AlertService";
+import { JobsService } from "./services/JobsService";
+import { ModelsService } from "./services/ModelsService";
+import { ReconciliationService } from "./services/ReconciliationService";
+import { SealsService } from "./services/SealsService";
+import { StablecoinBridgeService } from "./services/StablecoinBridgeService";
+import { shutdownPrivilegedAuditQueryService } from "./services/PrivilegedAuditService";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -381,6 +388,44 @@ export class ApiGateway {
     this.setupGracefulShutdown();
   }
 
+  private async shutdownDataServices(logLifecycle = false): Promise<void> {
+    const disconnect = async (
+      label: string,
+      task: () => Promise<void>,
+    ): Promise<void> => {
+      try {
+        await task();
+        if (logLifecycle) {
+          logger.info(`${label} disconnected`);
+        }
+      } catch (error) {
+        logger.error(`Error disconnecting ${label}`, errorContext(error));
+      }
+    };
+
+    await disconnect("jobs service", () =>
+      container.resolve(JobsService).disconnect(),
+    );
+    await disconnect("models service", () =>
+      container.resolve(ModelsService).disconnect(),
+    );
+    await disconnect("reconciliation service", () =>
+      container.resolve(ReconciliationService).disconnect(),
+    );
+    await disconnect("seals service", () =>
+      container.resolve(SealsService).disconnect(),
+    );
+    await disconnect("stablecoin bridge service", () =>
+      container.resolve(StablecoinBridgeService).disconnect(),
+    );
+    await disconnect("alert service", () =>
+      container.resolve(AlertService).disconnect(),
+    );
+    await disconnect("privileged audit query service", () =>
+      shutdownPrivilegedAuditQueryService(),
+    );
+  }
+
   /**
    * Shut down the server programmatically (for tests and orchestration).
    * Mirrors the signal-handler logic but does not call `process.exit()`.
@@ -453,7 +498,7 @@ export class ApiGateway {
         const reconciliationScheduler = container.resolve(
           ReconciliationScheduler,
         );
-        reconciliationScheduler.stop();
+        await reconciliationScheduler.shutdown();
       } catch {
         // may not be registered
       }
@@ -473,6 +518,8 @@ export class ApiGateway {
       } catch {
         // may not be registered
       }
+
+      await this.shutdownDataServices();
 
       try {
         await shutdownRateLimitStores();
@@ -598,7 +645,7 @@ export class ApiGateway {
           const reconciliationScheduler = container.resolve(
             ReconciliationScheduler,
           );
-          reconciliationScheduler.stop();
+          await reconciliationScheduler.shutdown();
           logger.info("Reconciliation scheduler stopped");
         } catch {
           // Scheduler may not have been registered if start() failed early
@@ -613,6 +660,8 @@ export class ApiGateway {
         const cacheService = container.resolve(CacheService);
         await cacheService.disconnect();
         logger.info("Cache service disconnected");
+
+        await this.shutdownDataServices(true);
 
         await shutdownRateLimitStores();
         logger.info("Rate-limit stores disconnected");

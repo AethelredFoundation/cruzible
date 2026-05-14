@@ -1,4 +1,4 @@
-import { injectable } from "tsyringe";
+import { singleton } from "tsyringe";
 import Redis from "ioredis";
 
 import { config } from "../config";
@@ -17,7 +17,7 @@ type CacheEnvelope = {
 const CACHE_KEY_PREFIX = "cruzible:api:";
 const MAX_MEMORY_CACHE_ENTRIES = 1_000;
 
-@injectable()
+@singleton()
 export class CacheService {
   private readonly cache = new Map<string, CacheEntry>();
   private redis: Redis | null = null;

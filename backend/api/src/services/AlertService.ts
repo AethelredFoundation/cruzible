@@ -94,6 +94,7 @@ export class AlertService {
 
   /** Prisma client for durable alert history in production deployments. */
   private readonly prisma: PrismaClient | null;
+  private disconnected = false;
 
   /** Webhook URL for forwarding alerts (optional). */
   private readonly webhookUrl: string | undefined;
@@ -250,6 +251,15 @@ export class AlertService {
   async getActiveCriticalCount(): Promise<number> {
     const summary = await this.getAlertSummary();
     return summary.activeCritical;
+  }
+
+  async disconnect(): Promise<void> {
+    if (!this.prisma || this.disconnected) {
+      return;
+    }
+
+    this.disconnected = true;
+    await this.prisma.$disconnect();
   }
 
   private summarizeAlerts(alerts: Alert[]): AlertSummary {

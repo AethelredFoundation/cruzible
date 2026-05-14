@@ -4,7 +4,7 @@
  * Handles AI job-related queries and operations
  */
 
-import { injectable } from "tsyringe";
+import { singleton } from "tsyringe";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { BlockchainService } from "./BlockchainService";
 
@@ -17,12 +17,22 @@ const JOB_SORT_FIELDS = {
 
 type JobSortField = keyof typeof JOB_SORT_FIELDS;
 
-@injectable()
+@singleton()
 export class JobsService {
   private prisma: PrismaClient;
+  private disconnected = false;
 
   constructor(private blockchainService: BlockchainService) {
     this.prisma = new PrismaClient();
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.disconnected) {
+      return;
+    }
+
+    this.disconnected = true;
+    await this.prisma.$disconnect();
   }
 
   async getJobs(options: {

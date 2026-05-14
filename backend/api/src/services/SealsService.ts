@@ -5,7 +5,7 @@
  * frontend explorer's list view.
  */
 
-import { injectable } from "tsyringe";
+import { singleton } from "tsyringe";
 import { Prisma, PrismaClient, SealStatus } from "@prisma/client";
 import { logger } from "../utils/logger";
 import { errorContext } from "../utils/errorContext";
@@ -73,12 +73,22 @@ const SEAL_SORT_FIELDS = {
 
 type SealSortField = keyof typeof SEAL_SORT_FIELDS;
 
-@injectable()
+@singleton()
 export class SealsService {
   private readonly prisma: PrismaClient;
+  private disconnected = false;
 
   constructor() {
     this.prisma = new PrismaClient();
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.disconnected) {
+      return;
+    }
+
+    this.disconnected = true;
+    await this.prisma.$disconnect();
   }
 
   async getSeals(options: {

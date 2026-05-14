@@ -5,7 +5,7 @@
  * existing indexed Model table.
  */
 
-import { injectable } from "tsyringe";
+import { singleton } from "tsyringe";
 import { ModelCategory, Prisma, PrismaClient } from "@prisma/client";
 import { logger } from "../utils/logger";
 import { errorContext } from "../utils/errorContext";
@@ -71,12 +71,22 @@ const MODEL_SORT_FIELDS = {
 
 type ModelSortField = keyof typeof MODEL_SORT_FIELDS;
 
-@injectable()
+@singleton()
 export class ModelsService {
   private readonly prisma: PrismaClient;
+  private disconnected = false;
 
   constructor() {
     this.prisma = new PrismaClient();
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.disconnected) {
+      return;
+    }
+
+    this.disconnected = true;
+    await this.prisma.$disconnect();
   }
 
   async getModels(options: {

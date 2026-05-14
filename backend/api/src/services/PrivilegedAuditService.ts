@@ -47,6 +47,7 @@ export interface PrivilegedAuditResult {
 }
 
 const prisma = config.databaseUrl ? new PrismaClient() : null;
+let prismaDisconnected = false;
 
 function normalizeQuery(query: PrivilegedAuditQuery): PrivilegedAuditQuery {
   return {
@@ -186,4 +187,13 @@ export async function listPrivilegedAuditEvents(
     data: events.map(mapDatabaseEvent),
     total,
   };
+}
+
+export async function shutdownPrivilegedAuditQueryService(): Promise<void> {
+  if (!prisma || prismaDisconnected) {
+    return;
+  }
+
+  prismaDisconnected = true;
+  await prisma.$disconnect();
 }
