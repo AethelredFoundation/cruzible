@@ -585,7 +585,7 @@ describe("auth routes", () => {
     });
   });
 
-  it("rotates refresh tokens and rejects replay of the old token", async () => {
+  it("revokes the wallet session family after refresh token replay", async () => {
     await withAuthRoutes(async (baseUrl) => {
       const challenge = await (
         await fetch(`${baseUrl}/v1/auth/nonce`, {
@@ -618,10 +618,27 @@ describe("auth routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
       });
+      const refreshWithRotatedToken = await fetch(
+        `${baseUrl}/v1/auth/refresh`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            refresh_token: refreshedTokens.refreshToken,
+          }),
+        },
+      );
+      const accessAfterReplay = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: `Bearer ${refreshedTokens.accessToken}` },
+      });
+      const accessAfterReplayBody = await accessAfterReplay.json();
 
       expect(refreshResponse.status).toBe(200);
       expect(refreshedTokens.refreshToken).not.toBe(loginTokens.refreshToken);
       expect(replayResponse.status).toBe(401);
+      expect(refreshWithRotatedToken.status).toBe(401);
+      expect(accessAfterReplay.status).toBe(401);
+      expect(accessAfterReplayBody.message).toContain("Access token revoked");
     });
   });
 

@@ -335,6 +335,7 @@ export async function refreshAccessToken(
     const rotated = await rotateRefreshSession(tokenHash, nextSession);
 
     if (!rotated || rotated.address !== verified.address) {
+      await revokeSessionFamilyOnRefreshReuse(tokenHash, verified.address);
       throw new Error("Refresh session is invalid or already rotated");
     }
 
@@ -511,6 +512,36 @@ async function revokeAccessTokensForAddress(
     notBefore,
     auditContext,
   );
+}
+
+async function revokeSessionFamilyOnRefreshReuse(
+  tokenHash: string,
+  address: string,
+): Promise<void> {
+  const session = await findRefreshSession(tokenHash);
+  const now = new Date();
+
+  if (
+    !session ||
+    session.address !== address ||
+    session.expiresAt <= now ||
+    (!session.rotatedAt && !session.revokedAt)
+  ) {
+    return;
+  }
+
+  const revokedCount = await revokeActiveRefreshSessionsForAddress(address);
+  const accessRevocation = await revokeAccessTokensForAddress(address, {
+    actorAddress: "system",
+    reason: "refresh_token_reuse",
+  });
+
+  logger.warn("Refresh token reuse detected; session family revoked", {
+    address,
+    sessionId: session.id,
+    revokedCount,
+    accessTokenNotBefore: accessRevocation.notBefore.toISOString(),
+  });
 }
 
 function buildLoginMessage(
