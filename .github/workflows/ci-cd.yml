@@ -92,6 +92,13 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: https://api.testnet.aethelred.org
           NEXT_PUBLIC_CHAIN_ENV: testnet
+          NEXT_PUBLIC_CRUZIBLE_ADDRESS: "0x1111111111111111111111111111111111111111"
+          NEXT_PUBLIC_STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222"
+          NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS: "0x3333333333333333333333333333333333333333"
+          NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS: "0x4444444444444444444444444444444444444444"
+          NEXT_PUBLIC_USDC_TOKEN_ADDRESS: "0x5555555555555555555555555555555555555555"
+          NEXT_PUBLIC_USDT_TOKEN_ADDRESS: "0x6666666666666666666666666666666666666666"
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "0123456789abcdef0123456789abcdef"
         run: npm run build
 
       - name: Build frontend container
@@ -99,6 +106,13 @@ jobs:
           docker build \
             --build-arg NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org \
             --build-arg NEXT_PUBLIC_CHAIN_ENV=testnet \
+            --build-arg NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x1111111111111111111111111111111111111111 \
+            --build-arg NEXT_PUBLIC_STAETHEL_ADDRESS=0x2222222222222222222222222222222222222222 \
+            --build-arg NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS=0x3333333333333333333333333333333333333333 \
+            --build-arg NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS=0x4444444444444444444444444444444444444444 \
+            --build-arg NEXT_PUBLIC_USDC_TOKEN_ADDRESS=0x5555555555555555555555555555555555555555 \
+            --build-arg NEXT_PUBLIC_USDT_TOKEN_ADDRESS=0x6666666666666666666666666666666666666666 \
+            --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=0123456789abcdef0123456789abcdef \
             -t cruzible-frontend:ci .
 
       - name: Verify frontend container runtime metadata
@@ -293,14 +307,14 @@ jobs:
             mainnet|testnet|devnet) ;;
             *) echo "RELEASE_NEXT_PUBLIC_CHAIN_ENV must be mainnet, testnet, or devnet" && exit 1 ;;
           esac
-          if [ "${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}" = "mainnet" ]; then
-            test -n "${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS repository variable is required for mainnet" && exit 1)
-            test -n "${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS repository variable is required for mainnet" && exit 1)
-            test -n "${{ vars.RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS repository variable is required for mainnet" && exit 1)
-            test -n "${{ vars.RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS repository variable is required for mainnet" && exit 1)
-            test -n "${{ vars.RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS repository variable is required for mainnet" && exit 1)
-            test -n "${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS repository variable is required for mainnet" && exit 1)
-            test -n "${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}" || (echo "RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID repository variable is required for mainnet" && exit 1)
+          if [ "${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}" != "devnet" ]; then
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}" || (echo "RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID repository variable is required for deployed frontend releases" && exit 1)
           fi
 
       - name: Set up Docker Buildx

@@ -8,7 +8,7 @@ const productionApiOriginsByChain = {
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WALLETCONNECT_PROJECT_ID_PATTERN = /^[0-9a-fA-F]{32}$/;
-const MAINNET_REQUIRED_ADDRESS_KEYS = [
+const DEPLOYED_REQUIRED_ADDRESS_KEYS = [
   "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
   "NEXT_PUBLIC_STAETHEL_ADDRESS",
   "NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS",
@@ -88,16 +88,18 @@ function assertValidLocalDevtoolsOrigin(env, key) {
   }
 }
 
-function assertValidAddress(env, key, { required = false } = {}) {
+function deployedRequirementMessage(key, chainEnv) {
+  return `${key} must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=${chainEnv}.`;
+}
+
+function assertValidAddress(env, key, { required = false, chainEnv } = {}) {
   const value = env[key]?.trim();
   if (!value) {
     if (!required) {
       return;
     }
 
-    throw new FrontendPublicEnvError(
-      `${key} must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=mainnet.`,
-    );
+    throw new FrontendPublicEnvError(deployedRequirementMessage(key, chainEnv));
   }
 
   if (
@@ -106,13 +108,16 @@ function assertValidAddress(env, key, { required = false } = {}) {
   ) {
     throw new FrontendPublicEnvError(
       required
-        ? `${key} must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=mainnet.`
+        ? deployedRequirementMessage(key, chainEnv)
         : `${key} must be blank or a non-zero EVM address.`,
     );
   }
 }
 
-function assertValidWalletConnectProjectId(env, { required = false } = {}) {
+function assertValidWalletConnectProjectId(
+  env,
+  { required = false, chainEnv } = {},
+) {
   const value = env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
   if (!value) {
     if (!required) {
@@ -120,7 +125,7 @@ function assertValidWalletConnectProjectId(env, { required = false } = {}) {
     }
 
     throw new FrontendPublicEnvError(
-      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=mainnet.",
+      `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=${chainEnv}.`,
     );
   }
 
@@ -234,16 +239,20 @@ export function validateFrontendPublicEnv(env = process.env) {
 
   assertAllowedProductionApiOrigin(chainEnv, parsedApiUrl.origin);
 
-  const requiredMainnetAddressKeys = new Set(
-    chainEnv === "mainnet" ? MAINNET_REQUIRED_ADDRESS_KEYS : [],
+  const requiredDeployedAddressKeys = new Set(
+    chainEnv === "devnet" ? [] : DEPLOYED_REQUIRED_ADDRESS_KEYS,
   );
   for (const key of PUBLIC_ADDRESS_KEYS) {
     assertValidAddress(env, key, {
-      required: requiredMainnetAddressKeys.has(key),
+      chainEnv,
+      required: requiredDeployedAddressKeys.has(key),
     });
   }
 
-  assertValidWalletConnectProjectId(env, { required: chainEnv === "mainnet" });
+  assertValidWalletConnectProjectId(env, {
+    chainEnv,
+    required: chainEnv !== "devnet",
+  });
 
   return {
     apiOrigin: parsedApiUrl.origin,

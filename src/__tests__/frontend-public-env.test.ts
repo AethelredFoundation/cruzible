@@ -16,6 +16,12 @@ const mainnetBaseEnv = {
   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "0123456789abcdef0123456789abcdef",
 };
 
+const testnetBaseEnv = {
+  ...mainnetBaseEnv,
+  NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
+  NEXT_PUBLIC_CHAIN_ENV: "testnet",
+};
+
 describe("frontend public build environment validation", () => {
   it("requires non-zero contract addresses for mainnet builds", () => {
     expect(() =>
@@ -37,6 +43,28 @@ describe("frontend public build environment validation", () => {
       }),
     ).toThrow(
       "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=mainnet.",
+    );
+  });
+
+  it("requires contract addresses for deployed testnet builds", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS: "",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=testnet.",
+    );
+  });
+
+  it("requires WalletConnect configuration for deployed testnet builds", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=testnet.",
     );
   });
 
@@ -111,14 +139,8 @@ describe("frontend public build environment validation", () => {
     );
   });
 
-  it("keeps testnet builds available for pre-mainnet evidence", () => {
-    expect(
-      validateFrontendPublicEnv({
-        NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
-        NEXT_PUBLIC_CHAIN_ENV: "testnet",
-      }),
-    ).toEqual({
+  it("accepts fully configured testnet builds for pre-mainnet evidence", () => {
+    expect(validateFrontendPublicEnv(testnetBaseEnv)).toEqual({
       apiOrigin: "https://api.testnet.aethelred.org",
       chainEnv: "testnet",
     });
@@ -127,9 +149,7 @@ describe("frontend public build environment validation", () => {
   it("rejects malformed optional public contract addresses", () => {
     expect(() =>
       validateFrontendPublicEnv({
-        NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
-        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        ...testnetBaseEnv,
         NEXT_PUBLIC_GOVERNANCE_ADDRESS: "not-an-address",
       }),
     ).toThrow(
@@ -140,23 +160,20 @@ describe("frontend public build environment validation", () => {
   it("rejects zero optional public contract addresses outside mainnet", () => {
     expect(() =>
       validateFrontendPublicEnv({
-        NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
-        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        ...testnetBaseEnv,
         NEXT_PUBLIC_CRUZIBLE_ADDRESS:
           "0x0000000000000000000000000000000000000000",
       }),
     ).toThrow(
-      "NEXT_PUBLIC_CRUZIBLE_ADDRESS must be blank or a non-zero EVM address.",
+      "NEXT_PUBLIC_CRUZIBLE_ADDRESS must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=testnet.",
     );
   });
 
   it("rejects lookalike production API origins", () => {
     expect(() =>
       validateFrontendPublicEnv({
-        NODE_ENV: "production" as const,
+        ...testnetBaseEnv,
         NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org.evil.example",
-        NEXT_PUBLIC_CHAIN_ENV: "testnet",
       }),
     ).toThrow(
       "NEXT_PUBLIC_API_URL must be one of https://api.testnet.aethelred.org when NEXT_PUBLIC_CHAIN_ENV=testnet.",
@@ -179,9 +196,7 @@ describe("frontend public build environment validation", () => {
   it("only allows public devtools to be enabled for devnet builds", () => {
     expect(() =>
       validateFrontendPublicEnv({
-        NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
-        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        ...testnetBaseEnv,
         NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
       }),
     ).toThrow(

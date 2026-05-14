@@ -184,6 +184,12 @@ describe("GitHub Actions workflow hardening", () => {
       "NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org",
     );
     expect(workflow).toContain("NEXT_PUBLIC_CHAIN_ENV=testnet");
+    expect(workflow).toContain(
+      "NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x1111111111111111111111111111111111111111",
+    );
+    expect(workflow).toContain(
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=0123456789abcdef0123456789abcdef",
+    );
     expect(workflow).toContain("-t cruzible-frontend:ci .");
     expect(workflow).toContain("Verify frontend container runtime metadata");
     expect(workflow).toContain(
@@ -250,7 +256,7 @@ describe("GitHub Actions workflow hardening", () => {
       "RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID",
     ]) {
       expect(releaseJob?.block).toContain(
-        `${variable} repository variable is required for mainnet`,
+        `${variable} repository variable is required for deployed frontend releases`,
       );
     }
     expect(releaseJob?.block).toContain(
