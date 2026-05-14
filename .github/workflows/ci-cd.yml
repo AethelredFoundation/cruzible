@@ -45,7 +45,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Lint frontend
         run: npm run lint
@@ -79,7 +79,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Reject missing frontend public API build config
         run: |
@@ -159,7 +159,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
@@ -200,7 +200,7 @@ jobs:
 
       - name: Install SDK dependencies
         working-directory: ./sdk/typescript
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Build and test SDK
         working-directory: ./sdk/typescript
@@ -210,7 +210,11 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: ./backend/api
-        run: npm ci
+        run: npm ci --ignore-scripts
+
+      - name: Generate backend ORM client
+        working-directory: ./backend/api
+        run: npm run db:generate
 
       - name: Lint backend API
         working-directory: ./backend/api

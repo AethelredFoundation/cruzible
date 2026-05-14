@@ -95,6 +95,12 @@ function jobPermissionWrites(jobBlock: string): string[] {
     .sort();
 }
 
+function indexOfRequired(haystack: string, needle: string): number {
+  const index = haystack.indexOf(needle);
+  expect(index, needle).toBeGreaterThanOrEqual(0);
+  return index;
+}
+
 describe("GitHub Actions workflow hardening", () => {
   it("uses least-privilege job permissions", () => {
     for (const file of workflowFiles) {
@@ -140,6 +146,55 @@ describe("GitHub Actions workflow hardening", () => {
     for (const file of ["ci-cd.yml", "security-audit.yml"]) {
       expect(readWorkflow(file), file).toContain('NODE_VERSION: "20"');
     }
+  });
+
+  it("installs Node dependencies without lifecycle scripts", () => {
+    for (const file of workflowFiles) {
+      const workflow = readWorkflow(file);
+
+      for (const match of workflow.matchAll(/run:\s+npm ci(?<flags>[^\n]*)/g)) {
+        expect(match.groups?.flags ?? "", `${file}:${match[0]}`).toContain(
+          "--ignore-scripts",
+        );
+      }
+    }
+  });
+
+  it("runs trusted backend generation after inert dependency install", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const backendJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "backend-api",
+    );
+
+    expect(backendJob, "backend-api job").toBeDefined();
+
+    const installIndex = indexOfRequired(
+      backendJob?.block ?? "",
+      "Install backend dependencies",
+    );
+    const generateIndex = indexOfRequired(
+      backendJob?.block ?? "",
+      "Generate backend ORM client",
+    );
+    const lintIndex = indexOfRequired(
+      backendJob?.block ?? "",
+      "Lint backend API",
+    );
+    const typeCheckIndex = indexOfRequired(
+      backendJob?.block ?? "",
+      "Type-check backend API",
+    );
+    const testsIndex = indexOfRequired(
+      backendJob?.block ?? "",
+      "Run backend API tests with coverage",
+    );
+
+    expect(backendJob?.block).toContain("run: npm ci --ignore-scripts");
+    expect(backendJob?.block).toContain("run: npm run db:generate");
+    expect(generateIndex).toBeGreaterThan(installIndex);
+    expect(generateIndex).toBeLessThan(lintIndex);
+    expect(generateIndex).toBeLessThan(typeCheckIndex);
+    expect(generateIndex).toBeLessThan(testsIndex);
   });
 
   it("avoids high-risk workflow triggers and unpinned action refs", () => {
