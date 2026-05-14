@@ -58,21 +58,55 @@ export function isHttpUrl(value?: string | null): boolean {
   }
 }
 
-function isPrivateOrLocalHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
+function normalizeHostname(hostname: string): string {
+  return hostname
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/u, "")
+    .replace(/^\[(.*)\]$/u, "$1");
+}
 
+function isReservedHostname(hostname: string): boolean {
   return (
-    normalized === "localhost" ||
-    normalized === "127.0.0.1" ||
-    normalized.startsWith("127.") ||
-    normalized === "::1" ||
-    normalized === "[::1]" ||
-    normalized === "0.0.0.0" ||
-    normalized.startsWith("10.") ||
-    normalized.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized) ||
-    normalized.startsWith("169.254.")
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "example" ||
+    hostname.endsWith(".example") ||
+    hostname === "invalid" ||
+    hostname.endsWith(".invalid") ||
+    hostname === "test" ||
+    hostname.endsWith(".test")
   );
+}
+
+function parseIpv4(hostname: string): number[] | null {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(hostname)) {
+    return null;
+  }
+
+  const octets = hostname.split(".").map((octet) => Number(octet));
+  return octets.every((octet) => Number.isInteger(octet) && octet <= 255)
+    ? octets
+    : null;
+}
+
+function isIpLiteral(hostname: string): boolean {
+  if (parseIpv4(hostname)) {
+    return true;
+  }
+
+  return hostname.includes(":") && /^[0-9a-f:.%]+$/iu.test(hostname);
+}
+
+function isPrivateOrLocalHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+
+  if (isReservedHostname(normalized) || isIpLiteral(normalized)) {
+    return true;
+  }
+
+  const labels = normalized.split(".");
+  return labels.some((label) => label.length === 0);
 }
 
 export function getSafeExternalUrl(value?: string | null): string | null {

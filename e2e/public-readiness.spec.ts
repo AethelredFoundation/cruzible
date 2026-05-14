@@ -22,6 +22,18 @@ const criticalRoutes = [
   },
   { path: "/jobs", heading: /Jobs Explorer/i },
   { path: "/jobs/e2e-smoke-job", heading: /Job Detail/i },
+  {
+    path: "/validators/aethvaloper1smoke",
+    heading: /Validator detail/i,
+  },
+  {
+    path: "/models/e2e-smoke-model",
+    heading: /Model detail/i,
+  },
+  {
+    path: "/seals/e2e-smoke-seal",
+    heading: /Seal detail/i,
+  },
 ];
 
 test.beforeEach(async ({ page }) => {

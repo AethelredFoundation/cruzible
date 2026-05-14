@@ -58,14 +58,19 @@ describe("isHttpUrl", () => {
 });
 
 describe("getSafeExternalUrl", () => {
-  it("allows only public HTTPS URLs", () => {
-    expect(getSafeExternalUrl("https://validator.example")).toBe(
-      "https://validator.example/",
+  it("allows only public HTTPS hostname URLs", () => {
+    expect(getSafeExternalUrl("https://validator.cruzible.org")).toBe(
+      "https://validator.cruzible.org/",
     );
-    expect(getSafeExternalUrl("http://validator.example")).toBe(null);
+    expect(getSafeExternalUrl("http://validator.cruzible.org")).toBe(null);
+    expect(getSafeExternalUrl("https://validator.example")).toBe(null);
+    expect(getSafeExternalUrl("https://validator.localhost")).toBe(null);
     expect(getSafeExternalUrl("https://127.0.0.1/status")).toBe(null);
+    expect(getSafeExternalUrl("https://203.0.113.10/status")).toBe(null);
     expect(getSafeExternalUrl("https://10.0.0.5/status")).toBe(null);
-    expect(getSafeExternalUrl("https://user:pass@validator.example")).toBe(
+    expect(getSafeExternalUrl("https://[::1]/status")).toBe(null);
+    expect(getSafeExternalUrl("https://[fd00::1]/status")).toBe(null);
+    expect(getSafeExternalUrl("https://user:pass@validator.cruzible.org")).toBe(
       null,
     );
     expect(getSafeExternalUrl("javascript:alert(1)")).toBe(null);
