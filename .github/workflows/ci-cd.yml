@@ -383,6 +383,49 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+      - name: Create release image digest inventory
+        env:
+          IMAGE_KEY: ${{ matrix.name }}
+          IMAGE_NAME: ${{ matrix.image }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DOCKERFILE: ${{ matrix.dockerfile }}
+          IMAGE_TARGET: ${{ matrix.target }}
+          SOURCE_SHA: ${{ github.sha }}
+          IMAGE_TAGS: |
+            ${{ matrix.image }}:${{ github.sha }}
+            ${{ matrix.image }}:main
+        run: |
+          node <<'NODE'
+          const { writeFileSync } = require("node:fs");
+
+          const inventory = {
+            schema: "cruzible.release_image_digest.v1",
+            image_key: process.env.IMAGE_KEY,
+            image: process.env.IMAGE_NAME,
+            digest: process.env.IMAGE_DIGEST,
+            dockerfile: process.env.IMAGE_DOCKERFILE,
+            target: process.env.IMAGE_TARGET,
+            source_sha: process.env.SOURCE_SHA,
+            tags: (process.env.IMAGE_TAGS ?? "")
+              .split("\n")
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+          };
+
+          writeFileSync(
+            `release-image-${process.env.IMAGE_KEY}.json`,
+            `${JSON.stringify(inventory, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Upload release image digest inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-image-${{ matrix.name }}-${{ github.sha }}
+          path: release-image-${{ matrix.name }}.json
+          if-no-files-found: error
+          retention-days: 90
+
   contracts:
     name: Contracts
     runs-on: ubuntu-latest

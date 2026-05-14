@@ -353,6 +353,33 @@ describe("GitHub Actions workflow hardening", () => {
       "uses: actions/attest-build-provenance@",
     );
     expect(releaseJob?.block).toContain(
+      "Create release image digest inventory",
+    );
+    expect(releaseJob?.block).toContain(
+      'schema: "cruzible.release_image_digest.v1"',
+    );
+    expect(releaseJob?.block).toContain(
+      "IMAGE_DIGEST: ${{ steps.build.outputs.digest }}",
+    );
+    expect(releaseJob?.block).toContain(
+      "IMAGE_DOCKERFILE: ${{ matrix.dockerfile }}",
+    );
+    expect(releaseJob?.block).toContain("IMAGE_TARGET: ${{ matrix.target }}");
+    expect(releaseJob?.block).toContain("SOURCE_SHA: ${{ github.sha }}");
+    expect(releaseJob?.block).toContain(
+      "release-image-${process.env.IMAGE_KEY}.json",
+    );
+    expect(releaseJob?.block).toContain(
+      "Upload release image digest inventory",
+    );
+    expect(releaseJob?.block).toContain(
+      "name: release-image-${{ matrix.name }}-${{ github.sha }}",
+    );
+    expect(releaseJob?.block).toContain(
+      "path: release-image-${{ matrix.name }}.json",
+    );
+    expect(releaseJob?.block).toContain("retention-days: 90");
+    expect(releaseJob?.block).toContain(
       "RELEASE_NEXT_PUBLIC_API_URL repository variable is required",
     );
     for (const variable of [
