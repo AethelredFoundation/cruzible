@@ -17,6 +17,8 @@ const CONFIG_ENV_KEYS = [
   "JWT_SECRET_FILE",
   "JWT_REFRESH_SECRET",
   "JWT_REFRESH_SECRET_FILE",
+  "LOG_HASH_SECRET",
+  "LOG_HASH_SECRET_FILE",
   "JWT_EXPIRES_IN",
   "JWT_REFRESH_EXPIRES_IN",
   "AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY",
@@ -69,6 +71,7 @@ const productionBaseEnv = {
   CORS_ORIGINS: "https://app.cruzible.org",
   JWT_SECRET: "production-jwt-secret-012345678901",
   JWT_REFRESH_SECRET: "production-refresh-secret-012345678",
+  LOG_HASH_SECRET: "production-log-hash-secret-0123456789",
   ALLOW_MOCK_SIGNATURES: "false",
   AUTH_OPERATOR_ADDRESSES: "aeth1operator",
   INDEXER_ENABLED: "false",
@@ -141,6 +144,26 @@ describe("backend config hardening", () => {
       }),
     ).rejects.toThrow(
       "JWT_REFRESH_SECRET must be at least 32 characters in production",
+    );
+  });
+
+  it("requires a dedicated production log hash secret", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        LOG_HASH_SECRET: "cruzible-dev-log-hash-secret",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start with development LOG_HASH_SECRET in production",
+    );
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        LOG_HASH_SECRET: "short-log-secret",
+      }),
+    ).rejects.toThrow(
+      "LOG_HASH_SECRET must be at least 32 characters in production",
     );
   });
 

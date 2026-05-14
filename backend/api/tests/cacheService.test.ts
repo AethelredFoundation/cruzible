@@ -245,6 +245,7 @@ describe("CacheService", () => {
       CORS_ORIGINS: "https://app.cruzible.org",
       JWT_SECRET: "production-jwt-secret-012345678901",
       JWT_REFRESH_SECRET: "production-refresh-secret-012345678",
+      LOG_HASH_SECRET: "production-log-hash-secret-0123456789",
       ALLOW_MOCK_SIGNATURES: "false",
       AUTH_OPERATOR_ADDRESSES: "aeth1operator",
       INDEXER_ENABLED: "false",

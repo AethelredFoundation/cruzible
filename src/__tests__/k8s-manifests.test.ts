@@ -121,6 +121,7 @@ function expectSecretFileMount(
     ["REDIS_URL_FILE", "redis-url"],
     ["JWT_SECRET_FILE", "jwt-secret"],
     ["JWT_REFRESH_SECRET_FILE", "jwt-refresh-secret"],
+    ["LOG_HASH_SECRET_FILE", "log-hash-secret"],
     ...(includesOperationalToken
       ? [["OPERATIONAL_ENDPOINTS_TOKEN_FILE", "operational-endpoints-token"]]
       : []),

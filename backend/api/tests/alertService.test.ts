@@ -33,6 +33,7 @@ function productionWebhookEnv(): NodeJS.ProcessEnv {
     CORS_ORIGINS: "https://vault.cruzible.org",
     JWT_SECRET: "s".repeat(32),
     JWT_REFRESH_SECRET: "r".repeat(32),
+    LOG_HASH_SECRET: "l".repeat(32),
     AUTH_OPERATOR_ADDRESSES: "aeth1operator00000",
     INDEXER_ENABLED: "false",
     ALERT_RATE_LIMIT_MS: "60000",

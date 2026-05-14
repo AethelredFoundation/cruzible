@@ -21,6 +21,7 @@ const FILE_BACKED_ENV_KEYS = [
   "REDIS_URL",
   "JWT_SECRET",
   "JWT_REFRESH_SECRET",
+  "LOG_HASH_SECRET",
   "OPERATIONAL_ENDPOINTS_TOKEN",
   "ALERT_WEBHOOK_URL",
 ] as const;
@@ -139,6 +140,7 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   JWT_SECRET: z.string().min(16).default("cruzible-dev-jwt-secret"),
   JWT_REFRESH_SECRET: z.string().min(16).default("cruzible-dev-refresh-secret"),
+  LOG_HASH_SECRET: z.string().min(16).default("cruzible-dev-log-hash-secret"),
   JWT_EXPIRES_IN: z.string().regex(TOKEN_DURATION_PATTERN).default("15m"),
   JWT_REFRESH_EXPIRES_IN: z
     .string()
@@ -333,6 +335,7 @@ const authExposeRefreshTokenInBody =
 
 requireNoControlCharacters(parsedEnv.JWT_SECRET, "JWT_SECRET");
 requireNoControlCharacters(parsedEnv.JWT_REFRESH_SECRET, "JWT_REFRESH_SECRET");
+requireNoControlCharacters(parsedEnv.LOG_HASH_SECRET, "LOG_HASH_SECRET");
 requireNoControlCharacters(
   parsedEnv.OPERATIONAL_ENDPOINTS_TOKEN,
   "OPERATIONAL_ENDPOINTS_TOKEN",
@@ -622,6 +625,12 @@ if (isProduction) {
     parsedEnv.JWT_REFRESH_SECRET,
     "JWT_REFRESH_SECRET",
   );
+  if (parsedEnv.LOG_HASH_SECRET === "cruzible-dev-log-hash-secret") {
+    throw new Error(
+      "Refusing to start with development LOG_HASH_SECRET in production",
+    );
+  }
+  requireProductionSecretLength(parsedEnv.LOG_HASH_SECRET, "LOG_HASH_SECRET");
   requireMaxProductionDuration(
     parsedEnv.JWT_EXPIRES_IN,
     "JWT_EXPIRES_IN",
@@ -749,6 +758,18 @@ requireDistinctSecrets(
   parsedEnv.JWT_REFRESH_SECRET,
   "JWT_REFRESH_SECRET",
 );
+requireDistinctSecrets(
+  parsedEnv.LOG_HASH_SECRET,
+  "LOG_HASH_SECRET",
+  parsedEnv.JWT_SECRET,
+  "JWT_SECRET",
+);
+requireDistinctSecrets(
+  parsedEnv.LOG_HASH_SECRET,
+  "LOG_HASH_SECRET",
+  parsedEnv.JWT_REFRESH_SECRET,
+  "JWT_REFRESH_SECRET",
+);
 
 export const config = {
   env: parsedEnv.NODE_ENV,
@@ -761,6 +782,7 @@ export const config = {
   corsOrigins,
   jwtSecret: parsedEnv.JWT_SECRET,
   jwtRefreshSecret: parsedEnv.JWT_REFRESH_SECRET,
+  logHashSecret: parsedEnv.LOG_HASH_SECRET,
   jwtExpiresIn: parsedEnv.JWT_EXPIRES_IN,
   jwtRefreshExpiresIn: parsedEnv.JWT_REFRESH_EXPIRES_IN,
   jwtRefreshCookieMaxAgeMs: parseDurationMs(parsedEnv.JWT_REFRESH_EXPIRES_IN),

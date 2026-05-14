@@ -11,6 +11,7 @@ import {
 } from "../services/AlertService";
 import { errorContext } from "../utils/errorContext";
 import { logger } from "../utils/logger";
+import { hashPrivacyValue } from "../utils/privacyHash";
 
 type PrivilegedPrincipalType = "wallet" | "operational-token";
 type PrivilegedDecision = "allowed" | "rejected";
@@ -165,8 +166,8 @@ function buildPersistedAuditEvent(
     outcome: entry.outcome,
     statusCode: entry.statusCode,
     responseTimeMs: entry.responseTimeMs,
-    ipHash: hashValue(entry.ip),
-    userAgentHash: hashValue(entry.userAgent),
+    ipHash: hashPrivacyValue(entry.ip),
+    userAgentHash: hashPrivacyValue(entry.userAgent),
     previousEventHash,
     createdAt,
   };
@@ -202,8 +203,8 @@ function buildPrivilegedAuditLogEntry(
 
   return {
     ...logEntry,
-    ipHash: hashValue(ip),
-    userAgentHash: hashValue(userAgent),
+    ipHash: hashPrivacyValue(ip),
+    userAgentHash: hashPrivacyValue(userAgent),
   };
 }
 

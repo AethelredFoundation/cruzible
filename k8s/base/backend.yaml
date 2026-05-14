@@ -116,6 +116,8 @@ spec:
               value: /var/run/secrets/cruzible-api/jwt-secret
             - name: JWT_REFRESH_SECRET_FILE
               value: /var/run/secrets/cruzible-api/jwt-refresh-secret
+            - name: LOG_HASH_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/log-hash-secret
             - name: OPERATIONAL_ENDPOINTS_TOKEN_FILE
               value: /var/run/secrets/cruzible-api/operational-endpoints-token
             - name: ALERT_WEBHOOK_URL
@@ -182,6 +184,8 @@ spec:
                 path: jwt-secret
               - key: jwt-refresh-secret
                 path: jwt-refresh-secret
+              - key: log-hash-secret
+                path: log-hash-secret
               - key: operational-endpoints-token
                 path: operational-endpoints-token
         - name: tmp
@@ -351,6 +355,8 @@ spec:
               value: /var/run/secrets/cruzible-api/jwt-secret
             - name: JWT_REFRESH_SECRET_FILE
               value: /var/run/secrets/cruzible-api/jwt-refresh-secret
+            - name: LOG_HASH_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/log-hash-secret
           resources:
             requests:
               cpu: 500m
@@ -386,6 +392,8 @@ spec:
                 path: jwt-secret
               - key: jwt-refresh-secret
                 path: jwt-refresh-secret
+              - key: log-hash-secret
+                path: log-hash-secret
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi
