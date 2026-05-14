@@ -49,6 +49,7 @@ describe("frontend Dockerfile hardening", () => {
 
   it("installs dependencies without package lifecycle scripts", () => {
     expect(dockerfile).toContain("RUN npm ci --no-fund --ignore-scripts");
+    expect(dockerfile).toContain("RUN npm rebuild sharp --no-fund");
     expect(dockerfile).not.toContain("RUN npm ci --no-fund\n");
   });
 });

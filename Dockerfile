@@ -7,6 +7,8 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-fund --ignore-scripts
+# Rebuild only the audited native runtime package required by Next.js images.
+RUN npm rebuild sharp --no-fund
 
 # Stage 2: Build
 FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder

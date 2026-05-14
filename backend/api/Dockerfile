@@ -26,6 +26,9 @@ COPY backend/api/prisma ./prisma/
 # Install all dependencies (including dev) without dependency lifecycle hooks.
 RUN npm ci --ignore-scripts
 
+# Rebuild only audited native/runtime packages needed by the API image.
+RUN npm rebuild @prisma/engines @sentry/profiling-node esbuild protobufjs
+
 # Generate Prisma client through a trusted repository-owned script.
 RUN npm run db:generate
 

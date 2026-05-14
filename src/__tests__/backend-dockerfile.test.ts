@@ -36,6 +36,9 @@ describe("backend API Dockerfile hardening", () => {
 
   it("installs dependencies without package lifecycle scripts", () => {
     expect(apiDockerfile).toContain("RUN npm ci --ignore-scripts");
+    expect(apiDockerfile).toContain(
+      "RUN npm rebuild @prisma/engines @sentry/profiling-node esbuild protobufjs",
+    );
     expect(apiDockerfile).toContain("RUN npm run db:generate");
     expect(apiDockerfile).toContain(
       "RUN npm prune --omit=dev --ignore-scripts",
