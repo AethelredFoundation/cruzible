@@ -23,16 +23,16 @@ RUN apk add --no-cache python3 make g++
 COPY backend/api/package*.json ./
 COPY backend/api/prisma ./prisma/
 
-# Install all dependencies (including dev)
-RUN npm ci
+# Install all dependencies (including dev) without dependency lifecycle hooks.
+RUN npm ci --ignore-scripts
 
-# Generate Prisma client
-RUN npx prisma generate
+# Generate Prisma client through a trusted repository-owned script.
+RUN npm run db:generate
 
 # Install SDK build dependencies used by the API prebuild step.
 WORKDIR /app/sdk/typescript
 COPY sdk/typescript/package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 WORKDIR /app/backend/api
 
@@ -46,8 +46,8 @@ COPY sdk/typescript/ /app/sdk/typescript/
 # Build TypeScript
 RUN npm run build
 
-# Remove dev dependencies
-RUN npm prune --production
+# Remove dev dependencies without running dependency lifecycle hooks.
+RUN npm prune --omit=dev --ignore-scripts
 
 # ============ PRODUCTION ============
 FROM base AS production

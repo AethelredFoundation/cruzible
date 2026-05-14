@@ -33,4 +33,15 @@ describe("backend API Dockerfile hardening", () => {
     expect(apiDockerfile).toContain("USER nodejs");
     expect(apiDockerfile).toContain('ENTRYPOINT ["dumb-init", "--"]');
   });
+
+  it("installs dependencies without package lifecycle scripts", () => {
+    expect(apiDockerfile).toContain("RUN npm ci --ignore-scripts");
+    expect(apiDockerfile).toContain("RUN npm run db:generate");
+    expect(apiDockerfile).toContain(
+      "RUN npm prune --omit=dev --ignore-scripts",
+    );
+    expect(apiDockerfile).not.toContain("RUN npm ci\n");
+    expect(apiDockerfile).not.toContain("RUN npx prisma generate");
+    expect(apiDockerfile).not.toContain("RUN npm prune --production");
+  });
 });

@@ -46,4 +46,9 @@ describe("frontend Dockerfile hardening", () => {
     );
     expect(dockerfile).toContain("http://127.0.0.1:3000/api/health");
   });
+
+  it("installs dependencies without package lifecycle scripts", () => {
+    expect(dockerfile).toContain("RUN npm ci --no-fund --ignore-scripts");
+    expect(dockerfile).not.toContain("RUN npm ci --no-fund\n");
+  });
 });
