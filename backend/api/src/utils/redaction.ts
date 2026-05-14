@@ -79,7 +79,7 @@ export function redactUrlPath(rawUrl: string | undefined): string {
     });
     return `${url.pathname}${query.length > 0 ? `?${query.join("&")}` : ""}`;
   } catch {
-    return rawUrl;
+    return redactMalformedUrlPath(rawUrl);
   }
 }
 
@@ -197,4 +197,80 @@ function redactValue(
 
 function isJsonObject(value: RedactedJsonValue): value is RedactedJsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function redactMalformedUrlPath(rawUrl: string): string {
+  const fragmentless = rawUrl.split("#", 1)[0] ?? "";
+  const queryStart = fragmentless.indexOf("?");
+  const rawPath =
+    queryStart >= 0 ? fragmentless.slice(0, queryStart) : fragmentless;
+  const rawQuery = queryStart >= 0 ? fragmentless.slice(queryStart + 1) : "";
+  const query = redactMalformedQuery(rawQuery);
+
+  return `${sanitizeFallbackPath(rawPath)}${
+    query.length > 0 ? `?${query}` : ""
+  }`;
+}
+
+function redactMalformedQuery(rawQuery: string): string {
+  if (!rawQuery) {
+    return "";
+  }
+
+  return rawQuery
+    .split("&")
+    .filter((part) => part.length > 0)
+    .map((part) => {
+      const separator = part.indexOf("=");
+      const rawKey = separator >= 0 ? part.slice(0, separator) : part;
+      const rawValue = separator >= 0 ? part.slice(separator + 1) : "";
+      const decodedKey = safeDecodeQueryComponent(rawKey);
+      const safeKey = safeEncodeQueryComponent(decodedKey || rawKey);
+      const safeValue =
+        isSensitiveFieldKey(decodedKey) || isSensitiveFieldKey(rawKey)
+          ? REDACTED
+          : safeEncodeQueryComponent(rawValue);
+
+      return `${safeKey}=${safeValue}`;
+    })
+    .join("&");
+}
+
+function sanitizeFallbackPath(rawPath: string): string {
+  const pathWithoutOrigin = stripUrlOrigin(rawPath.trim()) || "/";
+  const normalizedPath = pathWithoutOrigin.startsWith("/")
+    ? pathWithoutOrigin
+    : `/${pathWithoutOrigin}`;
+
+  return Array.from(normalizedPath, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint > 0x1f && codePoint !== 0x7f) {
+      return character;
+    }
+
+    return `%${codePoint.toString(16).toUpperCase().padStart(2, "0")}`;
+  }).join("");
+}
+
+function stripUrlOrigin(rawPath: string): string {
+  const schemeMatch = /^[a-z][a-z\d+.-]*:\/\//i.exec(rawPath);
+  if (!schemeMatch) {
+    return rawPath;
+  }
+
+  const afterScheme = rawPath.slice(schemeMatch[0].length);
+  const firstPathSlash = afterScheme.indexOf("/");
+  return firstPathSlash >= 0 ? afterScheme.slice(firstPathSlash) : "/";
+}
+
+function safeDecodeQueryComponent(value: string): string {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, " "));
+  } catch {
+    return value;
+  }
+}
+
+function safeEncodeQueryComponent(value: string): string {
+  return encodeURIComponent(safeDecodeQueryComponent(value));
 }

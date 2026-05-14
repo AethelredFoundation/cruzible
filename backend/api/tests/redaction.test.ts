@@ -33,6 +33,29 @@ describe("redaction utilities", () => {
     );
   });
 
+  it("fails closed when malformed URLs cannot be parsed", () => {
+    const redacted = redactUrlPath(
+      "https://user:pass@[::1/callback?access_token=token-123&address=aeth1user#refresh_token=refresh-123",
+    );
+
+    expect(redacted).toBe(
+      "/callback?access_token=[REDACTED]&address=aeth1user",
+    );
+    expect(redacted).not.toContain("user:pass");
+    expect(redacted).not.toContain("token-123");
+    expect(redacted).not.toContain("refresh-123");
+  });
+
+  it("sanitizes malformed query components before logging", () => {
+    expect(
+      redactUrlPath(
+        "/callback?refresh_token=%E0%A4%A&state=hello world&signature=sig-123",
+      ),
+    ).toBe(
+      "/callback?refresh_token=[REDACTED]&state=hello%20world&signature=[REDACTED]",
+    );
+  });
+
   it("deep-redacts sensitive fields while preserving safe metadata", () => {
     const payload = {
       requestId: "req-123",
