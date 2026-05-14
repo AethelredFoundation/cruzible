@@ -4,10 +4,7 @@
 services:
   # ============ API GATEWAY ============
   api-gateway:
-    build:
-      context: ../..
-      dockerfile: backend/api/Dockerfile
-      target: production
+    image: ghcr.io/aethelred/cruzible/api@sha256:${CRUZIBLE_API_IMAGE_DIGEST:?set CRUZIBLE_API_IMAGE_DIGEST}
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
@@ -20,6 +17,7 @@ services:
       - REDIS_URL_FILE=/run/secrets/cruzible_redis_url
       - JWT_SECRET_FILE=/run/secrets/cruzible_jwt_secret
       - JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret
+      - LOG_HASH_SECRET_FILE=/run/secrets/cruzible_log_hash_secret
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS}
       - TRUST_PROXY=1
       - METRICS_ENABLED=${METRICS_ENABLED:-true}
@@ -31,6 +29,7 @@ services:
       - cruzible_redis_url
       - cruzible_jwt_secret
       - cruzible_jwt_refresh_secret
+      - cruzible_log_hash_secret
       - cruzible_operational_token
     depends_on:
       postgres:
@@ -58,10 +57,7 @@ services:
 
   # ============ INDEXER ============
   indexer:
-    build:
-      context: ../..
-      dockerfile: backend/api/Dockerfile
-      target: indexer
+    image: ghcr.io/aethelred/cruzible/api-indexer@sha256:${CRUZIBLE_INDEXER_IMAGE_DIGEST:?set CRUZIBLE_INDEXER_IMAGE_DIGEST}
     container_name: aethelred-indexer
     restart: unless-stopped
     environment:
@@ -71,6 +67,7 @@ services:
       - REDIS_URL_FILE=/run/secrets/cruzible_redis_url
       - JWT_SECRET_FILE=/run/secrets/cruzible_jwt_secret
       - JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret
+      - LOG_HASH_SECRET_FILE=/run/secrets/cruzible_log_hash_secret
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS}
       - METRICS_ENABLED=false
       - API_DOCS_ENABLED=false
@@ -87,6 +84,7 @@ services:
       - cruzible_redis_url
       - cruzible_jwt_secret
       - cruzible_jwt_refresh_secret
+      - cruzible_log_hash_secret
     depends_on:
       postgres:
         condition: service_healthy
@@ -333,6 +331,8 @@ secrets:
     file: ${JWT_SECRET_FILE:?set JWT_SECRET_FILE}
   cruzible_jwt_refresh_secret:
     file: ${JWT_REFRESH_SECRET_FILE:?set JWT_REFRESH_SECRET_FILE}
+  cruzible_log_hash_secret:
+    file: ${LOG_HASH_SECRET_FILE:?set LOG_HASH_SECRET_FILE}
   cruzible_operational_token:
     file: ${OPERATIONAL_ENDPOINTS_TOKEN_FILE:?set OPERATIONAL_ENDPOINTS_TOKEN_FILE}
   cruzible_grafana_password:

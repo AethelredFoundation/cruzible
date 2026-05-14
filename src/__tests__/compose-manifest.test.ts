@@ -44,6 +44,7 @@ describe("Docker Compose production scaffold", () => {
     expectRequiredVariable("CORS_ORIGINS");
     expectRequiredVariable("JWT_SECRET_FILE");
     expectRequiredVariable("JWT_REFRESH_SECRET_FILE");
+    expectRequiredVariable("LOG_HASH_SECRET_FILE");
     expectRequiredVariable("OPERATIONAL_ENDPOINTS_TOKEN_FILE");
     expectRequiredVariable("GRAFANA_USER");
     expectRequiredVariable("GRAFANA_PASSWORD_FILE");
@@ -60,6 +61,7 @@ describe("Docker Compose production scaffold", () => {
       "cruzible_db_password",
       "cruzible_jwt_secret",
       "cruzible_jwt_refresh_secret",
+      "cruzible_log_hash_secret",
       "cruzible_operational_token",
       "cruzible_grafana_password",
       "cruzible_tls_certificate",
@@ -80,6 +82,9 @@ describe("Docker Compose production scaffold", () => {
     );
     expect(composeManifest).toContain(
       "JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret",
+    );
+    expect(composeManifest).toContain(
+      "LOG_HASH_SECRET_FILE=/run/secrets/cruzible_log_hash_secret",
     );
     expect(composeManifest).toContain(
       "OPERATIONAL_ENDPOINTS_TOKEN_FILE=/run/secrets/cruzible_operational_token",
@@ -134,10 +139,12 @@ describe("Docker Compose production scaffold", () => {
     );
   });
 
-  it("pins third-party service images through required digest inputs", () => {
+  it("pins service images through required digest inputs", () => {
     expect(composeManifest).not.toContain(":latest");
 
     for (const variable of [
+      "CRUZIBLE_API_IMAGE_DIGEST",
+      "CRUZIBLE_INDEXER_IMAGE_DIGEST",
       "POSTGRES_IMAGE_DIGEST",
       "REDIS_IMAGE_DIGEST",
       "NGINX_IMAGE_DIGEST",
@@ -147,6 +154,17 @@ describe("Docker Compose production scaffold", () => {
     ]) {
       expectRequiredVariable(variable);
     }
+  });
+
+  it("runs first-party services from release image digests", () => {
+    expect(composeManifest).not.toContain("build:");
+    expect(composeManifest).not.toContain("dockerfile: backend/api/Dockerfile");
+    expect(composeManifest).toContain(
+      "image: ghcr.io/aethelred/cruzible/api@sha256:${CRUZIBLE_API_IMAGE_DIGEST:?set CRUZIBLE_API_IMAGE_DIGEST}",
+    );
+    expect(composeManifest).toContain(
+      "image: ghcr.io/aethelred/cruzible/api-indexer@sha256:${CRUZIBLE_INDEXER_IMAGE_DIGEST:?set CRUZIBLE_INDEXER_IMAGE_DIGEST}",
+    );
   });
 
   it("keeps internal service ports off public host interfaces", () => {

@@ -148,6 +148,8 @@ The variables below are referenced by `backend/infra/docker-compose.yml`. They s
 | `CRUZIBLE_VAULT_ADDRESS`           | indexer                        | Required non-zero vault contract address                                                                      |
 | `STAETHEL_ADDRESS`                 | indexer                        | Required non-zero liquid staking token address                                                                |
 | `STABLECOIN_BRIDGE_ADDRESS`        | indexer                        | Required non-zero stablecoin bridge address                                                                   |
+| `CRUZIBLE_API_IMAGE_DIGEST`        | api-gateway                    | Immutable first-party release image digest                                                                    |
+| `CRUZIBLE_INDEXER_IMAGE_DIGEST`    | indexer                        | Immutable first-party release image digest                                                                    |
 | `POSTGRES_IMAGE_DIGEST`            | postgres                       | Immutable third-party image digest                                                                            |
 | `REDIS_IMAGE_DIGEST`               | redis                          | Immutable third-party image digest                                                                            |
 | `NGINX_IMAGE_DIGEST`               | nginx                          | Immutable third-party image digest                                                                            |
@@ -176,12 +178,12 @@ The variables below are referenced by `backend/infra/docker-compose.yml`. They s
 - Rejected privileged access attempts also emit sanitized `PRIVILEGED_ACCESS_REJECTED` alerts; audit persistence failures emit critical `PRIVILEGED_AUDIT_PERSISTENCE_FAILURE` alerts without raw IP, user-agent, or token values.
 - Operational surfaces (`/metrics` and `/docs`) use `OPERATIONAL_ENDPOINTS_TOKEN` in production, accepted as `Authorization: Bearer <token>` or `X-Operational-Token: <token>`. The checked-in Prometheus baseline reads this token from `/run/secrets/cruzible_operational_token` instead of exposing metrics anonymously.
 - Alert history uses PostgreSQL when `DATABASE_URL` is configured and falls back to in-memory history only when database-backed API state is unavailable.
-- `backend/infra/docker-compose.yml` includes checked-in nginx, Redis, Prometheus, Grafana, and PostgreSQL init baselines, but it still requires real secret files, TLS material, immutable image digests, and staging validation.
+- `backend/infra/docker-compose.yml` includes checked-in nginx, Redis, Prometheus, Grafana, and PostgreSQL init baselines, but it still requires real secret files, TLS material, immutable first-party and third-party image digests, and staging validation.
 - `backend/infra/docker-compose.yml` binds internal API, database, RPC, cache, and observability ports to loopback by default; only nginx and the P2P listener are public-facing in the scaffold.
 - `k8s/base/` expects environment overlays to replace checked-in image placeholders with immutable `sha256` digests before rollout.
 - `k8s/base/` keeps workload roots read-only, grants only a bounded `/tmp` `emptyDir` write surface, and sets container ephemeral-storage budgets so staging can catch unexpected runtime writes before public rollout.
 - `k8s/base/network-policy.yaml` accepts frontend/API ingress only from the same-namespace frontend pods or namespaces labeled `networking.cruzible.io/external-ingress=true`; label the approved ingress-controller namespace or patch the selector in the target overlay.
-- `k8s/base/backend.yaml` expects non-secret runtime config in `cruzible-api-config` and secret values in `cruzible-api-secrets` with keys `database-url`, `redis-url`, `jwt-secret`, `jwt-refresh-secret`, and `operational-endpoints-token`; backend secret files are projected read-only with `0440` permissions so non-root pods can read them via `fsGroup: 1001`.
+- `k8s/base/backend.yaml` expects non-secret runtime config in `cruzible-api-config` and secret values in `cruzible-api-secrets` with keys `database-url`, `redis-url`, `jwt-secret`, `jwt-refresh-secret`, `log-hash-secret`, and `operational-endpoints-token`; backend secret files are projected read-only with `0440` permissions so non-root pods can read them via `fsGroup: 1001`.
 
 ## 6. Production Hygiene Rules Already Enforced In Code
 
