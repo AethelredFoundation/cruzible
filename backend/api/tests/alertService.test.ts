@@ -3,6 +3,19 @@ import { lookup } from "node:dns/promises";
 import { container } from "tsyringe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@prisma/client", () => ({
+  Prisma: {},
+  PrismaClient: vi.fn().mockImplementation(function PrismaClient() {
+    return {
+      alertEvent: {
+        count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+    };
+  }),
+}));
+
 vi.mock("node:dns/promises", () => ({
   lookup: vi.fn(),
 }));

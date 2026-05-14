@@ -12,6 +12,7 @@ import {
 } from './service';
 import { auditPrivilegedAccess } from '../middleware/privilegedAudit';
 import { logger } from '../utils/logger';
+import { errorContext } from '../utils/errorContext';
 
 type AuthFailureResponse = {
   statusCode: 401 | 403 | 500;
@@ -126,7 +127,7 @@ export async function authenticate(
     next();
   } catch (error) {
     if (error instanceof JsonWebTokenError) {
-      logger.warn('Invalid JWT token', { error: error.message });
+      logger.warn('Invalid JWT token', errorContext(error));
       rejectAuthentication(req, res, 'invalid_access_token', 'Invalid token');
       return;
     }

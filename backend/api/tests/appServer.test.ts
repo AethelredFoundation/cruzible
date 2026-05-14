@@ -308,6 +308,43 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     });
   });
 
+  it("sets a deny-by-default Permissions-Policy for high-risk browser APIs", async () => {
+    await registerMockServices();
+    const { createAppServer } = await import("../src/server");
+    const api = createAppServer();
+
+    await withHttpServer(api.app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/health/live`);
+      const permissionsPolicy = response.headers.get("permissions-policy");
+
+      expect(permissionsPolicy).toBeDefined();
+      for (const feature of [
+        "accelerometer",
+        "autoplay",
+        "browsing-topics",
+        "camera",
+        "display-capture",
+        "encrypted-media",
+        "gamepad",
+        "geolocation",
+        "gyroscope",
+        "interest-cohort",
+        "magnetometer",
+        "microphone",
+        "midi",
+        "payment",
+        "publickey-credentials-get",
+        "screen-wake-lock",
+        "serial",
+        "speaker-selection",
+        "usb",
+        "xr-spatial-tracking",
+      ]) {
+        expect(permissionsPolicy).toContain(`${feature}=()`);
+      }
+    });
+  });
+
   it("rejects malformed JSON as a safe client error", async () => {
     await registerMockServices();
     const { createAppServer } = await import("../src/server");

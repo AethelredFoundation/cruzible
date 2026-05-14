@@ -71,6 +71,13 @@ def require_string(value: Any, path: str) -> str:
     return value
 
 
+def require_local_file_name(value: Any, path: str) -> str:
+    text = require_string(value, path)
+    if "/" in text or "\\" in text or Path(text).is_absolute() or Path(text).name != text:
+        fail(f"{path} must be a file name in the artifact directory")
+    return text
+
+
 def require_int(value: Any, path: str) -> int:
     if not isinstance(value, int) or value <= 0:
         fail(f"{path} must be a positive integer")
@@ -878,8 +885,14 @@ def validate_artifact_reconciliation(root: dict[str, Any], artifact_dir: Path) -
     signatures_by_file: dict[str, str] = {}
     for index, entry in enumerate(signature_entries):
         entry_obj = require_mapping(entry, f"signatures manifest.entries[{index}]")
-        file_name = require_string(entry_obj.get("file"), f"signatures manifest.entries[{index}].file")
-        signature = require_string(entry_obj.get("signature"), f"signatures manifest.entries[{index}].signature")
+        file_name = require_local_file_name(
+            entry_obj.get("file"),
+            f"signatures manifest.entries[{index}].file",
+        )
+        signature = require_local_file_name(
+            entry_obj.get("signature"),
+            f"signatures manifest.entries[{index}].signature",
+        )
         if file_name in signatures_by_file:
             fail(f"signatures manifest contains duplicate entry for {file_name}")
         signatures_by_file[file_name] = signature

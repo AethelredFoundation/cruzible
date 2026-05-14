@@ -15,11 +15,13 @@ describe("redaction utilities", () => {
         authorization: "Bearer token-123",
         "x-api-key": "api-key-123",
         "user-agent": "vitest",
+        "x-operational-token": "ops-token-123",
       }),
     ).toEqual({
       authorization: REDACTED,
       "x-api-key": REDACTED,
       "user-agent": "vitest",
+      "x-operational-token": REDACTED,
     });
 
     expect(

@@ -24,6 +24,7 @@ import { BlockchainService } from './BlockchainService';
 import { CacheService } from './CacheService';
 import { AlertService, AlertSeverity, AlertType } from './AlertService';
 import { logger } from '../utils/logger';
+import { errorContext } from '../utils/errorContext';
 import { resolveProtocolEpoch } from '../lib/protocolEpoch';
 import { config } from '../config';
 
@@ -753,7 +754,7 @@ export class ReconciliationScheduler {
       } catch (err) {
         logger.error(
           `Failed to backfill symbol for assetId=${cfg.assetId}`,
-          { error: err instanceof Error ? err.message : String(err) },
+          errorContext(err),
         );
       }
     }

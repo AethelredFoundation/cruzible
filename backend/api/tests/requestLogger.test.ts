@@ -83,7 +83,10 @@ describe("request logger redaction", () => {
         `${baseUrl}/login?refresh_token=refresh-123&address=aeth1user`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Operational-Token": "ops-token-123",
+          },
           body: JSON.stringify({
             message: "Aethelred Cruzible API login\nNonce: nonce-123",
             nested: {
@@ -111,6 +114,9 @@ describe("request logger redaction", () => {
               safe: "visible",
             },
             signature: "[REDACTED]",
+          }),
+          headers: expect.objectContaining({
+            "x-operational-token": "[REDACTED]",
           }),
         }),
       );

@@ -32,6 +32,7 @@ import {
 import { logger } from '../utils/logger';
 import { BlockchainService } from './BlockchainService';
 import { config } from '../config';
+import { errorContext } from '../utils/errorContext';
 import { redactUrlForLogs } from '../utils/urlRedaction';
 
 // ---------------------------------------------------------------------------
@@ -462,7 +463,7 @@ export class IndexerService {
 
       // Handle provider errors (ethers v6 uses 'error' event on the provider)
       this.wsProvider.on('error', (err: Error) => {
-        logger.error('WebSocket provider error:', err.message);
+        logger.error('WebSocket provider error', errorContext(err));
         this.handleWsDisconnect();
       });
 
@@ -474,7 +475,7 @@ export class IndexerService {
           this.handleWsDisconnect();
         });
         ws.on('error', (err: Error) => {
-          logger.error('WebSocket transport error:', err.message);
+          logger.error('WebSocket transport error', errorContext(err));
           this.handleWsDisconnect();
         });
       }
@@ -1877,10 +1878,9 @@ export class IndexerService {
         `mintCeiling=${mintCeilingPerEpoch} dailyTxLimit=${dailyTxLimit} txVolume=${txVolume}`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       logger.error(
         `Failed to materialize StablecoinConfig for assetId=${assetId}`,
-        { error: message },
+        errorContext(err),
       );
       // Non-fatal — config retains event-derived fields. ReconciliationScheduler
       // will detect the incomplete state on its next tick.
@@ -1964,8 +1964,10 @@ export class IndexerService {
         `exchangeRate=${exchangeRateDecimal} epoch=${currentEpoch} validators=${activeValidators} stakers=${totalStakers}`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error('Failed to refresh VaultState from contract', { error: message });
+      logger.error(
+        'Failed to refresh VaultState from contract',
+        errorContext(err),
+      );
       // Non-fatal — vault state will be stale until the next successful refresh.
       // The ReconciliationScheduler gracefully handles null/stale vault state.
     }

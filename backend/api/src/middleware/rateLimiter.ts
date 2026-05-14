@@ -2,6 +2,7 @@ import Redis from "ioredis";
 import rateLimit, { type Store } from "express-rate-limit";
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
 
 const sharedRateLimitRedisClients = new Map<string, Redis>();
 
@@ -13,9 +14,7 @@ function getRedisRateLimitClient(redisUrl: string): Redis {
       maxRetriesPerRequest: 1,
     });
     client.on("error", (error) => {
-      logger.warn("Redis rate-limit store error", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.warn("Redis rate-limit store error", errorContext(error));
     });
     sharedRateLimitRedisClients.set(redisUrl, client);
   }

@@ -2,28 +2,20 @@
  * Blocks API Routes
  */
 
-import { Router, Request, Response, NextFunction } from 'express';
-import { param, query, validationResult } from 'express-validator';
+import { Router, Request, Response } from 'express';
+import { param, query } from 'express-validator';
 import { container } from 'tsyringe';
 import { BlockchainService } from '../../services/BlockchainService';
 import { CacheService } from '../../services/CacheService';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ApiError } from '../../utils/ApiError';
+import { validate } from '../../middleware/validate';
 import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
 
 const router = Router();
 const blockchainService = container.resolve(BlockchainService);
 const cacheService = container.resolve(CacheService);
 const blockHeightValidator = param('height').isInt({ min: 1 }).toInt();
-
-// Validation middleware
-const validate = (req: Request, res: Response, next: NextFunction) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ApiError(400, 'Validation failed', errors.array());
-  }
-  next();
-};
 
 /**
  * @swagger

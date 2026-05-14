@@ -19,6 +19,7 @@ import { ReconciliationScheduler } from "../services/ReconciliationScheduler";
 import { AlertService } from "../services/AlertService";
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
 import { requireOperationalAccess } from "../middleware/operationalAccess";
 import { noStore } from "../middleware/noStore";
 
@@ -87,7 +88,7 @@ async function checkDatabase(): Promise<ProbeResult> {
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Unknown database error";
-    logger.error("Health check: database probe failed", { error: message });
+    logger.error("Health check: database probe failed", errorContext(err));
     return { status: "error", latencyMs: Date.now() - start, message };
   }
 }
@@ -104,9 +105,7 @@ async function checkBlockchainRpc(): Promise<ProbeResult> {
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown RPC error";
-    logger.error("Health check: blockchain RPC probe failed", {
-      error: message,
-    });
+    logger.error("Health check: blockchain RPC probe failed", errorContext(err));
     return { status: "error", latencyMs: Date.now() - start, message };
   }
 }

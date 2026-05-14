@@ -191,6 +191,37 @@ describe("Next.js security config", () => {
     ).resolves.toBe("none");
   });
 
+  it("disables high-risk browser capabilities by default", async () => {
+    const permissionsPolicy =
+      await getGlobalSecurityHeader("Permissions-Policy");
+
+    expect(permissionsPolicy).toBeDefined();
+    for (const feature of [
+      "accelerometer",
+      "autoplay",
+      "browsing-topics",
+      "camera",
+      "display-capture",
+      "encrypted-media",
+      "gamepad",
+      "geolocation",
+      "gyroscope",
+      "interest-cohort",
+      "magnetometer",
+      "microphone",
+      "midi",
+      "payment",
+      "publickey-credentials-get",
+      "screen-wake-lock",
+      "serial",
+      "speaker-selection",
+      "usb",
+      "xr-spatial-tracking",
+    ]) {
+      expect(permissionsPolicy).toContain(`${feature}=()`);
+    }
+  });
+
   it("limits local connect sources to non-production CSP", async () => {
     const productionCsp = buildContentSecurityPolicy({
       nonce: "prod-nonce",

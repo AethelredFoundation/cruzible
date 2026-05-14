@@ -11,6 +11,7 @@ import { container } from 'tsyringe';
 
 import { BlockchainService } from './services/BlockchainService';
 import { IndexerService } from './services/IndexerService';
+import { errorContext } from './utils/errorContext';
 import { logger } from './utils/logger';
 
 let shuttingDown = false;
@@ -62,13 +63,13 @@ async function main(): Promise<void> {
   });
 
   process.on('uncaughtException', (error) => {
-    logger.error('Uncaught exception in indexer worker:', error);
+    logger.error('Uncaught exception in indexer worker', errorContext(error));
     void shutdown('uncaughtException', indexerService, blockchainService).then(() =>
       process.exit(1),
     );
   });
   process.on('unhandledRejection', (reason) => {
-    logger.error('Unhandled rejection in indexer worker:', reason);
+    logger.error('Unhandled rejection in indexer worker', errorContext(reason));
     void shutdown('unhandledRejection', indexerService, blockchainService).then(() =>
       process.exit(1),
     );

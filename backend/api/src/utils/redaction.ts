@@ -27,6 +27,9 @@ const SENSITIVE_HEADERS = new Set([
   "x-api-key",
   "x-auth-token",
   "proxy-authorization",
+  "x-csrf-token",
+  "x-operational-token",
+  "x-xsrf-token",
 ]);
 
 const SENSITIVE_FIELD_KEY_PATTERNS = [

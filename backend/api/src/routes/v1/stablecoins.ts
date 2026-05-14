@@ -5,13 +5,14 @@
  * from the indexed InstitutionalStablecoinBridge contract events.
  */
 
-import { Router, Request, Response, NextFunction } from 'express';
-import { param, query, validationResult } from 'express-validator';
+import { Router, Request, Response } from 'express';
+import { param, query } from 'express-validator';
 import { container } from 'tsyringe';
 import { StablecoinBridgeService } from '../../services/StablecoinBridgeService';
 import { CacheService } from '../../services/CacheService';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ApiError } from '../../utils/ApiError';
+import { validate } from '../../middleware/validate';
 import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
 
 const router = Router();
@@ -39,14 +40,6 @@ const BRIDGE_EVENT_TYPES = [
   'MintExecuted',
   'CircuitBreakerTriggered',
 ] as const;
-
-const validate = (req: Request, _res: Response, next: NextFunction) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ApiError(400, 'Validation failed', errors.array());
-  }
-  next();
-};
 
 // ---------------------------------------------------------------------------
 // Routes

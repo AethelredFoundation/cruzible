@@ -3,6 +3,7 @@ import Redis from 'ioredis';
 
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { errorContext } from '../utils/errorContext';
 
 type CacheEntry = {
   expiresAt: number;
@@ -15,14 +16,6 @@ type CacheEnvelope = {
 
 const CACHE_KEY_PREFIX = 'cruzible:api:';
 const MAX_MEMORY_CACHE_ENTRIES = 1_000;
-
-function cacheErrorContext(error: unknown): Record<string, unknown> {
-  if (error instanceof Error) {
-    return { error };
-  }
-
-  return { errorType: typeof error };
-}
 
 @injectable()
 export class CacheService {
@@ -41,7 +34,7 @@ export class CacheService {
     });
 
     redis.on('error', (error) => {
-      logger.warn('Redis cache client error', cacheErrorContext(error));
+      logger.warn('Redis cache client error', errorContext(error));
     });
 
     try {
@@ -61,7 +54,7 @@ export class CacheService {
 
       logger.warn(
         'Redis cache unavailable; using in-memory fallback',
-        cacheErrorContext(error),
+        errorContext(error),
       );
     }
   }
@@ -93,7 +86,7 @@ export class CacheService {
       } catch (error) {
         logger.warn('Redis cache read failed; using in-memory fallback', {
           key,
-          ...cacheErrorContext(error),
+          ...errorContext(error),
         });
       }
     }
@@ -128,7 +121,7 @@ export class CacheService {
         } catch (error) {
           logger.warn('Redis cache delete failed', {
             key,
-            ...cacheErrorContext(error),
+            ...errorContext(error),
           });
         }
       }
@@ -149,7 +142,7 @@ export class CacheService {
       } catch (error) {
         logger.warn('Redis cache write failed; retained bounded in-memory fallback', {
           key,
-          ...cacheErrorContext(error),
+          ...errorContext(error),
         });
       }
     }

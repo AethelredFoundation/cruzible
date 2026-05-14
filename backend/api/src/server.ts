@@ -31,6 +31,7 @@ import { noStore } from "./middleware/noStore";
 import { requireOperationalAccess } from "./middleware/operationalAccess";
 import { requestId } from "./middleware/requestId";
 import { requestLogger } from "./middleware/requestLogger";
+import { errorContext } from "./utils/errorContext";
 import { redactUrlForLogs } from "./utils/urlRedaction";
 
 // Routes
@@ -61,6 +62,31 @@ const CORS_ALLOWED_HEADERS = [
   "X-Client-Name",
   "X-Client-Version",
 ];
+const DISABLED_BROWSER_FEATURES = [
+  "accelerometer",
+  "autoplay",
+  "browsing-topics",
+  "camera",
+  "display-capture",
+  "encrypted-media",
+  "gamepad",
+  "geolocation",
+  "gyroscope",
+  "interest-cohort",
+  "magnetometer",
+  "microphone",
+  "midi",
+  "payment",
+  "publickey-credentials-get",
+  "screen-wake-lock",
+  "serial",
+  "speaker-selection",
+  "usb",
+  "xr-spatial-tracking",
+] as const;
+const PERMISSIONS_POLICY = DISABLED_BROWSER_FEATURES
+  .map((feature) => `${feature}=()`)
+  .join(", ");
 
 // ---------------------------------------------------------------------------
 // ApiGateway
@@ -160,11 +186,7 @@ export class ApiGateway {
     // Permissions-Policy: disable camera, microphone, geolocation, and other
     // dangerous browser APIs.
     this.app.use((_req: Request, res: Response, next: NextFunction) => {
-      res.setHeader(
-        "Permissions-Policy",
-        "camera=(), microphone=(), geolocation=(), interest-cohort=(), " +
-          "payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
-      );
+      res.setHeader("Permissions-Policy", PERMISSIONS_POLICY);
       next();
     });
 
@@ -563,12 +585,15 @@ export class ApiGateway {
 
     // Handle uncaught errors
     process.on("uncaughtException", (error) => {
-      logger.error("Uncaught Exception:", error);
+      logger.error("Uncaught Exception", errorContext(error));
       forceShutdown("uncaughtException");
     });
 
     process.on("unhandledRejection", (reason, promise) => {
-      logger.error("Unhandled Rejection at:", promise, "reason:", reason);
+      logger.error("Unhandled Rejection", {
+        promiseType: promise?.constructor?.name ?? "Promise",
+        ...errorContext(reason),
+      });
       forceShutdown("unhandledRejection");
     });
   }

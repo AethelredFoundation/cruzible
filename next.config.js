@@ -8,6 +8,31 @@ const imageRemotePatterns = [
   ...(isProduction ? [] : [{ protocol: "http", hostname: "localhost" }]),
   { protocol: "https", hostname: "api.aethelred.io" },
 ];
+const disabledBrowserFeatures = [
+  "accelerometer",
+  "autoplay",
+  "browsing-topics",
+  "camera",
+  "display-capture",
+  "encrypted-media",
+  "gamepad",
+  "geolocation",
+  "gyroscope",
+  "interest-cohort",
+  "magnetometer",
+  "microphone",
+  "midi",
+  "payment",
+  "publickey-credentials-get",
+  "screen-wake-lock",
+  "serial",
+  "speaker-selection",
+  "usb",
+  "xr-spatial-tracking",
+];
+const permissionsPolicy = disabledBrowserFeatures
+  .map((feature) => `${feature}=()`)
+  .join(", ");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -53,8 +78,7 @@ const nextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           {
             key: "Permissions-Policy",
-            value:
-              "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+            value: permissionsPolicy,
           },
           {
             key: "Cross-Origin-Opener-Policy",

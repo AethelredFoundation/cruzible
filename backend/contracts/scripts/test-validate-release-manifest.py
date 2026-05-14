@@ -344,6 +344,19 @@ class ReleaseManifestValidationTests(unittest.TestCase):
 
             self.assert_manifest_fails(manifest_path, strict=True, artifact_dir=artifact_dir)
 
+    def test_artifact_reconciliation_rejects_signature_path_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest = self.strict_manifest()
+            manifest_path = self.write_manifest(temp_path, manifest)
+            artifact_dir = self.write_artifact_dir(temp_path, manifest)
+            signatures_path = artifact_dir / "signatures.json"
+            signatures = json.loads(signatures_path.read_text(encoding="utf-8"))
+            signatures["entries"][0]["signature"] = "../SHA256SUMS.sig"
+            signatures_path.write_text(json.dumps(signatures, indent=2), encoding="utf-8")
+
+            self.assert_manifest_fails(manifest_path, strict=True, artifact_dir=artifact_dir)
+
 
 if __name__ == "__main__":
     unittest.main()

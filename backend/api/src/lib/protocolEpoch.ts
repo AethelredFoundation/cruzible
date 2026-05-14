@@ -1,6 +1,7 @@
 import { Contract, JsonRpcProvider } from 'ethers';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { errorContext } from '../utils/errorContext';
 import type { BlockchainService } from '../services/BlockchainService';
 
 export type ProtocolEpochResolution = {
@@ -8,6 +9,9 @@ export type ProtocolEpochResolution = {
   source: string;
   warning?: string;
 };
+
+const CURRENT_EPOCH_FALLBACK_WARNING =
+  'Failed to query currentEpoch from vault contract; falling back to chain height';
 
 type ResolveProtocolEpochOptions = {
   blockchainService: Pick<BlockchainService, 'getLatestHeight'>;
@@ -49,13 +53,15 @@ export async function resolveProtocolEpoch(
     const raw: bigint = await vault.currentEpoch();
     return { epoch: Number(raw), source: 'evm/cruzible.currentEpoch' };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.error('Failed to query currentEpoch from vault contract', { error: message });
+    logger.error(
+      'Failed to query currentEpoch from vault contract',
+      errorContext(err),
+    );
     const height = await getFallbackHeight(options);
     return {
       epoch: height,
       source: 'rpc/tendermint.latestHeight (fallback)',
-      warning: `Failed to query currentEpoch from vault contract (${message}); falling back to chain height`,
+      warning: CURRENT_EPOCH_FALLBACK_WARNING,
     };
   }
 }
