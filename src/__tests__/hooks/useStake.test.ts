@@ -1,0 +1,398 @@
+import { act, renderHook } from "@testing-library/react";
+import { parseEther } from "viem";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const CRUZIBLE_ADDRESS = "0x0000000000000000000000000000000000000101";
+const AETHEL_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000202";
+const ST_AETHEL_ADDRESS = "0x0000000000000000000000000000000000000404";
+const WALLET_ADDRESS = "0x0000000000000000000000000000000000000303";
+const APPROVAL_HASH =
+  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const STAKE_HASH =
+  "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const UNSTAKE_HASH =
+  "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const mockConfig = { uid: "wagmi-config" };
+
+const mocks = vi.hoisted(() => ({
+  addNotification: vi.fn(),
+  assertContractSimulation: vi.fn(),
+  readContract: vi.fn(),
+  useApp: vi.fn(),
+  useConfig: vi.fn(),
+  useWriteContract: vi.fn(),
+  waitForTransactionReceipt: vi.fn(),
+  writeContractAsync: vi.fn(),
+}));
+
+vi.mock("@/config/abis", () => ({
+  CruzibleABI: [],
+  ERC20ABI: [],
+  StAETHELABI: [],
+}));
+
+vi.mock("@/config/contracts", () => ({
+  getContractAddress: (key: string) => {
+    const addresses: Record<string, string> = {
+      cruzible: CRUZIBLE_ADDRESS,
+      aethelToken: AETHEL_TOKEN_ADDRESS,
+      stAethel: ST_AETHEL_ADDRESS,
+    };
+
+    return addresses[key];
+  },
+}));
+
+vi.mock("@/config/wagmi", () => ({
+  activeChain: { id: 4242, name: "Aethelred Testnet" },
+}));
+
+vi.mock("@/contexts/AppContext", () => ({
+  useApp: mocks.useApp,
+}));
+
+vi.mock("@/lib/transactionPreflight", () => ({
+  assertContractSimulation: mocks.assertContractSimulation,
+}));
+
+vi.mock("wagmi", () => ({
+  useAccount: vi.fn(),
+  useConfig: mocks.useConfig,
+  useReadContract: vi.fn(),
+  useReadContracts: vi.fn(),
+  useWriteContract: mocks.useWriteContract,
+}));
+
+vi.mock("wagmi/actions", () => ({
+  readContract: mocks.readContract,
+  waitForTransactionReceipt: mocks.waitForTransactionReceipt,
+}));
+
+import { useStake, useUnstake } from "@/hooks/useVault";
+
+function setConnectedWallet() {
+  mocks.useApp.mockReturnValue({
+    addNotification: mocks.addNotification,
+    wallet: {
+      connected: true,
+      address: WALLET_ADDRESS,
+      balance: 0,
+      stBalance: 0,
+      stablecoinBalances: {},
+      isConnecting: false,
+      isWrongNetwork: false,
+      chainId: 4242,
+    },
+  });
+}
+
+describe("useStake", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setConnectedWallet();
+    mocks.useConfig.mockReturnValue(mockConfig);
+    mocks.useWriteContract.mockReturnValue({
+      isPending: false,
+      writeContractAsync: mocks.writeContractAsync,
+    });
+    mocks.assertContractSimulation.mockResolvedValue(true);
+    mocks.waitForTransactionReceipt.mockResolvedValue({ status: "success" });
+  });
+
+  it("skips approval when the existing allowance covers the requested stake", async () => {
+    const amount = parseEther("1");
+    mocks.readContract
+      .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(amount);
+    mocks.writeContractAsync.mockResolvedValueOnce(STAKE_HASH);
+
+    const { result } = renderHook(() => useStake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.stake("1");
+    });
+
+    expect(hash).toBe(STAKE_HASH);
+    expect(mocks.writeContractAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.writeContractAsync).toHaveBeenCalledWith({
+      address: CRUZIBLE_ADDRESS,
+      abi: [],
+      functionName: "stake",
+      args: [amount],
+      chainId: 4242,
+    });
+    expect(mocks.assertContractSimulation).toHaveBeenCalledTimes(1);
+    expect(mocks.assertContractSimulation).toHaveBeenCalledWith(
+      mockConfig,
+      mocks.addNotification,
+      "Stake",
+      expect.objectContaining({
+        address: CRUZIBLE_ADDRESS,
+        functionName: "stake",
+        args: [amount],
+      }),
+    );
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledTimes(1);
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledWith(mockConfig, {
+      hash: STAKE_HASH,
+    });
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "info",
+      "Allowance Ready",
+      "Existing AETHEL allowance covers this stake.",
+    );
+  });
+
+  it("approves the exact stake amount before staking when allowance is missing", async () => {
+    const amount = parseEther("2.5");
+    mocks.readContract
+      .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(0n);
+    mocks.writeContractAsync
+      .mockResolvedValueOnce(APPROVAL_HASH)
+      .mockResolvedValueOnce(STAKE_HASH);
+
+    const { result } = renderHook(() => useStake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.stake("2.5");
+    });
+
+    expect(hash).toBe(STAKE_HASH);
+    expect(mocks.assertContractSimulation).toHaveBeenNthCalledWith(
+      1,
+      mockConfig,
+      mocks.addNotification,
+      "AETHEL Approval",
+      expect.objectContaining({
+        address: AETHEL_TOKEN_ADDRESS,
+        functionName: "approve",
+        args: [CRUZIBLE_ADDRESS, amount],
+      }),
+    );
+    expect(mocks.assertContractSimulation).toHaveBeenNthCalledWith(
+      2,
+      mockConfig,
+      mocks.addNotification,
+      "Stake",
+      expect.objectContaining({
+        address: CRUZIBLE_ADDRESS,
+        functionName: "stake",
+        args: [amount],
+      }),
+    );
+    expect(mocks.writeContractAsync).toHaveBeenNthCalledWith(1, {
+      address: AETHEL_TOKEN_ADDRESS,
+      abi: [],
+      functionName: "approve",
+      args: [CRUZIBLE_ADDRESS, amount],
+      chainId: 4242,
+    });
+    expect(mocks.writeContractAsync).toHaveBeenNthCalledWith(2, {
+      address: CRUZIBLE_ADDRESS,
+      abi: [],
+      functionName: "stake",
+      args: [amount],
+      chainId: 4242,
+    });
+    expect(mocks.waitForTransactionReceipt).toHaveBeenNthCalledWith(
+      1,
+      mockConfig,
+      { hash: APPROVAL_HASH },
+    );
+    expect(mocks.waitForTransactionReceipt).toHaveBeenNthCalledWith(
+      2,
+      mockConfig,
+      { hash: STAKE_HASH },
+    );
+  });
+
+  it("does not submit stake when the required approval reverts", async () => {
+    const amount = parseEther("3");
+    mocks.readContract
+      .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(0n);
+    mocks.writeContractAsync.mockResolvedValueOnce(APPROVAL_HASH);
+    mocks.waitForTransactionReceipt.mockResolvedValueOnce({
+      status: "reverted",
+    });
+
+    const { result } = renderHook(() => useStake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.stake("3");
+    });
+
+    expect(hash).toBeUndefined();
+    expect(mocks.writeContractAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.writeContractAsync).toHaveBeenCalledWith({
+      address: AETHEL_TOKEN_ADDRESS,
+      abi: [],
+      functionName: "approve",
+      args: [CRUZIBLE_ADDRESS, amount],
+      chainId: 4242,
+    });
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledTimes(1);
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "error",
+      "Approval Reverted",
+      "The AETHEL approval was reverted on-chain.",
+    );
+  });
+});
+
+describe("useUnstake", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setConnectedWallet();
+    mocks.useConfig.mockReturnValue(mockConfig);
+    mocks.useWriteContract.mockReturnValue({
+      isPending: false,
+      writeContractAsync: mocks.writeContractAsync,
+    });
+    mocks.assertContractSimulation.mockResolvedValue(true);
+    mocks.waitForTransactionReceipt.mockResolvedValue({ status: "success" });
+  });
+
+  it("skips stAETHEL approval when allowance covers the requested unstake", async () => {
+    const shares = parseEther("4");
+    mocks.readContract
+      .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(shares);
+    mocks.writeContractAsync.mockResolvedValueOnce(UNSTAKE_HASH);
+
+    const { result } = renderHook(() => useUnstake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.unstake("4");
+    });
+
+    expect(hash).toBe(UNSTAKE_HASH);
+    expect(mocks.writeContractAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.writeContractAsync).toHaveBeenCalledWith({
+      address: CRUZIBLE_ADDRESS,
+      abi: [],
+      functionName: "unstake",
+      args: [shares],
+      chainId: 4242,
+    });
+    expect(mocks.assertContractSimulation).toHaveBeenCalledTimes(1);
+    expect(mocks.assertContractSimulation).toHaveBeenCalledWith(
+      mockConfig,
+      mocks.addNotification,
+      "Unstake",
+      expect.objectContaining({
+        address: CRUZIBLE_ADDRESS,
+        functionName: "unstake",
+        args: [shares],
+      }),
+    );
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledTimes(1);
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledWith(mockConfig, {
+      hash: UNSTAKE_HASH,
+    });
+  });
+
+  it("approves the exact stAETHEL amount before unstaking when allowance is missing", async () => {
+    const shares = parseEther("5.25");
+    mocks.readContract
+      .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(0n);
+    mocks.writeContractAsync
+      .mockResolvedValueOnce(APPROVAL_HASH)
+      .mockResolvedValueOnce(UNSTAKE_HASH);
+
+    const { result } = renderHook(() => useUnstake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.unstake("5.25");
+    });
+
+    expect(hash).toBe(UNSTAKE_HASH);
+    expect(mocks.assertContractSimulation).toHaveBeenNthCalledWith(
+      1,
+      mockConfig,
+      mocks.addNotification,
+      "stAETHEL Approval",
+      expect.objectContaining({
+        address: ST_AETHEL_ADDRESS,
+        functionName: "approve",
+        args: [CRUZIBLE_ADDRESS, shares],
+      }),
+    );
+    expect(mocks.assertContractSimulation).toHaveBeenNthCalledWith(
+      2,
+      mockConfig,
+      mocks.addNotification,
+      "Unstake",
+      expect.objectContaining({
+        address: CRUZIBLE_ADDRESS,
+        functionName: "unstake",
+        args: [shares],
+      }),
+    );
+    expect(mocks.writeContractAsync).toHaveBeenNthCalledWith(1, {
+      address: ST_AETHEL_ADDRESS,
+      abi: [],
+      functionName: "approve",
+      args: [CRUZIBLE_ADDRESS, shares],
+      chainId: 4242,
+    });
+    expect(mocks.writeContractAsync).toHaveBeenNthCalledWith(2, {
+      address: CRUZIBLE_ADDRESS,
+      abi: [],
+      functionName: "unstake",
+      args: [shares],
+      chainId: 4242,
+    });
+    expect(mocks.waitForTransactionReceipt).toHaveBeenNthCalledWith(
+      1,
+      mockConfig,
+      { hash: APPROVAL_HASH },
+    );
+    expect(mocks.waitForTransactionReceipt).toHaveBeenNthCalledWith(
+      2,
+      mockConfig,
+      { hash: UNSTAKE_HASH },
+    );
+  });
+
+  it("does not submit unstake when the required stAETHEL approval reverts", async () => {
+    const shares = parseEther("6");
+    mocks.readContract
+      .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(0n);
+    mocks.writeContractAsync.mockResolvedValueOnce(APPROVAL_HASH);
+    mocks.waitForTransactionReceipt.mockResolvedValueOnce({
+      status: "reverted",
+    });
+
+    const { result } = renderHook(() => useUnstake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.unstake("6");
+    });
+
+    expect(hash).toBeUndefined();
+    expect(mocks.writeContractAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.writeContractAsync).toHaveBeenCalledWith({
+      address: ST_AETHEL_ADDRESS,
+      abi: [],
+      functionName: "approve",
+      args: [CRUZIBLE_ADDRESS, shares],
+      chainId: 4242,
+    });
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledTimes(1);
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "error",
+      "Approval Reverted",
+      "The stAETHEL approval was reverted on-chain.",
+    );
+  });
+});
