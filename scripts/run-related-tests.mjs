@@ -26,6 +26,14 @@ const FULL_TEST_TRIGGER_PATHS = new Set([
 
 const FULL_TEST_TRIGGER_PREFIXES = ["scripts/"];
 
+const BACKEND_API_PREFIX = "backend/api/";
+const BACKEND_API_VALIDATION_STEPS = [
+  ["npm", ["run", "format:check"]],
+  ["npm", ["run", "lint"]],
+  ["npm", ["run", "typecheck"]],
+  ["npm", ["test", "--", "--run"]],
+];
+
 function normalizeGitPath(filePath) {
   return filePath.split(path.sep).join("/");
 }
@@ -77,7 +85,37 @@ function run(command, args) {
   return result.status ?? 1;
 }
 
+function runInDirectory(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, stdio: "inherit" });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  return result.status ?? 1;
+}
+
+function runBackendApiValidation() {
+  console.log("Backend API change detected; running backend quality gates.");
+
+  for (const [command, args] of BACKEND_API_VALIDATION_STEPS) {
+    const status = runInDirectory(command, args, "backend/api");
+    if (status !== 0) {
+      return status;
+    }
+  }
+
+  return 0;
+}
+
 const stagedFiles = getStagedFiles();
+const hasBackendApiChanges = stagedFiles.some((filePath) =>
+  filePath.startsWith(BACKEND_API_PREFIX),
+);
+
+if (hasBackendApiChanges) {
+  process.exit(runBackendApiValidation());
+}
 
 if (stagedFiles.some(shouldRunFullUnitSuite)) {
   console.log("Config or tooling change detected; running full unit suite.");

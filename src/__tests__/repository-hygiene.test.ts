@@ -42,4 +42,15 @@ describe("repository hygiene", () => {
     expect(runner).toContain("related");
     expect(runner).toContain("FULL_TEST_TRIGGER_PATHS");
   });
+
+  it("routes staged backend API changes through backend quality gates", () => {
+    const runner = readFileSync("scripts/run-related-tests.mjs", "utf8");
+
+    expect(runner).toContain('const BACKEND_API_PREFIX = "backend/api/"');
+    expect(runner).toContain("BACKEND_API_VALIDATION_STEPS");
+    expect(runner).toContain("runBackendApiValidation");
+    expect(runner).toContain('"format:check"');
+    expect(runner).toContain('"typecheck"');
+    expect(runner).toContain('runInDirectory(command, args, "backend/api")');
+  });
 });
