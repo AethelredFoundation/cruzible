@@ -13,6 +13,7 @@ import { CacheService } from "../../services/CacheService";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ApiError } from "../../utils/ApiError";
 import { validate } from "../../middleware/validate";
+import { publicExpensiveRateLimiter } from "../../middleware/rateLimiter";
 import { MAX_PUBLIC_PAGINATION_OFFSET } from "../../validation/schemas";
 
 const router = Router();
@@ -110,6 +111,7 @@ router.get(
  */
 router.get(
   "/:assetId/history",
+  publicExpensiveRateLimiter,
   [
     assetIdValidator,
     query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
@@ -163,6 +165,7 @@ router.get(
  */
 router.get(
   "/:assetId/status",
+  publicExpensiveRateLimiter,
   [assetIdValidator, validate],
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.params;

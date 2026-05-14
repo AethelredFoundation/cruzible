@@ -641,6 +641,7 @@ router.get(
  */
 router.get(
   "/:address",
+  publicExpensiveRateLimiter,
   [
     param("address")
       .isString()

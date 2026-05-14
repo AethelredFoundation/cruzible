@@ -1,4 +1,5 @@
 import express from "express";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withHttpServer } from "./helpers/http";
 
@@ -138,6 +139,24 @@ describe("rate limiter", () => {
         "Public expensive endpoint rate limit exceeded",
       );
     });
+  });
+
+  it("wires expensive public limiters onto fan-out routes", () => {
+    const validatorsRoute = readFileSync("src/routes/v1/validators.ts", "utf8");
+    const stablecoinsRoute = readFileSync(
+      "src/routes/v1/stablecoins.ts",
+      "utf8",
+    );
+
+    expect(validatorsRoute).toMatch(
+      /router\.get\(\s*"\/:address",\s*publicExpensiveRateLimiter,/s,
+    );
+    expect(stablecoinsRoute).toMatch(
+      /router\.get\(\s*"\/:assetId\/history",\s*publicExpensiveRateLimiter,/s,
+    );
+    expect(stablecoinsRoute).toMatch(
+      /router\.get\(\s*"\/:assetId\/status",\s*publicExpensiveRateLimiter,/s,
+    );
   });
 
   it("uses Redis-backed counters when configured with a Redis URL", async () => {
