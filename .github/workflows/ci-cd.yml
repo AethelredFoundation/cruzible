@@ -21,7 +21,7 @@ concurrency:
 
 env:
   CI: "true"
-  NODE_VERSION: "24"
+  NODE_VERSION: "20"
   CARGO_TERM_COLOR: always
   NEXT_TELEMETRY_DISABLED: "1"
 

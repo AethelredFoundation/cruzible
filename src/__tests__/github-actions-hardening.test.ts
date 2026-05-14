@@ -136,6 +136,12 @@ describe("GitHub Actions workflow hardening", () => {
     }
   });
 
+  it("runs Node jobs on the production runtime major", () => {
+    for (const file of ["ci-cd.yml", "security-audit.yml"]) {
+      expect(readWorkflow(file), file).toContain('NODE_VERSION: "20"');
+    }
+  });
+
   it("avoids high-risk workflow triggers and unpinned action refs", () => {
     for (const file of workflowFiles) {
       const workflow = readWorkflow(file);
