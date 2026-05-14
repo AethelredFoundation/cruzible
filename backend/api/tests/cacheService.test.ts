@@ -59,6 +59,35 @@ describe("CacheService", () => {
     return (service as { cache: Map<string, unknown> }).cache.size;
   }
 
+  it("builds delimiter-safe keys for user-controlled public filters", async () => {
+    const { buildCacheKey } = await import("../src/services/CacheService");
+
+    const modelListKey = buildCacheKey(
+      "models",
+      "list",
+      50,
+      0,
+      "all",
+      "all",
+      "owner:with:delimiters",
+      "registered_at:desc",
+    );
+    const modelDetailKey = buildCacheKey(
+      "models",
+      "list:50:0:all:all:owner",
+      "with",
+      "delimiters:registered_at:desc",
+    );
+
+    expect(modelListKey).toBe(
+      "models:list:50:0:all:all:owner%3Awith%3Adelimiters:registered_at%3Adesc",
+    );
+    expect(modelDetailKey).toBe(
+      "models:list%3A50%3A0%3Aall%3Aall%3Aowner:with:delimiters%3Aregistered_at%3Adesc",
+    );
+    expect(modelListKey).not.toBe(modelDetailKey);
+  });
+
   it("stores and expires values in the in-memory fallback", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-27T00:00:00.000Z"));

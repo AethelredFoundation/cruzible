@@ -6,7 +6,7 @@ import { Router, Request, Response } from "express";
 import { query, param } from "express-validator";
 import { container } from "tsyringe";
 import { JobsService } from "../../services/JobsService";
-import { CacheService } from "../../services/CacheService";
+import { CacheService, buildCacheKey } from "../../services/CacheService";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ApiError } from "../../utils/ApiError";
 import { validate } from "../../middleware/validate";
@@ -129,9 +129,25 @@ router.get(
       model_hash,
       creator,
       sort = "created_at:desc",
-    } = req.query;
+    } = req.query as {
+      limit?: number;
+      offset?: number;
+      status?: string;
+      model_hash?: string;
+      creator?: string;
+      sort?: string;
+    };
 
-    const cacheKey = `jobs:list:${limit}:${offset}:${status || "all"}:${model_hash || "all"}:${creator || "all"}:${sort}`;
+    const cacheKey = buildCacheKey(
+      "jobs",
+      "list",
+      limit,
+      offset,
+      status || "all",
+      model_hash || "all",
+      creator || "all",
+      sort,
+    );
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -167,7 +183,7 @@ router.get(
 router.get(
   "/stats",
   asyncHandler(async (req: Request, res: Response) => {
-    const cacheKey = "jobs:stats";
+    const cacheKey = buildCacheKey("jobs", "stats");
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -303,7 +319,7 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
-    const cacheKey = `jobs:${id}`;
+    const cacheKey = buildCacheKey("jobs", id);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {

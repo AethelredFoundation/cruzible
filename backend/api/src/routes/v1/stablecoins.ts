@@ -9,7 +9,7 @@ import { Router, Request, Response } from "express";
 import { param, query } from "express-validator";
 import { container } from "tsyringe";
 import { StablecoinBridgeService } from "../../services/StablecoinBridgeService";
-import { CacheService } from "../../services/CacheService";
+import { CacheService, buildCacheKey } from "../../services/CacheService";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ApiError } from "../../utils/ApiError";
 import { validate } from "../../middleware/validate";
@@ -55,7 +55,7 @@ const BRIDGE_EVENT_TYPES = [
 router.get(
   "/",
   asyncHandler(async (_req: Request, res: Response) => {
-    const cacheKey = "stablecoins:configs";
+    const cacheKey = buildCacheKey("stablecoins", "configs");
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -82,7 +82,7 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.params;
 
-    const cacheKey = `stablecoins:config:${assetId}`;
+    const cacheKey = buildCacheKey("stablecoins", "config", assetId);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -139,7 +139,14 @@ router.get(
       event_type?: string;
     };
 
-    const cacheKey = `stablecoins:history:${assetId}:${limit}:${offset}:${event_type || "all"}`;
+    const cacheKey = buildCacheKey(
+      "stablecoins",
+      "history",
+      assetId,
+      limit,
+      offset,
+      event_type || "all",
+    );
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -170,7 +177,7 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.params;
 
-    const cacheKey = `stablecoins:status:${assetId}`;
+    const cacheKey = buildCacheKey("stablecoins", "status", assetId);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {

@@ -5,7 +5,7 @@
 import { Router, Request, Response } from "express";
 import { param, query } from "express-validator";
 import { container } from "tsyringe";
-import { CacheService } from "../../services/CacheService";
+import { CacheService, buildCacheKey } from "../../services/CacheService";
 import { SealsService } from "../../services/SealsService";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { validate } from "../../middleware/validate";
@@ -109,15 +109,16 @@ router.get(
       sort?: string;
     };
 
-    const cacheKey = [
-      "seals:list",
+    const cacheKey = buildCacheKey(
+      "seals",
+      "list",
       limit,
       offset,
       status ?? "all",
       requester ?? "all",
       job_id ?? "all",
       sort,
-    ].join(":");
+    );
 
     const cached = await cacheService.get(cacheKey);
     if (cached) {
@@ -161,7 +162,7 @@ router.get(
   ],
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const cacheKey = `seals:${id}`;
+    const cacheKey = buildCacheKey("seals", id);
 
     const cached = await cacheService.get(cacheKey);
     if (cached) {

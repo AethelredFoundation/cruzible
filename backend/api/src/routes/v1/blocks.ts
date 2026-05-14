@@ -6,7 +6,7 @@ import { Router, Request, Response } from "express";
 import { param, query } from "express-validator";
 import { container } from "tsyringe";
 import { BlockchainService } from "../../services/BlockchainService";
-import { CacheService } from "../../services/CacheService";
+import { CacheService, buildCacheKey } from "../../services/CacheService";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ApiError } from "../../utils/ApiError";
 import { validate } from "../../middleware/validate";
@@ -68,7 +68,13 @@ router.get(
       height?: number;
     };
 
-    const cacheKey = `blocks:list:${limit}:${offset}:${height || "all"}`;
+    const cacheKey = buildCacheKey(
+      "blocks",
+      "list",
+      limit,
+      offset,
+      height || "all",
+    );
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -97,7 +103,7 @@ router.get(
 router.get(
   "/latest",
   asyncHandler(async (req: Request, res: Response) => {
-    const cacheKey = "blocks:latest";
+    const cacheKey = buildCacheKey("blocks", "latest");
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -142,7 +148,7 @@ router.get(
       throw new ApiError(400, "Invalid block height");
     }
 
-    const cacheKey = `blocks:height:${height}`;
+    const cacheKey = buildCacheKey("blocks", "height", height);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -212,7 +218,7 @@ router.get(
       throw new ApiError(400, "Invalid block height");
     }
 
-    const cacheKey = `blocks:${height}:txs:${limit}:${offset}`;
+    const cacheKey = buildCacheKey("blocks", height, "txs", limit, offset);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {

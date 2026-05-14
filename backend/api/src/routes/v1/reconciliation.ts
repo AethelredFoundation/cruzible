@@ -5,7 +5,7 @@
 import { Router, type Request, type Response } from "express";
 import { param, query } from "express-validator";
 import { container } from "tsyringe";
-import { CacheService } from "../../services/CacheService";
+import { CacheService, buildCacheKey } from "../../services/CacheService";
 import { ReconciliationService } from "../../services/ReconciliationService";
 import {
   ReconciliationScheduler,
@@ -312,7 +312,7 @@ router.get(
   ],
   asyncHandler(async (req: Request, res: Response) => {
     const validatorLimit = Number(req.query.validator_limit ?? 200);
-    const cacheKey = `reconciliation:live:${validatorLimit}`;
+    const cacheKey = buildCacheKey("reconciliation", "live", validatorLimit);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -343,7 +343,7 @@ router.get(
   "/control-plane",
   publicExpensiveRateLimiter,
   asyncHandler(async (_req: Request, res: Response) => {
-    const cacheKey = "reconciliation:control-plane";
+    const cacheKey = buildCacheKey("reconciliation", "control-plane");
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -372,7 +372,7 @@ router.get(
   "/scorecard",
   publicExpensiveRateLimiter,
   asyncHandler(async (_req: Request, res: Response) => {
-    const cacheKey = "reconciliation:scorecard";
+    const cacheKey = buildCacheKey("reconciliation", "scorecard");
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -446,7 +446,7 @@ router.get(
   [query("limit").optional().isInt({ min: 1, max: 100 }).toInt(), validate],
   asyncHandler(async (req: Request, res: Response) => {
     const limit = Number(req.query.limit ?? 20);
-    const cacheKey = `reconciliation:history:${limit}`;
+    const cacheKey = buildCacheKey("reconciliation", "history", limit);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -471,7 +471,7 @@ router.get(
   [param("epoch").isInt({ min: 0 }).toInt(), validate],
   asyncHandler(async (req: Request, res: Response) => {
     const epoch = Number(req.params.epoch);
-    const cacheKey = `reconciliation:epoch:${epoch}`;
+    const cacheKey = buildCacheKey("reconciliation", "epoch", epoch);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {

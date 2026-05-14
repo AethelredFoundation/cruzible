@@ -6,7 +6,7 @@ import { Router, type Request, type Response } from "express";
 import { param, query } from "express-validator";
 import { container } from "tsyringe";
 import { BlockchainService } from "../../services/BlockchainService";
-import { CacheService } from "../../services/CacheService";
+import { CacheService, buildCacheKey } from "../../services/CacheService";
 import {
   ReconciliationScheduler,
   type ReconciliationCheck,
@@ -566,13 +566,14 @@ router.get(
     };
     const minVotingPower = parseVotingPowerFilter(min_voting_power);
 
-    const cacheKey = [
-      "validators:list",
+    const cacheKey = buildCacheKey(
+      "validators",
+      "list",
       limit,
       offset,
       status ?? "all",
       min_voting_power ?? "all",
-    ].join(":");
+    );
 
     const cached = await cacheService.get(cacheKey);
     if (cached) {
@@ -654,7 +655,7 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const { address } = req.params;
 
-    const cacheKey = `validators:${address}`;
+    const cacheKey = buildCacheKey("validators", address);
     const cached = await cacheService.get(cacheKey);
     if (cached) {
       return res.json(cached);

@@ -5,7 +5,7 @@
 import { Router, Request, Response } from "express";
 import { param, query } from "express-validator";
 import { container } from "tsyringe";
-import { CacheService } from "../../services/CacheService";
+import { CacheService, buildCacheKey } from "../../services/CacheService";
 import { ModelsService } from "../../services/ModelsService";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { validate } from "../../middleware/validate";
@@ -114,15 +114,16 @@ router.get(
       sort?: string;
     };
 
-    const cacheKey = [
-      "models:list",
+    const cacheKey = buildCacheKey(
+      "models",
+      "list",
       limit,
       offset,
       category ?? "all",
       typeof verified === "boolean" ? String(verified) : "all",
       owner ?? "all",
       sort,
-    ].join(":");
+    );
 
     const cached = await cacheService.get(cacheKey);
     if (cached) {
@@ -166,7 +167,7 @@ router.get(
   ],
   asyncHandler(async (req: Request, res: Response) => {
     const { modelHash } = req.params;
-    const cacheKey = `models:${modelHash}`;
+    const cacheKey = buildCacheKey("models", modelHash);
 
     const cached = await cacheService.get(cacheKey);
     if (cached) {

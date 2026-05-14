@@ -13,9 +13,20 @@ type CacheEntry = {
 type CacheEnvelope = {
   value: unknown;
 };
+type CacheKeyPart = string | number | boolean | null | undefined;
 
 const CACHE_KEY_PREFIX = "cruzible:api:";
 const MAX_MEMORY_CACHE_ENTRIES = 1_000;
+
+export function buildCacheKey(...parts: readonly CacheKeyPart[]): string {
+  return parts
+    .map((part) =>
+      encodeURIComponent(
+        part === null || part === undefined ? "null" : String(part),
+      ),
+    )
+    .join(":");
+}
 
 @singleton()
 export class CacheService {
