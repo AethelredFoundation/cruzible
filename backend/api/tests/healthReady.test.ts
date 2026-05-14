@@ -11,10 +11,16 @@ const OPERATIONAL_TOKEN = "12345678901234567890123456789012";
 // ---------------------------------------------------------------------------
 
 // Mock Prisma so the database health probe succeeds (tagged-template $queryRaw).
+const prismaMocks = vi.hoisted(() => ({
+  queryRaw: vi.fn(),
+  disconnect: vi.fn(),
+}));
+
 vi.mock("@prisma/client", () => {
   const MockPrismaClient = vi.fn().mockImplementation(function () {
     return {
-      $queryRaw: vi.fn().mockResolvedValue([1]),
+      $queryRaw: prismaMocks.queryRaw,
+      $disconnect: prismaMocks.disconnect,
     };
   });
   return { PrismaClient: MockPrismaClient };
@@ -32,6 +38,8 @@ vi.mock("../src/utils/logger", () => ({
 describe("/health/ready readiness gating", () => {
   beforeEach(() => {
     vi.resetModules();
+    prismaMocks.queryRaw.mockResolvedValue([1]);
+    prismaMocks.disconnect.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -130,6 +138,25 @@ describe("/health/ready readiness gating", () => {
       expect(body.ready).toBe(true);
       expect(body.checks.reconciliation.ready).toBe(true);
     });
+  });
+
+  it("disconnects the lazy health-check database client on shutdown", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    await registerIndexer(10);
+    const app = await mountRouter();
+    const { shutdownHealthCheckResources } =
+      await import("../src/routes/health");
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      expect(res.status).toBe(200);
+    });
+
+    await shutdownHealthCheckResources();
+    await shutdownHealthCheckResources();
+
+    expect(prismaMocks.disconnect).toHaveBeenCalledTimes(1);
   });
 
   it("redacts production probe failure details from readiness responses", async () => {

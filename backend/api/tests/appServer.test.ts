@@ -11,6 +11,7 @@ vi.mock("@prisma/client", () => {
   const MockPrismaClient = vi.fn().mockImplementation(function () {
     return {
       $queryRaw: vi.fn().mockResolvedValue([1]),
+      $disconnect: vi.fn().mockResolvedValue(undefined),
       vaultState: { findFirst: vi.fn().mockResolvedValue(null) },
     };
   });

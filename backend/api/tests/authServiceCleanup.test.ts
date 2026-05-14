@@ -7,6 +7,7 @@ const prismaMocks = vi.hoisted(() => ({
   authNonceCreate: vi.fn(),
   authNonceDeleteMany: vi.fn(),
   authRefreshSessionDeleteMany: vi.fn(),
+  disconnect: vi.fn(),
 }));
 
 const loggerMocks = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ vi.mock("@prisma/client", () => {
       authRefreshSession: {
         deleteMany: prismaMocks.authRefreshSessionDeleteMany,
       },
+      $disconnect: prismaMocks.disconnect,
     };
   });
 
@@ -52,6 +54,7 @@ describe("auth artifact cleanup", () => {
     prismaMocks.authNonceCreate.mockResolvedValue({});
     prismaMocks.authNonceDeleteMany.mockResolvedValue({ count: 0 });
     prismaMocks.authRefreshSessionDeleteMany.mockResolvedValue({ count: 0 });
+    prismaMocks.disconnect.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -118,6 +121,15 @@ describe("auth artifact cleanup", () => {
       "Expired auth artifact cleanup failed",
       { error: cleanupError },
     );
+  });
+
+  it("disconnects database-backed auth state on shutdown", async () => {
+    const { shutdownAuthState } = await import("../src/auth/service");
+
+    await shutdownAuthState();
+    await shutdownAuthState();
+
+    expect(prismaMocks.disconnect).toHaveBeenCalledTimes(1);
   });
 
   it("schedules cleanup when issuing a new login challenge", async () => {

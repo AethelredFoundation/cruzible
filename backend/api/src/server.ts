@@ -25,7 +25,7 @@ import { logger } from "./utils/logger";
 import { config } from "./config";
 import { swaggerSpec } from "./config/swagger";
 import { errorHandler } from "./middleware/errorHandler";
-import { rateLimiter } from "./middleware/rateLimiter";
+import { rateLimiter, shutdownRateLimitStores } from "./middleware/rateLimiter";
 import { metricsHandler, metricsMiddleware } from "./middleware/metrics";
 import { noStore } from "./middleware/noStore";
 import { requireOperationalAccess } from "./middleware/operationalAccess";
@@ -34,10 +34,14 @@ import { requestId } from "./middleware/requestId";
 import { requestLogger } from "./middleware/requestLogger";
 import { errorContext } from "./utils/errorContext";
 import { redactUrlForLogs } from "./utils/urlRedaction";
+import { shutdownAuthState } from "./auth/service";
 
 // Routes
 import { router as v1Router } from "./routes/v1";
-import { router as healthRouter } from "./routes/health";
+import {
+  router as healthRouter,
+  shutdownHealthCheckResources,
+} from "./routes/health";
 
 // WebSocket handlers
 import { WebSocketManager } from "./websocket/WebSocketManager";
@@ -431,6 +435,21 @@ export class ApiGateway {
       }
 
       try {
+        await shutdownAuthState();
+      } catch (error) {
+        logger.error("Error shutting down auth state", errorContext(error));
+      }
+
+      try {
+        await shutdownHealthCheckResources();
+      } catch (error) {
+        logger.error(
+          "Error shutting down health check resources",
+          errorContext(error),
+        );
+      }
+
+      try {
         const reconciliationScheduler = container.resolve(
           ReconciliationScheduler,
         );
@@ -453,6 +472,15 @@ export class ApiGateway {
         await cacheService.disconnect();
       } catch {
         // may not be registered
+      }
+
+      try {
+        await shutdownRateLimitStores();
+      } catch (error) {
+        logger.error(
+          "Error shutting down rate-limit stores",
+          errorContext(error),
+        );
       }
 
       try {
@@ -548,6 +576,23 @@ export class ApiGateway {
           );
         }
 
+        try {
+          await shutdownAuthState();
+          logger.info("Auth state resources shut down");
+        } catch (error) {
+          logger.error("Error shutting down auth state", errorContext(error));
+        }
+
+        try {
+          await shutdownHealthCheckResources();
+          logger.info("Health check resources shut down");
+        } catch (error) {
+          logger.error(
+            "Error shutting down health check resources",
+            errorContext(error),
+          );
+        }
+
         // Stop reconciliation scheduler first (it depends on cache + blockchain)
         try {
           const reconciliationScheduler = container.resolve(
@@ -568,6 +613,9 @@ export class ApiGateway {
         const cacheService = container.resolve(CacheService);
         await cacheService.disconnect();
         logger.info("Cache service disconnected");
+
+        await shutdownRateLimitStores();
+        logger.info("Rate-limit stores disconnected");
 
         const blockchainService = container.resolve(BlockchainService);
         await blockchainService.disconnect();

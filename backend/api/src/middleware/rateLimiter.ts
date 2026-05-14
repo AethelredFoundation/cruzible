@@ -80,6 +80,29 @@ return hits
   };
 }
 
+export function getRateLimitRedisClientCount(): number {
+  return sharedRateLimitRedisClients.size;
+}
+
+export async function shutdownRateLimitStores(): Promise<void> {
+  const clients = [...sharedRateLimitRedisClients.values()];
+  sharedRateLimitRedisClients.clear();
+
+  await Promise.all(
+    clients.map(async (client) => {
+      try {
+        await client.quit();
+      } catch (error) {
+        logger.warn(
+          "Redis rate-limit store quit failed; disconnecting socket",
+          errorContext(error),
+        );
+        client.disconnect();
+      }
+    }),
+  );
+}
+
 export const rateLimiter = rateLimit({
   windowMs: config.rateLimitWindowMs,
   max: config.rateLimitMax,

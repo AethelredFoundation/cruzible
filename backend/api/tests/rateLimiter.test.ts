@@ -165,12 +165,22 @@ describe("rate limiter", () => {
     const redisInstances: Array<{
       url: string;
       options: Record<string, unknown>;
+      quit: ReturnType<typeof vi.fn>;
+      disconnect: ReturnType<typeof vi.fn>;
     }> = [];
 
     vi.doMock("ioredis", () => ({
       default: class MockRedis {
+        quit = vi.fn().mockResolvedValue("OK");
+        disconnect = vi.fn();
+
         constructor(url: string, options: Record<string, unknown>) {
-          redisInstances.push({ url, options });
+          redisInstances.push({
+            url,
+            options,
+            quit: this.quit,
+            disconnect: this.disconnect,
+          });
         }
 
         on() {
@@ -216,8 +226,11 @@ describe("rate limiter", () => {
       },
     }));
 
-    const { createRedisRateLimitStore } =
-      await import("../src/middleware/rateLimiter");
+    const {
+      createRedisRateLimitStore,
+      getRateLimitRedisClientCount,
+      shutdownRateLimitStores,
+    } = await import("../src/middleware/rateLimiter");
 
     const store = createRedisRateLimitStore({
       prefix: "global",
@@ -240,5 +253,12 @@ describe("rate limiter", () => {
       url: "redis://localhost:6379",
     });
     expect([...counters.keys()]).toHaveLength(0);
+    expect(getRateLimitRedisClientCount()).toBe(1);
+
+    await shutdownRateLimitStores();
+
+    expect(getRateLimitRedisClientCount()).toBe(0);
+    expect(redisInstances[0].quit).toHaveBeenCalledTimes(1);
+    expect(redisInstances[0].disconnect).not.toHaveBeenCalled();
   });
 });

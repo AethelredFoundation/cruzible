@@ -124,6 +124,7 @@ const memoryRefreshSessions = new Map<string, StoredRefreshSession>();
 const memoryAccessRevocations = new Map<string, StoredAccessRevocation>();
 let nextAuthDbCleanupAt = 0;
 let authDbCleanupPromise: Promise<void> | null = null;
+let authPrismaDisconnected = false;
 
 /**
  * Generate JWT access and refresh tokens.
@@ -478,6 +479,25 @@ export async function cleanupExpiredAuthArtifacts(): Promise<void> {
     });
 
   await authDbCleanupPromise;
+}
+
+export async function shutdownAuthState(): Promise<void> {
+  if (authDbCleanupPromise) {
+    await authDbCleanupPromise;
+  }
+
+  memoryNonces.clear();
+  memoryRefreshSessions.clear();
+  memoryAccessRevocations.clear();
+  nextAuthDbCleanupAt = 0;
+  authDbCleanupPromise = null;
+
+  if (!authPrisma || authPrismaDisconnected) {
+    return;
+  }
+
+  authPrismaDisconnected = true;
+  await authPrisma.$disconnect();
 }
 
 async function revokeAccessTokensForAddress(

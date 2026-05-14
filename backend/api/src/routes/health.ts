@@ -41,6 +41,17 @@ function getPrisma(): PrismaClient {
   return prisma;
 }
 
+export async function shutdownHealthCheckResources(): Promise<void> {
+  const healthPrisma = prisma;
+  prisma = null;
+
+  if (!healthPrisma) {
+    return;
+  }
+
+  await healthPrisma.$disconnect();
+}
+
 // ---------------------------------------------------------------------------
 // Individual probe functions
 // ---------------------------------------------------------------------------
