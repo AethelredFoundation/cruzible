@@ -12,6 +12,10 @@ const STAKE_HASH =
   "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const UNSTAKE_HASH =
   "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const WITHDRAW_HASH =
+  "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const CLAIM_HASH =
+  "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const mockConfig = { uid: "wagmi-config" };
 
 const mocks = vi.hoisted(() => ({
@@ -70,7 +74,12 @@ vi.mock("wagmi/actions", () => ({
   waitForTransactionReceipt: mocks.waitForTransactionReceipt,
 }));
 
-import { useStake, useUnstake } from "@/hooks/useVault";
+import {
+  useClaimRewards,
+  useStake,
+  useUnstake,
+  useWithdraw,
+} from "@/hooks/useVault";
 
 function setConnectedWallet() {
   mocks.useApp.mockReturnValue({
@@ -399,5 +408,159 @@ describe("useUnstake", () => {
       "Approval Reverted",
       "The stAETHEL approval was reverted on-chain.",
     );
+  });
+});
+
+describe("useWithdraw", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setConnectedWallet();
+    mocks.useConfig.mockReturnValue(mockConfig);
+    mocks.useWriteContract.mockReturnValue({
+      isPending: false,
+      writeContractAsync: mocks.writeContractAsync,
+    });
+    mocks.assertContractSimulation.mockResolvedValue(true);
+    mocks.waitForTransactionReceipt.mockResolvedValue({ status: "success" });
+  });
+
+  it("simulates and confirms withdrawal claims before reporting success", async () => {
+    mocks.writeContractAsync.mockResolvedValueOnce(WITHDRAW_HASH);
+
+    const { result } = renderHook(() => useWithdraw());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.withdraw(7n);
+    });
+
+    expect(hash).toBe(WITHDRAW_HASH);
+    expect(mocks.assertContractSimulation).toHaveBeenCalledWith(
+      mockConfig,
+      mocks.addNotification,
+      "Withdrawal",
+      expect.objectContaining({
+        address: CRUZIBLE_ADDRESS,
+        functionName: "withdraw",
+        args: [7n],
+      }),
+    );
+    expect(mocks.writeContractAsync).toHaveBeenCalledWith({
+      address: CRUZIBLE_ADDRESS,
+      abi: [],
+      functionName: "withdraw",
+      args: [7n],
+      chainId: 4242,
+    });
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledWith(mockConfig, {
+      hash: WITHDRAW_HASH,
+    });
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "success",
+      "Withdrawal Complete",
+      "Your AETHEL has been returned to your wallet.",
+    );
+  });
+
+  it("does not report withdrawal success when the receipt reverts", async () => {
+    mocks.writeContractAsync.mockResolvedValueOnce(WITHDRAW_HASH);
+    mocks.waitForTransactionReceipt.mockResolvedValueOnce({
+      status: "reverted",
+    });
+
+    const { result } = renderHook(() => useWithdraw());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.withdraw(8n);
+    });
+
+    expect(hash).toBeUndefined();
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "error",
+      "Withdrawal Reverted",
+      "The withdrawal transaction was reverted on-chain.",
+    );
+    expect(mocks.addNotification).not.toHaveBeenCalledWith(
+      "success",
+      "Withdrawal Complete",
+      expect.any(String),
+    );
+  });
+});
+
+describe("useClaimRewards", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setConnectedWallet();
+    mocks.useConfig.mockReturnValue(mockConfig);
+    mocks.useWriteContract.mockReturnValue({
+      isPending: false,
+      writeContractAsync: mocks.writeContractAsync,
+    });
+    mocks.assertContractSimulation.mockResolvedValue(true);
+    mocks.waitForTransactionReceipt.mockResolvedValue({ status: "success" });
+  });
+
+  it("simulates and confirms reward claims with backend-supplied proofs", async () => {
+    const proof = ["0xabc123"] as readonly `0x${string}`[];
+    mocks.writeContractAsync.mockResolvedValueOnce(CLAIM_HASH);
+
+    const { result } = renderHook(() => useClaimRewards());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.claimRewards({
+        epoch: 9n,
+        amount: parseEther("0.25"),
+        proof,
+      });
+    });
+
+    expect(hash).toBe(CLAIM_HASH);
+    expect(mocks.assertContractSimulation).toHaveBeenCalledWith(
+      mockConfig,
+      mocks.addNotification,
+      "Reward Claim",
+      expect.objectContaining({
+        address: CRUZIBLE_ADDRESS,
+        functionName: "claimRewards",
+        args: [9n, parseEther("0.25"), proof],
+      }),
+    );
+    expect(mocks.writeContractAsync).toHaveBeenCalledWith({
+      address: CRUZIBLE_ADDRESS,
+      abi: [],
+      functionName: "claimRewards",
+      args: [9n, parseEther("0.25"), proof],
+      chainId: 4242,
+    });
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledWith(mockConfig, {
+      hash: CLAIM_HASH,
+    });
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "success",
+      "Rewards Claimed",
+      "Your rewards have been sent to your wallet.",
+    );
+  });
+
+  it("does not submit reward claims when simulation fails", async () => {
+    mocks.assertContractSimulation.mockResolvedValueOnce(false);
+
+    const { result } = renderHook(() => useClaimRewards());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.claimRewards({
+        epoch: 10n,
+        amount: parseEther("1"),
+        proof: [],
+      });
+    });
+
+    expect(hash).toBeUndefined();
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled();
+    expect(mocks.waitForTransactionReceipt).not.toHaveBeenCalled();
   });
 });
