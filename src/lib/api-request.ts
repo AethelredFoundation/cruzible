@@ -3,9 +3,15 @@ import { BRAND } from "@/lib/constants";
 
 type JsonRecord = Record<string, unknown>;
 
-interface ApiJsonOptions extends RequestInit {
+interface ApiRequestOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+interface ApiJsonOptions extends ApiRequestOptions {
   fallbackMessage?: string;
 }
+
+export const DEFAULT_API_TIMEOUT_MS = 12_000;
 
 export class ApiHttpError extends Error {
   constructor(
@@ -50,16 +56,69 @@ function buildApiHeaders(
   return merged;
 }
 
-export function apiRequest(endpoint: string, options: RequestInit = {}) {
-  const { headers, body, ...rest } = options;
+function buildTimeoutSignal(
+  timeoutMs: number,
+  parentSignal?: AbortSignal | null,
+) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("API request timeout must be a positive finite number");
+  }
 
-  return fetch(getApiUrl(endpoint), {
-    ...rest,
-    credentials: "include",
-    cache: "no-store",
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+  let removeParentAbortListener: (() => void) | undefined;
+
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      controller.abort();
+    } else {
+      const abortFromParent = () => {
+        clearTimeout(timeoutId);
+        controller.abort();
+      };
+      parentSignal.addEventListener("abort", abortFromParent, { once: true });
+      removeParentAbortListener = () => {
+        parentSignal.removeEventListener("abort", abortFromParent);
+      };
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      removeParentAbortListener?.();
+    },
+  };
+}
+
+export async function apiRequest(
+  endpoint: string,
+  options: ApiRequestOptions = {},
+) {
+  const {
+    headers,
     body,
-    headers: buildApiHeaders(headers, body),
-  });
+    signal,
+    timeoutMs = DEFAULT_API_TIMEOUT_MS,
+    ...rest
+  } = options;
+  const timeout = buildTimeoutSignal(timeoutMs, signal);
+
+  try {
+    return await fetch(getApiUrl(endpoint), {
+      ...rest,
+      credentials: "include",
+      cache: "no-store",
+      body,
+      signal: timeout.signal,
+      headers: buildApiHeaders(headers, body),
+    });
+  } finally {
+    timeout.cleanup();
+  }
 }
 
 export async function parseApiJsonResponse<T>(response: Response): Promise<T> {

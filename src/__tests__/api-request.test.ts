@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiHttpError, apiJson, apiRequest } from "@/lib/api-request";
+import {
+  ApiHttpError,
+  DEFAULT_API_TIMEOUT_MS,
+  apiJson,
+  apiRequest,
+} from "@/lib/api-request";
 import { BRAND } from "@/lib/constants";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -18,6 +23,7 @@ function getLastRequestOptions(fetchMock: ReturnType<typeof vi.fn>) {
 describe("apiRequest", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("includes browser credentials and audit headers by default", async () => {
@@ -57,6 +63,46 @@ describe("apiRequest", () => {
     expect(getLastRequestOptions(fetchMock)).toMatchObject({
       cache: "no-store",
     });
+  });
+
+  it("aborts slow API requests with the default timeout", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      (_url: string, options: RequestInit | undefined) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = options?.signal;
+          if (!(signal instanceof AbortSignal)) {
+            reject(new Error("missing request abort signal"));
+            return;
+          }
+
+          signal.addEventListener(
+            "abort",
+            () => {
+              reject(
+                new DOMException("The operation was aborted.", "AbortError"),
+              );
+            },
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = apiRequest("/validators");
+    const assertion = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(DEFAULT_API_TIMEOUT_MS);
+
+    await assertion;
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects invalid caller-provided request timeouts", async () => {
+    await expect(apiRequest("/validators", { timeoutMs: 0 })).rejects.toThrow(
+      "API request timeout must be a positive finite number",
+    );
   });
 
   it("throws typed HTTP errors with server messages", async () => {
