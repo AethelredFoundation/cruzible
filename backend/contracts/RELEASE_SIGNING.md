@@ -17,7 +17,26 @@ The signing script writes detached signatures and `signatures.json` into the
 same directory. Archive those files with the wasm artifacts and record the
 signer identity in the staging release manifest.
 
-## Cosign
+## CI Keyless Cosign
+
+The `Contract Release Artifacts` workflow job signs artifacts only for manual
+`main` releases. It uses GitHub OIDC keyless signing and immediately verifies
+the certificates against the pinned workflow identity before uploading the
+signed artifact bundle.
+
+Expected certificate identity:
+
+```text
+https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main
+```
+
+Expected issuer:
+
+```text
+https://token.actions.githubusercontent.com
+```
+
+## Cosign With Managed Key
 
 ```bash
 cd backend/contracts

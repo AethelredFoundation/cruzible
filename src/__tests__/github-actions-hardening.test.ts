@@ -127,6 +127,12 @@ describe("GitHub Actions workflow hardening", () => {
           continue;
         }
 
+        if (file === "ci-cd.yml" && job.name === "contract-release-artifacts") {
+          expect(job.block).toContain("contents: read");
+          expect(jobPermissionWrites(job.block)).toEqual(["id-token"]);
+          continue;
+        }
+
         expect(jobPermissionWrites(job.block), `${file}:${job.name}`).toEqual(
           [],
         );
@@ -307,6 +313,51 @@ describe("GitHub Actions workflow hardening", () => {
     expect(artifactScript).toContain('"builder": {');
     expect(artifactScript).toContain('"image": "%s"');
     expect(artifactScript).toContain('"platform": "%s"');
+  });
+
+  it("publishes signed contract artifacts only from manual main runs", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const releaseJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "contract-release-artifacts",
+    );
+    const signScript = readRepoFile(
+      "backend/contracts/scripts/sign-audit-artifacts.sh",
+    );
+    const verifyScript = readRepoFile(
+      "backend/contracts/scripts/verify-audit-artifact-signatures.sh",
+    );
+
+    expect(releaseJob?.block).toContain(
+      "if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+    );
+    expect(releaseJob?.block).toContain("needs: contracts");
+    expect(releaseJob?.block).toContain("id-token: write");
+    expect(releaseJob?.block).toContain("uses: sigstore/cosign-installer@");
+    expect(releaseJob?.block).toContain(
+      "bash scripts/build-optimized-artifacts.sh",
+    );
+    expect(releaseJob?.block).toContain("SIGNING_BACKEND: cosign-keyless");
+    expect(releaseJob?.block).toContain("bash scripts/sign-audit-artifacts.sh");
+    expect(releaseJob?.block).toContain(
+      "COSIGN_CERTIFICATE_IDENTITY: https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main",
+    );
+    expect(releaseJob?.block).toContain(
+      "COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com",
+    );
+    expect(releaseJob?.block).toContain(
+      "bash scripts/verify-audit-artifact-signatures.sh",
+    );
+    expect(releaseJob?.block).toContain(
+      "name: signed-cosmwasm-contracts-${{ github.sha }}",
+    );
+    expect(releaseJob?.block).toContain("retention-days: 90");
+
+    expect(signScript).toContain("sign_with_cosign_keyless()");
+    expect(signScript).toContain("--output-certificate");
+    expect(signScript).toContain('"certificate": "%s.%s"');
+    expect(verifyScript).toContain("verify_with_cosign_keyless()");
+    expect(verifyScript).toContain("--certificate-identity");
+    expect(verifyScript).toContain("--certificate-oidc-issuer");
   });
 
   it("runs Python SDK conformance tests in CI", () => {

@@ -45,6 +45,41 @@ verify_with_cosign() {
   done
 }
 
+verify_with_cosign_keyless() {
+  if ! command -v cosign >/dev/null 2>&1; then
+    echo "cosign is required when SIGNING_BACKEND=cosign-keyless" >&2
+    exit 1
+  fi
+  if [ -z "${COSIGN_CERTIFICATE_IDENTITY:-}" ]; then
+    echo "COSIGN_CERTIFICATE_IDENTITY is required when SIGNING_BACKEND=cosign-keyless" >&2
+    exit 1
+  fi
+  if [ -z "${COSIGN_CERTIFICATE_OIDC_ISSUER:-}" ]; then
+    echo "COSIGN_CERTIFICATE_OIDC_ISSUER is required when SIGNING_BACKEND=cosign-keyless" >&2
+    exit 1
+  fi
+
+  for payload in SHA256SUMS manifest.json; do
+    signature="${artifact_dir}/${payload}.sig"
+    certificate="${artifact_dir}/${payload}.pem"
+    if [ ! -f "${signature}" ]; then
+      echo "Missing detached signature: ${signature}" >&2
+      exit 1
+    fi
+    if [ ! -f "${certificate}" ]; then
+      echo "Missing signing certificate: ${certificate}" >&2
+      exit 1
+    fi
+
+    cosign verify-blob \
+      --certificate "${certificate}" \
+      --certificate-identity "${COSIGN_CERTIFICATE_IDENTITY}" \
+      --certificate-oidc-issuer "${COSIGN_CERTIFICATE_OIDC_ISSUER}" \
+      --signature "${signature}" \
+      "${artifact_dir}/${payload}"
+  done
+}
+
 verify_with_gpg() {
   if ! command -v gpg >/dev/null 2>&1; then
     echo "gpg is required when SIGNING_BACKEND=gpg" >&2
@@ -66,11 +101,14 @@ case "${backend}" in
   cosign)
     verify_with_cosign
     ;;
+  cosign-keyless)
+    verify_with_cosign_keyless
+    ;;
   gpg)
     verify_with_gpg
     ;;
   *)
-    echo "Unsupported SIGNING_BACKEND=${backend}; use cosign or gpg." >&2
+    echo "Unsupported SIGNING_BACKEND=${backend}; use cosign, cosign-keyless, or gpg." >&2
     exit 1
     ;;
 esac

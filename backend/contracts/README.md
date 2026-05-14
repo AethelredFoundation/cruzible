@@ -61,8 +61,9 @@ pinned `linux/amd64` CosmWasm optimizer image, then
 `scripts/prepare-audit-artifacts.sh` writes `manifest.json` with builder
 metadata, file sizes, and checksums. The local Dockerfile mirrors that artifact
 build path and prints the generated checksums by default.
-`RELEASE_SIGNING.md` defines the cosign and GPG detached-signature process for
-release artifacts. Completed staging manifests should be checked with
+`RELEASE_SIGNING.md` defines CI keyless Cosign, managed-key Cosign, and GPG
+detached-signature processes for release artifacts. Completed staging manifests
+should be checked with
 `python3 scripts/validate-release-manifest.py --strict <manifest> --artifact-dir audit-artifacts/contracts`
 after signatures are generated.
 The manifest also records each contract's exact instantiate message and funds,
@@ -90,6 +91,7 @@ Before external audit:
 - [x] Release manifest validator checks required post-instantiate CW20 transfer-hook, CW20 minter, and model registry role wiring actions.
 - [x] Release manifest validator enforces artifact signer, uploader, deployer, contract admin, and two-approver sign-off authority.
 - [x] Release artifact signing and verification scripts are checked in.
+- [x] Manual main release workflow can publish keylessly signed contract artifact bundles.
 - [x] Governance feeder quorum, tolerance, mutation, quarantine, capacity, and production authority config is validated.
 - [ ] Staging release manifest captured with code IDs, addresses, checksums, and role owners.
 

@@ -49,8 +49,8 @@ The script copies wasm files into `audit-artifacts/contracts`, writes
 commit, timestamp, file sizes, and checksums. The CI `Contracts` job performs
 the same wasm build and uploads that directory as an audit artifact named with
 the commit SHA.
-`RELEASE_SIGNING.md` documents cosign and GPG detached-signature flows for the
-checksums and manifest.
+`RELEASE_SIGNING.md` documents CI keyless Cosign, managed-key Cosign, and GPG
+detached-signature flows for the checksums and manifest.
 
 ## Deployment Assumptions
 
@@ -101,17 +101,17 @@ checksums and manifest.
 
 These are not hidden TODOs. They are explicit pre-production review items:
 
-| Item                               | Status  | Required action                                                                                                            |
-| ---------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| External audit                     | Open    | Complete independent review and remediate or accept findings.                                                              |
-| Artifact manifest                  | Ready   | `scripts/build-optimized-artifacts.sh` generates optimized wasm, `manifest.json`, and `SHA256SUMS`.                        |
-| Deployment manifest template       | Ready   | `deployments/release-manifest.example.json` validates artifacts, instantiate payloads, funds, and role wiring in CI.       |
-| Release authority policy           | Ready   | `release_authorities` gates artifact signers, uploaders, deployers, admins, and two-approver sign-off evidence.            |
-| Staging deployment manifest        | Open    | Record real code IDs, contract addresses, admins, operators, and artifact checksums.                                       |
-| Staging deployment                 | Open    | Instantiate all contracts on a real chain and exercise core cross-contract flows.                                          |
-| Governance feeder decentralization | Ready   | Production manifests require governance-controlled feeder membership; admin mutation remains explicit bootstrap mode only. |
-| stAETHEL accounting hook           | Ready   | Release manifests require the vault transfer hook before CW20 mint authority handoff.                                      |
-| Release artifact signing           | Partial | Signing and verification scripts are checked in; production signatures still require release keys.                         |
+| Item                               | Status | Required action                                                                                                            |
+| ---------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| External audit                     | Open   | Complete independent review and remediate or accept findings.                                                              |
+| Artifact manifest                  | Ready  | `scripts/build-optimized-artifacts.sh` generates optimized wasm, `manifest.json`, and `SHA256SUMS`.                        |
+| Deployment manifest template       | Ready  | `deployments/release-manifest.example.json` validates artifacts, instantiate payloads, funds, and role wiring in CI.       |
+| Release authority policy           | Ready  | `release_authorities` gates artifact signers, uploaders, deployers, admins, and two-approver sign-off evidence.            |
+| Staging deployment manifest        | Open   | Record real code IDs, contract addresses, admins, operators, and artifact checksums.                                       |
+| Staging deployment                 | Open   | Instantiate all contracts on a real chain and exercise core cross-contract flows.                                          |
+| Governance feeder decentralization | Ready  | Production manifests require governance-controlled feeder membership; admin mutation remains explicit bootstrap mode only. |
+| stAETHEL accounting hook           | Ready  | Release manifests require the vault transfer hook before CW20 mint authority handoff.                                      |
+| Release artifact signing           | Ready  | Manual main workflow produces keylessly signed artifact bundles; scripts also support managed-key Cosign and GPG flows.    |
 
 ## Minimum Staging Drill
 
