@@ -95,6 +95,7 @@ import {
 } from "@/lib/reconciliation";
 import { apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 import { buildVaultQuoteSafety, formatVaultQuoteAge } from "@/lib/vaultQuotes";
+import { getTransactionFailureMessage } from "@/lib/transactionPreflight";
 
 // ============================================================================
 // TYPES
@@ -499,8 +500,10 @@ function OverviewTab({
       addNotification(
         "error",
         "Claim Failed",
-        err?.message ||
+        getTransactionFailureMessage(
+          err,
           "Could not fetch reward proof. The reward proof endpoint may not be deployed yet.",
+        ),
       );
     } finally {
       setClaiming(false);
@@ -2115,8 +2118,10 @@ function RewardsTab({
       addNotification(
         "error",
         "Claim Failed",
-        err?.message ||
+        getTransactionFailureMessage(
+          err,
           "Could not fetch reward proof. The reward proof endpoint may not be deployed yet.",
+        ),
       );
     } finally {
       setClaimProcessing(false);
