@@ -29,7 +29,13 @@ export default defineConfig({
   expect: {
     timeout: 5_000,
   },
-  reporter: process.env.CI ? [["github"], ["list"]] : "list",
+  reporter: process.env.CI
+    ? [
+        ["github"],
+        ["list"],
+        ["html", { outputFolder: "playwright-report", open: "never" }],
+      ]
+    : "list",
   use: {
     baseURL,
     trace: "on-first-retry",

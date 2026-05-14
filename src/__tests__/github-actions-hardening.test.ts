@@ -200,6 +200,22 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain("http://127.0.0.1:3000/api/health");
   });
 
+  it("preserves Playwright failure evidence from production smoke tests", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const e2eJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "frontend-e2e",
+    );
+
+    expect(e2eJob?.block).toContain("Run production smoke tests");
+    expect(e2eJob?.block).toContain("Upload Playwright failure artifacts");
+    expect(e2eJob?.block).toContain("if: failure()");
+    expect(e2eJob?.block).toContain("actions/upload-artifact@");
+    expect(e2eJob?.block).toContain("playwright-report-${{ github.sha }}");
+    expect(e2eJob?.block).toContain("playwright-report");
+    expect(e2eJob?.block).toContain("test-results");
+    expect(e2eJob?.block).toContain("retention-days: 14");
+  });
+
   it("runs Python SDK conformance tests in CI", () => {
     const workflow = readWorkflow("ci-cd.yml");
 

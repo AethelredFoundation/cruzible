@@ -167,6 +167,17 @@ jobs:
       - name: Run production smoke tests
         run: npm run test:e2e
 
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
   backend-api:
     name: Backend API
     runs-on: ubuntu-latest
