@@ -16,6 +16,7 @@ import { SEOHead } from "@/components/SEOHead";
 import { CopyButton, GlassCard } from "@/components/PagePrimitives";
 import { Footer, TopNav } from "@/components/SharedComponents";
 import { ApiHttpError, apiJson } from "@/lib/api-request";
+import { getPublicErrorMessage } from "@/lib/publicErrors";
 
 interface Job {
   id: string;
@@ -39,9 +40,7 @@ async function fetchJob(id: string): Promise<Job> {
       throw new Error("Job not found");
     }
 
-    throw new Error(
-      error instanceof Error ? error.message : "Failed to fetch job",
-    );
+    throw new Error(getPublicErrorMessage(error, "Failed to fetch job"));
   }
 }
 
@@ -151,10 +150,10 @@ export default function JobDetailPage() {
   });
 
   const job = jobQuery.data;
-  const errorMessage =
-    jobQuery.error instanceof Error
-      ? jobQuery.error.message
-      : "The requested job could not be loaded.";
+  const errorMessage = getPublicErrorMessage(
+    jobQuery.error,
+    "The requested job could not be loaded.",
+  );
 
   return (
     <>

@@ -24,6 +24,7 @@ import { SEOHead } from "@/components/SEOHead";
 import { Footer, TopNav } from "@/components/SharedComponents";
 import { GlassCard } from "@/components/PagePrimitives";
 import { apiJson } from "@/lib/api-request";
+import { getPublicErrorMessage } from "@/lib/publicErrors";
 
 const PAGE_SIZE = 20;
 
@@ -194,10 +195,10 @@ export default function JobsPage() {
     return new Set(jobs.map((job) => normalizeJobStatus(job.status))).size;
   }, [jobs]);
 
-  const errorMessage =
-    jobsQuery.error instanceof Error
-      ? jobsQuery.error.message
-      : "The live job registry could not be loaded.";
+  const errorMessage = getPublicErrorMessage(
+    jobsQuery.error,
+    "The live job registry could not be loaded.",
+  );
 
   return (
     <>

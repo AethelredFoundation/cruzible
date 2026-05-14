@@ -25,6 +25,7 @@ import {
   type ReconciliationScorecard,
 } from "@/lib/reconciliation";
 import { isDevtoolsEnabled } from "@/config/features";
+import { getPublicErrorMessage } from "@/lib/publicErrors";
 
 function StatusPill({ status }: { status: string | undefined }) {
   const normalized = (status || "UNKNOWN").toUpperCase();
@@ -162,10 +163,12 @@ export default function ReconciliationPage() {
     (scorecardQuery.isLoading && !scorecard) ||
     (liveDocumentQuery.isLoading && !liveDocument);
   const error =
-    (scorecardQuery.error instanceof Error && scorecardQuery.error.message) ||
-    (liveDocumentQuery.error instanceof Error &&
-      liveDocumentQuery.error.message) ||
-    null;
+    scorecardQuery.error || liveDocumentQuery.error
+      ? getPublicErrorMessage(
+          scorecardQuery.error || liveDocumentQuery.error,
+          "The reconciliation scorecard could not be loaded.",
+        )
+      : null;
 
   return (
     <>

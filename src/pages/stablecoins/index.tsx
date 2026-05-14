@@ -51,6 +51,7 @@ import {
   formatStablecoinAmount,
   shortStablecoinHash,
 } from "@/lib/stablecoinHistory";
+import { getPublicErrorMessage } from "@/lib/publicErrors";
 
 // ============================================================================
 // TYPES
@@ -433,9 +434,7 @@ function HistoryTab() {
             </div>
           ) : isError ? (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-              {error instanceof Error
-                ? error.message
-                : "Unable to load bridge history."}
+              {getPublicErrorMessage(error, "Unable to load bridge history.")}
             </div>
           ) : events.length === 0 ? (
             <div className="text-center py-12 text-gray-500">

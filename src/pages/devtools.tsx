@@ -24,6 +24,7 @@ import {
 import { getApiV1BaseUrl } from "@/config/api";
 import { getDevtoolsServiceUrls } from "@/config/devtools";
 import { isDevtoolsEnabled } from "@/config/features";
+import { getPublicErrorMessage } from "@/lib/publicErrors";
 
 const DEVTOOLS_URLS = getDevtoolsServiceUrls();
 
@@ -67,7 +68,7 @@ async function timedFetchJson(name: string, url: string): Promise<HealthCheck> {
       url,
       ok: false,
       latencyMs: null,
-      error: error instanceof Error ? error.message : String(error),
+      error: getPublicErrorMessage(error, "Devtools health check failed."),
     };
   }
 }
@@ -100,7 +101,7 @@ async function timedPostJson(
       url,
       ok: false,
       latencyMs: null,
-      error: error instanceof Error ? error.message : String(error),
+      error: getPublicErrorMessage(error, "Devtools health check failed."),
     };
   }
 }
