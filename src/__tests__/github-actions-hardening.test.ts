@@ -12,6 +12,10 @@ function readWorkflow(file: string): string {
   return readFileSync(resolve(workflowsDir, file), "utf8");
 }
 
+function readRepoFile(file: string): string {
+  return readFileSync(resolve(repoRoot, file), "utf8");
+}
+
 function workflowJobBlocks(workflow: string): Array<{
   name: string;
   block: string;
@@ -269,6 +273,40 @@ describe("GitHub Actions workflow hardening", () => {
     expect(e2eJob?.block).toContain("playwright-report");
     expect(e2eJob?.block).toContain("test-results");
     expect(e2eJob?.block).toContain("retention-days: 14");
+  });
+
+  it("builds contract audit artifacts with a pinned amd64 optimizer", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const contractsJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "contracts",
+    );
+    const optimizerScript = readRepoFile(
+      "backend/contracts/scripts/build-optimized-artifacts.sh",
+    );
+    const artifactScript = readRepoFile(
+      "backend/contracts/scripts/prepare-audit-artifacts.sh",
+    );
+
+    expect(contractsJob?.block).toContain(
+      "bash -n scripts/build-optimized-artifacts.sh",
+    );
+    expect(contractsJob?.block).toContain(
+      "bash scripts/build-optimized-artifacts.sh",
+    );
+    expect(contractsJob?.block).not.toContain(
+      "cargo build --workspace --release --target wasm32-unknown-unknown --locked",
+    );
+    expect(optimizerScript).toContain(
+      "cosmwasm/optimizer:0.17.0@sha256:7e0b9229c1a4118d0c9a2af2e7f5d95a91f264c26a2ce5681c779926e74d7f85",
+    );
+    expect(optimizerScript).toContain('OPTIMIZER_PLATFORM="linux/amd64"');
+    expect(optimizerScript).toContain('--platform "${optimizer_platform}"');
+    expect(optimizerScript).toContain(
+      "ARTIFACT_BUILDER_KIND=cosmwasm_optimizer",
+    );
+    expect(artifactScript).toContain('"builder": {');
+    expect(artifactScript).toContain('"image": "%s"');
+    expect(artifactScript).toContain('"platform": "%s"');
   });
 
   it("runs Python SDK conformance tests in CI", () => {

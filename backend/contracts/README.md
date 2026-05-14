@@ -48,7 +48,7 @@ cd backend/contracts
 cargo test
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo build --release --target wasm32-unknown-unknown
+bash scripts/build-optimized-artifacts.sh
 python3 scripts/validate-release-manifest.py deployments/release-manifest.example.json
 python3 scripts/test-validate-release-manifest.py
 bash -n scripts/sign-audit-artifacts.sh
@@ -56,9 +56,11 @@ bash -n scripts/verify-audit-artifact-signatures.sh
 ```
 
 The `Contracts` CI job also publishes wasm files and `SHA256SUMS` as a
-commit-scoped audit artifact. `scripts/prepare-audit-artifacts.sh` also writes
-`manifest.json` with file sizes and checksums. The local Dockerfile mirrors
-that artifact build path and prints the generated checksums by default.
+commit-scoped audit artifact. `scripts/build-optimized-artifacts.sh` uses a
+pinned `linux/amd64` CosmWasm optimizer image, then
+`scripts/prepare-audit-artifacts.sh` writes `manifest.json` with builder
+metadata, file sizes, and checksums. The local Dockerfile mirrors that artifact
+build path and prints the generated checksums by default.
 `RELEASE_SIGNING.md` defines the cosign and GPG detached-signature process for
 release artifacts. Completed staging manifests should be checked with
 `python3 scripts/validate-release-manifest.py --strict <manifest> --artifact-dir audit-artifacts/contracts`

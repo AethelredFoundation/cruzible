@@ -36,19 +36,19 @@ cargo check --workspace --all-targets --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
 cargo audit
-cargo build --workspace --release --target wasm32-unknown-unknown --locked
 ```
 
-Create local artifact checksums:
+Create optimized release artifacts and local checksums:
 
 ```bash
-bash scripts/prepare-audit-artifacts.sh
+bash scripts/build-optimized-artifacts.sh
 ```
 
 The script copies wasm files into `audit-artifacts/contracts`, writes
-`SHA256SUMS`, and creates `manifest.json` with the commit, timestamp, file
-sizes, and checksums. The CI `Contracts` job performs the same wasm build and
-uploads that directory as an audit artifact named with the commit SHA.
+`SHA256SUMS`, and creates `manifest.json` with the pinned optimizer builder,
+commit, timestamp, file sizes, and checksums. The CI `Contracts` job performs
+the same wasm build and uploads that directory as an audit artifact named with
+the commit SHA.
 `RELEASE_SIGNING.md` documents cosign and GPG detached-signature flows for the
 checksums and manifest.
 
@@ -100,7 +100,7 @@ These are not hidden TODOs. They are explicit pre-production review items:
 | Item                               | Status  | Required action                                                                                                            |
 | ---------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
 | External audit                     | Open    | Complete independent review and remediate or accept findings.                                                              |
-| Artifact manifest                  | Ready   | `scripts/prepare-audit-artifacts.sh` generates `manifest.json` and `SHA256SUMS`.                                           |
+| Artifact manifest                  | Ready   | `scripts/build-optimized-artifacts.sh` generates optimized wasm, `manifest.json`, and `SHA256SUMS`.                        |
 | Deployment manifest template       | Ready   | `deployments/release-manifest.example.json` validates artifacts, instantiate payloads, funds, and role wiring in CI.       |
 | Staging deployment manifest        | Open    | Record real code IDs, contract addresses, admins, operators, and artifact checksums.                                       |
 | Staging deployment                 | Open    | Instantiate all contracts on a real chain and exercise core cross-contract flows.                                          |

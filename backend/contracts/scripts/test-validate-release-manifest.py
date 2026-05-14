@@ -83,6 +83,11 @@ class ReleaseManifestValidationTests(unittest.TestCase):
             "schema": "cruzible.contract_audit_artifacts.v1",
             "git_commit": manifest["source"]["git_commit"],
             "generated_at": "2026-04-28T00:00:00Z",
+            "builder": {
+                "kind": validator.EXPECTED_ARTIFACT_BUILDER_KIND,
+                "image": validator.EXPECTED_ARTIFACT_BUILDER_IMAGE,
+                "platform": validator.EXPECTED_ARTIFACT_BUILDER_PLATFORM,
+            },
             "artifacts": artifact_entries,
         }
         (artifact_dir / "manifest.json").write_text(
@@ -138,6 +143,38 @@ class ReleaseManifestValidationTests(unittest.TestCase):
             artifact_dir = self.write_artifact_dir(temp_path, manifest)
 
             self.validate_manifest_quietly(manifest_path, strict=True, artifact_dir=artifact_dir)
+
+    def test_artifact_reconciliation_requires_pinned_optimizer_builder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest = self.strict_manifest()
+            manifest_path = self.write_manifest(temp_path, manifest)
+            artifact_dir = self.write_artifact_dir(temp_path, manifest)
+            artifact_manifest_path = artifact_dir / "manifest.json"
+            artifact_manifest = json.loads(artifact_manifest_path.read_text(encoding="utf-8"))
+            artifact_manifest["builder"]["image"] = "cosmwasm/optimizer:0.17.0"
+            artifact_manifest_path.write_text(
+                json.dumps(artifact_manifest, indent=2),
+                encoding="utf-8",
+            )
+
+            self.assert_manifest_fails(manifest_path, strict=True, artifact_dir=artifact_dir)
+
+    def test_artifact_reconciliation_requires_amd64_optimizer_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest = self.strict_manifest()
+            manifest_path = self.write_manifest(temp_path, manifest)
+            artifact_dir = self.write_artifact_dir(temp_path, manifest)
+            artifact_manifest_path = artifact_dir / "manifest.json"
+            artifact_manifest = json.loads(artifact_manifest_path.read_text(encoding="utf-8"))
+            artifact_manifest["builder"]["platform"] = "linux/arm64"
+            artifact_manifest_path.write_text(
+                json.dumps(artifact_manifest, indent=2),
+                encoding="utf-8",
+            )
+
+            self.assert_manifest_fails(manifest_path, strict=True, artifact_dir=artifact_dir)
 
     def test_strict_manifest_rejects_example_release_id(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -3,6 +3,9 @@ set -euo pipefail
 
 artifact_dir="${1:-audit-artifacts/contracts}"
 target_dir="${TARGET_DIR:-target/wasm32-unknown-unknown/release}"
+builder_kind="${ARTIFACT_BUILDER_KIND:-cargo_wasm_release}"
+builder_image="${ARTIFACT_BUILDER_IMAGE:-local-rust-toolchain}"
+builder_platform="${ARTIFACT_BUILDER_PLATFORM:-$(uname -sm)}"
 
 if ! compgen -G "${target_dir}/*.wasm" >/dev/null; then
   echo "No wasm artifacts found in ${target_dir}. Run the release wasm build first." >&2
@@ -39,6 +42,11 @@ manifest_path="${artifact_dir}/manifest.json"
   printf '  "schema": "cruzible.contract_audit_artifacts.v1",\n'
   printf '  "git_commit": "%s",\n' "${git_commit}"
   printf '  "generated_at": "%s",\n' "${generated_at}"
+  printf '  "builder": {\n'
+  printf '    "kind": "%s",\n' "${builder_kind}"
+  printf '    "image": "%s",\n' "${builder_image}"
+  printf '    "platform": "%s"\n' "${builder_platform}"
+  printf '  },\n'
   printf '  "artifacts": [\n'
 
   first=1

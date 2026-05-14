@@ -24,6 +24,12 @@ EXPECTED_ARTIFACTS = {
     "model_registry": "model_registry.wasm",
     "seal_manager": "seal_manager.wasm",
 }
+EXPECTED_ARTIFACT_BUILDER_KIND = "cosmwasm_optimizer"
+EXPECTED_ARTIFACT_BUILDER_IMAGE = (
+    "cosmwasm/optimizer:0.17.0"
+    "@sha256:7e0b9229c1a4118d0c9a2af2e7f5d95a91f264c26a2ce5681c779926e74d7f85"
+)
+EXPECTED_ARTIFACT_BUILDER_PLATFORM = "linux/amd64"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TX_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
 GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -835,6 +841,16 @@ def validate_artifact_reconciliation(root: dict[str, Any], artifact_dir: Path) -
         source.get("git_commit"), "$.source.git_commit"
     ):
         fail("$.source.git_commit must match artifact manifest git_commit")
+    builder = require_mapping(artifact_manifest.get("builder"), "artifact manifest.builder")
+    if require_string(builder.get("kind"), "artifact manifest.builder.kind") != EXPECTED_ARTIFACT_BUILDER_KIND:
+        fail(f"artifact manifest builder.kind must be {EXPECTED_ARTIFACT_BUILDER_KIND}")
+    if require_string(builder.get("image"), "artifact manifest.builder.image") != EXPECTED_ARTIFACT_BUILDER_IMAGE:
+        fail("artifact manifest builder.image must match the pinned CosmWasm optimizer image")
+    if (
+        require_string(builder.get("platform"), "artifact manifest.builder.platform")
+        != EXPECTED_ARTIFACT_BUILDER_PLATFORM
+    ):
+        fail(f"artifact manifest builder.platform must be {EXPECTED_ARTIFACT_BUILDER_PLATFORM}")
 
     artifact_entries = require_list(artifact_manifest.get("artifacts"), "artifact manifest.artifacts")
     artifact_by_file: dict[str, dict[str, Any]] = {}

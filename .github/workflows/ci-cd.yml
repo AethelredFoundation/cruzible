@@ -418,6 +418,7 @@ jobs:
       - name: Check audit artifact scripts
         working-directory: ./backend/contracts
         run: |
+          bash -n scripts/build-optimized-artifacts.sh
           bash -n scripts/prepare-audit-artifacts.sh
           bash -n scripts/sign-audit-artifacts.sh
           bash -n scripts/verify-audit-artifact-signatures.sh
@@ -440,11 +441,7 @@ jobs:
 
       - name: Build optimized CosmWasm artifacts
         working-directory: ./backend/contracts
-        run: cargo build --workspace --release --target wasm32-unknown-unknown --locked
-
-      - name: Collect CosmWasm artifact checksums
-        working-directory: ./backend/contracts
-        run: bash scripts/prepare-audit-artifacts.sh
+        run: bash scripts/build-optimized-artifacts.sh
 
       - name: Upload CosmWasm audit artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

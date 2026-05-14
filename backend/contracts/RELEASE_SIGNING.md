@@ -7,7 +7,7 @@ exact artifacts being reviewed.
 
 ## Payloads
 
-After `scripts/prepare-audit-artifacts.sh` runs, sign these files from
+After `scripts/build-optimized-artifacts.sh` runs, sign these files from
 `audit-artifacts/contracts`:
 
 - `SHA256SUMS`
@@ -21,7 +21,7 @@ signer identity in the staging release manifest.
 
 ```bash
 cd backend/contracts
-bash scripts/prepare-audit-artifacts.sh
+bash scripts/build-optimized-artifacts.sh
 SIGNER_ID=aethelred-contracts-release \
 SIGNING_BACKEND=cosign \
 COSIGN_PRIVATE_KEY="${COSIGN_PRIVATE_KEY}" \
@@ -40,7 +40,7 @@ python3 scripts/validate-release-manifest.py \
 
 ```bash
 cd backend/contracts
-bash scripts/prepare-audit-artifacts.sh
+bash scripts/build-optimized-artifacts.sh
 SIGNER_ID=aethelred-contracts-release \
 SIGNING_BACKEND=gpg \
 GPG_SIGNING_KEY=aethelred-contracts-release \

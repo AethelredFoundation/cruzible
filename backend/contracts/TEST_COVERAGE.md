@@ -54,9 +54,9 @@ cd backend/contracts
 cargo test
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo build --release --target wasm32-unknown-unknown
+bash scripts/build-optimized-artifacts.sh
 ```
 
-These commands are enforced by CI. The wasm files, `SHA256SUMS`, and
+These commands are enforced by CI. The optimized wasm files, `SHA256SUMS`, and
 `manifest.json` are uploaded as commit-scoped CI artifacts and should be
 archived with the audit-candidate package.
