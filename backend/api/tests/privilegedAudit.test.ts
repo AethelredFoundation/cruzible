@@ -17,6 +17,13 @@ import { logger } from "../src/utils/logger";
 const originalEnv = { ...process.env };
 const OPERATIONAL_TOKEN = "12345678901234567890123456789012";
 
+function registerTestInstance<T>(
+  token: new (...args: never[]) => T,
+  instance: T,
+) {
+  container.registerInstance(token, instance);
+}
+
 describe("privileged access audit logging", () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
@@ -279,6 +286,58 @@ describe("privileged access audit logging", () => {
           statusCode: 200,
         }),
       );
+    });
+  });
+
+  it("flushes pending privileged audit tasks before shutdown cleanup", async () => {
+    let resolveAlert!: () => void;
+    const alertPromise = new Promise<void>((resolve) => {
+      resolveAlert = resolve;
+    });
+    const { AlertService } = await import("../src/services/AlertService");
+    registerTestInstance(AlertService, {
+      sendAlert: vi.fn().mockReturnValue(alertPromise),
+    } as unknown as AlertService);
+
+    const {
+      auditPrivilegedAccess,
+      flushPendingPrivilegedAuditTasks,
+      getPendingPrivilegedAuditTaskCount,
+    } = await import("../src/middleware/privilegedAudit");
+    const app = express();
+    app.use((req, res, next) => {
+      req.requestId = "audit-flush-pending";
+      res.setHeader("x-request-id", req.requestId);
+      next();
+    });
+    app.get("/ops", (req, res) => {
+      auditPrivilegedAccess(req, res, {
+        principalType: "operational-token",
+        decision: "rejected",
+        reason: "test_rejection",
+      });
+      res.status(401).json({ ok: false });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/ops`);
+
+      expect(response.status).toBe(401);
+      expect(getPendingPrivilegedAuditTaskCount()).toBeGreaterThan(0);
+
+      let flushed = false;
+      const flushPromise = flushPendingPrivilegedAuditTasks().then(() => {
+        flushed = true;
+      });
+      await Promise.resolve();
+
+      expect(flushed).toBe(false);
+
+      resolveAlert();
+      await flushPromise;
+
+      expect(flushed).toBe(true);
+      expect(getPendingPrivilegedAuditTaskCount()).toBe(0);
     });
   });
 });

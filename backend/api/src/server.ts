@@ -29,6 +29,7 @@ import { rateLimiter } from "./middleware/rateLimiter";
 import { metricsHandler, metricsMiddleware } from "./middleware/metrics";
 import { noStore } from "./middleware/noStore";
 import { requireOperationalAccess } from "./middleware/operationalAccess";
+import { shutdownPrivilegedAudit } from "./middleware/privilegedAudit";
 import { requestId } from "./middleware/requestId";
 import { requestLogger } from "./middleware/requestLogger";
 import { errorContext } from "./utils/errorContext";
@@ -418,8 +419,17 @@ export class ApiGateway {
       checkDrained();
     });
 
-    // 4. Disconnect services
+    // 4. Flush audit trails, then disconnect services
     try {
+      try {
+        await shutdownPrivilegedAudit();
+      } catch (error) {
+        logger.error(
+          "Error draining privileged audit tasks",
+          errorContext(error),
+        );
+      }
+
       try {
         const reconciliationScheduler = container.resolve(
           ReconciliationScheduler,
@@ -525,9 +535,19 @@ export class ApiGateway {
       });
 
       // -------------------------------------------------------------------
-      // 4. Disconnect backend services
+      // 4. Flush audit trails, then disconnect backend services
       // -------------------------------------------------------------------
       try {
+        try {
+          await shutdownPrivilegedAudit();
+          logger.info("Privileged audit tasks drained");
+        } catch (error) {
+          logger.error(
+            "Error draining privileged audit tasks",
+            errorContext(error),
+          );
+        }
+
         // Stop reconciliation scheduler first (it depends on cache + blockchain)
         try {
           const reconciliationScheduler = container.resolve(

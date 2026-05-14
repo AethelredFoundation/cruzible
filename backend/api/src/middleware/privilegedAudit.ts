@@ -68,8 +68,17 @@ export interface PersistedPrivilegedAuditEvent {
 }
 
 const MAX_MEMORY_AUDIT_EVENTS = 500;
+const PRIVILEGED_AUDIT_DRAIN_TIMEOUT_MS = 5_000;
 const auditPrisma = config.databaseUrl ? new PrismaClient() : null;
 const memoryAuditEvents: PersistedPrivilegedAuditEvent[] = [];
+const pendingPrivilegedAuditTasks = new Set<Promise<void>>();
+
+function trackPrivilegedAuditTask(task: Promise<void>): void {
+  const tracked = task.finally(() => {
+    pendingPrivilegedAuditTasks.delete(tracked);
+  });
+  pendingPrivilegedAuditTasks.add(tracked);
+}
 
 function getClientIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
@@ -231,6 +240,44 @@ export function clearMemoryPrivilegedAuditEvents(): void {
   memoryAuditEvents.length = 0;
 }
 
+export function getPendingPrivilegedAuditTaskCount(): number {
+  return pendingPrivilegedAuditTasks.size;
+}
+
+export async function flushPendingPrivilegedAuditTasks(
+  timeoutMs = PRIVILEGED_AUDIT_DRAIN_TIMEOUT_MS,
+): Promise<void> {
+  const pendingTasks = [...pendingPrivilegedAuditTasks];
+  if (pendingTasks.length === 0) {
+    return;
+  }
+
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timeoutId = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+  const drained = Promise.allSettled(pendingTasks).then(
+    () => "drained" as const,
+  );
+  const result = await Promise.race([drained, timeout]);
+
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+
+  if (result === "timeout") {
+    logger.warn("Timed out draining privileged audit tasks", {
+      pendingTasks: pendingPrivilegedAuditTasks.size,
+      timeoutMs,
+    });
+  }
+}
+
+export async function shutdownPrivilegedAudit(): Promise<void> {
+  await flushPendingPrivilegedAuditTasks();
+  await auditPrisma?.$disconnect();
+}
+
 export function auditPrivilegedAccess(
   req: Request,
   res: Response,
@@ -275,28 +322,32 @@ export function auditPrivilegedAccess(
     }
 
     if (context.decision === "rejected") {
-      void emitPrivilegedAccessAlert(auditEntry).catch((error: unknown) => {
-        logger.error("Failed to emit privileged access alert", {
+      trackPrivilegedAuditTask(
+        emitPrivilegedAccessAlert(auditEntry).catch((error: unknown) => {
+          logger.error("Failed to emit privileged access alert", {
+            requestId: auditEntry.requestId,
+            ...errorContext(error),
+          });
+        }),
+      );
+    }
+
+    trackPrivilegedAuditTask(
+      persistPrivilegedAuditEvent(auditEntry).catch((error: unknown) => {
+        logger.error("Failed to persist privileged access audit", {
           requestId: auditEntry.requestId,
           ...errorContext(error),
         });
-      });
-    }
-
-    void persistPrivilegedAuditEvent(auditEntry).catch((error: unknown) => {
-      logger.error("Failed to persist privileged access audit", {
-        requestId: auditEntry.requestId,
-        ...errorContext(error),
-      });
-      void emitPrivilegedAuditPersistenceAlert(auditEntry, error).catch(
-        (alertError: unknown) => {
-          logger.error("Failed to emit privileged audit persistence alert", {
-            requestId: auditEntry.requestId,
-            ...errorContext(alertError),
-          });
-        },
-      );
-    });
+        return emitPrivilegedAuditPersistenceAlert(auditEntry, error).catch(
+          (alertError: unknown) => {
+            logger.error("Failed to emit privileged audit persistence alert", {
+              requestId: auditEntry.requestId,
+              ...errorContext(alertError),
+            });
+          },
+        );
+      }),
+    );
   };
 
   res.once("finish", emitAudit);
