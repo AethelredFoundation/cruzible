@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 import { isAccessTokenRevoked, verifyAccessToken } from "../auth/service";
 import { config } from "../config";
@@ -43,8 +43,8 @@ export class WebSocketManager {
             error instanceof Error ? error : new Error(WS_AUTH_ERROR);
           logger.warn("WebSocket connection rejected", {
             reason: rejection.message,
-            origin: readOrigin(socket),
-            ip: readClientIp(socket),
+            origin: readOriginForLogs(socket),
+            ipHash: hashLogValue(readClientIp(socket)),
           });
           recordRejectedWebSocketAudit(socket, rejection.message);
           next(rejection);
@@ -209,11 +209,28 @@ function isOperationalToken(token: string): boolean {
   );
 }
 
+function hashLogValue(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 function readOrigin(socket: Socket): string | undefined {
   const origin = socket.handshake.headers.origin;
   return typeof origin === "string" && origin.trim()
     ? origin.trim()
     : undefined;
+}
+
+function readOriginForLogs(socket: Socket): string {
+  const origin = readOrigin(socket);
+  if (!origin) {
+    return "missing";
+  }
+
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return "[invalid-origin]";
+  }
 }
 
 function readClientIp(socket: Socket): string {

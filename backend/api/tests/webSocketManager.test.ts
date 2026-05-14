@@ -7,9 +7,14 @@ vi.mock("../src/utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+import { logger } from "../src/utils/logger";
+
 describe("WebSocketManager", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.mocked(logger.info).mockClear();
+    vi.mocked(logger.warn).mockClear();
+    vi.mocked(logger.error).mockClear();
   });
 
   async function buildManager(options: {
@@ -66,10 +71,23 @@ describe("WebSocketManager", () => {
     });
 
     const rejection = await io.authorize(
-      createSocket({ origin: "https://app.example" }),
+      createSocket({ origin: "https://app.example", ip: "203.0.113.10" }),
     );
 
     expect(rejection?.message).toBe("WebSocket authentication required");
+    expect(logger.warn).toHaveBeenCalledWith(
+      "WebSocket connection rejected",
+      expect.objectContaining({
+        reason: "WebSocket authentication required",
+        origin: "https://app.example",
+        ipHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    );
+    const logContext = vi.mocked(logger.warn).mock.calls[0]?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(logContext).not.toHaveProperty("ip");
+    expect(JSON.stringify(logContext)).not.toContain("203.0.113.10");
 
     const { flushPendingPrivilegedAuditTasks, getMemoryPrivilegedAuditEvents } =
       await import("../src/middleware/privilegedAudit");
@@ -100,6 +118,14 @@ describe("WebSocketManager", () => {
     );
 
     expect(rejection?.message).toBe("WebSocket origin is not allowed");
+    expect(logger.warn).toHaveBeenCalledWith(
+      "WebSocket connection rejected",
+      expect.objectContaining({
+        reason: "WebSocket origin is not allowed",
+        origin: "missing",
+        ipHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    );
   });
 
   it("rejects production sockets from disallowed origins", async () => {
