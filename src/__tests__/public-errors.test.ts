@@ -46,4 +46,29 @@ describe("public error messages", () => {
     expect(message).not.toContain("abc.def.ghi");
     expect(message).not.toContain("0xdeadbeef");
   });
+
+  it("redacts broader secret labels and high-entropy material", () => {
+    const message = getPublicErrorMessage(
+      new Error(
+        [
+          "privateKey=0x" + "a".repeat(64),
+          "mnemonic=correct-horse-battery-staple",
+          "seedPhrase=legal winner thank year wave sausage worth useful legal winner thank yellow",
+          "cookie=sessionid=abc123",
+          "session=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZXRoMXVzZXIiLCJpYXQiOjE3Nzg3NjgwMDB9.signaturepartthatislong",
+        ].join("; "),
+      ),
+    );
+
+    expect(message).toContain("privateKey=[REDACTED]");
+    expect(message).toContain("mnemonic=[REDACTED]");
+    expect(message).toContain("seedPhrase=[REDACTED]");
+    expect(message).toContain("cookie=[REDACTED]");
+    expect(message).toContain("session=[REDACTED]");
+    expect(message).not.toContain("correct-horse-battery-staple");
+    expect(message).not.toContain("legal winner");
+    expect(message).not.toContain("sessionid=abc123");
+    expect(message).not.toContain("eyJhbGci");
+    expect(message).not.toContain("aaaaaaaa");
+  });
 });

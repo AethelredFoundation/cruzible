@@ -7,6 +7,17 @@
 import React, { Component, ErrorInfo, ReactNode } from "react";
 import { AlertTriangle, RefreshCw, Home, MessageCircle } from "lucide-react";
 import { BRAND } from "@/lib/constants";
+import { getPublicErrorMessage } from "@/lib/publicErrors";
+
+type ErrorTrackingClient = {
+  captureException?: (
+    error: Error,
+    context?: { extra?: Record<string, unknown> },
+  ) => void;
+};
+
+const CLIENT_RENDER_ERROR_FALLBACK = "A client-side rendering error occurred.";
+const isDevelopment = process.env.NODE_ENV === "development";
 
 interface Props {
   children: ReactNode;
@@ -18,6 +29,69 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+}
+
+function getErrorTrackingClient(): ErrorTrackingClient | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const candidate = (window as Window & { Sentry?: ErrorTrackingClient })
+    .Sentry;
+  return candidate && typeof candidate.captureException === "function"
+    ? candidate
+    : null;
+}
+
+function buildSanitizedError(error: Error): Error {
+  const sanitized = new Error(
+    getPublicErrorMessage(error, CLIENT_RENDER_ERROR_FALLBACK),
+  );
+  sanitized.name = error.name || "Error";
+  return sanitized;
+}
+
+function countComponentStackFrames(componentStack: string | null | undefined) {
+  return componentStack
+    ? componentStack.split("\n").filter((line) => line.trim().length > 0).length
+    : 0;
+}
+
+function buildTrackingContext(errorInfo: ErrorInfo) {
+  if (isDevelopment) {
+    return {
+      extra: {
+        componentStack: errorInfo.componentStack,
+      },
+    };
+  }
+
+  return {
+    extra: {
+      componentStackAvailable: Boolean(errorInfo.componentStack),
+      componentStackFrames: countComponentStackFrames(errorInfo.componentStack),
+    },
+  };
+}
+
+function reportBoundaryError(
+  label: string,
+  error: Error,
+  errorInfo: ErrorInfo,
+): void {
+  const sanitizedError = buildSanitizedError(error);
+  const trackingContext = buildTrackingContext(errorInfo);
+
+  if (isDevelopment) {
+    console.error(label, error, errorInfo);
+  } else {
+    console.error(label, sanitizedError.message, trackingContext);
+  }
+
+  getErrorTrackingClient()?.captureException?.(
+    isDevelopment ? error : sanitizedError,
+    trackingContext,
+  );
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -39,22 +113,12 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // Log error to monitoring service
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
+    reportBoundaryError("ErrorBoundary caught an error:", error, errorInfo);
 
     this.setState({
       error,
       errorInfo,
     });
-
-    // Send to error tracking service (Sentry)
-    if (typeof window !== "undefined" && (window as any).Sentry) {
-      (window as any).Sentry.captureException(error, {
-        extra: {
-          componentStack: errorInfo.componentStack,
-        },
-      });
-    }
   }
 
   handleReset = (): void => {
@@ -210,7 +274,7 @@ export class SectionErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    console.error(
+    reportBoundaryError(
       `Error in section "${this.props.sectionName}":`,
       error,
       errorInfo,
