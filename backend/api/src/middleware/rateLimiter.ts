@@ -91,7 +91,9 @@ export const rateLimiter = rateLimit({
     redisUrl: config.redisUrl,
   }),
   passOnStoreError: false,
-  skip: (req) => req.path === "/health/live" || req.path === "/health/ready",
+  // Liveness is intentionally process-local and cheap for orchestrator probes.
+  // Readiness performs dependency checks, so it remains rate limited.
+  skip: (req) => req.path === "/health/live",
   handler: (req, res) => {
     res.status(429).json({
       error: "TooManyRequests",
