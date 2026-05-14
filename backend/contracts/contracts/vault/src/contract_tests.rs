@@ -91,6 +91,91 @@ mod security_tests {
         }
     }
 
+    fn empty_user_stake() -> UserStake {
+        UserStake {
+            shares: Uint128::zero(),
+            staked_amount: Uint128::zero(),
+            reward_debt: Uint128::zero(),
+        }
+    }
+
+    fn assert_vault_accounting_invariants(
+        deps: &OwnedDeps<MockStorage, MockApi, MockQuerier>,
+        env: &Env,
+        users: &[&str],
+    ) {
+        let state = STATE.load(deps.as_ref().storage).unwrap();
+        assert_vault_invariants(&state).unwrap();
+
+        let mut user_shares = Uint128::zero();
+        let mut open_unbonding = Uint128::zero();
+
+        for user in users {
+            let addr = Addr::unchecked(*user);
+            let user_stake = USER_STAKES
+                .may_load(deps.as_ref().storage, &addr)
+                .unwrap()
+                .unwrap_or_else(empty_user_stake);
+
+            user_shares = user_shares.checked_add(user_stake.shares).unwrap();
+
+            let current_entitlement = state
+                .reward_index
+                .checked_mul(user_stake.shares)
+                .unwrap()
+                .checked_div(Uint128::from(REWARD_INDEX_SCALE))
+                .unwrap();
+            assert!(
+                user_stake.reward_debt <= current_entitlement,
+                "reward debt exceeds entitlement for {user}"
+            );
+
+            let request_count = UNSTAKE_COUNT
+                .load(deps.as_ref().storage, &addr)
+                .unwrap_or(0);
+            for unbonding_id in 0..request_count {
+                if let Some(request) = UNSTAKE_REQUESTS
+                    .may_load(deps.as_ref().storage, (&addr, unbonding_id))
+                    .unwrap()
+                {
+                    assert!(request.complete_time >= request.unbond_time);
+                    if !request.claimed {
+                        open_unbonding = open_unbonding.checked_add(request.amount).unwrap();
+                    }
+                }
+            }
+        }
+
+        let expected_total_shares = Uint128::from(MIN_DEPOSIT).checked_add(user_shares).unwrap();
+        assert_eq!(
+            state.total_shares, expected_total_shares,
+            "state shares must equal seed shares plus tracked user shares"
+        );
+        assert_eq!(
+            state.total_unbonding, open_unbonding,
+            "state unbonding must equal all open queue liabilities"
+        );
+
+        let total_accounted = state
+            .total_staked
+            .checked_add(state.total_unbonding)
+            .unwrap()
+            .checked_add(state.reward_pool)
+            .unwrap();
+        assert!(total_accounted.u128() <= MAX_TOTAL_STAKED);
+
+        let exchange_rate: ExchangeRateResponse =
+            from_json(&query(deps.as_ref(), env.clone(), QueryMsg::ExchangeRate {}).unwrap())
+                .unwrap();
+        assert_eq!(exchange_rate.numerator, state.total_staked);
+        assert_eq!(exchange_rate.denominator, state.total_shares);
+
+        let accounting_health: bool =
+            from_json(&query(deps.as_ref(), env.clone(), QueryMsg::CheckSolvency {}).unwrap())
+                .unwrap();
+        assert!(accounting_health, "accounting-health query must stay green");
+    }
+
     // ============ ACCOUNTING ATTACK TESTS ============
 
     #[test]
@@ -907,7 +992,7 @@ mod security_tests {
     // ============ INVARIANT TESTS ============
 
     #[test]
-    fn test_invariant_solvency() {
+    fn test_invariant_accounting_health() {
         let (mut deps, mut env, _) = proper_instantiate();
 
         // Multiple users stake
@@ -923,7 +1008,7 @@ mod security_tests {
         let solvency: bool =
             from_json(&query(deps.as_ref(), env.clone(), QueryMsg::CheckSolvency {}).unwrap())
                 .unwrap();
-        assert!(solvency, "Contract must remain solvent");
+        assert!(solvency, "Contract accounting health must remain green");
 
         // Fast forward and claim
         env.block.time = env.block.time.plus_seconds(86400 * 21 + 1);
@@ -936,7 +1021,138 @@ mod security_tests {
         let solvency: bool =
             from_json(&query(deps.as_ref(), env.clone(), QueryMsg::CheckSolvency {}).unwrap())
                 .unwrap();
-        assert!(solvency, "Contract must remain solvent after claim");
+        assert!(
+            solvency,
+            "Contract accounting health must remain green after claim"
+        );
+    }
+
+    #[test]
+    fn test_accounting_health_allows_orderly_mass_exit() {
+        let (mut deps, env, _) = proper_instantiate();
+
+        let _ = stake(&mut deps, &env, "user", 100_000_000);
+        let _ = unstake(&mut deps, &env, "user", 100_000_000);
+
+        let state = STATE.load(deps.as_ref().storage).unwrap();
+        assert!(
+            state.total_unbonding > state.total_staked,
+            "mass exits should be allowed to exceed active stake"
+        );
+
+        let accounting_health: bool =
+            from_json(&query(deps.as_ref(), env.clone(), QueryMsg::CheckSolvency {}).unwrap())
+                .unwrap();
+        assert!(
+            accounting_health,
+            "mass exits are healthy when accounting invariants hold"
+        );
+        assert_vault_accounting_invariants(&deps, &env, &["user"]);
+    }
+
+    #[test]
+    fn test_invariant_long_operation_sequence_preserves_accounting() {
+        let (mut deps, mut env, _) = proper_instantiate();
+        let users = ["alice", "bob", "carol", "dan"];
+
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        let _ = stake(&mut deps, &env, "alice", 100_000_000);
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        let _ = stake(&mut deps, &env, "bob", 75_000_000);
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("rewards", &coins(10_000_000, "aeth")),
+            ExecuteMsg::AddRewards {},
+        )
+        .unwrap();
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("staeth", &[]),
+            ExecuteMsg::SyncStakingTokenTransfer {
+                from: "alice".to_string(),
+                to: "carol".to_string(),
+                amount: Uint128::from(10_000_000u128),
+            },
+        )
+        .unwrap();
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("bob", &[]),
+            ExecuteMsg::ClaimRewards {},
+        )
+        .unwrap();
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("alice", &[]),
+            ExecuteMsg::Compound {
+                validator: "validator1".to_string(),
+            },
+        )
+        .unwrap();
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        let _ = unstake(&mut deps, &env, "bob", 20_000_000);
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        let _ = stake(&mut deps, &env, "dan", 50_000_000);
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("operator", &[]),
+            ExecuteMsg::RecordSlash {
+                slash_id: 42,
+                amount: Uint128::from(15_000_000u128),
+            },
+        )
+        .unwrap();
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("bob", &[]),
+            ExecuteMsg::Restake { unbonding_id: 0 },
+        )
+        .unwrap();
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("rewards", &coins(3_000_000, "aeth")),
+            ExecuteMsg::AddRewards {},
+        )
+        .unwrap();
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        let _ = unstake(&mut deps, &env, "alice", 10_000_000);
+        assert_vault_accounting_invariants(&deps, &env, &users);
+
+        env.block.time = env.block.time.plus_seconds(86400 * 21 + 1);
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("alice", &[]),
+            ExecuteMsg::Claim {},
+        )
+        .unwrap();
+        assert_vault_accounting_invariants(&deps, &env, &users);
     }
 
     #[test]
