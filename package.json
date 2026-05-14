@@ -16,7 +16,7 @@
     "test:watch": "vitest --config vitest.config.ts",
     "test:ci": "vitest run --config vitest.config.ts --coverage",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
-    "test:changed": "vitest related --config vitest.config.ts --run",
+    "test:changed": "node scripts/run-related-tests.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "security:audit": "npm audit --omit=dev --audit-level=high",

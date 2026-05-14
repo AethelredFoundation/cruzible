@@ -26,4 +26,20 @@ describe("repository hygiene", () => {
     expect(hook).not.toContain("git stash -q --keep-index");
     expect(hook).not.toMatch(/^git stash pop -q$/m);
   });
+
+  it("passes staged files into the related-test pre-commit gate", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const runner = readFileSync("scripts/run-related-tests.mjs", "utf8");
+
+    expect(packageJson.scripts["test:changed"]).toBe(
+      "node scripts/run-related-tests.mjs",
+    );
+    expect(runner).toContain("git");
+    expect(runner).toContain("--cached");
+    expect(runner).toContain("vitest");
+    expect(runner).toContain("related");
+    expect(runner).toContain("FULL_TEST_TRIGGER_PATHS");
+  });
 });
