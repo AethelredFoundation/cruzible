@@ -16,6 +16,14 @@ type CacheEnvelope = {
 const CACHE_KEY_PREFIX = 'cruzible:api:';
 const MAX_MEMORY_CACHE_ENTRIES = 1_000;
 
+function cacheErrorContext(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return { error };
+  }
+
+  return { errorType: typeof error };
+}
+
 @injectable()
 export class CacheService {
   private readonly cache = new Map<string, CacheEntry>();
@@ -33,9 +41,7 @@ export class CacheService {
     });
 
     redis.on('error', (error) => {
-      logger.warn('Redis cache client error', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.warn('Redis cache client error', cacheErrorContext(error));
     });
 
     try {
@@ -48,18 +54,15 @@ export class CacheService {
 
       if (config.isProduction) {
         throw Object.assign(
-          new Error(
-            `Redis cache connection failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          ),
+          new Error('Redis cache connection failed'),
           { cause: error },
         );
       }
 
-      logger.warn('Redis cache unavailable; using in-memory fallback', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.warn(
+        'Redis cache unavailable; using in-memory fallback',
+        cacheErrorContext(error),
+      );
     }
   }
 
@@ -90,7 +93,7 @@ export class CacheService {
       } catch (error) {
         logger.warn('Redis cache read failed; using in-memory fallback', {
           key,
-          error: error instanceof Error ? error.message : String(error),
+          ...cacheErrorContext(error),
         });
       }
     }
@@ -125,7 +128,7 @@ export class CacheService {
         } catch (error) {
           logger.warn('Redis cache delete failed', {
             key,
-            error: error instanceof Error ? error.message : String(error),
+            ...cacheErrorContext(error),
           });
         }
       }
@@ -146,7 +149,7 @@ export class CacheService {
       } catch (error) {
         logger.warn('Redis cache write failed; retained bounded in-memory fallback', {
           key,
-          error: error instanceof Error ? error.message : String(error),
+          ...cacheErrorContext(error),
         });
       }
     }

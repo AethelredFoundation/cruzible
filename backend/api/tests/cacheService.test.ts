@@ -152,6 +152,40 @@ describe("CacheService", () => {
     });
   });
 
+  it("does not log Redis error messages that may contain connection secrets", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      installRedisMock({
+        set: vi
+          .fn()
+          .mockRejectedValue(
+            new Error(
+              "AUTH failed for redis://:super-secret-token@cache.internal:6379/0",
+            ),
+          ),
+      });
+      process.env.REDIS_URL = "redis://127.0.0.1:6379";
+
+      const { CacheService } = await import("../src/services/CacheService");
+      const service = new CacheService();
+
+      await service.connect();
+      await service.set("reconciliation:live", { status: "GREEN" }, 15);
+
+      const renderedLogs = JSON.stringify(warnSpy.mock.calls);
+
+      expect(renderedLogs).toContain("Redis cache write failed");
+      expect(renderedLogs).toContain("errorName");
+      expect(renderedLogs).not.toContain("super-secret-token");
+      expect(renderedLogs).not.toContain("cache.internal");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("falls back to memory when Redis is unavailable outside production", async () => {
     const { redisClient } = installRedisMock({
       connect: vi.fn().mockRejectedValue(new Error("connection refused")),
