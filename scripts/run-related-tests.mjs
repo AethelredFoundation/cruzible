@@ -27,6 +27,7 @@ const FULL_TEST_TRIGGER_PATHS = new Set([
 const FULL_TEST_TRIGGER_PREFIXES = ["scripts/", "src/pages/"];
 
 const BACKEND_API_PREFIX = "backend/api/";
+const E2E_PREFIX = "e2e/";
 const BACKEND_API_VALIDATION_STEPS = [
   ["npm", ["run", "format:check"]],
   ["npm", ["run", "lint"]],
@@ -65,6 +66,10 @@ function shouldRunFullUnitSuite(filePath) {
     FULL_TEST_TRIGGER_PATHS.has(filePath) ||
     FULL_TEST_TRIGGER_PREFIXES.some((prefix) => filePath.startsWith(prefix))
   );
+}
+
+function shouldRunE2eSuite(filePath) {
+  return filePath === "playwright.config.ts" || filePath.startsWith(E2E_PREFIX);
 }
 
 function isTestableFile(filePath) {
@@ -108,13 +113,29 @@ function runBackendApiValidation() {
   return 0;
 }
 
+function runE2eValidation() {
+  console.log("E2E change detected; running production smoke tests.");
+  return run("npm", ["run", "test:e2e"]);
+}
+
 const stagedFiles = getStagedFiles();
 const hasBackendApiChanges = stagedFiles.some((filePath) =>
   filePath.startsWith(BACKEND_API_PREFIX),
 );
+const hasE2eChanges = stagedFiles.some(shouldRunE2eSuite);
 
 if (hasBackendApiChanges) {
-  process.exit(runBackendApiValidation());
+  const status = runBackendApiValidation();
+  if (status !== 0) {
+    process.exit(status);
+  }
+}
+
+if (hasE2eChanges) {
+  const status = runE2eValidation();
+  if (status !== 0) {
+    process.exit(status);
+  }
 }
 
 if (stagedFiles.some(shouldRunFullUnitSuite)) {
@@ -122,7 +143,9 @@ if (stagedFiles.some(shouldRunFullUnitSuite)) {
   process.exit(run("npm", ["test"]));
 }
 
-const relatedFiles = stagedFiles.filter(isTestableFile);
+const relatedFiles = stagedFiles.filter(
+  (filePath) => !filePath.startsWith(E2E_PREFIX) && isTestableFile(filePath),
+);
 
 if (relatedFiles.length === 0) {
   console.log(

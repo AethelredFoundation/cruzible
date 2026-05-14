@@ -54,4 +54,14 @@ describe("repository hygiene", () => {
     expect(runner).toContain('"typecheck"');
     expect(runner).toContain('runInDirectory(command, args, "backend/api")');
   });
+
+  it("routes staged E2E changes through production smoke tests", () => {
+    const runner = readFileSync("scripts/run-related-tests.mjs", "utf8");
+
+    expect(runner).toContain('const E2E_PREFIX = "e2e/"');
+    expect(runner).toContain("shouldRunE2eSuite");
+    expect(runner).toContain('filePath === "playwright.config.ts"');
+    expect(runner).toContain('"test:e2e"');
+    expect(runner).toContain("!filePath.startsWith(E2E_PREFIX)");
+  });
 });
