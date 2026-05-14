@@ -24,7 +24,7 @@ const FULL_TEST_TRIGGER_PATHS = new Set([
   "vitest.setup.ts",
 ]);
 
-const FULL_TEST_TRIGGER_PREFIXES = ["scripts/"];
+const FULL_TEST_TRIGGER_PREFIXES = ["scripts/", "src/pages/"];
 
 const BACKEND_API_PREFIX = "backend/api/";
 const BACKEND_API_VALIDATION_STEPS = [

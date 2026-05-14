@@ -41,6 +41,7 @@ describe("repository hygiene", () => {
     expect(runner).toContain("vitest");
     expect(runner).toContain("related");
     expect(runner).toContain("FULL_TEST_TRIGGER_PATHS");
+    expect(runner).toContain('"src/pages/"');
   });
 
   it("routes staged backend API changes through backend quality gates", () => {
