@@ -1,5 +1,28 @@
 import { expect, test } from "@playwright/test";
 
+const criticalRoutes = [
+  { path: "/vault", heading: /AethelVault/i },
+  { path: "/stablecoins", heading: /Stablecoins/i },
+  {
+    path: "/validators",
+    heading: /Canonical validator context/i,
+  },
+  {
+    path: "/models",
+    heading: /Registry-backed model discovery/i,
+  },
+  { path: "/seals", heading: /Proof lineage/i },
+  {
+    path: "/reconciliation",
+    heading: /Public trust posture/i,
+  },
+  {
+    path: "/governance",
+    heading: /Governance stays gated/i,
+  },
+  { path: "/jobs", heading: /Jobs Explorer/i },
+];
+
 test.beforeEach(async ({ page }) => {
   await page.route("https://api.testnet.aethelred.org/**", async (route) => {
     await route.fulfill({
@@ -41,3 +64,14 @@ test("keeps developer tools hidden in production builds", async ({ page }) => {
   await page.goto("/reconciliation");
   await expect(page.locator('a[href="/devtools"]')).toHaveCount(0);
 });
+
+for (const route of criticalRoutes) {
+  test(`renders ${route.path} during upstream API outage`, async ({ page }) => {
+    const response = await page.goto(route.path);
+
+    expect(response?.ok()).toBe(true);
+    await expect(
+      page.getByRole("heading", { name: route.heading }),
+    ).toBeVisible();
+  });
+}
