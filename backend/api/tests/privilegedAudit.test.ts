@@ -66,7 +66,10 @@ describe("privileged access audit logging", () => {
 
     await withHttpServer(app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/ops?access_token=secret`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "User-Agent": "AuditRouteTest/1.0",
+        },
       });
 
       expect(response.status).toBe(200);
@@ -86,6 +89,20 @@ describe("privileged access audit logging", () => {
           outcome: "succeeded",
           statusCode: 200,
         }),
+      );
+      const auditLogContext = vi.mocked(logger.info).mock.calls[0]?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      expect(auditLogContext).toEqual(
+        expect.objectContaining({
+          ipHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          userAgentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+      );
+      expect(auditLogContext).not.toHaveProperty("ip");
+      expect(auditLogContext).not.toHaveProperty("userAgent");
+      expect(JSON.stringify(auditLogContext)).not.toContain(
+        "AuditRouteTest/1.0",
       );
 
       const { getMemoryPrivilegedAuditEvents } =

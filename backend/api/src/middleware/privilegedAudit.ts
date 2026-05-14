@@ -46,6 +46,14 @@ interface PrivilegedAuditEntry {
   userAgent: string;
 }
 
+type PrivilegedAuditLogEntry = Omit<
+  PrivilegedAuditEntry,
+  "ip" | "userAgent"
+> & {
+  ipHash: string;
+  userAgentHash: string;
+};
+
 export interface PrivilegedAuditRecord {
   requestId?: string;
   method: string;
@@ -187,6 +195,18 @@ function auditAlertMetadata(
   };
 }
 
+function buildPrivilegedAuditLogEntry(
+  entry: PrivilegedAuditEntry,
+): PrivilegedAuditLogEntry {
+  const { ip, userAgent, ...logEntry } = entry;
+
+  return {
+    ...logEntry,
+    ipHash: hashValue(ip),
+    userAgentHash: hashValue(userAgent),
+  };
+}
+
 function errorType(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
@@ -319,10 +339,12 @@ export function recordPrivilegedAuditEvent(
     userAgent: record.userAgent,
   };
 
+  const auditLogEntry = buildPrivilegedAuditLogEntry(auditEntry);
+
   if (record.decision === "rejected" || record.statusCode >= 400) {
-    logger.warn("Privileged access audit", auditEntry);
+    logger.warn("Privileged access audit", auditLogEntry);
   } else {
-    logger.info("Privileged access audit", auditEntry);
+    logger.info("Privileged access audit", auditLogEntry);
   }
 
   if (record.decision === "rejected") {
