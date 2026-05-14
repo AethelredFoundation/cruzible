@@ -1,5 +1,5 @@
-import 'reflect-metadata';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import "reflect-metadata";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockStablecoinUpdate = vi.fn();
 const mockStablecoinUpsert = vi.fn();
@@ -10,20 +10,20 @@ const mockContractInstance = {
   epochUsage: vi.fn(),
 };
 
-vi.mock('@prisma/client', () => {
+vi.mock("@prisma/client", () => {
   const MockPrismaClient = vi.fn().mockImplementation(function () {
-    return ({
-    stablecoinConfig: {
-      update: mockStablecoinUpdate,
-      upsert: mockStablecoinUpsert,
-      findUnique: mockFindUnique,
-    },
-  });
+    return {
+      stablecoinConfig: {
+        update: mockStablecoinUpdate,
+        upsert: mockStablecoinUpsert,
+        findUnique: mockFindUnique,
+      },
+    };
   });
   return { PrismaClient: MockPrismaClient };
 });
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock("../src/utils/logger", () => ({
   logger: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -32,36 +32,38 @@ vi.mock('../src/utils/logger', () => ({
   },
 }));
 
-vi.mock('ethers', async () => {
-  const actual = await vi.importActual<typeof import('ethers')>('ethers');
+vi.mock("ethers", async () => {
+  const actual = await vi.importActual<typeof import("ethers")>("ethers");
 
   return {
     ...actual,
-    Contract: vi.fn().mockImplementation(function () { return mockContractInstance; }),
+    Contract: vi.fn().mockImplementation(function () {
+      return mockContractInstance;
+    }),
   };
 });
 
-describe('IndexerService.refreshStablecoinConfig', () => {
+describe("IndexerService.refreshStablecoinConfig", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('materializes stablecoin config from the real bridge getter tuple shape', async () => {
-    const { IndexerService } = await import('../src/services/IndexerService');
+  it("materializes stablecoin config from the real bridge getter tuple shape", async () => {
+    const { IndexerService } = await import("../src/services/IndexerService");
 
     const service = new IndexerService({} as any);
     (service as any).cfg.stablecoinBridgeAddress =
-      '0x1234567890123456789012345678901234567890';
+      "0x1234567890123456789012345678901234567890";
     (service as any).httpProvider = {};
 
     mockContractInstance.stablecoins.mockResolvedValue([
       true, // enabled
       false, // mintPaused
       1, // routingType (CCTP_V2)
-      '0xAABBCCDDEEFF0011223344556677889900AABBCC', // token
-      '0x1111111111111111111111111111111111111111', // tokenMessengerV2
-      '0x2222222222222222222222222222222222222222', // messageTransmitterV2
-      '0x3333333333333333333333333333333333333333', // proofOfReserveFeed
+      "0xAABBCCDDEEFF0011223344556677889900AABBCC", // token
+      "0x1111111111111111111111111111111111111111", // tokenMessengerV2
+      "0x2222222222222222222222222222222222222222", // messageTransmitterV2
+      "0x3333333333333333333333333333333333333333", // proofOfReserveFeed
       1_000_000_000n, // mintCeilingPerEpoch
       500_000_000n, // dailyTxLimit
       500, // hourlyOutflowBps
@@ -79,42 +81,42 @@ describe('IndexerService.refreshStablecoinConfig', () => {
     mockStablecoinUpdate.mockResolvedValue(undefined);
 
     await (service as any).refreshStablecoinConfig(
-      '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
     );
 
     expect(mockContractInstance.stablecoins).toHaveBeenCalledWith(
-      '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
     );
     expect(mockContractInstance.epochUsage).toHaveBeenCalledWith(
-      '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
     );
     expect(mockStablecoinUpdate).toHaveBeenCalledWith({
       where: {
         assetId:
-          '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+          "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
       },
       data: {
-        tokenAddress: '0xaabbccddeeff0011223344556677889900aabbcc',
+        tokenAddress: "0xaabbccddeeff0011223344556677889900aabbcc",
         routingType: 1,
         active: true,
-        maxBridgeAmount: '1000000000',
-        dailyLimit: '500000000',
-        dailyUsed: '250000000',
+        maxBridgeAmount: "1000000000",
+        dailyLimit: "500000000",
+        dailyUsed: "250000000",
       },
     });
   });
 });
 
-describe('IndexerService chain id guard', () => {
+describe("IndexerService chain id guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('allows startup when the RPC chain id matches the configured chain', async () => {
-    const { IndexerService } = await import('../src/services/IndexerService');
+  it("allows startup when the RPC chain id matches the configured chain", async () => {
+    const { IndexerService } = await import("../src/services/IndexerService");
 
     const service = new IndexerService({} as any);
-    (service as any).cfg.expectedChainId = '31337';
+    (service as any).cfg.expectedChainId = "31337";
     (service as any).httpProvider = {
       getNetwork: vi.fn().mockResolvedValue({ chainId: 31337n }),
     };
@@ -124,17 +126,17 @@ describe('IndexerService chain id guard', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('fails closed before indexing when the RPC chain id is unexpected', async () => {
-    const { IndexerService } = await import('../src/services/IndexerService');
+  it("fails closed before indexing when the RPC chain id is unexpected", async () => {
+    const { IndexerService } = await import("../src/services/IndexerService");
 
     const service = new IndexerService({} as any);
-    (service as any).cfg.expectedChainId = '31337';
+    (service as any).cfg.expectedChainId = "31337";
     (service as any).httpProvider = {
       getNetwork: vi.fn().mockResolvedValue({ chainId: 1n }),
     };
 
     await expect((service as any).assertExpectedChainId()).rejects.toThrow(
-      'Refusing to start indexer on chain 1; expected 31337',
+      "Refusing to start indexer on chain 1; expected 31337",
     );
   });
 });

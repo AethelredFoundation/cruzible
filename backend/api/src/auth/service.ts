@@ -471,10 +471,7 @@ export async function cleanupExpiredAuthArtifacts(): Promise<void> {
   nextAuthDbCleanupAt = now.getTime() + AUTH_DB_CLEANUP_INTERVAL_MS;
   authDbCleanupPromise = cleanupExpiredDbAuthArtifacts(prisma, now)
     .catch((error) => {
-      logger.warn(
-        "Expired auth artifact cleanup failed",
-        errorContext(error),
-      );
+      logger.warn("Expired auth artifact cleanup failed", errorContext(error));
     })
     .finally(() => {
       authDbCleanupPromise = null;

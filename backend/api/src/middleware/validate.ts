@@ -1,6 +1,6 @@
-import type { NextFunction, Request, Response } from 'express';
-import { type ValidationError, validationResult } from 'express-validator';
-import { ApiError } from '../utils/ApiError';
+import type { NextFunction, Request, Response } from "express";
+import { type ValidationError, validationResult } from "express-validator";
+import { ApiError } from "../utils/ApiError";
 
 type SafeValidationDetail = {
   location?: string;
@@ -17,15 +17,15 @@ export function sanitizeValidationErrors(
       msg: String(error.msg),
     };
 
-    if ('location' in error && typeof error.location === 'string') {
+    if ("location" in error && typeof error.location === "string") {
       detail.location = error.location;
     }
 
-    if ('path' in error && typeof error.path === 'string') {
+    if ("path" in error && typeof error.path === "string") {
       detail.path = error.path;
     }
 
-    if ('type' in error && typeof error.type === 'string') {
+    if ("type" in error && typeof error.type === "string") {
       detail.type = error.type;
     }
 
@@ -33,14 +33,18 @@ export function sanitizeValidationErrors(
   });
 }
 
-export function validate(req: Request, res: Response, next: NextFunction): void {
+export function validate(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
   void res;
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     next(
       new ApiError(
         400,
-        'Validation failed',
+        "Validation failed",
         sanitizeValidationErrors(errors.array({ onlyFirstError: true })),
       ),
     );

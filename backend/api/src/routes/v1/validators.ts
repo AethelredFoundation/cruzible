@@ -2,53 +2,57 @@
  * Validator intelligence API routes.
  */
 
-import { Router, type Request, type Response } from 'express';
-import { param, query } from 'express-validator';
-import { container } from 'tsyringe';
-import { BlockchainService } from '../../services/BlockchainService';
-import { CacheService } from '../../services/CacheService';
+import { Router, type Request, type Response } from "express";
+import { param, query } from "express-validator";
+import { container } from "tsyringe";
+import { BlockchainService } from "../../services/BlockchainService";
+import { CacheService } from "../../services/CacheService";
 import {
   ReconciliationScheduler,
   type ReconciliationCheck,
   type ReconciliationResult,
-} from '../../services/ReconciliationScheduler';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { validate } from '../../middleware/validate';
-import { publicExpensiveRateLimiter } from '../../middleware/rateLimiter';
-import { MAX_PUBLIC_PAGINATION_OFFSET } from '../../validation/schemas';
-import { ApiError } from '../../utils/ApiError';
-import { bytesToHex, computeEligibleUniverseHash } from '../../lib/protocolSdk';
-import type { Validator } from '../../types';
+} from "../../services/ReconciliationScheduler";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { validate } from "../../middleware/validate";
+import { publicExpensiveRateLimiter } from "../../middleware/rateLimiter";
+import { MAX_PUBLIC_PAGINATION_OFFSET } from "../../validation/schemas";
+import { ApiError } from "../../utils/ApiError";
+import { bytesToHex, computeEligibleUniverseHash } from "../../lib/protocolSdk";
+import type { Validator } from "../../types";
 
 const router = Router();
 const blockchainService = container.resolve(BlockchainService);
 const cacheService = container.resolve(CacheService);
 const reconciliationScheduler = container.resolve(ReconciliationScheduler);
 
-const UI_STATUSES = ['active', 'inactive', 'jailed'] as const;
+const UI_STATUSES = ["active", "inactive", "jailed"] as const;
 const MAX_VOTING_POWER_FILTER_DIGITS = 39;
 const VOTING_POWER_FILTER_PATTERN = /^\d{1,39}$/;
 const CHAIN_STATUS_GROUPS = {
-  active: ['BOND_STATUS_BONDED'],
-  inactive: ['BOND_STATUS_UNBONDED', 'BOND_STATUS_UNBONDING'],
-  jailed: ['BOND_STATUS_BONDED', 'BOND_STATUS_UNBONDING', 'BOND_STATUS_UNBONDED'],
-  all: ['BOND_STATUS_BONDED', 'BOND_STATUS_UNBONDING', 'BOND_STATUS_UNBONDED'],
+  active: ["BOND_STATUS_BONDED"],
+  inactive: ["BOND_STATUS_UNBONDED", "BOND_STATUS_UNBONDING"],
+  jailed: [
+    "BOND_STATUS_BONDED",
+    "BOND_STATUS_UNBONDING",
+    "BOND_STATUS_UNBONDED",
+  ],
+  all: ["BOND_STATUS_BONDED", "BOND_STATUS_UNBONDING", "BOND_STATUS_UNBONDED"],
 } as const;
 
 type UiStatus = (typeof UI_STATUSES)[number];
-type FreshnessStatus = ReconciliationCheck['status'] | 'UNKNOWN';
-type ReconciliationStatus = ReconciliationResult['status'] | 'UNKNOWN';
+type FreshnessStatus = ReconciliationCheck["status"] | "UNKNOWN";
+type ReconciliationStatus = ReconciliationResult["status"] | "UNKNOWN";
 
 type ValidatorRiskComponent = {
   key: string;
   label: string;
-  status: 'PASS' | 'WARNING' | 'CRITICAL';
+  status: "PASS" | "WARNING" | "CRITICAL";
   value: string;
   message: string;
 };
 
 type ValidatorRiskAssessment = {
-  level: 'low' | 'guarded' | 'elevated' | 'high';
+  level: "low" | "guarded" | "elevated" | "high";
   score: number;
   freshnessStatus: FreshnessStatus;
   reasons: string[];
@@ -105,7 +109,7 @@ type FreshnessContext = {
 
 function parseTokenAmount(value: string): bigint {
   try {
-    return BigInt(value || '0');
+    return BigInt(value || "0");
   } catch {
     return 0n;
   }
@@ -115,17 +119,21 @@ function parseVotingPowerFilter(value: string | undefined): bigint | undefined {
   return value === undefined ? undefined : BigInt(value);
 }
 
-function getLifecycleStatus(validator: Validator): UiStatus | 'inactive' {
+function getLifecycleStatus(validator: Validator): UiStatus | "inactive" {
   if (validator.jailed) {
-    return 'jailed';
+    return "jailed";
   }
 
   const status = String(validator.status).toUpperCase();
-  if (status === 'BOND_STATUS_BONDED' || status === 'BONDED' || status === '3') {
-    return 'active';
+  if (
+    status === "BOND_STATUS_BONDED" ||
+    status === "BONDED" ||
+    status === "3"
+  ) {
+    return "active";
   }
 
-  return 'inactive';
+  return "inactive";
 }
 
 function getCommissionPercent(rate: string): number {
@@ -151,31 +159,35 @@ function getMetadataNumber(
   key: string,
 ): number | null {
   const value = check?.metadata?.[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function buildFreshnessContext(
   latestResult: ReconciliationResult | null,
 ): FreshnessContext {
   const epochFreshnessCheck =
-    latestResult?.checks.find((check) => check.name === 'epoch_freshness') ?? null;
+    latestResult?.checks.find((check) => check.name === "epoch_freshness") ??
+    null;
 
   return {
     snapshotAt: latestResult?.timestamp ?? null,
-    reconciliationStatus: latestResult?.status ?? 'UNKNOWN',
-    freshnessStatus: epochFreshnessCheck?.status ?? 'UNKNOWN',
+    reconciliationStatus: latestResult?.status ?? "UNKNOWN",
+    freshnessStatus: epochFreshnessCheck?.status ?? "UNKNOWN",
     freshnessMessage:
       epochFreshnessCheck?.message ??
-      'Validator freshness is unknown until the reconciliation scheduler emits a public result.',
+      "Validator freshness is unknown until the reconciliation scheduler emits a public result.",
     epoch: latestResult?.epoch ?? null,
     epochSource: latestResult?.epochSource ?? null,
-    epochLag: getMetadataNumber(epochFreshnessCheck, 'epochLag'),
+    epochLag: getMetadataNumber(epochFreshnessCheck, "epochLag"),
     indexedStateAgeSeconds: (() => {
-      const ageMs = getMetadataNumber(epochFreshnessCheck, 'ageMs');
+      const ageMs = getMetadataNumber(epochFreshnessCheck, "ageMs");
       return ageMs == null ? null : Math.round(ageMs / 1000);
     })(),
     staleLimitSeconds: (() => {
-      const staleLimitMs = getMetadataNumber(epochFreshnessCheck, 'staleLimitMs');
+      const staleLimitMs = getMetadataNumber(
+        epochFreshnessCheck,
+        "staleLimitMs",
+      );
       return staleLimitMs == null ? null : Math.round(staleLimitMs / 1000);
     })(),
   };
@@ -189,7 +201,9 @@ function buildRiskAssessment(
   const lifecycleStatus = getLifecycleStatus(validator);
   const commissionPercent = getCommissionPercent(validator.commission.rate);
   const transparencyScore = getTransparencyScore(validator);
-  const eligibleForUniverse = canonicalContext.eligibleAddresses.has(validator.address);
+  const eligibleForUniverse = canonicalContext.eligibleAddresses.has(
+    validator.address,
+  );
   const sharePercent =
     eligibleForUniverse && canonicalContext.totalBondedTokens > 0n
       ? Number(
@@ -205,164 +219,164 @@ function buildRiskAssessment(
   const components: ValidatorRiskComponent[] = [];
   let score = 0;
 
-  const pushComponent = (
-    component: ValidatorRiskComponent,
-    weight: number,
-  ) => {
+  const pushComponent = (component: ValidatorRiskComponent, weight: number) => {
     components.push(component);
     score += weight;
   };
 
-  if (lifecycleStatus === 'jailed') {
+  if (lifecycleStatus === "jailed") {
     pushComponent(
       {
-        key: 'lifecycle',
-        label: 'Lifecycle status',
-        status: 'CRITICAL',
-        value: 'jailed',
+        key: "lifecycle",
+        label: "Lifecycle status",
+        status: "CRITICAL",
+        value: "jailed",
         message:
-          'This validator is jailed in the staking module, which is treated as a severe operator-risk signal.',
+          "This validator is jailed in the staking module, which is treated as a severe operator-risk signal.",
       },
       55,
     );
-  } else if (lifecycleStatus === 'inactive') {
+  } else if (lifecycleStatus === "inactive") {
     pushComponent(
       {
-        key: 'lifecycle',
-        label: 'Lifecycle status',
-        status: 'WARNING',
-        value: 'inactive',
+        key: "lifecycle",
+        label: "Lifecycle status",
+        status: "WARNING",
+        value: "inactive",
         message:
-          'This validator is not part of the currently bonded universe, so it is excluded from canonical validator-set coverage.',
+          "This validator is not part of the currently bonded universe, so it is excluded from canonical validator-set coverage.",
       },
       24,
     );
   } else {
     components.push({
-      key: 'lifecycle',
-      label: 'Lifecycle status',
-      status: 'PASS',
-      value: 'active',
-      message: 'This validator is active in the current staking set.',
+      key: "lifecycle",
+      label: "Lifecycle status",
+      status: "PASS",
+      value: "active",
+      message: "This validator is active in the current staking set.",
     });
   }
 
   if (sharePercent >= 10) {
     pushComponent(
       {
-        key: 'concentration',
-        label: 'Stake concentration',
-        status: 'CRITICAL',
+        key: "concentration",
+        label: "Stake concentration",
+        status: "CRITICAL",
         value: `${sharePercent.toFixed(2)}%`,
         message:
-          'This validator controls a large share of the bonded universe, which increases concentration risk.',
+          "This validator controls a large share of the bonded universe, which increases concentration risk.",
       },
       18,
     );
   } else if (sharePercent >= 5) {
     pushComponent(
       {
-        key: 'concentration',
-        label: 'Stake concentration',
-        status: 'WARNING',
+        key: "concentration",
+        label: "Stake concentration",
+        status: "WARNING",
         value: `${sharePercent.toFixed(2)}%`,
         message:
-          'This validator represents a meaningful share of the bonded universe and should be monitored for concentration drift.',
+          "This validator represents a meaningful share of the bonded universe and should be monitored for concentration drift.",
       },
       10,
     );
   } else {
     components.push({
-      key: 'concentration',
-      label: 'Stake concentration',
-      status: 'PASS',
+      key: "concentration",
+      label: "Stake concentration",
+      status: "PASS",
       value: `${sharePercent.toFixed(2)}%`,
       message:
-        'Observed stake concentration for this validator remains below the current warning threshold.',
+        "Observed stake concentration for this validator remains below the current warning threshold.",
     });
   }
 
   if (commissionPercent >= 10) {
     pushComponent(
       {
-        key: 'commission',
-        label: 'Commission posture',
-        status: 'WARNING',
+        key: "commission",
+        label: "Commission posture",
+        status: "WARNING",
         value: `${commissionPercent.toFixed(2)}%`,
         message:
-          'Commission is above the current Cruzible review threshold and may reduce net user yield.',
+          "Commission is above the current Cruzible review threshold and may reduce net user yield.",
       },
       10,
     );
   } else {
     components.push({
-      key: 'commission',
-      label: 'Commission posture',
-      status: 'PASS',
+      key: "commission",
+      label: "Commission posture",
+      status: "PASS",
       value: `${commissionPercent.toFixed(2)}%`,
-      message: 'Commission is within the current review threshold.',
+      message: "Commission is within the current review threshold.",
     });
   }
 
   if (transparencyScore < 60) {
     pushComponent(
       {
-        key: 'transparency',
-        label: 'Operator transparency',
-        status: 'WARNING',
+        key: "transparency",
+        label: "Operator transparency",
+        status: "WARNING",
         value: `${transparencyScore}%`,
         message:
-          'Operator metadata is incomplete. Missing identity, website, or details reduces reviewability.',
+          "Operator metadata is incomplete. Missing identity, website, or details reduces reviewability.",
       },
       12,
     );
   } else {
     components.push({
-      key: 'transparency',
-      label: 'Operator transparency',
-      status: 'PASS',
+      key: "transparency",
+      label: "Operator transparency",
+      status: "PASS",
       value: `${transparencyScore}%`,
       message:
-        'Operator metadata is sufficiently populated for public due diligence.',
+        "Operator metadata is sufficiently populated for public due diligence.",
     });
   }
 
-  if (freshness.freshnessStatus === 'CRITICAL') {
+  if (freshness.freshnessStatus === "CRITICAL") {
     pushComponent(
       {
-        key: 'freshness',
-        label: 'Snapshot freshness',
-        status: 'CRITICAL',
+        key: "freshness",
+        label: "Snapshot freshness",
+        status: "CRITICAL",
         value:
           freshness.indexedStateAgeSeconds == null
-            ? 'critical'
+            ? "critical"
             : `${freshness.indexedStateAgeSeconds}s old`,
         message: freshness.freshnessMessage,
       },
       20,
     );
-  } else if (freshness.freshnessStatus === 'WARNING' || freshness.freshnessStatus === 'UNKNOWN') {
+  } else if (
+    freshness.freshnessStatus === "WARNING" ||
+    freshness.freshnessStatus === "UNKNOWN"
+  ) {
     pushComponent(
       {
-        key: 'freshness',
-        label: 'Snapshot freshness',
-        status: 'WARNING',
+        key: "freshness",
+        label: "Snapshot freshness",
+        status: "WARNING",
         value:
           freshness.indexedStateAgeSeconds == null
             ? freshness.freshnessStatus.toLowerCase()
             : `${freshness.indexedStateAgeSeconds}s old`,
         message: freshness.freshnessMessage,
       },
-      freshness.freshnessStatus === 'UNKNOWN' ? 6 : 10,
+      freshness.freshnessStatus === "UNKNOWN" ? 6 : 10,
     );
   } else {
     components.push({
-      key: 'freshness',
-      label: 'Snapshot freshness',
-      status: 'PASS',
+      key: "freshness",
+      label: "Snapshot freshness",
+      status: "PASS",
       value:
         freshness.indexedStateAgeSeconds == null
-          ? 'fresh'
+          ? "fresh"
           : `${freshness.indexedStateAgeSeconds}s old`,
       message: freshness.freshnessMessage,
     });
@@ -371,15 +385,15 @@ function buildRiskAssessment(
   const normalizedScore = Math.max(0, Math.min(100, Math.round(score)));
   const level =
     normalizedScore >= 60
-      ? 'high'
+      ? "high"
       : normalizedScore >= 35
-        ? 'elevated'
+        ? "elevated"
         : normalizedScore >= 15
-          ? 'guarded'
-          : 'low';
+          ? "guarded"
+          : "low";
 
   const reasons = components
-    .filter((component) => component.status !== 'PASS')
+    .filter((component) => component.status !== "PASS")
     .map((component) => component.message);
 
   return {
@@ -389,7 +403,9 @@ function buildRiskAssessment(
     reasons:
       reasons.length > 0
         ? reasons
-        : ['Validator is active, transparent, and within the current freshness bounds.'],
+        : [
+            "Validator is active, transparent, and within the current freshness bounds.",
+          ],
     components,
     evidence: {
       eligibleForUniverse,
@@ -413,10 +429,13 @@ function enrichValidator(
   freshness: FreshnessContext,
 ) {
   const tokenAmount = parseTokenAmount(validator.tokens);
-  const eligibleForUniverse = canonicalContext.eligibleAddresses.has(validator.address);
+  const eligibleForUniverse = canonicalContext.eligibleAddresses.has(
+    validator.address,
+  );
   const sharePercent =
     eligibleForUniverse && canonicalContext.totalBondedTokens > 0n
-      ? Number((tokenAmount * 10_000n) / canonicalContext.totalBondedTokens) / 100
+      ? Number((tokenAmount * 10_000n) / canonicalContext.totalBondedTokens) /
+        100
       : 0;
 
   return {
@@ -434,7 +453,7 @@ async function loadCanonicalUniverseContext(): Promise<CanonicalUniverseContext>
   const response = await blockchainService.getValidators({
     limit: 10_000,
     offset: 0,
-    status: 'BOND_STATUS_BONDED',
+    status: "BOND_STATUS_BONDED",
   });
 
   const eligibleAddresses = response.data.map((validator) => validator.address);
@@ -455,7 +474,9 @@ async function loadCanonicalUniverseContext(): Promise<CanonicalUniverseContext>
 
 async function loadValidators(status?: UiStatus, limit = 50, offset = 0) {
   const fetchLimit = Math.min(Math.max(limit + offset, 100), 500);
-  const chainStatuses = status ? CHAIN_STATUS_GROUPS[status] : CHAIN_STATUS_GROUPS.all;
+  const chainStatuses = status
+    ? CHAIN_STATUS_GROUPS[status]
+    : CHAIN_STATUS_GROUPS.all;
 
   const responses = await Promise.all(
     chainStatuses.map((chainStatus) =>
@@ -512,16 +533,16 @@ function buildProtocolContext(
  *     tags: [Validators]
  */
 router.get(
-  '/',
+  "/",
   publicExpensiveRateLimiter,
   [
-    query('limit').optional().isInt({ min: 1, max: 200 }).toInt(),
-    query('offset')
+    query("limit").optional().isInt({ min: 1, max: 200 }).toInt(),
+    query("offset")
       .optional()
       .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
       .toInt(),
-    query('status').optional().isIn(UI_STATUSES),
-    query('min_voting_power')
+    query("status").optional().isIn(UI_STATUSES),
+    query("min_voting_power")
       .optional()
       .isString()
       .trim()
@@ -546,12 +567,12 @@ router.get(
     const minVotingPower = parseVotingPowerFilter(min_voting_power);
 
     const cacheKey = [
-      'validators:list',
+      "validators:list",
       limit,
       offset,
-      status ?? 'all',
-      min_voting_power ?? 'all',
-    ].join(':');
+      status ?? "all",
+      min_voting_power ?? "all",
+    ].join(":");
 
     const cached = await cacheService.get(cacheKey);
     if (cached) {
@@ -562,7 +583,9 @@ router.get(
       loadValidators(status, limit, offset),
       loadCanonicalUniverseContext(),
     ]);
-    const freshness = buildFreshnessContext(reconciliationScheduler.getLatestResult());
+    const freshness = buildFreshnessContext(
+      reconciliationScheduler.getLatestResult(),
+    );
 
     const filtered = validators
       .filter((validator) => {
@@ -617,9 +640,9 @@ router.get(
  *     tags: [Validators]
  */
 router.get(
-  '/:address',
+  "/:address",
   [
-    param('address')
+    param("address")
       .isString()
       .trim()
       .notEmpty()
@@ -644,7 +667,9 @@ router.get(
       throw new ApiError(404, `Validator ${address} not found`);
     }
 
-    const freshness = buildFreshnessContext(reconciliationScheduler.getLatestResult());
+    const freshness = buildFreshnessContext(
+      reconciliationScheduler.getLatestResult(),
+    );
     const response = {
       validator: enrichValidator(validator, canonicalContext, freshness),
       protocol: buildProtocolContext([validator], canonicalContext, freshness),

@@ -2,31 +2,31 @@
  * Reconciliation API Routes
  */
 
-import { Router, type Request, type Response } from 'express';
-import { param, query } from 'express-validator';
-import { container } from 'tsyringe';
-import { CacheService } from '../../services/CacheService';
-import { ReconciliationService } from '../../services/ReconciliationService';
+import { Router, type Request, type Response } from "express";
+import { param, query } from "express-validator";
+import { container } from "tsyringe";
+import { CacheService } from "../../services/CacheService";
+import { ReconciliationService } from "../../services/ReconciliationService";
 import {
   ReconciliationScheduler,
   type ReconciliationCheck,
   type ReconciliationResult,
-} from '../../services/ReconciliationScheduler';
-import { authenticate, requireRoles } from '../../auth/middleware';
+} from "../../services/ReconciliationScheduler";
+import { authenticate, requireRoles } from "../../auth/middleware";
 import {
   opsRateLimiter,
   publicExpensiveRateLimiter,
-} from '../../middleware/rateLimiter';
-import { validate } from '../../middleware/validate';
-import { asyncHandler } from '../../utils/asyncHandler';
+} from "../../middleware/rateLimiter";
+import { validate } from "../../middleware/validate";
+import { asyncHandler } from "../../utils/asyncHandler";
 
 const router = Router();
 const cacheService = container.resolve(CacheService);
 const reconciliationService = container.resolve(ReconciliationService);
 const reconciliationScheduler = container.resolve(ReconciliationScheduler);
 
-type PublicSignalStatus = ReconciliationCheck['status'] | 'UNKNOWN';
-type PublicOverallStatus = ReconciliationResult['status'] | 'UNKNOWN';
+type PublicSignalStatus = ReconciliationCheck["status"] | "UNKNOWN";
+type PublicOverallStatus = ReconciliationResult["status"] | "UNKNOWN";
 
 type PublicReconciliationScorecard = {
   generated_at: string;
@@ -35,7 +35,7 @@ type PublicReconciliationScorecard = {
   epoch_source: string | null;
   snapshot_age_seconds: number | null;
   validator_coverage_percent: number | null;
-  stake_snapshot_status: 'complete' | 'partial' | 'unavailable';
+  stake_snapshot_status: "complete" | "partial" | "unavailable";
   freshness: {
     status: PublicSignalStatus;
     message: string;
@@ -84,15 +84,17 @@ function getMetadataNumber(
   key: string,
 ): number | null {
   const value = check?.metadata?.[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function getStatusFromEpochSource(epochSource: string | null): PublicSignalStatus {
+function getStatusFromEpochSource(
+  epochSource: string | null,
+): PublicSignalStatus {
   if (!epochSource) {
-    return 'UNKNOWN';
+    return "UNKNOWN";
   }
 
-  return epochSource.includes('(fallback)') ? 'WARNING' : 'PASS';
+  return epochSource.includes("(fallback)") ? "WARNING" : "PASS";
 }
 
 function getSnapshotAgeSeconds(capturedAt: string): number | null {
@@ -106,12 +108,12 @@ function getSnapshotAgeSeconds(capturedAt: string): number | null {
 }
 
 function buildScorecard(
-  summary: Awaited<ReturnType<ReconciliationService['getControlPlaneSummary']>>,
+  summary: Awaited<ReturnType<ReconciliationService["getControlPlaneSummary"]>>,
   latestResult: ReconciliationResult | null,
 ): PublicReconciliationScorecard {
-  const epochResolutionCheck = getCheck(latestResult, 'epoch_resolution');
-  const epochFreshnessCheck = getCheck(latestResult, 'epoch_freshness');
-  const validatorCountCheck = getCheck(latestResult, 'validator_count');
+  const epochResolutionCheck = getCheck(latestResult, "epoch_resolution");
+  const epochFreshnessCheck = getCheck(latestResult, "epoch_freshness");
+  const validatorCountCheck = getCheck(latestResult, "validator_count");
 
   const snapshotAgeSeconds = getSnapshotAgeSeconds(summary.captured_at);
   const validatorCoveragePercent =
@@ -125,18 +127,20 @@ function buildScorecard(
       : null;
   const stakeSnapshotStatus =
     summary.stake_snapshot_complete === true
-      ? 'complete'
+      ? "complete"
       : summary.stake_snapshot_complete === false
-        ? 'partial'
-        : 'unavailable';
-  const freshnessStatus = epochFreshnessCheck?.status ?? 'UNKNOWN';
+        ? "partial"
+        : "unavailable";
+  const freshnessStatus = epochFreshnessCheck?.status ?? "UNKNOWN";
   const freshnessMessage =
     epochFreshnessCheck?.message ??
-    'Public epoch freshness verdict is unavailable until the reconciliation scheduler emits a result.';
+    "Public epoch freshness verdict is unavailable until the reconciliation scheduler emits a result.";
 
   return {
     generated_at: new Date().toISOString(),
-    status: latestResult?.status ?? (summary.warning_count > 0 ? 'WARNING' : 'UNKNOWN'),
+    status:
+      latestResult?.status ??
+      (summary.warning_count > 0 ? "WARNING" : "UNKNOWN"),
     epoch: latestResult?.epoch ?? summary.epoch ?? null,
     epoch_source: latestResult?.epochSource ?? summary.epoch_source ?? null,
     snapshot_age_seconds: snapshotAgeSeconds,
@@ -145,89 +149,93 @@ function buildScorecard(
     freshness: {
       status: freshnessStatus,
       message: freshnessMessage,
-      indexed_epoch: getMetadataNumber(epochFreshnessCheck, 'indexedEpoch'),
+      indexed_epoch: getMetadataNumber(epochFreshnessCheck, "indexedEpoch"),
       protocol_epoch:
-        getMetadataNumber(epochFreshnessCheck, 'protocolEpoch') ?? summary.epoch,
-      epoch_lag: getMetadataNumber(epochFreshnessCheck, 'epochLag'),
+        getMetadataNumber(epochFreshnessCheck, "protocolEpoch") ??
+        summary.epoch,
+      epoch_lag: getMetadataNumber(epochFreshnessCheck, "epochLag"),
       indexed_state_age_seconds: (() => {
-        const ageMs = getMetadataNumber(epochFreshnessCheck, 'ageMs');
+        const ageMs = getMetadataNumber(epochFreshnessCheck, "ageMs");
         return ageMs == null ? null : Math.round(ageMs / 1000);
       })(),
       stale_limit_seconds: (() => {
-        const staleLimitMs = getMetadataNumber(epochFreshnessCheck, 'staleLimitMs');
+        const staleLimitMs = getMetadataNumber(
+          epochFreshnessCheck,
+          "staleLimitMs",
+        );
         return staleLimitMs == null ? null : Math.round(staleLimitMs / 1000);
       })(),
     },
     pillars: [
       {
-        key: 'epoch_resolution',
-        label: 'Epoch resolution',
+        key: "epoch_resolution",
+        label: "Epoch resolution",
         status:
           epochResolutionCheck?.status ??
           getStatusFromEpochSource(summary.epoch_source),
         message:
           epochResolutionCheck?.message ??
-          (summary.epoch_source?.includes('(fallback)')
+          (summary.epoch_source?.includes("(fallback)")
             ? `Authoritative epoch is unavailable; public snapshot is using ${summary.epoch_source}.`
             : `Epoch is being sourced from ${summary.epoch_source}.`),
         value: summary.epoch_source,
       },
       {
-        key: 'epoch_freshness',
-        label: 'Indexed freshness',
+        key: "epoch_freshness",
+        label: "Indexed freshness",
         status: freshnessStatus,
         message: freshnessMessage,
         value:
-          getMetadataNumber(epochFreshnessCheck, 'ageMs') != null
+          getMetadataNumber(epochFreshnessCheck, "ageMs") != null
             ? `${Math.round(
-                (getMetadataNumber(epochFreshnessCheck, 'ageMs') ?? 0) / 1000,
+                (getMetadataNumber(epochFreshnessCheck, "ageMs") ?? 0) / 1000,
               )}s`
             : snapshotAgeSeconds != null
               ? `${snapshotAgeSeconds}s`
-              : 'Unavailable',
+              : "Unavailable",
       },
       {
-        key: 'validator_coverage',
-        label: 'Validator coverage',
+        key: "validator_coverage",
+        label: "Validator coverage",
         status:
           summary.validator_count === summary.total_eligible_validators
-            ? 'PASS'
-            : 'WARNING',
+            ? "PASS"
+            : "WARNING",
         message:
           summary.validator_count === summary.total_eligible_validators
-            ? 'The public control plane currently represents the full bonded validator universe.'
+            ? "The public control plane currently represents the full bonded validator universe."
             : `The public control plane is showing ${summary.validator_count} of ${summary.total_eligible_validators} eligible validators in this snapshot window.`,
         value:
           validatorCoveragePercent == null
-            ? 'Unavailable'
+            ? "Unavailable"
             : `${validatorCoveragePercent.toFixed(2)}%`,
       },
       {
-        key: 'stake_snapshot',
-        label: 'Stake snapshot',
+        key: "stake_snapshot",
+        label: "Stake snapshot",
         status:
           summary.stake_snapshot_complete === true
-            ? 'PASS'
+            ? "PASS"
             : summary.stake_snapshot_complete === false
-              ? 'WARNING'
-              : 'SKIPPED',
+              ? "WARNING"
+              : "SKIPPED",
         message:
           summary.stake_snapshot_complete === true
-            ? 'Stake snapshot roots and shares are complete for the current public capture.'
+            ? "Stake snapshot roots and shares are complete for the current public capture."
             : summary.stake_snapshot_complete === false
-              ? 'Stake snapshot is available but incomplete. Treat exported artifacts as partial evidence.'
-              : 'Stake snapshot is unavailable for the current public capture.',
+              ? "Stake snapshot is available but incomplete. Treat exported artifacts as partial evidence."
+              : "Stake snapshot is unavailable for the current public capture.",
         value: stakeSnapshotStatus,
       },
       {
-        key: 'discrepancy_burden',
-        label: 'Discrepancy burden',
+        key: "discrepancy_burden",
+        label: "Discrepancy burden",
         status:
           summary.critical_discrepancy_count > 0
-            ? 'CRITICAL'
+            ? "CRITICAL"
             : summary.warning_discrepancy_count > 0
-              ? 'WARNING'
-              : 'PASS',
+              ? "WARNING"
+              : "PASS",
         message:
           summary.critical_discrepancy_count > 0
             ? `${summary.critical_discrepancy_count} critical structured discrepancies were recorded in the current capture.`
@@ -235,16 +243,16 @@ function buildScorecard(
               ? `${summary.warning_discrepancy_count} warning-level structured discrepancies were recorded in the current capture.`
               : summary.info_discrepancy_count > 0
                 ? `${summary.info_discrepancy_count} informational discrepancies were recorded in the current capture.`
-              : 'No structured discrepancies were recorded in the current capture.',
+                : "No structured discrepancies were recorded in the current capture.",
         value: String(summary.discrepancy_count),
       },
       {
-        key: 'validator_safety',
-        label: 'Validator safety',
-        status: validatorCountCheck?.status ?? 'UNKNOWN',
+        key: "validator_safety",
+        label: "Validator safety",
+        status: validatorCountCheck?.status ?? "UNKNOWN",
         message:
           validatorCountCheck?.message ??
-          'Active validator count verdict is unavailable until the reconciliation scheduler emits a result.',
+          "Active validator count verdict is unavailable until the reconciliation scheduler emits a result.",
         value:
           validatorCountCheck?.metadata?.activeValidators != null &&
           validatorCountCheck.metadata?.totalValidators != null
@@ -296,10 +304,10 @@ function buildScorecard(
  *         description: Live reconciliation document. Public reads do not persist immutable snapshot history.
  */
 router.get(
-  '/live',
+  "/live",
   publicExpensiveRateLimiter,
   [
-    query('validator_limit').optional().isInt({ min: 1, max: 500 }).toInt(),
+    query("validator_limit").optional().isInt({ min: 1, max: 500 }).toInt(),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -332,10 +340,10 @@ router.get(
  *         description: Lightweight protocol-truth summary for app surfaces
  */
 router.get(
-  '/control-plane',
+  "/control-plane",
   publicExpensiveRateLimiter,
   asyncHandler(async (_req: Request, res: Response) => {
-    const cacheKey = 'reconciliation:control-plane';
+    const cacheKey = "reconciliation:control-plane";
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -361,10 +369,10 @@ router.get(
  *         description: Public trust surface combining control-plane lineage and scheduler freshness checks
  */
 router.get(
-  '/scorecard',
+  "/scorecard",
   publicExpensiveRateLimiter,
   asyncHandler(async (_req: Request, res: Response) => {
-    const cacheKey = 'reconciliation:scorecard';
+    const cacheKey = "reconciliation:scorecard";
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -407,12 +415,12 @@ router.get(
  *         description: Forbidden
  */
 router.post(
-  '/capture',
+  "/capture",
   opsRateLimiter,
   authenticate,
-  requireRoles('operator', 'admin'),
+  requireRoles("operator", "admin"),
   [
-    query('validator_limit').optional().isInt({ min: 1, max: 500 }).toInt(),
+    query("validator_limit").optional().isInt({ min: 1, max: 500 }).toInt(),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -434,8 +442,8 @@ router.post(
  *     tags: [Reconciliation]
  */
 router.get(
-  '/history',
-  [query('limit').optional().isInt({ min: 1, max: 100 }).toInt(), validate],
+  "/history",
+  [query("limit").optional().isInt({ min: 1, max: 100 }).toInt(), validate],
   asyncHandler(async (req: Request, res: Response) => {
     const limit = Number(req.query.limit ?? 20);
     const cacheKey = `reconciliation:history:${limit}`;
@@ -459,8 +467,8 @@ router.get(
  *     tags: [Reconciliation]
  */
 router.get(
-  '/:epoch',
-  [param('epoch').isInt({ min: 0 }).toInt(), validate],
+  "/:epoch",
+  [param("epoch").isInt({ min: 0 }).toInt(), validate],
   asyncHandler(async (req: Request, res: Response) => {
     const epoch = Number(req.params.epoch);
     const cacheKey = `reconciliation:epoch:${epoch}`;

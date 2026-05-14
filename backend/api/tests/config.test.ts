@@ -227,8 +227,7 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
-        OPERATIONAL_ENDPOINTS_TOKEN:
-          "production-ops-token-012345678901\t",
+        OPERATIONAL_ENDPOINTS_TOKEN: "production-ops-token-012345678901\t",
       }),
     ).rejects.toThrow(
       "OPERATIONAL_ENDPOINTS_TOKEN must not contain control characters",

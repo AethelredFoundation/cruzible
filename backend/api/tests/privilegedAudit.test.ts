@@ -1,10 +1,10 @@
-import 'reflect-metadata';
-import express from 'express';
-import { container } from 'tsyringe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { withHttpServer } from './helpers/http';
+import "reflect-metadata";
+import express from "express";
+import { container } from "tsyringe";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withHttpServer } from "./helpers/http";
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock("../src/utils/logger", () => ({
   logger: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -12,12 +12,12 @@ vi.mock('../src/utils/logger', () => ({
   },
 }));
 
-import { logger } from '../src/utils/logger';
+import { logger } from "../src/utils/logger";
 
 const originalEnv = { ...process.env };
-const OPERATIONAL_TOKEN = '12345678901234567890123456789012';
+const OPERATIONAL_TOKEN = "12345678901234567890123456789012";
 
-describe('privileged access audit logging', () => {
+describe("privileged access audit logging", () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     container.clearInstances();
@@ -33,27 +33,27 @@ describe('privileged access audit logging', () => {
     vi.resetModules();
   });
 
-  it('logs successful wallet-gated privileged requests', async () => {
-    const { config } = await import('../src/config');
-    (config as any).authOperatorAddresses = ['aeth1operator'];
+  it("logs successful wallet-gated privileged requests", async () => {
+    const { config } = await import("../src/config");
+    (config as any).authOperatorAddresses = ["aeth1operator"];
 
     const { authenticate, requireRoles } =
-      await import('../src/auth/middleware');
-    const { generateTokens } = await import('../src/auth/service');
-    const { rateLimiter } = await import('../src/middleware/rateLimiter');
+      await import("../src/auth/middleware");
+    const { generateTokens } = await import("../src/auth/service");
+    const { rateLimiter } = await import("../src/middleware/rateLimiter");
     const { accessToken } = generateTokens({
-      address: 'aeth1operator',
-      roles: ['user', 'operator'],
+      address: "aeth1operator",
+      roles: ["user", "operator"],
     });
 
     const app = express();
     app.use((req, res, next) => {
-      req.requestId = 'audit-wallet-success';
-      res.setHeader('x-request-id', req.requestId);
+      req.requestId = "audit-wallet-success";
+      res.setHeader("x-request-id", req.requestId);
       next();
     });
     app.use(rateLimiter);
-    app.get('/ops', authenticate, requireRoles('operator'), (_req, res) => {
+    app.get("/ops", authenticate, requireRoles("operator"), (_req, res) => {
       res.json({ ok: true });
     });
 
@@ -64,40 +64,40 @@ describe('privileged access audit logging', () => {
 
       expect(response.status).toBe(200);
       expect(logger.info).toHaveBeenCalledWith(
-        'Privileged access audit',
+        "Privileged access audit",
         expect.objectContaining({
-          type: 'privileged_access_audit',
-          requestId: 'audit-wallet-success',
-          method: 'GET',
-          path: '/ops',
-          principalType: 'wallet',
-          actorAddress: 'aeth1operator',
-          requiredRoles: ['operator'],
-          tokenRoles: ['user', 'operator'],
-          currentRoles: ['user', 'operator'],
-          decision: 'allowed',
-          outcome: 'succeeded',
+          type: "privileged_access_audit",
+          requestId: "audit-wallet-success",
+          method: "GET",
+          path: "/ops",
+          principalType: "wallet",
+          actorAddress: "aeth1operator",
+          requiredRoles: ["operator"],
+          tokenRoles: ["user", "operator"],
+          currentRoles: ["user", "operator"],
+          decision: "allowed",
+          outcome: "succeeded",
           statusCode: 200,
         }),
       );
 
       const { getMemoryPrivilegedAuditEvents } =
-        await import('../src/middleware/privilegedAudit');
+        await import("../src/middleware/privilegedAudit");
       const persistedEvents = getMemoryPrivilegedAuditEvents();
 
       expect(persistedEvents).toHaveLength(1);
       expect(persistedEvents[0]).toEqual(
         expect.objectContaining({
-          requestId: 'audit-wallet-success',
-          method: 'GET',
-          path: '/ops',
-          principalType: 'wallet',
-          actorAddress: 'aeth1operator',
-          requiredRoles: ['operator'],
-          tokenRoles: ['user', 'operator'],
-          currentRoles: ['user', 'operator'],
-          decision: 'allowed',
-          outcome: 'succeeded',
+          requestId: "audit-wallet-success",
+          method: "GET",
+          path: "/ops",
+          principalType: "wallet",
+          actorAddress: "aeth1operator",
+          requiredRoles: ["operator"],
+          tokenRoles: ["user", "operator"],
+          currentRoles: ["user", "operator"],
+          decision: "allowed",
+          outcome: "succeeded",
           statusCode: 200,
           previousEventHash: null,
         }),
@@ -105,23 +105,23 @@ describe('privileged access audit logging', () => {
       expect(persistedEvents[0].eventHash).toMatch(/^[a-f0-9]{64}$/);
       expect(persistedEvents[0].ipHash).toMatch(/^[a-f0-9]{64}$/);
       expect(persistedEvents[0].userAgentHash).toMatch(/^[a-f0-9]{64}$/);
-      expect(JSON.stringify(persistedEvents[0])).not.toContain('secret');
+      expect(JSON.stringify(persistedEvents[0])).not.toContain("secret");
     });
   });
 
-  it('logs rejected wallet-gated requests before role checks run', async () => {
+  it("logs rejected wallet-gated requests before role checks run", async () => {
     const { authenticate, requireRoles } =
-      await import('../src/auth/middleware');
-    const { rateLimiter } = await import('../src/middleware/rateLimiter');
+      await import("../src/auth/middleware");
+    const { rateLimiter } = await import("../src/middleware/rateLimiter");
 
     const app = express();
     app.use((req, res, next) => {
-      req.requestId = 'audit-wallet-missing-token';
-      res.setHeader('x-request-id', req.requestId);
+      req.requestId = "audit-wallet-missing-token";
+      res.setHeader("x-request-id", req.requestId);
       next();
     });
     app.use(rateLimiter);
-    app.get('/ops', authenticate, requireRoles('operator'), (_req, res) => {
+    app.get("/ops", authenticate, requireRoles("operator"), (_req, res) => {
       res.json({ ok: true });
     });
 
@@ -130,62 +130,62 @@ describe('privileged access audit logging', () => {
       const body = await response.json();
 
       expect(response.status).toBe(401);
-      expect(response.headers.get('cache-control')).toBe('no-store');
-      expect(response.headers.get('www-authenticate')).toContain(
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("www-authenticate")).toContain(
         'error="invalid_request"',
       );
-      expect(body.requestId).toBe('audit-wallet-missing-token');
+      expect(body.requestId).toBe("audit-wallet-missing-token");
       expect(logger.warn).toHaveBeenCalledWith(
-        'Privileged access audit',
+        "Privileged access audit",
         expect.objectContaining({
-          type: 'privileged_access_audit',
-          requestId: 'audit-wallet-missing-token',
-          method: 'GET',
-          path: '/ops',
-          principalType: 'wallet',
-          decision: 'rejected',
-          reason: 'missing_authorization_header',
-          outcome: 'rejected',
+          type: "privileged_access_audit",
+          requestId: "audit-wallet-missing-token",
+          method: "GET",
+          path: "/ops",
+          principalType: "wallet",
+          decision: "rejected",
+          reason: "missing_authorization_header",
+          outcome: "rejected",
           statusCode: 401,
         }),
       );
 
       const { getMemoryPrivilegedAuditEvents } =
-        await import('../src/middleware/privilegedAudit');
+        await import("../src/middleware/privilegedAudit");
       const persistedEvents = getMemoryPrivilegedAuditEvents();
 
       expect(persistedEvents).toHaveLength(1);
       expect(persistedEvents[0]).toEqual(
         expect.objectContaining({
-          requestId: 'audit-wallet-missing-token',
-          method: 'GET',
-          path: '/ops',
-          principalType: 'wallet',
+          requestId: "audit-wallet-missing-token",
+          method: "GET",
+          path: "/ops",
+          principalType: "wallet",
           actorAddress: null,
-          decision: 'rejected',
-          reason: 'missing_authorization_header',
-          outcome: 'rejected',
+          decision: "rejected",
+          reason: "missing_authorization_header",
+          outcome: "rejected",
           statusCode: 401,
         }),
       );
     });
   });
 
-  it('logs rejected production operational-token requests', async () => {
-    const { config } = await import('../src/config');
+  it("logs rejected production operational-token requests", async () => {
+    const { config } = await import("../src/config");
     (config as any).isProduction = true;
     (config as any).operationalEndpointsToken = OPERATIONAL_TOKEN;
 
     const { requireOperationalAccess } =
-      await import('../src/middleware/operationalAccess');
+      await import("../src/middleware/operationalAccess");
     const app = express();
     app.use((req, res, next) => {
-      req.requestId = 'audit-operational-reject';
-      res.setHeader('x-request-id', req.requestId);
+      req.requestId = "audit-operational-reject";
+      res.setHeader("x-request-id", req.requestId);
       next();
     });
-    app.get('/metrics', requireOperationalAccess, (_req, res) => {
-      res.type('text/plain').send('ok');
+    app.get("/metrics", requireOperationalAccess, (_req, res) => {
+      res.type("text/plain").send("ok");
     });
 
     await withHttpServer(app, async (baseUrl) => {
@@ -193,22 +193,22 @@ describe('privileged access audit logging', () => {
 
       expect(response.status).toBe(401);
       expect(logger.warn).toHaveBeenCalledWith(
-        'Privileged access audit',
+        "Privileged access audit",
         expect.objectContaining({
-          type: 'privileged_access_audit',
-          requestId: 'audit-operational-reject',
-          method: 'GET',
-          path: '/metrics',
-          principalType: 'operational-token',
-          decision: 'rejected',
-          reason: 'missing_or_invalid_operational_token',
-          outcome: 'rejected',
+          type: "privileged_access_audit",
+          requestId: "audit-operational-reject",
+          method: "GET",
+          path: "/metrics",
+          principalType: "operational-token",
+          decision: "rejected",
+          reason: "missing_or_invalid_operational_token",
+          outcome: "rejected",
           statusCode: 401,
         }),
       );
 
       const { AlertService, AlertType } =
-        await import('../src/services/AlertService');
+        await import("../src/services/AlertService");
       const alertService = container.resolve(AlertService);
 
       await expect
@@ -226,16 +226,16 @@ describe('privileged access audit logging', () => {
         limit: 10,
       });
       expect(history.data[0]).toMatchObject({
-        severity: 'WARNING',
+        severity: "WARNING",
         type: AlertType.PRIVILEGED_ACCESS_REJECTED,
-        message: 'Privileged access request rejected',
+        message: "Privileged access request rejected",
         metadata: expect.objectContaining({
-          requestId: 'audit-operational-reject',
-          method: 'GET',
-          path: '/metrics',
-          principalType: 'operational-token',
-          decision: 'rejected',
-          reason: 'missing_or_invalid_operational_token',
+          requestId: "audit-operational-reject",
+          method: "GET",
+          path: "/metrics",
+          principalType: "operational-token",
+          decision: "rejected",
+          reason: "missing_or_invalid_operational_token",
           statusCode: 401,
         }),
       });
@@ -243,21 +243,21 @@ describe('privileged access audit logging', () => {
     });
   });
 
-  it('logs successful production operational-token requests', async () => {
-    const { config } = await import('../src/config');
+  it("logs successful production operational-token requests", async () => {
+    const { config } = await import("../src/config");
     (config as any).isProduction = true;
     (config as any).operationalEndpointsToken = OPERATIONAL_TOKEN;
 
     const { requireOperationalAccess } =
-      await import('../src/middleware/operationalAccess');
+      await import("../src/middleware/operationalAccess");
     const app = express();
     app.use((req, res, next) => {
-      req.requestId = 'audit-operational-success';
-      res.setHeader('x-request-id', req.requestId);
+      req.requestId = "audit-operational-success";
+      res.setHeader("x-request-id", req.requestId);
       next();
     });
-    app.get('/metrics', requireOperationalAccess, (_req, res) => {
-      res.type('text/plain').send('ok');
+    app.get("/metrics", requireOperationalAccess, (_req, res) => {
+      res.type("text/plain").send("ok");
     });
 
     await withHttpServer(app, async (baseUrl) => {
@@ -267,15 +267,15 @@ describe('privileged access audit logging', () => {
 
       expect(response.status).toBe(200);
       expect(logger.info).toHaveBeenCalledWith(
-        'Privileged access audit',
+        "Privileged access audit",
         expect.objectContaining({
-          type: 'privileged_access_audit',
-          requestId: 'audit-operational-success',
-          method: 'GET',
-          path: '/metrics',
-          principalType: 'operational-token',
-          decision: 'allowed',
-          outcome: 'succeeded',
+          type: "privileged_access_audit",
+          requestId: "audit-operational-success",
+          method: "GET",
+          path: "/metrics",
+          principalType: "operational-token",
+          decision: "allowed",
+          outcome: "succeeded",
           statusCode: 200,
         }),
       );

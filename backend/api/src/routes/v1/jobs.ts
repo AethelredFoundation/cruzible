@@ -2,33 +2,38 @@
  * AI Jobs API Routes
  */
 
-import { Router, Request, Response } from 'express';
-import { query, param } from 'express-validator';
-import { container } from 'tsyringe';
-import { JobsService } from '../../services/JobsService';
-import { CacheService } from '../../services/CacheService';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { ApiError } from '../../utils/ApiError';
-import { validate } from '../../middleware/validate';
-import { publicExpensiveRateLimiter } from '../../middleware/rateLimiter';
+import { Router, Request, Response } from "express";
+import { query, param } from "express-validator";
+import { container } from "tsyringe";
+import { JobsService } from "../../services/JobsService";
+import { CacheService } from "../../services/CacheService";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { ApiError } from "../../utils/ApiError";
+import { validate } from "../../middleware/validate";
+import { publicExpensiveRateLimiter } from "../../middleware/rateLimiter";
 import {
   isAllowedPublicSort,
   MAX_PUBLIC_FILTER_LENGTH,
   MAX_PUBLIC_PAGINATION_OFFSET,
-} from '../../validation/schemas';
+} from "../../validation/schemas";
 
 const router = Router();
 const jobsService = container.resolve(JobsService);
 const cacheService = container.resolve(CacheService);
 
-const JOB_SORT_FIELDS = ['created_at', 'completed_at', 'priority', 'verification_score'] as const;
+const JOB_SORT_FIELDS = [
+  "created_at",
+  "completed_at",
+  "priority",
+  "verification_score",
+] as const;
 const MAX_ESTIMATED_CPU_CYCLES = 10_000_000_000_000;
 const MAX_ESTIMATED_MEMORY_MB = 1_048_576;
 const MAX_JOB_QUEUE_LIMIT = 100;
 const MAX_JOB_ID_LENGTH = 64;
 const JOB_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
-const jobIdValidator = param('id')
+const jobIdValidator = param("id")
   .isString()
   .trim()
   .notEmpty()
@@ -78,32 +83,41 @@ const jobIdValidator = param('id')
  *       200:
  *         description: List of AI jobs
  */
-router.get('/',
+router.get(
+  "/",
   [
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset')
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset")
       .optional()
       .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
       .toInt(),
-    query('status').optional().isIn([
-      'pending', 'assigned', 'computing', 'completed', 
-      'verified', 'failed', 'expired', 'cancelled'
-    ]),
-    query('model_hash')
+    query("status")
+      .optional()
+      .isIn([
+        "pending",
+        "assigned",
+        "computing",
+        "completed",
+        "verified",
+        "failed",
+        "expired",
+        "cancelled",
+      ]),
+    query("model_hash")
       .optional()
       .isString()
       .trim()
       .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
-    query('creator')
+    query("creator")
       .optional()
       .isString()
       .trim()
       .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
-    query('sort')
+    query("sort")
       .optional()
       .custom((value) => isAllowedPublicSort(value, JOB_SORT_FIELDS))
       .withMessage(
-        `sort must be one of: ${JOB_SORT_FIELDS.join(', ')} with :asc or :desc`,
+        `sort must be one of: ${JOB_SORT_FIELDS.join(", ")} with :asc or :desc`,
       ),
     validate,
   ],
@@ -114,12 +128,12 @@ router.get('/',
       status,
       model_hash,
       creator,
-      sort = 'created_at:desc',
+      sort = "created_at:desc",
     } = req.query;
 
-    const cacheKey = `jobs:list:${limit}:${offset}:${status || 'all'}:${model_hash || 'all'}:${creator || 'all'}:${sort}`;
+    const cacheKey = `jobs:list:${limit}:${offset}:${status || "all"}:${model_hash || "all"}:${creator || "all"}:${sort}`;
     const cached = await cacheService.get(cacheKey);
-    
+
     if (cached) {
       return res.json(cached);
     }
@@ -132,12 +146,12 @@ router.get('/',
       creator: creator as string,
       sort: sort as string,
     });
-    
+
     // Cache for 2 seconds (jobs update frequently)
     await cacheService.set(cacheKey, result, 2);
-    
+
     res.json(result);
-  })
+  }),
 );
 
 /**
@@ -150,22 +164,23 @@ router.get('/',
  *       200:
  *         description: Job statistics
  */
-router.get('/stats',
+router.get(
+  "/stats",
   asyncHandler(async (req: Request, res: Response) => {
-    const cacheKey = 'jobs:stats';
+    const cacheKey = "jobs:stats";
     const cached = await cacheService.get(cacheKey);
-    
+
     if (cached) {
       return res.json(cached);
     }
 
     const stats = await jobsService.getJobStats();
-    
+
     // Cache for 10 seconds
     await cacheService.set(cacheKey, stats, 10);
-    
+
     res.json(stats);
-  })
+  }),
 );
 
 /**
@@ -195,19 +210,20 @@ router.get('/stats',
  *       200:
  *         description: Pricing information
  */
-router.get('/pricing',
+router.get(
+  "/pricing",
   publicExpensiveRateLimiter,
   [
-    query('model_hash')
+    query("model_hash")
       .optional()
       .isString()
       .trim()
       .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
-    query('estimated_cpu_cycles')
+    query("estimated_cpu_cycles")
       .optional()
       .isInt({ min: 1, max: MAX_ESTIMATED_CPU_CYCLES })
       .toInt(),
-    query('estimated_memory_mb')
+    query("estimated_memory_mb")
       .optional()
       .isInt({ min: 1, max: MAX_ESTIMATED_MEMORY_MB })
       .toInt(),
@@ -215,7 +231,7 @@ router.get('/pricing',
   ],
   asyncHandler(async (req: Request, res: Response) => {
     const { model_hash, estimated_cpu_cycles, estimated_memory_mb } = req.query;
-    
+
     const pricing = await jobsService.getPricing({
       modelHash: model_hash as string,
       estimatedCpuCycles:
@@ -223,9 +239,9 @@ router.get('/pricing',
       estimatedMemoryMb:
         estimated_memory_mb != null ? Number(estimated_memory_mb) : undefined,
     });
-    
+
     res.json(pricing);
-  })
+  }),
 );
 
 /**
@@ -246,9 +262,13 @@ router.get('/pricing',
  *       200:
  *         description: Job queue
  */
-router.get('/queue',
+router.get(
+  "/queue",
   [
-    query('limit').optional().isInt({ min: 1, max: MAX_JOB_QUEUE_LIMIT }).toInt(),
+    query("limit")
+      .optional()
+      .isInt({ min: 1, max: MAX_JOB_QUEUE_LIMIT })
+      .toInt(),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -256,7 +276,7 @@ router.get('/queue',
 
     const queue = await jobsService.getJobQueue(Number(limit));
     res.json(queue);
-  })
+  }),
 );
 
 /**
@@ -277,29 +297,30 @@ router.get('/queue',
  *       404:
  *         description: Job not found
  */
-router.get('/:id',
+router.get(
+  "/:id",
   [jobIdValidator, validate],
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const cacheKey = `jobs:${id}`;
     const cached = await cacheService.get(cacheKey);
-    
+
     if (cached) {
       return res.json(cached);
     }
 
     const job = await jobsService.getJobById(id);
-    
+
     if (!job) {
       throw new ApiError(404, `Job ${id} not found`);
     }
-    
+
     // Cache for 5 seconds
     await cacheService.set(cacheKey, job, 5);
-    
+
     res.json(job);
-  })
+  }),
 );
 
 /**
@@ -318,14 +339,15 @@ router.get('/:id',
  *       200:
  *         description: Verification attempts
  */
-router.get('/:id/verifications',
+router.get(
+  "/:id/verifications",
   [jobIdValidator, validate],
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    
+
     const verifications = await jobsService.getJobVerifications(id);
     res.json(verifications);
-  })
+  }),
 );
 
 export { router as jobsRouter };

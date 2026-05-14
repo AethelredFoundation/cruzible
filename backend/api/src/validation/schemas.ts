@@ -6,7 +6,7 @@
  * length bounds, format checks, and whitelist constraints.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
 export const MAX_PUBLIC_PAGINATION_OFFSET = 10_000;
 export const MAX_PUBLIC_FILTER_LENGTH = 128;
@@ -21,7 +21,7 @@ type IntegerParamOptions = {
 };
 
 function normalizeStrictIntegerParam(value: unknown): unknown {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return value;
   }
 
@@ -45,11 +45,7 @@ export function integerParamSchema(options: IntegerParamOptions) {
     : schema.default(options.defaultValue);
 }
 
-function decimalAmountSchema(
-  label: string,
-  min: number,
-  minMessage: string,
-) {
+function decimalAmountSchema(label: string, min: number, minMessage: string) {
   return z
     .string()
     .trim()
@@ -65,8 +61,8 @@ function decimalAmountSchema(
 const AmountFilterSchema = z
   .string()
   .trim()
-  .max(MAX_DECIMAL_AMOUNT_LENGTH, 'Amount filter is too long')
-  .regex(DECIMAL_AMOUNT_PATTERN, 'Invalid amount format');
+  .max(MAX_DECIMAL_AMOUNT_LENGTH, "Amount filter is too long")
+  .regex(DECIMAL_AMOUNT_PATTERN, "Invalid amount format");
 
 // =============================================================================
 // PRIMITIVE SCHEMAS
@@ -77,11 +73,8 @@ const AmountFilterSchema = z
  * Accepts either a numeric string from URL params or a plain number.
  */
 export const BlockHeightSchema = z
-  .preprocess(
-    normalizeStrictIntegerParam,
-    z.number().int().safe().min(1),
-  )
-  .describe('Block height must be a positive integer (>= 1)');
+  .preprocess(normalizeStrictIntegerParam, z.number().int().safe().min(1))
+  .describe("Block height must be a positive integer (>= 1)");
 
 /**
  * Transaction hash: exactly 64 lower-case hex characters.
@@ -90,7 +83,10 @@ export const TxHashSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .regex(/^[a-f0-9]{64}$/, 'Transaction hash must be exactly 64 hex characters');
+  .regex(
+    /^[a-f0-9]{64}$/,
+    "Transaction hash must be exactly 64 hex characters",
+  );
 
 /**
  * Job ID: UUID v4 format or a short alphanumeric ID (max 64 chars).
@@ -99,11 +95,11 @@ export const TxHashSchema = z
 export const JobIdSchema = z
   .string()
   .trim()
-  .min(1, 'Job ID is required')
-  .max(64, 'Job ID too long')
+  .min(1, "Job ID is required")
+  .max(64, "Job ID too long")
   .regex(
     /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$|^[a-zA-Z0-9_-]{1,64}$/,
-    'Job ID must be a valid UUID v4 or alphanumeric identifier',
+    "Job ID must be a valid UUID v4 or alphanumeric identifier",
   );
 
 /**
@@ -112,7 +108,10 @@ export const JobIdSchema = z
 export const EthAddressSchema = z
   .string()
   .trim()
-  .regex(/^0x[a-fA-F0-9]{40}$/, 'Must be a valid Ethereum address (0x + 40 hex chars)');
+  .regex(
+    /^0x[a-fA-F0-9]{40}$/,
+    "Must be a valid Ethereum address (0x + 40 hex chars)",
+  );
 
 /**
  * Cosmos-style bech32 address (the Aethelred chain uses these for validators).
@@ -120,9 +119,9 @@ export const EthAddressSchema = z
 export const AddressSchema = z
   .string()
   .trim()
-  .min(1, 'Address is required')
-  .max(64, 'Address too long')
-  .regex(/^[a-z0-9]+$/, 'Invalid address format');
+  .min(1, "Address is required")
+  .max(64, "Address too long")
+  .regex(/^[a-z0-9]+$/, "Invalid address format");
 
 /**
  * Generic hex hash (variable length, used for model hashes, etc.).
@@ -130,19 +129,16 @@ export const AddressSchema = z
 export const HashSchema = z
   .string()
   .trim()
-  .min(1, 'Hash is required')
-  .max(128, 'Hash too long')
-  .regex(/^[a-fA-F0-9]+$/, 'Hash must be hexadecimal');
+  .min(1, "Hash is required")
+  .max(128, "Hash too long")
+  .regex(/^[a-fA-F0-9]+$/, "Hash must be hexadecimal");
 
 /**
  * Positive integer from a query/path parameter.
  */
 export const PositiveIntegerSchema = z
-  .preprocess(
-    normalizeStrictIntegerParam,
-    z.number().int().safe().min(0),
-  )
-  .describe('Must be a non-negative integer');
+  .preprocess(normalizeStrictIntegerParam, z.number().int().safe().min(0))
+  .describe("Must be a non-negative integer");
 
 // =============================================================================
 // PAGINATION & SORTING
@@ -150,29 +146,29 @@ export const PositiveIntegerSchema = z
 
 /** Whitelist of fields that are valid sort targets. */
 const ALLOWED_SORT_FIELDS = [
-  'created_at',
-  'updated_at',
-  'height',
-  'block_height',
-  'priority',
-  'status',
-  'amount',
-  'timestamp',
-  'verification_score',
-  'actual_cost',
+  "created_at",
+  "updated_at",
+  "height",
+  "block_height",
+  "priority",
+  "status",
+  "amount",
+  "timestamp",
+  "verification_score",
+  "actual_cost",
 ] as const;
 
-const ALLOWED_SORT_ORDERS = ['asc', 'desc'] as const;
+const ALLOWED_SORT_ORDERS = ["asc", "desc"] as const;
 
 export function isAllowedPublicSort(
   value: unknown,
   allowedFields: readonly string[],
 ): value is string {
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== "string" || value.length === 0) {
     return false;
   }
 
-  const parts = value.split(':');
+  const parts = value.split(":");
   if (parts.length !== 2) {
     return false;
   }
@@ -190,13 +186,10 @@ export function isAllowedPublicSort(
 export const SortParamSchema = z
   .string()
   .trim()
-  .default('created_at:desc')
-  .refine(
-    (val) => isAllowedPublicSort(val, ALLOWED_SORT_FIELDS),
-    {
-      message: `Sort must be "field:order" where field is one of [${ALLOWED_SORT_FIELDS.join(', ')}] and order is asc|desc`,
-    },
-  );
+  .default("created_at:desc")
+  .refine((val) => isAllowedPublicSort(val, ALLOWED_SORT_FIELDS), {
+    message: `Sort must be "field:order" where field is one of [${ALLOWED_SORT_FIELDS.join(", ")}] and order is asc|desc`,
+  });
 
 /**
  * Standard pagination: limit (1-100, default 50), offset (>= 0, default 0).
@@ -250,7 +243,7 @@ export const ListTransactionsQuerySchema = PaginationSchema.extend({
   sender: AddressSchema.optional(),
   recipient: AddressSchema.optional(),
   tx_type: z
-    .enum(['transfer', 'stake', 'unstake', 'submit_job', 'vote', 'claim'])
+    .enum(["transfer", "stake", "unstake", "submit_job", "vote", "claim"])
     .optional(),
   min_amount: AmountFilterSchema.optional(),
   max_amount: AmountFilterSchema.optional(),
@@ -259,7 +252,11 @@ export const ListTransactionsQuerySchema = PaginationSchema.extend({
 export const SubmitTransactionBodySchema = z.object({
   sender: AddressSchema,
   recipient: AddressSchema,
-  amount: decimalAmountSchema('amount', Number.MIN_VALUE, 'Amount must be positive'),
+  amount: decimalAmountSchema(
+    "amount",
+    Number.MIN_VALUE,
+    "Amount must be positive",
+  ),
   denom: z.string().min(1).max(20),
   memo: z.string().max(256).optional(),
   gas_limit: z.number().int().min(1).max(10_000_000).default(200_000),
@@ -274,14 +271,18 @@ export const GetValidatorParamsSchema = z.object({
 });
 
 export const ListValidatorsQuerySchema = PaginationSchema.extend({
-  status: z.enum(['active', 'inactive', 'jailed']).optional(),
+  status: z.enum(["active", "inactive", "jailed"]).optional(),
   min_voting_power: PositiveIntegerSchema.optional(),
 });
 
 export const DelegateBodySchema = z.object({
   delegator: AddressSchema,
   validator: AddressSchema,
-  amount: decimalAmountSchema('amount', Number.MIN_VALUE, 'Amount must be positive'),
+  amount: decimalAmountSchema(
+    "amount",
+    Number.MIN_VALUE,
+    "Amount must be positive",
+  ),
 });
 
 // =============================================================================
@@ -295,14 +296,14 @@ export const GetJobParamsSchema = z.object({
 export const ListJobsQuerySchema = PaginationSchema.extend({
   status: z
     .enum([
-      'pending',
-      'assigned',
-      'computing',
-      'completed',
-      'verified',
-      'failed',
-      'expired',
-      'cancelled',
+      "pending",
+      "assigned",
+      "computing",
+      "completed",
+      "verified",
+      "failed",
+      "expired",
+      "cancelled",
     ])
     .optional(),
   creator: AddressSchema.optional(),
@@ -314,10 +315,15 @@ export const ListJobsQuerySchema = PaginationSchema.extend({
 export const SubmitJobBodySchema = z.object({
   model_hash: HashSchema,
   input_hash: HashSchema,
-  proof_type: z.enum(['tee_attestation', 'zk_proof', 'mpc_proof', 'optimistic']),
+  proof_type: z.enum([
+    "tee_attestation",
+    "zk_proof",
+    "mpc_proof",
+    "optimistic",
+  ]),
   priority: z.number().int().min(0).max(100).default(50),
   timeout: z.number().int().min(100).max(10_000),
-  max_payment: decimalAmountSchema('payment amount', 1000, 'Payment too small'),
+  max_payment: decimalAmountSchema("payment amount", 1000, "Payment too small"),
 });
 
 export const AssignJobBodySchema = z.object({
@@ -330,12 +336,20 @@ export const AssignJobBodySchema = z.object({
 // =============================================================================
 
 export const StakeBodySchema = z.object({
-  amount: decimalAmountSchema('amount', 1_000_000, 'Amount below minimum stake'),
+  amount: decimalAmountSchema(
+    "amount",
+    1_000_000,
+    "Amount below minimum stake",
+  ),
   validator: AddressSchema.optional(),
 });
 
 export const UnstakeBodySchema = z.object({
-  amount: decimalAmountSchema('amount', Number.MIN_VALUE, 'Amount must be positive'),
+  amount: decimalAmountSchema(
+    "amount",
+    Number.MIN_VALUE,
+    "Amount must be positive",
+  ),
 });
 
 export const ClaimRewardsBodySchema = z.object({
@@ -354,19 +368,21 @@ export const GetProposalParamsSchema = z.object({
 });
 
 export const ListProposalsQuerySchema = PaginationSchema.extend({
-  status: z.enum(['pending', 'active', 'passed', 'rejected', 'failed']).optional(),
+  status: z
+    .enum(["pending", "active", "passed", "rejected", "failed"])
+    .optional(),
   proposer: AddressSchema.optional(),
 });
 
 export const SubmitProposalBodySchema = z.object({
   title: z.string().min(1).max(256),
   description: z.string().min(1).max(10_000),
-  deposit: decimalAmountSchema('deposit', 1_000_000, 'Deposit below minimum'),
+  deposit: decimalAmountSchema("deposit", 1_000_000, "Deposit below minimum"),
 });
 
 export const VoteBodySchema = z.object({
   proposal_id: z.number().int().positive(),
-  option: z.enum(['yes', 'no', 'abstain', 'no_with_veto']),
+  option: z.enum(["yes", "no", "abstain", "no_with_veto"]),
 });
 
 // =============================================================================
@@ -406,7 +422,10 @@ export const AuthNonceBodySchema = z.object({
 export const EthTxHashSchema = z
   .string()
   .trim()
-  .regex(/^0x[a-fA-F0-9]{64}$/, 'Must be a valid Ethereum transaction hash (0x + 64 hex chars)');
+  .regex(
+    /^0x[a-fA-F0-9]{64}$/,
+    "Must be a valid Ethereum transaction hash (0x + 64 hex chars)",
+  );
 
 export const BlockNumberOrTagSchema = z
   .string()
@@ -414,8 +433,8 @@ export const BlockNumberOrTagSchema = z
   .refine(
     (val) =>
       /^\d+$/.test(val) ||
-      ['latest', 'earliest', 'pending', 'finalized', 'safe'].includes(val),
-    'Must be a block number or one of: latest, earliest, pending, finalized, safe',
+      ["latest", "earliest", "pending", "finalized", "safe"].includes(val),
+    "Must be a block number or one of: latest, earliest, pending, finalized, safe",
   );
 
 // =============================================================================
@@ -426,19 +445,22 @@ export const BlockNumberOrTagSchema = z
 export const AssetIdSchema = z
   .string()
   .trim()
-  .regex(/^0x[a-fA-F0-9]{64}$/, 'Must be a valid bytes32 asset ID (0x + 64 hex chars)');
+  .regex(
+    /^0x[a-fA-F0-9]{64}$/,
+    "Must be a valid bytes32 asset ID (0x + 64 hex chars)",
+  );
 
 /** Allowed bridge event type values */
 export const BridgeEventTypeEnum = z.enum([
-  'StablecoinConfigured',
-  'CCTPBurnInitiated',
-  'CCTPMessageRelayed',
-  'CCTPFastMessageRelayed',
-  'MintExecuted',
-  'CircuitBreakerTriggered',
-  'ReserveCheckPerformed',
-  'TeeRedemptionRequested',
-  'MerkleAuditRootRecorded',
+  "StablecoinConfigured",
+  "CCTPBurnInitiated",
+  "CCTPMessageRelayed",
+  "CCTPFastMessageRelayed",
+  "MintExecuted",
+  "CircuitBreakerTriggered",
+  "ReserveCheckPerformed",
+  "TeeRedemptionRequested",
+  "MerkleAuditRootRecorded",
 ]);
 
 export const GetStablecoinParamsSchema = z.object({
@@ -463,7 +485,9 @@ export type ListValidatorsQuery = z.infer<typeof ListValidatorsQuerySchema>;
 export type GetJobParams = z.infer<typeof GetJobParamsSchema>;
 export type ListJobsQuery = z.infer<typeof ListJobsQuerySchema>;
 export type SubmitJobBody = z.infer<typeof SubmitJobBodySchema>;
-export type ReconciliationLiveQuery = z.infer<typeof ReconciliationLiveQuerySchema>;
+export type ReconciliationLiveQuery = z.infer<
+  typeof ReconciliationLiveQuerySchema
+>;
 export type GetStablecoinParams = z.infer<typeof GetStablecoinParamsSchema>;
 export type ListBridgeEventsQuery = z.infer<typeof ListBridgeEventsQuerySchema>;
 export type BridgeEventType = z.infer<typeof BridgeEventTypeEnum>;

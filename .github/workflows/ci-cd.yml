@@ -191,6 +191,10 @@ jobs:
         working-directory: ./backend/api
         run: npm run lint
 
+      - name: Check backend API formatting
+        working-directory: ./backend/api
+        run: npm run format:check
+
       - name: Type-check backend API
         working-directory: ./backend/api
         run: npm run typecheck

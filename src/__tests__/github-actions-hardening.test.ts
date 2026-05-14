@@ -159,6 +159,17 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain("--tag cruzible-api-indexer:ci");
   });
 
+  it("enforces backend API formatting before type-checking and tests", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const backendJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "backend-api",
+    );
+
+    expect(backendJob?.block).toContain("Check backend API formatting");
+    expect(backendJob?.block).toContain("working-directory: ./backend/api");
+    expect(backendJob?.block).toContain("run: npm run format:check");
+  });
+
   it("builds and inspects the frontend runtime container in CI", () => {
     const workflow = readWorkflow("ci-cd.yml");
 

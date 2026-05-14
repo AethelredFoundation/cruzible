@@ -1,21 +1,21 @@
-import { timingSafeEqual } from 'crypto';
-import type { NextFunction, Request, Response } from 'express';
-import { config } from '../config';
-import { auditPrivilegedAccess } from './privilegedAudit';
+import { timingSafeEqual } from "crypto";
+import type { NextFunction, Request, Response } from "express";
+import { config } from "../config";
+import { auditPrivilegedAccess } from "./privilegedAudit";
 
 function readOperationalToken(req: Request): string | undefined {
-  const explicitToken = req.get('x-operational-token')?.trim();
+  const explicitToken = req.get("x-operational-token")?.trim();
   if (explicitToken) {
     return explicitToken;
   }
 
-  const authorization = req.get('authorization')?.trim();
+  const authorization = req.get("authorization")?.trim();
   if (!authorization) {
     return undefined;
   }
 
   const [scheme, token, extra] = authorization.split(/\s+/);
-  if (scheme?.toLowerCase() !== 'bearer' || !token || extra) {
+  if (scheme?.toLowerCase() !== "bearer" || !token || extra) {
     return undefined;
   }
 
@@ -51,23 +51,23 @@ export function requireOperationalAccess(
     isEqualToken(providedToken, expectedToken)
   ) {
     auditPrivilegedAccess(req, res, {
-      principalType: 'operational-token',
-      decision: 'allowed',
+      principalType: "operational-token",
+      decision: "allowed",
     });
     next();
     return;
   }
 
   auditPrivilegedAccess(req, res, {
-    principalType: 'operational-token',
-    decision: 'rejected',
-    reason: 'missing_or_invalid_operational_token',
+    principalType: "operational-token",
+    decision: "rejected",
+    reason: "missing_or_invalid_operational_token",
   });
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('WWW-Authenticate', 'Bearer realm="cruzible-operations"');
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("WWW-Authenticate", 'Bearer realm="cruzible-operations"');
   res.status(401).json({
-    error: 'Unauthorized',
-    message: 'Operational endpoint access token required',
+    error: "Unauthorized",
+    message: "Operational endpoint access token required",
     requestId: req.requestId,
   });
 }

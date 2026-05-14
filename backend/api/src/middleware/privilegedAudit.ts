@@ -1,16 +1,20 @@
-import 'reflect-metadata';
-import { createHash } from 'crypto';
-import { PrismaClient } from '@prisma/client';
-import type { Request, Response } from 'express';
-import { container } from 'tsyringe';
-import { config } from '../config';
-import { AlertService, AlertSeverity, AlertType } from '../services/AlertService';
-import { errorContext } from '../utils/errorContext';
-import { logger } from '../utils/logger';
+import "reflect-metadata";
+import { createHash } from "crypto";
+import { PrismaClient } from "@prisma/client";
+import type { Request, Response } from "express";
+import { container } from "tsyringe";
+import { config } from "../config";
+import {
+  AlertService,
+  AlertSeverity,
+  AlertType,
+} from "../services/AlertService";
+import { errorContext } from "../utils/errorContext";
+import { logger } from "../utils/logger";
 
-type PrivilegedPrincipalType = 'wallet' | 'operational-token';
-type PrivilegedDecision = 'allowed' | 'rejected';
-type PrivilegedOutcome = 'succeeded' | 'denied' | 'failed' | 'rejected';
+type PrivilegedPrincipalType = "wallet" | "operational-token";
+type PrivilegedDecision = "allowed" | "rejected";
+type PrivilegedOutcome = "succeeded" | "denied" | "failed" | "rejected";
 
 export interface PrivilegedAuditContext {
   principalType: PrivilegedPrincipalType;
@@ -23,7 +27,7 @@ export interface PrivilegedAuditContext {
 }
 
 interface PrivilegedAuditEntry {
-  type: 'privileged_access_audit';
+  type: "privileged_access_audit";
   timestamp: string;
   requestId: string;
   method: string;
@@ -68,29 +72,32 @@ const auditPrisma = config.databaseUrl ? new PrismaClient() : null;
 const memoryAuditEvents: PersistedPrivilegedAuditEvent[] = [];
 
 function getClientIp(req: Request): string {
-  return req.ip || req.socket.remoteAddress || 'unknown';
+  return req.ip || req.socket.remoteAddress || "unknown";
 }
 
 function getAuditPath(req: Request): string {
-  const rawPath = req.originalUrl || req.url || req.path || 'unknown';
-  return rawPath.split('?')[0] || 'unknown';
+  const rawPath = req.originalUrl || req.url || req.path || "unknown";
+  return rawPath.split("?")[0] || "unknown";
 }
 
-function getOutcome(statusCode: number, decision: PrivilegedDecision): PrivilegedOutcome {
-  if (decision === 'rejected') {
-    return 'rejected';
+function getOutcome(
+  statusCode: number,
+  decision: PrivilegedDecision,
+): PrivilegedOutcome {
+  if (decision === "rejected") {
+    return "rejected";
   }
   if (statusCode >= 500) {
-    return 'failed';
+    return "failed";
   }
   if (statusCode >= 400) {
-    return 'denied';
+    return "denied";
   }
-  return 'succeeded';
+  return "succeeded";
 }
 
 function hashValue(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function stableAuditJson(value: Record<string, unknown>): string {
@@ -136,7 +143,9 @@ function buildPersistedAuditEvent(
   };
 }
 
-function auditAlertMetadata(entry: PrivilegedAuditEntry): Record<string, unknown> {
+function auditAlertMetadata(
+  entry: PrivilegedAuditEntry,
+): Record<string, unknown> {
   return {
     requestId: entry.requestId,
     method: entry.method,
@@ -155,31 +164,39 @@ function errorType(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
-async function emitPrivilegedAccessAlert(entry: PrivilegedAuditEntry): Promise<void> {
-  await container.resolve(AlertService).sendAlert(
-    AlertSeverity.WARNING,
-    AlertType.PRIVILEGED_ACCESS_REJECTED,
-    'Privileged access request rejected',
-    auditAlertMetadata(entry),
-  );
+async function emitPrivilegedAccessAlert(
+  entry: PrivilegedAuditEntry,
+): Promise<void> {
+  await container
+    .resolve(AlertService)
+    .sendAlert(
+      AlertSeverity.WARNING,
+      AlertType.PRIVILEGED_ACCESS_REJECTED,
+      "Privileged access request rejected",
+      auditAlertMetadata(entry),
+    );
 }
 
 async function emitPrivilegedAuditPersistenceAlert(
   entry: PrivilegedAuditEntry,
   error: unknown,
 ): Promise<void> {
-  await container.resolve(AlertService).sendAlert(
-    AlertSeverity.CRITICAL,
-    AlertType.PRIVILEGED_AUDIT_PERSISTENCE_FAILURE,
-    'Privileged access audit persistence failed',
-    {
-      ...auditAlertMetadata(entry),
-      errorType: errorType(error),
-    },
-  );
+  await container
+    .resolve(AlertService)
+    .sendAlert(
+      AlertSeverity.CRITICAL,
+      AlertType.PRIVILEGED_AUDIT_PERSISTENCE_FAILURE,
+      "Privileged access audit persistence failed",
+      {
+        ...auditAlertMetadata(entry),
+        errorType: errorType(error),
+      },
+    );
 }
 
-async function persistPrivilegedAuditEvent(entry: PrivilegedAuditEntry): Promise<void> {
+async function persistPrivilegedAuditEvent(
+  entry: PrivilegedAuditEntry,
+): Promise<void> {
   if (!auditPrisma) {
     const previousEventHash =
       memoryAuditEvents[memoryAuditEvents.length - 1]?.eventHash ?? null;
@@ -192,7 +209,7 @@ async function persistPrivilegedAuditEvent(entry: PrivilegedAuditEntry): Promise
 
   await auditPrisma.$transaction(async (tx) => {
     const previousEvent = await tx.privilegedAuditEvent.findFirst({
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       select: { eventHash: true },
     });
     const persisted = buildPersistedAuditEvent(
@@ -232,9 +249,9 @@ export function auditPrivilegedAccess(
     const elapsedMs = Number(elapsedNs) / 1_000_000;
     const statusCode = res.statusCode || 0;
     const auditEntry: PrivilegedAuditEntry = {
-      type: 'privileged_access_audit',
+      type: "privileged_access_audit",
       timestamp: new Date().toISOString(),
-      requestId: req.requestId || 'unknown',
+      requestId: req.requestId || "unknown",
       method: req.method,
       path: getAuditPath(req),
       principalType: context.principalType,
@@ -248,18 +265,18 @@ export function auditPrivilegedAccess(
       statusCode,
       responseTimeMs: Math.round(elapsedMs * 100) / 100,
       ip: getClientIp(req),
-      userAgent: req.get('user-agent') || 'unknown',
+      userAgent: req.get("user-agent") || "unknown",
     };
 
-    if (context.decision === 'rejected' || statusCode >= 400) {
-      logger.warn('Privileged access audit', auditEntry);
+    if (context.decision === "rejected" || statusCode >= 400) {
+      logger.warn("Privileged access audit", auditEntry);
     } else {
-      logger.info('Privileged access audit', auditEntry);
+      logger.info("Privileged access audit", auditEntry);
     }
 
-    if (context.decision === 'rejected') {
+    if (context.decision === "rejected") {
       void emitPrivilegedAccessAlert(auditEntry).catch((error: unknown) => {
-        logger.error('Failed to emit privileged access alert', {
+        logger.error("Failed to emit privileged access alert", {
           requestId: auditEntry.requestId,
           ...errorContext(error),
         });
@@ -267,13 +284,13 @@ export function auditPrivilegedAccess(
     }
 
     void persistPrivilegedAuditEvent(auditEntry).catch((error: unknown) => {
-      logger.error('Failed to persist privileged access audit', {
+      logger.error("Failed to persist privileged access audit", {
         requestId: auditEntry.requestId,
         ...errorContext(error),
       });
       void emitPrivilegedAuditPersistenceAlert(auditEntry, error).catch(
         (alertError: unknown) => {
-          logger.error('Failed to emit privileged audit persistence alert', {
+          logger.error("Failed to emit privileged audit persistence alert", {
             requestId: auditEntry.requestId,
             ...errorContext(alertError),
           });
@@ -282,6 +299,6 @@ export function auditPrivilegedAccess(
     });
   };
 
-  res.once('finish', emitAudit);
-  res.once('close', emitAudit);
+  res.once("finish", emitAudit);
+  res.once("close", emitAudit);
 }

@@ -84,9 +84,9 @@ const DISABLED_BROWSER_FEATURES = [
   "usb",
   "xr-spatial-tracking",
 ] as const;
-const PERMISSIONS_POLICY = DISABLED_BROWSER_FEATURES
-  .map((feature) => `${feature}=()`)
-  .join(", ");
+const PERMISSIONS_POLICY = DISABLED_BROWSER_FEATURES.map(
+  (feature) => `${feature}=()`,
+).join(", ");
 
 // ---------------------------------------------------------------------------
 // ApiGateway
@@ -452,10 +452,7 @@ export class ApiGateway {
         // may not be registered
       }
     } catch (error) {
-      logger.error(
-        "Error during service disconnection",
-        errorContext(error),
-      );
+      logger.error("Error during service disconnection", errorContext(error));
     }
 
     logger.info("Shutdown complete");
@@ -558,10 +555,7 @@ export class ApiGateway {
 
         logger.info("All services disconnected");
       } catch (error) {
-        logger.error(
-          "Error during service disconnection",
-          errorContext(error),
-        );
+        logger.error("Error during service disconnection", errorContext(error));
       }
 
       // -------------------------------------------------------------------

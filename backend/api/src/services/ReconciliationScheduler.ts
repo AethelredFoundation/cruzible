@@ -17,16 +17,16 @@
  * The scheduler supports graceful start/stop and is registered via tsyringe DI.
  */
 
-import { injectable } from 'tsyringe';
-import { PrismaClient } from '@prisma/client';
-import { keccak256, toUtf8Bytes } from 'ethers';
-import { BlockchainService } from './BlockchainService';
-import { CacheService } from './CacheService';
-import { AlertService, AlertSeverity, AlertType } from './AlertService';
-import { logger } from '../utils/logger';
-import { errorContext } from '../utils/errorContext';
-import { resolveProtocolEpoch } from '../lib/protocolEpoch';
-import { config } from '../config';
+import { injectable } from "tsyringe";
+import { PrismaClient } from "@prisma/client";
+import { keccak256, toUtf8Bytes } from "ethers";
+import { BlockchainService } from "./BlockchainService";
+import { CacheService } from "./CacheService";
+import { AlertService, AlertSeverity, AlertType } from "./AlertService";
+import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
+import { resolveProtocolEpoch } from "../lib/protocolEpoch";
+import { config } from "../config";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,7 +34,7 @@ import { config } from '../config';
 
 export interface ReconciliationResult {
   timestamp: string;
-  status: 'OK' | 'WARNING' | 'CRITICAL';
+  status: "OK" | "WARNING" | "CRITICAL";
   epoch: number;
   epochSource: string;
   checks: ReconciliationCheck[];
@@ -45,7 +45,7 @@ export interface ReconciliationResult {
 
 export interface ReconciliationCheck {
   name: string;
-  status: 'PASS' | 'WARNING' | 'CRITICAL' | 'SKIPPED';
+  status: "PASS" | "WARNING" | "CRITICAL" | "SKIPPED";
   message: string;
   metadata?: Record<string, unknown>;
 }
@@ -74,7 +74,7 @@ export interface IndexedState {
 // ---------------------------------------------------------------------------
 
 /** Cache key for the latest reconciliation result. */
-const CACHE_KEY_LATEST = 'reconciliation:scheduler:latest';
+const CACHE_KEY_LATEST = "reconciliation:scheduler:latest";
 
 /** Cache TTL — persisted until overwritten by the next tick. */
 const CACHE_TTL_SECONDS = 600;
@@ -84,11 +84,11 @@ const EPOCH_STALE_MULTIPLIER = 2;
 
 /** Public scheduler checks must not echo raw exception text or upstream internals. */
 const PUBLIC_TICK_FAILURE_MESSAGE =
-  'Reconciliation tick failed. Operator logs contain internal diagnostics.';
+  "Reconciliation tick failed. Operator logs contain internal diagnostics.";
 
 /** Public stablecoin checks must stay generic while logs retain the raw failure. */
 const PUBLIC_STABLECOIN_FAILURE_MESSAGE =
-  'Stablecoin checks failed. Operator logs contain internal diagnostics.';
+  "Stablecoin checks failed. Operator logs contain internal diagnostics.";
 
 // ---------------------------------------------------------------------------
 // Known Stablecoin Assets — backend-side symbol registry
@@ -105,7 +105,13 @@ const PUBLIC_STABLECOIN_FAILURE_MESSAGE =
  * backfill empty `symbol` fields on indexed StablecoinConfig rows.
  * When a new stablecoin is added to the protocol, add its symbol here.
  */
-const KNOWN_STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'FRAX', 'PYUSD'] as const;
+const KNOWN_STABLECOIN_SYMBOLS = [
+  "USDC",
+  "USDT",
+  "DAI",
+  "FRAX",
+  "PYUSD",
+] as const;
 
 /** Precomputed assetId → symbol lookup map. */
 const ASSET_ID_TO_SYMBOL: ReadonlyMap<string, string> = new Map(
@@ -165,7 +171,7 @@ export class ReconciliationScheduler {
    */
   start(): void {
     if (this.running) {
-      logger.warn('ReconciliationScheduler is already running');
+      logger.warn("ReconciliationScheduler is already running");
       return;
     }
 
@@ -197,7 +203,7 @@ export class ReconciliationScheduler {
       this.timer = null;
     }
 
-    logger.info('ReconciliationScheduler stopped');
+    logger.info("ReconciliationScheduler stopped");
   }
 
   /**
@@ -218,7 +224,7 @@ export class ReconciliationScheduler {
     // (e.g. slow RPC/database), skip this interval rather than racing.
     if (this.tickInFlight) {
       logger.warn(
-        'ReconciliationScheduler: previous tick still in flight — skipping this interval',
+        "ReconciliationScheduler: previous tick still in flight — skipping this interval",
       );
       return;
     }
@@ -228,11 +234,11 @@ export class ReconciliationScheduler {
     try {
       const startMs = Date.now();
       const checks: ReconciliationCheck[] = [];
-      let overallStatus: 'OK' | 'WARNING' | 'CRITICAL' = 'OK';
+      let overallStatus: "OK" | "WARNING" | "CRITICAL" = "OK";
       let onChainState: OnChainState | null = null;
       let indexedState: IndexedState | null = null;
       let epoch = 0;
-      let epochSource = 'unknown';
+      let epochSource = "unknown";
 
       try {
         // 1. Fetch on-chain state
@@ -265,24 +271,27 @@ export class ReconciliationScheduler {
 
         // 4. Derive overall status
         for (const check of checks) {
-          if (check.status === 'CRITICAL') {
-            overallStatus = 'CRITICAL';
-          } else if (check.status === 'WARNING' && overallStatus !== 'CRITICAL') {
-            overallStatus = 'WARNING';
+          if (check.status === "CRITICAL") {
+            overallStatus = "CRITICAL";
+          } else if (
+            check.status === "WARNING" &&
+            overallStatus !== "CRITICAL"
+          ) {
+            overallStatus = "WARNING";
           }
         }
       } catch (error) {
         logger.error(
-          'ReconciliationScheduler tick failed',
+          "ReconciliationScheduler tick failed",
           errorContext(error),
         );
         checks.push({
-          name: 'tick_execution',
-          status: 'CRITICAL',
+          name: "tick_execution",
+          status: "CRITICAL",
           message: PUBLIC_TICK_FAILURE_MESSAGE,
           metadata: { errorType: classifyErrorForPublicCheck(error) },
         });
-        overallStatus = 'CRITICAL';
+        overallStatus = "CRITICAL";
       }
 
       const durationMs = Date.now() - startMs;
@@ -303,16 +312,16 @@ export class ReconciliationScheduler {
       // Persist to cache for API consumption
       await this.cacheService.set(CACHE_KEY_LATEST, result, CACHE_TTL_SECONDS);
 
-      if (overallStatus === 'OK') {
+      if (overallStatus === "OK") {
         logger.info(
           `Reconciliation tick completed — status=${overallStatus} duration=${durationMs}ms`,
         );
       } else {
         logger.warn(
           `Reconciliation tick completed — status=${overallStatus} duration=${durationMs}ms checks=${checks
-            .filter((c) => c.status !== 'PASS')
+            .filter((c) => c.status !== "PASS")
             .map((c) => `${c.name}:${c.status}`)
-            .join(', ')}`,
+            .join(", ")}`,
         );
       }
     } finally {
@@ -353,7 +362,7 @@ export class ReconciliationScheduler {
 
   private async fetchIndexedState(): Promise<IndexedState> {
     const vaultState = await this.prisma.vaultState.findFirst({
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { updatedAt: "desc" },
     });
 
     if (!vaultState) {
@@ -374,7 +383,10 @@ export class ReconciliationScheduler {
       exchangeRate: vaultState.exchangeRate,
       currentEpoch: Number(vaultState.currentEpoch),
       validatorsBacking: vaultState.validatorsBacking,
-      totalStakers: vaultState.totalStakers != null ? Number(vaultState.totalStakers) : null,
+      totalStakers:
+        vaultState.totalStakers != null
+          ? Number(vaultState.totalStakers)
+          : null,
       lastUpdated: vaultState.updatedAt.toISOString(),
     };
   }
@@ -391,9 +403,9 @@ export class ReconciliationScheduler {
   private checkExchangeRate(indexed: IndexedState): ReconciliationCheck {
     if (!indexed.exchangeRate) {
       return {
-        name: 'exchange_rate',
-        status: 'SKIPPED',
-        message: 'No indexed exchange rate available',
+        name: "exchange_rate",
+        status: "SKIPPED",
+        message: "No indexed exchange rate available",
       };
     }
 
@@ -401,8 +413,8 @@ export class ReconciliationScheduler {
 
     if (isNaN(rate) || rate <= 0) {
       return {
-        name: 'exchange_rate',
-        status: 'CRITICAL',
+        name: "exchange_rate",
+        status: "CRITICAL",
         message: `Invalid exchange rate: ${indexed.exchangeRate}`,
         metadata: { exchangeRate: indexed.exchangeRate },
       };
@@ -416,11 +428,15 @@ export class ReconciliationScheduler {
         AlertSeverity.CRITICAL,
         AlertType.EXCHANGE_RATE_DRIFT,
         `Exchange rate critical drift: ${rate.toFixed(6)} (${(drift * 100).toFixed(2)}% from baseline)`,
-        { exchangeRate: rate, drift, threshold: this.exchangeRateCriticalThreshold },
+        {
+          exchangeRate: rate,
+          drift,
+          threshold: this.exchangeRateCriticalThreshold,
+        },
       );
       return {
-        name: 'exchange_rate',
-        status: 'CRITICAL',
+        name: "exchange_rate",
+        status: "CRITICAL",
         message: `Exchange rate drift ${(drift * 100).toFixed(2)}% exceeds critical threshold ${(this.exchangeRateCriticalThreshold * 100).toFixed(0)}%`,
         metadata: { exchangeRate: rate, drift },
       };
@@ -431,19 +447,23 @@ export class ReconciliationScheduler {
         AlertSeverity.WARNING,
         AlertType.EXCHANGE_RATE_DRIFT,
         `Exchange rate warning drift: ${rate.toFixed(6)} (${(drift * 100).toFixed(2)}% from baseline)`,
-        { exchangeRate: rate, drift, threshold: this.exchangeRateWarnThreshold },
+        {
+          exchangeRate: rate,
+          drift,
+          threshold: this.exchangeRateWarnThreshold,
+        },
       );
       return {
-        name: 'exchange_rate',
-        status: 'WARNING',
+        name: "exchange_rate",
+        status: "WARNING",
         message: `Exchange rate drift ${(drift * 100).toFixed(2)}% exceeds warning threshold ${(this.exchangeRateWarnThreshold * 100).toFixed(0)}%`,
         metadata: { exchangeRate: rate, drift },
       };
     }
 
     return {
-      name: 'exchange_rate',
-      status: 'PASS',
+      name: "exchange_rate",
+      status: "PASS",
       message: `Exchange rate ${rate.toFixed(6)} within tolerance (drift ${(drift * 100).toFixed(4)}%)`,
       metadata: { exchangeRate: rate, drift },
     };
@@ -459,9 +479,9 @@ export class ReconciliationScheduler {
   ): ReconciliationCheck {
     if (!indexed.totalStaked) {
       return {
-        name: 'tvl_consistency',
-        status: 'SKIPPED',
-        message: 'No indexed TVL available for comparison',
+        name: "tvl_consistency",
+        status: "SKIPPED",
+        message: "No indexed TVL available for comparison",
       };
     }
 
@@ -470,22 +490,22 @@ export class ReconciliationScheduler {
 
     if (onChainTvl === 0n && indexedTvl === 0n) {
       return {
-        name: 'tvl_consistency',
-        status: 'PASS',
-        message: 'Both on-chain and indexed TVL are zero',
+        name: "tvl_consistency",
+        status: "PASS",
+        message: "Both on-chain and indexed TVL are zero",
       };
     }
 
     // Drift calculation using the larger value as denominator
     const denominator = onChainTvl > indexedTvl ? onChainTvl : indexedTvl;
-    const diff = onChainTvl > indexedTvl
-      ? onChainTvl - indexedTvl
-      : indexedTvl - onChainTvl;
+    const diff =
+      onChainTvl > indexedTvl
+        ? onChainTvl - indexedTvl
+        : indexedTvl - onChainTvl;
 
     // Use number conversion for percentage — safe because we're dividing
-    const driftPct = denominator > 0n
-      ? Number((diff * 10000n) / denominator) / 10000
-      : 0;
+    const driftPct =
+      denominator > 0n ? Number((diff * 10000n) / denominator) / 10000 : 0;
 
     if (driftPct > this.tvlDriftThreshold) {
       void this.alertService.sendAlert(
@@ -499,8 +519,8 @@ export class ReconciliationScheduler {
         },
       );
       return {
-        name: 'tvl_consistency',
-        status: 'WARNING',
+        name: "tvl_consistency",
+        status: "WARNING",
         message: `TVL drift ${(driftPct * 100).toFixed(2)}% exceeds threshold ${(this.tvlDriftThreshold * 100).toFixed(0)}%`,
         metadata: {
           onChainTvl: onChainTvl.toString(),
@@ -511,8 +531,8 @@ export class ReconciliationScheduler {
     }
 
     return {
-      name: 'tvl_consistency',
-      status: 'PASS',
+      name: "tvl_consistency",
+      status: "PASS",
       message: `TVL consistent — drift ${(driftPct * 100).toFixed(4)}%`,
       metadata: {
         onChainTvl: onChainTvl.toString(),
@@ -532,9 +552,10 @@ export class ReconciliationScheduler {
   ): ReconciliationCheck {
     if (!indexed.lastUpdated || indexed.currentEpoch == null) {
       return {
-        name: 'epoch_freshness',
-        status: 'SKIPPED',
-        message: 'Indexed epoch state is unavailable — freshness cannot be checked',
+        name: "epoch_freshness",
+        status: "SKIPPED",
+        message:
+          "Indexed epoch state is unavailable — freshness cannot be checked",
       };
     }
 
@@ -560,7 +581,7 @@ export class ReconciliationScheduler {
       void this.alertService.sendAlert(
         AlertSeverity.WARNING,
         AlertType.EPOCH_STALE,
-        `Vault epoch freshness warning: ${reasons.join('; ')}`,
+        `Vault epoch freshness warning: ${reasons.join("; ")}`,
         {
           ageMs,
           staleLimitMs,
@@ -571,9 +592,9 @@ export class ReconciliationScheduler {
         },
       );
       return {
-        name: 'epoch_freshness',
-        status: 'WARNING',
-        message: reasons.join('; '),
+        name: "epoch_freshness",
+        status: "WARNING",
+        message: reasons.join("; "),
         metadata: {
           ageMs,
           staleLimitMs,
@@ -585,8 +606,8 @@ export class ReconciliationScheduler {
     }
 
     return {
-      name: 'epoch_freshness',
-      status: 'PASS',
+      name: "epoch_freshness",
+      status: "PASS",
       message: `Indexed epoch ${indexed.currentEpoch} matches protocol epoch ${onChain.protocolEpoch} and state age is within freshness limits`,
       metadata: {
         ageMs,
@@ -599,10 +620,10 @@ export class ReconciliationScheduler {
   }
 
   private checkEpochResolution(onChain: OnChainState): ReconciliationCheck {
-    if (onChain.epochSource.includes('(fallback)')) {
+    if (onChain.epochSource.includes("(fallback)")) {
       return {
-        name: 'epoch_resolution',
-        status: 'WARNING',
+        name: "epoch_resolution",
+        status: "WARNING",
         message: `Authoritative epoch unavailable; using fallback source ${onChain.epochSource}`,
         metadata: {
           epoch: onChain.protocolEpoch,
@@ -613,8 +634,8 @@ export class ReconciliationScheduler {
     }
 
     return {
-      name: 'epoch_resolution',
-      status: 'PASS',
+      name: "epoch_resolution",
+      status: "PASS",
       message: `Authoritative epoch resolved from ${onChain.epochSource}`,
       metadata: {
         epoch: onChain.protocolEpoch,
@@ -641,8 +662,8 @@ export class ReconciliationScheduler {
         },
       );
       return {
-        name: 'validator_count',
-        status: 'CRITICAL',
+        name: "validator_count",
+        status: "CRITICAL",
         message: `Active validators ${onChain.activeValidatorCount} < minimum ${this.minValidators}`,
         metadata: {
           activeValidators: onChain.activeValidatorCount,
@@ -653,8 +674,8 @@ export class ReconciliationScheduler {
     }
 
     return {
-      name: 'validator_count',
-      status: 'PASS',
+      name: "validator_count",
+      status: "PASS",
       message: `Active validators ${onChain.activeValidatorCount} >= minimum ${this.minValidators}`,
       metadata: {
         activeValidators: onChain.activeValidatorCount,
@@ -687,9 +708,9 @@ export class ReconciliationScheduler {
 
       if (configs.length === 0) {
         checks.push({
-          name: 'stablecoin_bridge',
-          status: 'PASS',
-          message: 'No stablecoin configs indexed — bridge checks skipped',
+          name: "stablecoin_bridge",
+          status: "PASS",
+          message: "No stablecoin configs indexed — bridge checks skipped",
         });
         return checks;
       }
@@ -705,15 +726,14 @@ export class ReconciliationScheduler {
 
       // Check 2: Daily usage nearing limit
       checks.push(this.checkDailyUsage(configs));
-
     } catch (error) {
       logger.error(
-        'Stablecoin reconciliation checks failed',
+        "Stablecoin reconciliation checks failed",
         errorContext(error),
       );
       checks.push({
-        name: 'stablecoin_bridge',
-        status: 'WARNING',
+        name: "stablecoin_bridge",
+        status: "WARNING",
         message: PUBLIC_STABLECOIN_FAILURE_MESSAGE,
         metadata: { errorType: classifyErrorForPublicCheck(error) },
       });
@@ -742,7 +762,7 @@ export class ReconciliationScheduler {
       if (!resolved) {
         logger.warn(
           `StablecoinConfig assetId=${cfg.assetId} has empty symbol and is ` +
-          `not in KNOWN_STABLECOIN_SYMBOLS — add it to the backend registry`,
+            `not in KNOWN_STABLECOIN_SYMBOLS — add it to the backend registry`,
         );
         continue;
       }
@@ -771,12 +791,18 @@ export class ReconciliationScheduler {
    * A tripped circuit breaker is a CRITICAL alert — bridge operations are halted.
    */
   private async checkCircuitBreakers(
-    configs: { assetId: string; symbol: string; circuitBreakerTripped: boolean }[],
+    configs: {
+      assetId: string;
+      symbol: string;
+      circuitBreakerTripped: boolean;
+    }[],
   ): Promise<ReconciliationCheck> {
     const tripped = configs.filter((c) => c.circuitBreakerTripped);
 
     if (tripped.length > 0) {
-      const trippedSymbols = tripped.map((c) => c.symbol || c.assetId.slice(0, 10)).join(', ');
+      const trippedSymbols = tripped
+        .map((c) => c.symbol || c.assetId.slice(0, 10))
+        .join(", ");
 
       void this.alertService.sendAlert(
         AlertSeverity.CRITICAL,
@@ -791,16 +817,16 @@ export class ReconciliationScheduler {
       );
 
       return {
-        name: 'stablecoin_circuit_breaker',
-        status: 'CRITICAL',
+        name: "stablecoin_circuit_breaker",
+        status: "CRITICAL",
         message: `Circuit breaker tripped for ${tripped.length} asset(s): ${trippedSymbols}`,
         metadata: { trippedCount: tripped.length, trippedSymbols },
       };
     }
 
     return {
-      name: 'stablecoin_circuit_breaker',
-      status: 'PASS',
+      name: "stablecoin_circuit_breaker",
+      status: "PASS",
       message: `All ${configs.length} stablecoin circuit breakers healthy`,
       metadata: { configCount: configs.length },
     };
@@ -812,7 +838,12 @@ export class ReconciliationScheduler {
    * adjust limits or prepare for a temporary bridge pause.
    */
   private checkDailyUsage(
-    configs: { assetId: string; symbol: string; dailyLimit: string; dailyUsed: string }[],
+    configs: {
+      assetId: string;
+      symbol: string;
+      dailyLimit: string;
+      dailyUsed: string;
+    }[],
   ): ReconciliationCheck {
     const warnings: { symbol: string; usagePct: number }[] = [];
 
@@ -836,7 +867,7 @@ export class ReconciliationScheduler {
     if (warnings.length > 0) {
       const details = warnings
         .map((w) => `${w.symbol}: ${(w.usagePct * 100).toFixed(1)}%`)
-        .join(', ');
+        .join(", ");
 
       void this.alertService.sendAlert(
         AlertSeverity.WARNING,
@@ -846,17 +877,17 @@ export class ReconciliationScheduler {
       );
 
       return {
-        name: 'stablecoin_daily_usage',
-        status: 'WARNING',
+        name: "stablecoin_daily_usage",
+        status: "WARNING",
         message: `Daily usage warning: ${details}`,
         metadata: { warnings },
       };
     }
 
     return {
-      name: 'stablecoin_daily_usage',
-      status: 'PASS',
-      message: 'All stablecoin daily usage within safe limits',
+      name: "stablecoin_daily_usage",
+      status: "PASS",
+      message: "All stablecoin daily usage within safe limits",
     };
   }
 }

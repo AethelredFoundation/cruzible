@@ -48,9 +48,12 @@ describe("error handler", () => {
       requestId: "unhandled-error-request",
     });
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("super-secret");
-    expect(errorSpy).toHaveBeenCalledWith("[cruzible-api] Unhandled API error", {
-      requestId: "unhandled-error-request",
-      error: { errorName: "Error" },
-    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[cruzible-api] Unhandled API error",
+      {
+        requestId: "unhandled-error-request",
+        error: { errorName: "Error" },
+      },
+    );
   });
 });

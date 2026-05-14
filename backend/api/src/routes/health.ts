@@ -105,7 +105,10 @@ async function checkBlockchainRpc(): Promise<ProbeResult> {
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown RPC error";
-    logger.error("Health check: blockchain RPC probe failed", errorContext(err));
+    logger.error(
+      "Health check: blockchain RPC probe failed",
+      errorContext(err),
+    );
     return { status: "error", latencyMs: Date.now() - start, message };
   }
 }

@@ -1,8 +1,8 @@
-import { Contract, JsonRpcProvider } from 'ethers';
-import { config } from '../config';
-import { logger } from '../utils/logger';
-import { errorContext } from '../utils/errorContext';
-import type { BlockchainService } from '../services/BlockchainService';
+import { Contract, JsonRpcProvider } from "ethers";
+import { config } from "../config";
+import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
+import type { BlockchainService } from "../services/BlockchainService";
 
 export type ProtocolEpochResolution = {
   epoch: number;
@@ -11,17 +11,20 @@ export type ProtocolEpochResolution = {
 };
 
 const CURRENT_EPOCH_FALLBACK_WARNING =
-  'Failed to query currentEpoch from vault contract; falling back to chain height';
+  "Failed to query currentEpoch from vault contract; falling back to chain height";
 
 type ResolveProtocolEpochOptions = {
-  blockchainService: Pick<BlockchainService, 'getLatestHeight'>;
+  blockchainService: Pick<BlockchainService, "getLatestHeight">;
   latestHeight?: number;
 };
 
 async function getFallbackHeight(
   options: ResolveProtocolEpochOptions,
 ): Promise<number> {
-  if (typeof options.latestHeight === 'number' && Number.isFinite(options.latestHeight)) {
+  if (
+    typeof options.latestHeight === "number" &&
+    Number.isFinite(options.latestHeight)
+  ) {
     return options.latestHeight;
   }
 
@@ -37,9 +40,9 @@ export async function resolveProtocolEpoch(
     const height = await getFallbackHeight(options);
     return {
       epoch: height,
-      source: 'rpc/tendermint.latestHeight (fallback)',
+      source: "rpc/tendermint.latestHeight (fallback)",
       warning:
-        'CRUZIBLE_VAULT_ADDRESS is not configured; falling back to chain height as epoch',
+        "CRUZIBLE_VAULT_ADDRESS is not configured; falling back to chain height as epoch",
     };
   }
 
@@ -47,20 +50,20 @@ export async function resolveProtocolEpoch(
     const provider = new JsonRpcProvider(config.indexerRpcUrl);
     const vault = new Contract(
       vaultAddress,
-      ['function currentEpoch() view returns (uint256)'],
+      ["function currentEpoch() view returns (uint256)"],
       provider,
     );
     const raw: bigint = await vault.currentEpoch();
-    return { epoch: Number(raw), source: 'evm/cruzible.currentEpoch' };
+    return { epoch: Number(raw), source: "evm/cruzible.currentEpoch" };
   } catch (err) {
     logger.error(
-      'Failed to query currentEpoch from vault contract',
+      "Failed to query currentEpoch from vault contract",
       errorContext(err),
     );
     const height = await getFallbackHeight(options);
     return {
       epoch: height,
-      source: 'rpc/tendermint.latestHeight (fallback)',
+      source: "rpc/tendermint.latestHeight (fallback)",
       warning: CURRENT_EPOCH_FALLBACK_WARNING,
     };
   }

@@ -1,12 +1,12 @@
-import { Prisma, PrismaClient } from '@prisma/client';
-import { config } from '../config';
+import { Prisma, PrismaClient } from "@prisma/client";
+import { config } from "../config";
 import {
   getMemoryPrivilegedAuditEvents,
   type PersistedPrivilegedAuditEvent,
-} from '../middleware/privilegedAudit';
+} from "../middleware/privilegedAudit";
 
-export type PrivilegedAuditDecision = 'allowed' | 'rejected';
-export type PrivilegedAuditPrincipalType = 'wallet' | 'operational-token';
+export type PrivilegedAuditDecision = "allowed" | "rejected";
+export type PrivilegedAuditPrincipalType = "wallet" | "operational-token";
 
 export interface PrivilegedAuditQuery {
   limit: number;
@@ -81,7 +81,9 @@ function matchesMemoryEvent(
   return true;
 }
 
-function mapMemoryEvent(event: PersistedPrivilegedAuditEvent): PrivilegedAuditRecord {
+function mapMemoryEvent(
+  event: PersistedPrivilegedAuditEvent,
+): PrivilegedAuditRecord {
   return {
     id: event.eventHash,
     requestId: event.requestId,
@@ -174,7 +176,7 @@ export async function listPrivilegedAuditEvents(
     prisma.privilegedAuditEvent.count({ where }),
     prisma.privilegedAuditEvent.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       skip: query.offset,
       take: query.limit,
     }),

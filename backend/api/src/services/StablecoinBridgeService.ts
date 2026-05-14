@@ -8,10 +8,10 @@
  * which processes on-chain events and persists them to the database.
  */
 
-import { injectable, inject } from 'tsyringe';
-import { PrismaClient } from '@prisma/client';
-import { logger } from '../utils/logger';
-import { errorContext } from '../utils/errorContext';
+import { injectable, inject } from "tsyringe";
+import { PrismaClient } from "@prisma/client";
+import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,9 +70,7 @@ export interface PaginatedResult<T> {
 
 @injectable()
 export class StablecoinBridgeService {
-  constructor(
-    @inject(PrismaClient) private readonly prisma: PrismaClient,
-  ) {}
+  constructor(@inject(PrismaClient) private readonly prisma: PrismaClient) {}
 
   // -----------------------------------------------------------------------
   // Configs
@@ -84,7 +82,7 @@ export class StablecoinBridgeService {
   async getConfigs(): Promise<StablecoinConfigDTO[]> {
     try {
       const configs = await this.prisma.stablecoinConfig.findMany({
-        orderBy: { symbol: 'asc' },
+        orderBy: { symbol: "asc" },
       });
 
       return configs.map((c) => ({
@@ -102,7 +100,7 @@ export class StablecoinBridgeService {
         blockNumber: c.blockNumber.toString(),
       }));
     } catch (error) {
-      logger.error('Failed to fetch stablecoin configs', errorContext(error));
+      logger.error("Failed to fetch stablecoin configs", errorContext(error));
       throw error;
     }
   }
@@ -133,7 +131,7 @@ export class StablecoinBridgeService {
         blockNumber: config.blockNumber.toString(),
       };
     } catch (error) {
-      logger.error('Failed to fetch stablecoin config', {
+      logger.error("Failed to fetch stablecoin config", {
         assetId,
         ...errorContext(error),
       });
@@ -163,7 +161,7 @@ export class StablecoinBridgeService {
       const [events, total] = await Promise.all([
         this.prisma.stablecoinBridgeEvent.findMany({
           where,
-          orderBy: { timestamp: 'desc' },
+          orderBy: { timestamp: "desc" },
           take: limit,
           skip: offset,
         }),
@@ -187,7 +185,7 @@ export class StablecoinBridgeService {
         pagination: { total, limit, offset },
       };
     } catch (error) {
-      logger.error('Failed to fetch bridge history', {
+      logger.error("Failed to fetch bridge history", {
         assetId,
         ...errorContext(error),
       });
@@ -214,11 +212,12 @@ export class StablecoinBridgeService {
       // are stringified uint256 values that can exceed Number.MAX_SAFE_INTEGER.
       // Multiply by 10000 first, then divide, to get 2-decimal-place precision
       // without intermediate floating-point rounding.
-      const limit = BigInt(config.dailyLimit || '0');
-      const used = BigInt(config.dailyUsed || '0');
-      const dailyUsagePercent = limit > 0n
-        ? Number((used * 10000n) / limit) / 100  // e.g. 2000 / 100 = 20.00%
-        : 0;
+      const limit = BigInt(config.dailyLimit || "0");
+      const used = BigInt(config.dailyUsed || "0");
+      const dailyUsagePercent =
+        limit > 0n
+          ? Number((used * 10000n) / limit) / 100 // e.g. 2000 / 100 = 20.00%
+          : 0;
 
       return {
         assetId: config.assetId,
@@ -229,7 +228,7 @@ export class StablecoinBridgeService {
         active: config.active,
       };
     } catch (error) {
-      logger.error('Failed to fetch stablecoin status', {
+      logger.error("Failed to fetch stablecoin status", {
         assetId,
         ...errorContext(error),
       });

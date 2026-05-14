@@ -1,6 +1,6 @@
-import { Prisma, PrismaClient } from '@prisma/client';
-import { injectable } from 'tsyringe';
-import { BlockchainService } from './BlockchainService';
+import { Prisma, PrismaClient } from "@prisma/client";
+import { injectable } from "tsyringe";
+import { BlockchainService } from "./BlockchainService";
 import {
   bytesToHex,
   computeCanonicalDelegationPayload,
@@ -8,8 +8,8 @@ import {
   computeEligibleUniverseHash,
   computeStakeSnapshotHash,
   computeStakerRegistryRoot,
-} from '../lib/protocolSdk';
-import { resolveProtocolEpoch } from '../lib/protocolEpoch';
+} from "../lib/protocolSdk";
+import { resolveProtocolEpoch } from "../lib/protocolEpoch";
 
 type ProtocolStaker = {
   address: string;
@@ -32,8 +32,8 @@ type ControlPlaneSummaryOptions = {
 
 export type ReconciliationDiscrepancy = {
   code: string;
-  severity: 'INFO' | 'WARNING' | 'CRITICAL';
-  status: 'ACTIVE';
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  status: "ACTIVE";
   title: string;
   message: string;
   affected_accounts: number;
@@ -71,7 +71,7 @@ export type ReconciliationSnapshotHistoryEntry = {
   stake_snapshot_hash?: string;
   warning_count: number;
   discrepancy_count: number;
-  status: 'OK' | 'WARNING' | 'CRITICAL';
+  status: "OK" | "WARNING" | "CRITICAL";
   epoch_source: string;
   chain_height: number;
   stake_snapshot_complete: boolean | null;
@@ -80,7 +80,7 @@ export type ReconciliationSnapshotHistoryEntry = {
 export type HistoricalReconciliationSnapshot = {
   snapshot_id: string;
   snapshot_key: string;
-  status: 'OK' | 'WARNING' | 'CRITICAL';
+  status: "OK" | "WARNING" | "CRITICAL";
   created_at: string;
   document: LiveReconciliationDocument;
   discrepancies: ReconciliationDiscrepancy[];
@@ -89,7 +89,7 @@ export type HistoricalReconciliationSnapshot = {
 export type LiveReconciliationDocument = {
   epoch: number;
   network: string;
-  mode: 'live-snapshot';
+  mode: "live-snapshot";
   captured_at: string;
   source: {
     epoch_source: string;
@@ -137,7 +137,7 @@ export type LiveReconciliationDocument = {
 };
 
 type LiveStakeSnapshotBuildResult = {
-  stake_snapshot?: LiveReconciliationDocument['stake_snapshot'];
+  stake_snapshot?: LiveReconciliationDocument["stake_snapshot"];
 };
 
 @injectable()
@@ -157,22 +157,18 @@ export class ReconciliationService {
     });
 
     if (resolved.warning) {
-      this.pushDiscrepancy(
-        discrepancies,
-        warnings,
-        {
-          code: 'EPOCH_FALLBACK',
-          severity: 'WARNING',
-          title: 'Authoritative epoch unavailable',
-          message: resolved.warning,
-          evidence: {
-            epoch_source: resolved.source,
-            epoch: resolved.epoch,
-          },
-          remediation:
-            'Restore the canonical vault currentEpoch() source before treating this capture as fully canonical.',
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "EPOCH_FALLBACK",
+        severity: "WARNING",
+        title: "Authoritative epoch unavailable",
+        message: resolved.warning,
+        evidence: {
+          epoch_source: resolved.source,
+          epoch: resolved.epoch,
         },
-      );
+        remediation:
+          "Restore the canonical vault currentEpoch() source before treating this capture as fully canonical.",
+      });
     }
 
     return { epoch: resolved.epoch, source: resolved.source };
@@ -193,31 +189,34 @@ export class ReconciliationService {
     const allValidators = await this.blockchainService.getValidators({
       limit: 10_000,
       offset: 0,
-      status: 'BOND_STATUS_BONDED',
+      status: "BOND_STATUS_BONDED",
     });
-    const allEligibleAddresses = allValidators.data.map((validator) => validator.address);
-    const universeHash = bytesToHex(computeEligibleUniverseHash(allEligibleAddresses));
-    const presentedAddresses = allEligibleAddresses.slice(0, options.validatorLimit);
+    const allEligibleAddresses = allValidators.data.map(
+      (validator) => validator.address,
+    );
+    const universeHash = bytesToHex(
+      computeEligibleUniverseHash(allEligibleAddresses),
+    );
+    const presentedAddresses = allEligibleAddresses.slice(
+      0,
+      options.validatorLimit,
+    );
     const capturedAt = new Date().toISOString();
 
     if (presentedAddresses.length < allEligibleAddresses.length) {
-      this.pushDiscrepancy(
-        discrepancies,
-        warnings,
-        {
-          code: 'VALIDATOR_VIEW_TRUNCATED',
-          severity: 'INFO',
-          title: 'Validator presentation truncated',
-          message: `The public document is displaying the first ${presentedAddresses.length} validators while the canonical universe hash covers ${allEligibleAddresses.length} eligible validators.`,
-          evidence: {
-            displayed_validator_count: presentedAddresses.length,
-            hashed_validator_count: allEligibleAddresses.length,
-            validator_limit: options.validatorLimit,
-          },
-          remediation:
-            'Use the immutable history or per-epoch retrieval endpoints to audit the canonical universe across time.',
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "VALIDATOR_VIEW_TRUNCATED",
+        severity: "INFO",
+        title: "Validator presentation truncated",
+        message: `The public document is displaying the first ${presentedAddresses.length} validators while the canonical universe hash covers ${allEligibleAddresses.length} eligible validators.`,
+        evidence: {
+          displayed_validator_count: presentedAddresses.length,
+          hashed_validator_count: allEligibleAddresses.length,
+          validator_limit: options.validatorLimit,
         },
-      );
+        remediation:
+          "Use the immutable history or per-epoch retrieval endpoints to audit the canonical universe across time.",
+      });
     }
 
     const { stake_snapshot } = await this.buildStakeSnapshot(
@@ -228,13 +227,13 @@ export class ReconciliationService {
 
     const document: LiveReconciliationDocument = {
       epoch,
-      network: 'aethelred',
-      mode: 'live-snapshot',
+      network: "aethelred",
+      mode: "live-snapshot",
       captured_at: capturedAt,
       source: {
         epoch_source: epochSource,
-        validator_source: 'rpc/staking.validators',
-        stake_source: 'indexer.stAethelBalance+delegation',
+        validator_source: "rpc/staking.validators",
+        stake_source: "indexer.stAethelBalance+delegation",
         validator_limit: options.validatorLimit,
         validator_count: presentedAddresses.length,
         total_eligible_validators: allEligibleAddresses.length,
@@ -280,7 +279,8 @@ export class ReconciliationService {
       validator_count: document.validator_selection.meta.validator_count,
       total_eligible_validators:
         document.validator_selection.meta.total_eligible_validators,
-      validator_universe_hash: document.validator_selection.observed.universe_hash,
+      validator_universe_hash:
+        document.validator_selection.observed.universe_hash,
       ...(document.stake_snapshot?.observed?.stake_snapshot_hash
         ? {
             stake_snapshot_hash:
@@ -291,13 +291,13 @@ export class ReconciliationService {
       warning_count: document.warnings.length,
       discrepancy_count: document.discrepancies.length,
       critical_discrepancy_count: document.discrepancies.filter(
-        (discrepancy) => discrepancy.severity === 'CRITICAL',
+        (discrepancy) => discrepancy.severity === "CRITICAL",
       ).length,
       warning_discrepancy_count: document.discrepancies.filter(
-        (discrepancy) => discrepancy.severity === 'WARNING',
+        (discrepancy) => discrepancy.severity === "WARNING",
       ).length,
       info_discrepancy_count: document.discrepancies.filter(
-        (discrepancy) => discrepancy.severity === 'INFO',
+        (discrepancy) => discrepancy.severity === "INFO",
       ).length,
       warnings: document.warnings,
     };
@@ -320,7 +320,7 @@ export class ReconciliationService {
         stakeSnapshotComplete: true,
         document: true,
       },
-      orderBy: [{ epoch: 'desc' }, { capturedAt: 'desc' }],
+      orderBy: [{ epoch: "desc" }, { capturedAt: "desc" }],
     });
 
     return snapshots.map((snapshot) => ({
@@ -337,9 +337,9 @@ export class ReconciliationService {
       status: this.deriveSnapshotStatus(
         snapshot.document as unknown as LiveReconciliationDocument,
         {
-        warningCount: snapshot.warningCount,
-        discrepancyCount: snapshot.discrepancyCount,
-        stakeSnapshotComplete: snapshot.stakeSnapshotComplete,
+          warningCount: snapshot.warningCount,
+          discrepancyCount: snapshot.discrepancyCount,
+          stakeSnapshotComplete: snapshot.stakeSnapshotComplete,
         },
       ),
       epoch_source: snapshot.epochSource,
@@ -348,7 +348,9 @@ export class ReconciliationService {
     }));
   }
 
-  async getSnapshotByEpoch(epoch: number): Promise<HistoricalReconciliationSnapshot | null> {
+  async getSnapshotByEpoch(
+    epoch: number,
+  ): Promise<HistoricalReconciliationSnapshot | null> {
     const snapshot = await this.prisma.reconciliationSnapshot.findFirst({
       where: {
         epoch: BigInt(epoch),
@@ -356,7 +358,7 @@ export class ReconciliationService {
       include: {
         discrepancies: true,
       },
-      orderBy: [{ capturedAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ capturedAt: "desc" }, { createdAt: "desc" }],
     });
 
     if (!snapshot) {
@@ -369,9 +371,9 @@ export class ReconciliationService {
       status: this.deriveSnapshotStatus(
         snapshot.document as unknown as LiveReconciliationDocument,
         {
-        warningCount: snapshot.warningCount,
-        discrepancyCount: snapshot.discrepancyCount,
-        stakeSnapshotComplete: snapshot.stakeSnapshotComplete,
+          warningCount: snapshot.warningCount,
+          discrepancyCount: snapshot.discrepancyCount,
+          stakeSnapshotComplete: snapshot.stakeSnapshotComplete,
         },
       ),
       created_at: snapshot.createdAt.toISOString(),
@@ -379,14 +381,14 @@ export class ReconciliationService {
       discrepancies: snapshot.discrepancies.map((discrepancy) => ({
         code: discrepancy.code,
         severity: discrepancy.severity,
-        status: discrepancy.status as 'ACTIVE',
+        status: discrepancy.status as "ACTIVE",
         title: discrepancy.title,
         message: discrepancy.message,
         affected_accounts: discrepancy.affectedAccounts,
         ...(discrepancy.affectedShares
           ? { affected_shares: discrepancy.affectedShares }
           : {}),
-        ...(typeof discrepancy.impactBps === 'number'
+        ...(typeof discrepancy.impactBps === "number"
           ? { impact_bps: discrepancy.impactBps }
           : {}),
         sample_addresses: discrepancy.sampleAddresses,
@@ -410,7 +412,7 @@ export class ReconciliationService {
     const [vaultState, stAethelBalances, delegations] = await Promise.all([
       this.prisma.vaultState.findFirst({
         orderBy: {
-          updatedAt: 'desc',
+          updatedAt: "desc",
         },
       }),
       this.prisma.stAethelBalance.findMany({
@@ -448,18 +450,15 @@ export class ReconciliationService {
       .sort(([left], [right]) => left.localeCompare(right));
 
     if (activeStakers.length === 0) {
-      this.pushDiscrepancy(
-        discrepancies,
-        warnings,
-        {
-          code: 'NO_ACTIVE_STAKERS',
-          severity: 'CRITICAL',
-          title: 'No active vault stakers were found',
-          message: 'No active vault stakers were found in the indexed state, so a live stake snapshot could not be built.',
-          remediation:
-            'Repair the balance indexer before using reconciliation artifacts for public verification.',
-        },
-      );
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "NO_ACTIVE_STAKERS",
+        severity: "CRITICAL",
+        title: "No active vault stakers were found",
+        message:
+          "No active vault stakers were found in the indexed state, so a live stake snapshot could not be built.",
+        remediation:
+          "Repair the balance indexer before using reconciliation artifacts for public verification.",
+      });
       return {};
     }
 
@@ -476,7 +475,8 @@ export class ReconciliationService {
 
       const delegatorAddress = delegation.delegator.address;
       const validatorAddress = delegation.validator.operatorAddress;
-      const validatorList = activeDelegationsByDelegator.get(delegatorAddress) ?? [];
+      const validatorList =
+        activeDelegationsByDelegator.get(delegatorAddress) ?? [];
       validatorList.push(validatorAddress);
       activeDelegationsByDelegator.set(delegatorAddress, validatorList);
     }
@@ -512,73 +512,66 @@ export class ReconciliationService {
     }
 
     if (skippedMissingDelegation.length > 0) {
-      this.pushDiscrepancy(
-        discrepancies,
-        warnings,
-        {
-          code: 'MISSING_ACTIVE_DELEGATION',
-          severity: 'WARNING',
-          title: 'Stakers without an active delegation were excluded',
-          message: `${skippedMissingDelegation.length} stakers were excluded because they do not currently map to any active delegation.`,
-          affected_accounts: skippedMissingDelegation.length,
-          affected_shares: skippedMissingShares.toString(),
-          impact_bps: this.calculateImpactBps(skippedMissingShares, totalCandidateShares),
-          sample_addresses: this.getAddressSample(skippedMissingDelegation),
-          evidence: {
-            total_candidate_stakers: activeStakers.length,
-          },
-          remediation:
-            'Investigate whether delegation rows are missing from the indexer or whether these holders moved stAETHEL without a current delegation record.',
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "MISSING_ACTIVE_DELEGATION",
+        severity: "WARNING",
+        title: "Stakers without an active delegation were excluded",
+        message: `${skippedMissingDelegation.length} stakers were excluded because they do not currently map to any active delegation.`,
+        affected_accounts: skippedMissingDelegation.length,
+        affected_shares: skippedMissingShares.toString(),
+        impact_bps: this.calculateImpactBps(
+          skippedMissingShares,
+          totalCandidateShares,
+        ),
+        sample_addresses: this.getAddressSample(skippedMissingDelegation),
+        evidence: {
+          total_candidate_stakers: activeStakers.length,
         },
-      );
+        remediation:
+          "Investigate whether delegation rows are missing from the indexer or whether these holders moved stAETHEL without a current delegation record.",
+      });
     }
 
     if (skippedAmbiguousDelegation.length > 0) {
-      this.pushDiscrepancy(
-        discrepancies,
-        warnings,
-        {
-          code: 'AMBIGUOUS_ACTIVE_DELEGATION',
-          severity: 'WARNING',
-          title: 'Multi-target delegators were excluded',
-          message: `${skippedAmbiguousDelegation.length} stakers were excluded because they map to more than one active delegation target.`,
-          affected_accounts: skippedAmbiguousDelegation.length,
-          affected_shares: skippedAmbiguousShares.toString(),
-          impact_bps: this.calculateImpactBps(
-            skippedAmbiguousShares,
-            totalCandidateShares,
-          ),
-          sample_addresses: this.getAddressSample(skippedAmbiguousDelegation),
-          evidence: {
-            total_candidate_stakers: activeStakers.length,
-          },
-          remediation:
-            'Expose per-validator stake attribution before treating this snapshot as complete.',
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "AMBIGUOUS_ACTIVE_DELEGATION",
+        severity: "WARNING",
+        title: "Multi-target delegators were excluded",
+        message: `${skippedAmbiguousDelegation.length} stakers were excluded because they map to more than one active delegation target.`,
+        affected_accounts: skippedAmbiguousDelegation.length,
+        affected_shares: skippedAmbiguousShares.toString(),
+        impact_bps: this.calculateImpactBps(
+          skippedAmbiguousShares,
+          totalCandidateShares,
+        ),
+        sample_addresses: this.getAddressSample(skippedAmbiguousDelegation),
+        evidence: {
+          total_candidate_stakers: activeStakers.length,
         },
-      );
+        remediation:
+          "Expose per-validator stake attribution before treating this snapshot as complete.",
+      });
     }
 
     if (stakers.length === 0) {
-      this.pushDiscrepancy(
-        discrepancies,
-        warnings,
-        {
-          code: 'NO_SINGLE_TARGET_STAKERS',
-          severity: 'CRITICAL',
-          title: 'No canonical staker snapshot could be produced',
-          message:
-            'A live stake snapshot could not be built because no active stakers had exactly one delegation target.',
-          affected_accounts: activeStakers.length,
-          affected_shares: totalCandidateShares.toString(),
-          impact_bps: 10_000,
-          remediation:
-            'Repair stake attribution before publishing public reconciliation artifacts.',
-        },
-      );
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "NO_SINGLE_TARGET_STAKERS",
+        severity: "CRITICAL",
+        title: "No canonical staker snapshot could be produced",
+        message:
+          "A live stake snapshot could not be built because no active stakers had exactly one delegation target.",
+        affected_accounts: activeStakers.length,
+        affected_shares: totalCandidateShares.toString(),
+        impact_bps: 10_000,
+        remediation:
+          "Repair stake attribution before publishing public reconciliation artifacts.",
+      });
       return {};
     }
 
-    const stakeSnapshotHash = bytesToHex(computeStakeSnapshotHash(epoch, stakers));
+    const stakeSnapshotHash = bytesToHex(
+      computeStakeSnapshotHash(epoch, stakers),
+    );
     const includedTotalShares = stakers.reduce(
       (total, staker) => total + BigInt(staker.shares),
       0n,
@@ -595,7 +588,9 @@ export class ReconciliationService {
 
     if (registryRootsAvailable) {
       stakerRegistryRoot = bytesToHex(computeStakerRegistryRoot(stakers));
-      delegationRegistryRoot = bytesToHex(computeDelegationRegistryRoot(stakers));
+      delegationRegistryRoot = bytesToHex(
+        computeDelegationRegistryRoot(stakers),
+      );
       delegationPayloadHex = bytesToHex(
         computeCanonicalDelegationPayload({
           epoch,
@@ -604,33 +599,29 @@ export class ReconciliationService {
         }),
       );
     } else {
-      this.pushDiscrepancy(
-        discrepancies,
-        warnings,
-        {
-          code: 'NON_CANONICAL_LIVE_ADDRESSES',
-          severity: 'WARNING',
-          title: 'Registry roots were omitted',
-          message:
-            'Delegation and staker registry roots were omitted because one or more live addresses are not canonical 20-byte EVM hex values.',
-          affected_accounts: stakers.filter(
-            (staker) =>
-              !this.isHexAddress20(staker.address) ||
-              !this.isHexAddress20(staker.delegated_to),
-          ).length,
-          sample_addresses: this.getAddressSample(
-            stakers
-              .filter(
-                (staker) =>
-                  !this.isHexAddress20(staker.address) ||
-                  !this.isHexAddress20(staker.delegated_to),
-              )
-              .map((staker) => staker.address),
-          ),
-          remediation:
-            'Normalize public addresses into canonical 20-byte EVM hex form before treating registry roots as complete.',
-        },
-      );
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "NON_CANONICAL_LIVE_ADDRESSES",
+        severity: "WARNING",
+        title: "Registry roots were omitted",
+        message:
+          "Delegation and staker registry roots were omitted because one or more live addresses are not canonical 20-byte EVM hex values.",
+        affected_accounts: stakers.filter(
+          (staker) =>
+            !this.isHexAddress20(staker.address) ||
+            !this.isHexAddress20(staker.delegated_to),
+        ).length,
+        sample_addresses: this.getAddressSample(
+          stakers
+            .filter(
+              (staker) =>
+                !this.isHexAddress20(staker.address) ||
+                !this.isHexAddress20(staker.delegated_to),
+            )
+            .map((staker) => staker.address),
+        ),
+        remediation:
+          "Normalize public addresses into canonical 20-byte EVM hex form before treating registry roots as complete.",
+      });
     }
 
     const vaultTotalShares = vaultState?.totalShares;
@@ -644,30 +635,28 @@ export class ReconciliationService {
       vaultTotalShares !== undefined &&
       includedTotalShares !== BigInt(vaultTotalShares)
     ) {
-      this.pushDiscrepancy(
-        discrepancies,
-        warnings,
-        {
-          code: 'STAKE_SUPPLY_MISMATCH',
-          severity: 'CRITICAL',
-          title: 'Included share supply does not match vault state',
-          message: `Included live stake snapshot shares (${includedTotalShares.toString()}) do not match indexed vault total shares (${vaultTotalShares}).`,
-          affected_accounts: stakers.length,
-          affected_shares: (BigInt(vaultTotalShares) - includedTotalShares).toString(),
-          impact_bps: this.calculateImpactBps(
-            includedTotalShares > BigInt(vaultTotalShares)
-              ? includedTotalShares - BigInt(vaultTotalShares)
-              : BigInt(vaultTotalShares) - includedTotalShares,
-            BigInt(vaultTotalShares),
-          ),
-          evidence: {
-            included_total_shares: includedTotalShares.toString(),
-            vault_total_shares: vaultTotalShares,
-          },
-          remediation:
-            'Repair vault share materialization before treating this capture as complete.',
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "STAKE_SUPPLY_MISMATCH",
+        severity: "CRITICAL",
+        title: "Included share supply does not match vault state",
+        message: `Included live stake snapshot shares (${includedTotalShares.toString()}) do not match indexed vault total shares (${vaultTotalShares}).`,
+        affected_accounts: stakers.length,
+        affected_shares: (
+          BigInt(vaultTotalShares) - includedTotalShares
+        ).toString(),
+        impact_bps: this.calculateImpactBps(
+          includedTotalShares > BigInt(vaultTotalShares)
+            ? includedTotalShares - BigInt(vaultTotalShares)
+            : BigInt(vaultTotalShares) - includedTotalShares,
+          BigInt(vaultTotalShares),
+        ),
+        evidence: {
+          included_total_shares: includedTotalShares.toString(),
+          vault_total_shares: vaultTotalShares,
         },
-      );
+        remediation:
+          "Repair vault share materialization before treating this capture as complete.",
+      });
     }
 
     return {
@@ -677,7 +666,9 @@ export class ReconciliationService {
         },
         observed: {
           stake_snapshot_hash: stakeSnapshotHash,
-          ...(stakerRegistryRoot ? { staker_registry_root: stakerRegistryRoot } : {}),
+          ...(stakerRegistryRoot
+            ? { staker_registry_root: stakerRegistryRoot }
+            : {}),
           ...(delegationRegistryRoot
             ? { delegation_registry_root: delegationRegistryRoot }
             : {}),
@@ -701,7 +692,9 @@ export class ReconciliationService {
     };
   }
 
-  private async persistSnapshot(document: LiveReconciliationDocument): Promise<void> {
+  private async persistSnapshot(
+    document: LiveReconciliationDocument,
+  ): Promise<void> {
     const snapshotKey = this.buildSnapshotKey(document);
 
     await this.prisma.reconciliationSnapshot.upsert({
@@ -721,7 +714,8 @@ export class ReconciliationService {
         validatorCount: document.validator_selection.meta.validator_count,
         totalEligibleValidators:
           document.validator_selection.meta.total_eligible_validators,
-        validatorUniverseHash: document.validator_selection.observed.universe_hash,
+        validatorUniverseHash:
+          document.validator_selection.observed.universe_hash,
         ...(document.stake_snapshot?.observed?.stake_snapshot_hash
           ? {
               stakeSnapshotHash:
@@ -744,7 +738,7 @@ export class ReconciliationService {
             ...(discrepancy.affected_shares
               ? { affectedShares: discrepancy.affected_shares }
               : {}),
-            ...(typeof discrepancy.impact_bps === 'number'
+            ...(typeof discrepancy.impact_bps === "number"
               ? { impactBps: discrepancy.impact_bps }
               : {}),
             sampleAddresses: discrepancy.sample_addresses,
@@ -766,10 +760,11 @@ export class ReconciliationService {
     return [
       document.epoch,
       document.validator_selection.observed.universe_hash,
-      document.stake_snapshot?.observed?.stake_snapshot_hash ?? 'no-stake-snapshot',
+      document.stake_snapshot?.observed?.stake_snapshot_hash ??
+        "no-stake-snapshot",
       document.warnings.length,
       document.discrepancies.length,
-    ].join(':');
+    ].join(":");
   }
 
   private deriveSnapshotStatus(
@@ -783,13 +778,13 @@ export class ReconciliationService {
       discrepancyCount: number;
       stakeSnapshotComplete: boolean | null;
     },
-  ): 'OK' | 'WARNING' | 'CRITICAL' {
+  ): "OK" | "WARNING" | "CRITICAL" {
     if (
       (document.discrepancies ?? []).some(
-        (discrepancy) => discrepancy.severity === 'CRITICAL',
+        (discrepancy) => discrepancy.severity === "CRITICAL",
       )
     ) {
-      return 'CRITICAL';
+      return "CRITICAL";
     }
 
     if (
@@ -797,10 +792,10 @@ export class ReconciliationService {
       stakeSnapshotComplete === false ||
       discrepancyCount > 0
     ) {
-      return 'WARNING';
+      return "WARNING";
     }
 
-    return 'OK';
+    return "OK";
   }
 
   private pushDiscrepancy(
@@ -808,7 +803,7 @@ export class ReconciliationService {
     warnings: string[],
     payload: {
       code: string;
-      severity: 'INFO' | 'WARNING' | 'CRITICAL';
+      severity: "INFO" | "WARNING" | "CRITICAL";
       title: string;
       message: string;
       affected_accounts?: number;
@@ -822,12 +817,14 @@ export class ReconciliationService {
     discrepancies.push({
       code: payload.code,
       severity: payload.severity,
-      status: 'ACTIVE',
+      status: "ACTIVE",
       title: payload.title,
       message: payload.message,
       affected_accounts: payload.affected_accounts ?? 0,
-      ...(payload.affected_shares ? { affected_shares: payload.affected_shares } : {}),
-      ...(typeof payload.impact_bps === 'number'
+      ...(payload.affected_shares
+        ? { affected_shares: payload.affected_shares }
+        : {}),
+      ...(typeof payload.impact_bps === "number"
         ? { impact_bps: payload.impact_bps }
         : {}),
       sample_addresses: payload.sample_addresses ?? [],
@@ -835,7 +832,7 @@ export class ReconciliationService {
       ...(payload.remediation ? { remediation: payload.remediation } : {}),
     });
 
-    if (payload.severity !== 'INFO') {
+    if (payload.severity !== "INFO") {
       warnings.push(payload.message);
     }
   }

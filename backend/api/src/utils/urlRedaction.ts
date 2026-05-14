@@ -13,7 +13,9 @@ export function rejectUrlUserInfoAndFragment(
   }
 }
 
-export function redactUrlForLogs(value: string | undefined): string | undefined {
+export function redactUrlForLogs(
+  value: string | undefined,
+): string | undefined {
   if (!value) {
     return value;
   }

@@ -2,35 +2,35 @@
  * Model registry API routes.
  */
 
-import { Router, Request, Response } from 'express';
-import { param, query } from 'express-validator';
-import { container } from 'tsyringe';
-import { CacheService } from '../../services/CacheService';
-import { ModelsService } from '../../services/ModelsService';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { validate } from '../../middleware/validate';
-import { ApiError } from '../../utils/ApiError';
+import { Router, Request, Response } from "express";
+import { param, query } from "express-validator";
+import { container } from "tsyringe";
+import { CacheService } from "../../services/CacheService";
+import { ModelsService } from "../../services/ModelsService";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { validate } from "../../middleware/validate";
+import { ApiError } from "../../utils/ApiError";
 import {
   isAllowedPublicSort,
   MAX_PUBLIC_FILTER_LENGTH,
   MAX_PUBLIC_PAGINATION_OFFSET,
-} from '../../validation/schemas';
+} from "../../validation/schemas";
 
 const router = Router();
 const modelsService = container.resolve(ModelsService);
 const cacheService = container.resolve(CacheService);
 
 const MODEL_CATEGORIES = [
-  'GENERAL',
-  'MEDICAL',
-  'SCIENTIFIC',
-  'FINANCIAL',
-  'LEGAL',
-  'EDUCATIONAL',
-  'ENVIRONMENTAL',
+  "GENERAL",
+  "MEDICAL",
+  "SCIENTIFIC",
+  "FINANCIAL",
+  "LEGAL",
+  "EDUCATIONAL",
+  "ENVIRONMENTAL",
 ] as const;
 
-const MODEL_SORT_FIELDS = ['registered_at', 'total_jobs', 'name'] as const;
+const MODEL_SORT_FIELDS = ["registered_at", "total_jobs", "name"] as const;
 const MAX_MODEL_HASH_LENGTH = 128;
 const MODEL_HASH_PATTERN = /^[A-Za-z0-9._:-]+$/;
 
@@ -75,24 +75,26 @@ const MODEL_HASH_PATTERN = /^[A-Za-z0-9._:-]+$/;
  *         description: List of registered models
  */
 router.get(
-  '/',
+  "/",
   [
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset')
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset")
       .optional()
       .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
       .toInt(),
-    query('category').optional().isIn(MODEL_CATEGORIES),
-    query('verified').optional().isBoolean().toBoolean(),
-    query('owner')
+    query("category").optional().isIn(MODEL_CATEGORIES),
+    query("verified").optional().isBoolean().toBoolean(),
+    query("owner")
       .optional()
       .isString()
       .trim()
       .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
-    query('sort')
+    query("sort")
       .optional()
       .custom((value) => isAllowedPublicSort(value, MODEL_SORT_FIELDS))
-      .withMessage(`sort must be one of: ${MODEL_SORT_FIELDS.join(', ')} with :asc or :desc`),
+      .withMessage(
+        `sort must be one of: ${MODEL_SORT_FIELDS.join(", ")} with :asc or :desc`,
+      ),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -102,7 +104,7 @@ router.get(
       category,
       verified,
       owner,
-      sort = 'registered_at:desc',
+      sort = "registered_at:desc",
     } = req.query as {
       limit?: number;
       offset?: number;
@@ -113,14 +115,14 @@ router.get(
     };
 
     const cacheKey = [
-      'models:list',
+      "models:list",
       limit,
       offset,
-      category ?? 'all',
-      typeof verified === 'boolean' ? String(verified) : 'all',
-      owner ?? 'all',
+      category ?? "all",
+      typeof verified === "boolean" ? String(verified) : "all",
+      owner ?? "all",
       sort,
-    ].join(':');
+    ].join(":");
 
     const cached = await cacheService.get(cacheKey);
     if (cached) {
@@ -149,9 +151,9 @@ router.get(
  *     tags: [Models]
  */
 router.get(
-  '/:modelHash',
+  "/:modelHash",
   [
-    param('modelHash')
+    param("modelHash")
       .isString()
       .trim()
       .notEmpty()

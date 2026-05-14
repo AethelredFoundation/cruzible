@@ -1,9 +1,9 @@
-import { injectable } from 'tsyringe';
-import Redis from 'ioredis';
+import { injectable } from "tsyringe";
+import Redis from "ioredis";
 
-import { config } from '../config';
-import { logger } from '../utils/logger';
-import { errorContext } from '../utils/errorContext';
+import { config } from "../config";
+import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
 
 type CacheEntry = {
   expiresAt: number;
@@ -14,7 +14,7 @@ type CacheEnvelope = {
   value: unknown;
 };
 
-const CACHE_KEY_PREFIX = 'cruzible:api:';
+const CACHE_KEY_PREFIX = "cruzible:api:";
 const MAX_MEMORY_CACHE_ENTRIES = 1_000;
 
 @injectable()
@@ -33,27 +33,26 @@ export class CacheService {
       maxRetriesPerRequest: 2,
     });
 
-    redis.on('error', (error) => {
-      logger.warn('Redis cache client error', errorContext(error));
+    redis.on("error", (error) => {
+      logger.warn("Redis cache client error", errorContext(error));
     });
 
     try {
       await redis.connect();
       await redis.ping();
       this.redis = redis;
-      logger.info('Redis cache connected');
+      logger.info("Redis cache connected");
     } catch (error) {
       redis.disconnect();
 
       if (config.isProduction) {
-        throw Object.assign(
-          new Error('Redis cache connection failed'),
-          { cause: error },
-        );
+        throw Object.assign(new Error("Redis cache connection failed"), {
+          cause: error,
+        });
       }
 
       logger.warn(
-        'Redis cache unavailable; using in-memory fallback',
+        "Redis cache unavailable; using in-memory fallback",
         errorContext(error),
       );
     }
@@ -84,7 +83,7 @@ export class CacheService {
           return this.deserialize<T>(cached);
         }
       } catch (error) {
-        logger.warn('Redis cache read failed; using in-memory fallback', {
+        logger.warn("Redis cache read failed; using in-memory fallback", {
           key,
           ...errorContext(error),
         });
@@ -119,7 +118,7 @@ export class CacheService {
         try {
           await this.redis.del(this.formatKey(key));
         } catch (error) {
-          logger.warn('Redis cache delete failed', {
+          logger.warn("Redis cache delete failed", {
             key,
             ...errorContext(error),
           });
@@ -134,16 +133,19 @@ export class CacheService {
         await this.redis.set(
           this.formatKey(key),
           this.serialize(value),
-          'EX',
+          "EX",
           ttl,
         );
         this.cache.delete(key);
         return;
       } catch (error) {
-        logger.warn('Redis cache write failed; retained bounded in-memory fallback', {
-          key,
-          ...errorContext(error),
-        });
+        logger.warn(
+          "Redis cache write failed; retained bounded in-memory fallback",
+          {
+            key,
+            ...errorContext(error),
+          },
+        );
       }
     }
 
@@ -186,7 +188,7 @@ export class CacheService {
 
   private deserialize<T>(serialized: string): T | null {
     const parsed = JSON.parse(serialized) as CacheEnvelope;
-    if (!parsed || typeof parsed !== 'object' || !('value' in parsed)) {
+    if (!parsed || typeof parsed !== "object" || !("value" in parsed)) {
       return null;
     }
 

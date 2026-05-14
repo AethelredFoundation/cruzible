@@ -139,10 +139,7 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   JWT_SECRET: z.string().min(16).default("cruzible-dev-jwt-secret"),
   JWT_REFRESH_SECRET: z.string().min(16).default("cruzible-dev-refresh-secret"),
-  JWT_EXPIRES_IN: z
-    .string()
-    .regex(TOKEN_DURATION_PATTERN)
-    .default("15m"),
+  JWT_EXPIRES_IN: z.string().regex(TOKEN_DURATION_PATTERN).default("15m"),
   JWT_REFRESH_EXPIRES_IN: z
     .string()
     .regex(REFRESH_TOKEN_DURATION_PATTERN)

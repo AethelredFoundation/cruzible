@@ -94,8 +94,7 @@ function expandIpv6Hextets(address: string): number[] | null {
     return null;
   }
 
-  const left =
-    compressionParts[0] === "" ? [] : compressionParts[0].split(":");
+  const left = compressionParts[0] === "" ? [] : compressionParts[0].split(":");
   const right =
     compressionParts.length === 1 || compressionParts[1] === ""
       ? []
@@ -176,9 +175,7 @@ function isPrivateOrReservedIpv6(address: string): boolean {
     (firstHextet === 0x2001 && secondHextet < 0x0200) ||
     (firstHextet === 0x2001 && secondHextet === 0x0db8) ||
     firstHextet === 0x2002 ||
-    (firstHextet === 0x64 &&
-      secondHextet === 0xff9b &&
-      thirdHextet === 0x0001)
+    (firstHextet === 0x64 && secondHextet === 0xff9b && thirdHextet === 0x0001)
   );
 }
 

@@ -5,7 +5,7 @@ import {
   computeEligibleUniverseHash,
   computeStakeSnapshotHash,
   computeStakerRegistryRoot,
-} from '../../../../sdk/typescript/dist/src';
+} from "../../../../sdk/typescript/dist/src";
 
 export {
   bytesToHex,

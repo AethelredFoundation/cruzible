@@ -5,14 +5,10 @@
  * existing indexed Model table.
  */
 
-import { injectable } from 'tsyringe';
-import {
-  ModelCategory,
-  Prisma,
-  PrismaClient,
-} from '@prisma/client';
-import { logger } from '../utils/logger';
-import { errorContext } from '../utils/errorContext';
+import { injectable } from "tsyringe";
+import { ModelCategory, Prisma, PrismaClient } from "@prisma/client";
+import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
 
 export interface ModelListItem {
   modelHash: string;
@@ -68,9 +64,9 @@ export interface ModelDetailResult extends ModelListItem {
 }
 
 const MODEL_SORT_FIELDS = {
-  registered_at: 'registeredAt',
-  total_jobs: 'totalJobs',
-  name: 'name',
+  registered_at: "registeredAt",
+  total_jobs: "totalJobs",
+  name: "name",
 } as const;
 
 type ModelSortField = keyof typeof MODEL_SORT_FIELDS;
@@ -97,7 +93,7 @@ export class ModelsService {
     if (category) {
       where.category = category as ModelCategory;
     }
-    if (typeof verified === 'boolean') {
+    if (typeof verified === "boolean") {
       where.verified = verified;
     }
     if (owner) {
@@ -134,7 +130,7 @@ export class ModelsService {
         total,
       };
     } catch (error) {
-      logger.error('Failed to fetch models', {
+      logger.error("Failed to fetch models", {
         options,
         ...errorContext(error),
       });
@@ -168,70 +164,76 @@ export class ModelsService {
         return null;
       }
 
-      const [verifiedJobs, inFlightJobs, failedJobs, recentJobs, latestVerifiedJob, proofTypeBreakdown] =
-        await Promise.all([
-          this.prisma.aIJob.count({
-            where: {
-              modelHash,
-              status: 'VERIFIED',
+      const [
+        verifiedJobs,
+        inFlightJobs,
+        failedJobs,
+        recentJobs,
+        latestVerifiedJob,
+        proofTypeBreakdown,
+      ] = await Promise.all([
+        this.prisma.aIJob.count({
+          where: {
+            modelHash,
+            status: "VERIFIED",
+          },
+        }),
+        this.prisma.aIJob.count({
+          where: {
+            modelHash,
+            status: {
+              in: ["PENDING", "ASSIGNED", "COMPUTING"],
             },
-          }),
-          this.prisma.aIJob.count({
-            where: {
-              modelHash,
-              status: {
-                in: ['PENDING', 'ASSIGNED', 'COMPUTING'],
+          },
+        }),
+        this.prisma.aIJob.count({
+          where: {
+            modelHash,
+            status: "FAILED",
+          },
+        }),
+        this.prisma.aIJob.findMany({
+          where: { modelHash },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+          select: {
+            id: true,
+            status: true,
+            proofType: true,
+            createdAt: true,
+            completedAt: true,
+            verificationScore: true,
+            creator: {
+              select: {
+                address: true,
               },
             },
-          }),
-          this.prisma.aIJob.count({
-            where: {
-              modelHash,
-              status: 'FAILED',
-            },
-          }),
-          this.prisma.aIJob.findMany({
-            where: { modelHash },
-            orderBy: { createdAt: 'desc' },
-            take: 5,
-            select: {
-              id: true,
-              status: true,
-              proofType: true,
-              createdAt: true,
-              completedAt: true,
-              verificationScore: true,
-              creator: {
-                select: {
-                  address: true,
-                },
-              },
-              validator: {
-                select: {
-                  address: true,
-                },
+            validator: {
+              select: {
+                address: true,
               },
             },
-          }),
-          this.prisma.aIJob.findFirst({
-            where: {
-              modelHash,
-              status: 'VERIFIED',
-            },
-            orderBy: { completedAt: 'desc' },
-            select: {
-              createdAt: true,
-              completedAt: true,
-            },
-          }),
-          this.prisma.aIJob.groupBy({
-            by: ['proofType'],
-            where: { modelHash },
-            _count: {
-              _all: true,
-            },
-          }),
-        ]);
+          },
+        }),
+        this.prisma.aIJob.findFirst({
+          where: {
+            modelHash,
+            status: "VERIFIED",
+          },
+          orderBy: { completedAt: "desc" },
+          select: {
+            createdAt: true,
+            completedAt: true,
+          },
+        }),
+        this.prisma.aIJob.groupBy({
+          by: ["proofType"],
+          where: { modelHash },
+          _count: {
+            _all: true,
+          },
+        }),
+      ]);
 
       return {
         ...this.mapModelListItem(model),
@@ -266,7 +268,7 @@ export class ModelsService {
         },
       };
     } catch (error) {
-      logger.error('Failed to fetch model detail', {
+      logger.error("Failed to fetch model detail", {
         modelHash,
         ...errorContext(error),
       });
@@ -275,11 +277,13 @@ export class ModelsService {
   }
 
   private parseSort(sort: string): Prisma.ModelOrderByWithRelationInput {
-    const [requestedField = 'registered_at', requestedDirection = 'desc'] = sort.split(':');
+    const [requestedField = "registered_at", requestedDirection = "desc"] =
+      sort.split(":");
     const sortField = this.isModelSortField(requestedField)
       ? requestedField
-      : 'registered_at';
-    const direction: Prisma.SortOrder = requestedDirection === 'asc' ? 'asc' : 'desc';
+      : "registered_at";
+    const direction: Prisma.SortOrder =
+      requestedDirection === "asc" ? "asc" : "desc";
 
     return {
       [MODEL_SORT_FIELDS[sortField]]: direction,

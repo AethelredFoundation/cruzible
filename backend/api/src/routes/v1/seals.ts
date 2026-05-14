@@ -2,26 +2,26 @@
  * Digital seals API routes.
  */
 
-import { Router, Request, Response } from 'express';
-import { param, query } from 'express-validator';
-import { container } from 'tsyringe';
-import { CacheService } from '../../services/CacheService';
-import { SealsService } from '../../services/SealsService';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { validate } from '../../middleware/validate';
-import { ApiError } from '../../utils/ApiError';
+import { Router, Request, Response } from "express";
+import { param, query } from "express-validator";
+import { container } from "tsyringe";
+import { CacheService } from "../../services/CacheService";
+import { SealsService } from "../../services/SealsService";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { validate } from "../../middleware/validate";
+import { ApiError } from "../../utils/ApiError";
 import {
   isAllowedPublicSort,
   MAX_PUBLIC_FILTER_LENGTH,
   MAX_PUBLIC_PAGINATION_OFFSET,
-} from '../../validation/schemas';
+} from "../../validation/schemas";
 
 const router = Router();
 const sealsService = container.resolve(SealsService);
 const cacheService = container.resolve(CacheService);
 
-const SEAL_STATUSES = ['active', 'revoked', 'expired', 'superseded'] as const;
-const SEAL_SORT_FIELDS = ['created_at', 'expires_at'] as const;
+const SEAL_STATUSES = ["active", "revoked", "expired", "superseded"] as const;
+const SEAL_SORT_FIELDS = ["created_at", "expires_at"] as const;
 const MAX_SEAL_ID_LENGTH = 64;
 const SEAL_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -66,28 +66,30 @@ const SEAL_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
  *         description: List of digital seals
  */
 router.get(
-  '/',
+  "/",
   [
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset')
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset")
       .optional()
       .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
       .toInt(),
-    query('status').optional().isIn(SEAL_STATUSES),
-    query('requester')
+    query("status").optional().isIn(SEAL_STATUSES),
+    query("requester")
       .optional()
       .isString()
       .trim()
       .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
-    query('job_id')
+    query("job_id")
       .optional()
       .isString()
       .trim()
       .isLength({ min: 1, max: MAX_PUBLIC_FILTER_LENGTH }),
-    query('sort')
+    query("sort")
       .optional()
       .custom((value) => isAllowedPublicSort(value, SEAL_SORT_FIELDS))
-      .withMessage(`sort must be one of: ${SEAL_SORT_FIELDS.join(', ')} with :asc or :desc`),
+      .withMessage(
+        `sort must be one of: ${SEAL_SORT_FIELDS.join(", ")} with :asc or :desc`,
+      ),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -97,7 +99,7 @@ router.get(
       status,
       requester,
       job_id,
-      sort = 'created_at:desc',
+      sort = "created_at:desc",
     } = req.query as {
       limit?: number;
       offset?: number;
@@ -108,14 +110,14 @@ router.get(
     };
 
     const cacheKey = [
-      'seals:list',
+      "seals:list",
       limit,
       offset,
-      status ?? 'all',
-      requester ?? 'all',
-      job_id ?? 'all',
+      status ?? "all",
+      requester ?? "all",
+      job_id ?? "all",
       sort,
-    ].join(':');
+    ].join(":");
 
     const cached = await cacheService.get(cacheKey);
     if (cached) {
@@ -144,9 +146,9 @@ router.get(
  *     tags: [Seals]
  */
 router.get(
-  '/:id',
+  "/:id",
   [
-    param('id')
+    param("id")
       .isString()
       .trim()
       .notEmpty()

@@ -5,14 +5,10 @@
  * frontend explorer's list view.
  */
 
-import { injectable } from 'tsyringe';
-import {
-  Prisma,
-  PrismaClient,
-  SealStatus,
-} from '@prisma/client';
-import { logger } from '../utils/logger';
-import { errorContext } from '../utils/errorContext';
+import { injectable } from "tsyringe";
+import { Prisma, PrismaClient, SealStatus } from "@prisma/client";
+import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
 
 export interface SealListItem {
   id: string;
@@ -71,8 +67,8 @@ export interface SealDetailResult extends SealListItem {
 }
 
 const SEAL_SORT_FIELDS = {
-  created_at: 'createdAt',
-  expires_at: 'expiresAt',
+  created_at: "createdAt",
+  expires_at: "expiresAt",
 } as const;
 
 type SealSortField = keyof typeof SEAL_SORT_FIELDS;
@@ -134,7 +130,7 @@ export class SealsService {
         total,
       };
     } catch (error) {
-      logger.error('Failed to fetch seals', {
+      logger.error("Failed to fetch seals", {
         options,
         ...errorContext(error),
       });
@@ -249,25 +245,29 @@ export class SealsService {
           : null,
         proofLineage: {
           proofType:
-            linkedJob?.verificationProof?.proofType ?? linkedJob?.proofType ?? null,
+            linkedJob?.verificationProof?.proofType ??
+            linkedJob?.proofType ??
+            null,
           merkleRoot: linkedJob?.verificationProof?.merkleRoot ?? null,
           validatorSignatureCount:
             linkedJob?.verificationProof?.validatorSignatures.length ?? 0,
           teeType: linkedJob?.teeAttestation?.teeType ?? null,
-          teeTimestamp: linkedJob?.teeAttestation?.timestamp?.toISOString() ?? null,
+          teeTimestamp:
+            linkedJob?.teeAttestation?.timestamp?.toISOString() ?? null,
           teeMeasurement: linkedJob?.teeAttestation?.measurement ?? null,
           computeMetrics: linkedJob?.computeMetrics
             ? {
                 cpuCycles: linkedJob.computeMetrics.cpuCycles.toString(),
                 memoryUsed: linkedJob.computeMetrics.memoryUsed.toString(),
-                computeTimeMs: linkedJob.computeMetrics.computeTimeMs.toString(),
+                computeTimeMs:
+                  linkedJob.computeMetrics.computeTimeMs.toString(),
                 energyMj: linkedJob.computeMetrics.energyMj.toString(),
               }
             : null,
         },
       };
     } catch (error) {
-      logger.error('Failed to fetch seal detail', {
+      logger.error("Failed to fetch seal detail", {
         id,
         ...errorContext(error),
       });
@@ -276,11 +276,13 @@ export class SealsService {
   }
 
   private parseSort(sort: string): Prisma.SealOrderByWithRelationInput {
-    const [requestedField = 'created_at', requestedDirection = 'desc'] = sort.split(':');
+    const [requestedField = "created_at", requestedDirection = "desc"] =
+      sort.split(":");
     const sortField = this.isSealSortField(requestedField)
       ? requestedField
-      : 'created_at';
-    const direction: Prisma.SortOrder = requestedDirection === 'asc' ? 'asc' : 'desc';
+      : "created_at";
+    const direction: Prisma.SortOrder =
+      requestedDirection === "asc" ? "asc" : "desc";
 
     return {
       [SEAL_SORT_FIELDS[sortField]]: direction,
