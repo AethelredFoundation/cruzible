@@ -351,6 +351,53 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     });
   });
 
+  it("disables compression for auth and no-store responses only", async () => {
+    const { shouldCompressResponse } = await import("../src/server");
+    const compressibleResponse = {
+      getHeader: vi.fn((name: string) =>
+        name.toLowerCase() === "content-type" ? "application/json" : undefined,
+      ),
+    };
+    const noStoreResponse = {
+      getHeader: vi.fn((name: string) =>
+        name.toLowerCase() === "cache-control"
+          ? "private, no-store"
+          : "application/json",
+      ),
+    };
+
+    expect(
+      shouldCompressResponse(
+        {
+          headers: { "accept-encoding": "gzip" },
+          method: "GET",
+          originalUrl: "/v1/jobs",
+        } as any,
+        compressibleResponse as any,
+      ),
+    ).toBe(true);
+    expect(
+      shouldCompressResponse(
+        {
+          headers: { "accept-encoding": "gzip" },
+          method: "POST",
+          originalUrl: "/v1/auth/login",
+        } as any,
+        compressibleResponse as any,
+      ),
+    ).toBe(false);
+    expect(
+      shouldCompressResponse(
+        {
+          headers: { "accept-encoding": "gzip" },
+          method: "GET",
+          originalUrl: "/metrics",
+        } as any,
+        noStoreResponse as any,
+      ),
+    ).toBe(false);
+  });
+
   it("rejects malformed JSON as a safe client error", async () => {
     await registerMockServices();
     const { createAppServer } = await import("../src/server");

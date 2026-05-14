@@ -100,6 +100,29 @@ const PERMISSIONS_POLICY = DISABLED_BROWSER_FEATURES.map(
   (feature) => `${feature}=()`,
 ).join(", ");
 
+function isSecretBearingPath(req: Request): boolean {
+  const path = (req.originalUrl || req.path || "").split(/[?#]/u)[0];
+  return path === "/v1/auth" || path.startsWith("/v1/auth/");
+}
+
+function isNoStoreResponse(res: Response): boolean {
+  const cacheControl = res.getHeader("Cache-Control");
+  const values = Array.isArray(cacheControl) ? cacheControl : [cacheControl];
+
+  return values.some(
+    (value) =>
+      typeof value === "string" && /\bno-store\b/iu.test(value.toLowerCase()),
+  );
+}
+
+export function shouldCompressResponse(req: Request, res: Response): boolean {
+  if (isSecretBearingPath(req) || isNoStoreResponse(res)) {
+    return false;
+  }
+
+  return compression.filter(req, res);
+}
+
 // ---------------------------------------------------------------------------
 // ApiGateway
 // ---------------------------------------------------------------------------
@@ -215,8 +238,9 @@ export class ApiGateway {
       }),
     );
 
-    // Compression
-    this.app.use(compression());
+    // Avoid compressing token-bearing or no-store responses; both can carry
+    // secrets and should not be exposed to compression side channels.
+    this.app.use(compression({ filter: shouldCompressResponse }));
 
     // Request ID (must come before the logger so the ID is available)
     this.app.use(requestId);
