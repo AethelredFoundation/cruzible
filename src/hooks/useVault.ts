@@ -253,61 +253,82 @@ export function useStake() {
           return undefined;
         }
 
-        // Step 1: Approve AETHEL token spending
         addNotification(
           "info",
-          "Approving",
-          "Please approve AETHEL spending in your wallet...",
+          "Checking Allowance",
+          "Verifying the vault can spend the requested AETHEL amount...",
         );
 
-        if (
-          !(await assertContractSimulation(
-            config,
-            addNotification,
-            "AETHEL Approval",
-            {
-              address: tokenAddr,
-              abi: ERC20ABI,
-              functionName: "approve",
-              args: [cruzibleAddr, amount],
-              account: wallet.address as Address,
-              chainId: activeChain.id,
-            },
-          ))
-        ) {
-          return undefined;
-        }
-
-        const approveHash = await writeContractAsync({
+        const allowance = (await readContract(config, {
           address: tokenAddr,
           abi: ERC20ABI,
-          functionName: "approve",
-          args: [cruzibleAddr, amount],
+          functionName: "allowance",
+          args: [wallet.address as Address, cruzibleAddr],
           chainId: activeChain.id,
-        });
+        })) as bigint;
 
-        // Wait for approval to be mined before calling stake().
-        // Without this, the stake tx may land before the approval is
-        // confirmed on-chain, causing a revert.
-        addNotification(
-          "info",
-          "Confirming Approval",
-          "Waiting for approval to be confirmed on-chain...",
-        );
-        const approvalReceipt = await waitForTransactionReceipt(config, {
-          hash: approveHash,
-        });
-
-        if (approvalReceipt.status === "reverted") {
+        if (needsTokenApproval(allowance, amount)) {
           addNotification(
-            "error",
-            "Approval Reverted",
-            "The AETHEL approval was reverted on-chain.",
+            "info",
+            "Approving",
+            "Please approve AETHEL spending in your wallet...",
           );
-          return undefined;
+
+          if (
+            !(await assertContractSimulation(
+              config,
+              addNotification,
+              "AETHEL Approval",
+              {
+                address: tokenAddr,
+                abi: ERC20ABI,
+                functionName: "approve",
+                args: [cruzibleAddr, amount],
+                account: wallet.address as Address,
+                chainId: activeChain.id,
+              },
+            ))
+          ) {
+            return undefined;
+          }
+
+          const approveHash = await writeContractAsync({
+            address: tokenAddr,
+            abi: ERC20ABI,
+            functionName: "approve",
+            args: [cruzibleAddr, amount],
+            chainId: activeChain.id,
+          });
+
+          // Wait for approval to be mined before calling stake().
+          // Without this, the stake tx may land before the approval is
+          // confirmed on-chain, causing a revert.
+          addNotification(
+            "info",
+            "Confirming Approval",
+            "Waiting for approval to be confirmed on-chain...",
+          );
+          const approvalReceipt = await waitForTransactionReceipt(config, {
+            hash: approveHash,
+          });
+
+          if (approvalReceipt.status === "reverted") {
+            addNotification(
+              "error",
+              "Approval Reverted",
+              "The AETHEL approval was reverted on-chain.",
+            );
+            return undefined;
+          }
+        } else {
+          addNotification(
+            "info",
+            "Allowance Ready",
+            "Existing AETHEL allowance covers this stake.",
+          );
         }
 
-        // Step 2: Stake (only after approval receipt is confirmed)
+        // Step 2: Stake (only after approval receipt is confirmed or allowance is sufficient)
         addNotification(
           "info",
           "Staking",
