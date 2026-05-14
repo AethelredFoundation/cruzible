@@ -1,9 +1,20 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle, Clock, Cpu, RefreshCw, XCircle } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  Clock3,
+  Cpu,
+  ExternalLink,
+  RefreshCw,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 import { SEOHead } from "@/components/SEOHead";
-import { CopyButton } from "@/components/PagePrimitives";
+import { CopyButton, GlassCard } from "@/components/PagePrimitives";
+import { Footer, TopNav } from "@/components/SharedComponents";
 import { ApiHttpError, apiJson } from "@/lib/api-request";
 
 interface Job {
@@ -34,49 +45,71 @@ async function fetchJob(id: string): Promise<Job> {
   }
 }
 
+function normalizeJobStatus(status: string): string {
+  return status.toLowerCase().replace("job_status_", "");
+}
+
+function formatJobStatus(status: string): string {
+  const normalized = normalizeJobStatus(status);
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatProofType(proofType: string): string {
+  return proofType
+    .replace("PROOF_TYPE_", "")
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function formatDate(dateString: string | null): string {
-  return dateString ? new Date(dateString).toLocaleString() : "Pending";
+  if (!dateString) {
+    return "Pending";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(dateString));
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const normalizedStatus = status.toLowerCase().replace("job_status_", "");
-  const statusConfig: Record<
-    string,
-    { icon: JSX.Element | null; className: string }
-  > = {
-    completed: {
-      icon: <CheckCircle className="h-3.5 w-3.5" />,
-      className: "bg-green-100 text-green-800",
-    },
-    verified: {
-      icon: <CheckCircle className="h-3.5 w-3.5" />,
-      className: "bg-emerald-100 text-emerald-800",
-    },
-    pending: {
-      icon: <Clock className="h-3.5 w-3.5" />,
-      className: "bg-yellow-100 text-yellow-800",
-    },
-    computing: {
-      icon: <Cpu className="h-3.5 w-3.5" />,
-      className: "bg-blue-100 text-blue-800",
-    },
-    failed: {
-      icon: <XCircle className="h-3.5 w-3.5" />,
-      className: "bg-red-100 text-red-800",
-    },
-  };
-
-  const config = statusConfig[normalizedStatus] || {
-    icon: null,
-    className: "bg-gray-100 text-gray-800",
+  const normalizedStatus = normalizeJobStatus(status);
+  const statusConfig: Record<string, { icon: JSX.Element; className: string }> =
+    {
+      completed: {
+        icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+        className: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200",
+      },
+      verified: {
+        icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+        className: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200",
+      },
+      pending: {
+        icon: <Clock3 className="h-3.5 w-3.5" />,
+        className: "border-amber-500/20 bg-amber-500/10 text-amber-200",
+      },
+      computing: {
+        icon: <Cpu className="h-3.5 w-3.5" />,
+        className: "border-cyan-500/20 bg-cyan-500/10 text-cyan-200",
+      },
+      failed: {
+        icon: <XCircle className="h-3.5 w-3.5" />,
+        className: "border-rose-500/20 bg-rose-500/10 text-rose-200",
+      },
+    };
+  const config = statusConfig[normalizedStatus] ?? {
+    icon: <AlertCircle className="h-3.5 w-3.5" />,
+    className: "border-slate-700 bg-slate-800 text-slate-200",
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${config.className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${config.className}`}
     >
       {config.icon}
-      {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
+      {formatJobStatus(status)}
     </span>
   );
 }
@@ -85,29 +118,23 @@ function DetailRow({
   label,
   value,
   copyValue,
-  mono = false,
 }: {
   label: string;
   value: string;
   copyValue?: string;
-  mono?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
+    <GlassCard hover={false} className="p-4">
+      <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
         {label}
       </p>
       <div className="mt-2 flex items-start gap-2">
-        <p
-          className={`break-all text-sm text-gray-900 ${mono ? "font-mono" : ""}`}
-        >
-          {value}
-        </p>
+        <p className="break-all font-mono text-sm text-slate-200">{value}</p>
         {copyValue ? (
           <CopyButton text={copyValue} stopPropagation={false} />
         ) : null}
       </div>
-    </div>
+    </GlassCard>
   );
 }
 
@@ -115,156 +142,180 @@ export default function JobDetailPage() {
   const router = useRouter();
   const jobId = typeof router.query.id === "string" ? router.query.id : "";
 
-  const { data, isLoading, isFetching, error, refetch } = useQuery({
+  const jobQuery = useQuery({
     queryKey: ["job-detail", jobId],
     enabled: Boolean(jobId),
     queryFn: () => fetchJob(jobId),
+    staleTime: 30_000,
+    refetchInterval: 120_000,
   });
+
+  const job = jobQuery.data;
+  const errorMessage =
+    jobQuery.error instanceof Error
+      ? jobQuery.error.message
+      : "The requested job could not be loaded.";
 
   return (
     <>
       <SEOHead
         title={jobId ? `Job ${jobId}` : "Job Detail"}
-        description="Inspect the live metadata and execution status for a Cruzible AI verification job."
+        description="Inspect live metadata and execution status for a Cruzible verification job."
         path={jobId ? `/jobs/${encodeURIComponent(jobId)}` : "/jobs"}
       />
 
-      <div className="min-h-screen bg-gray-50">
-        <header className="border-b border-gray-200 bg-white">
-          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-4">
-              <Link
-                href="/jobs"
-                className="text-indigo-600 hover:text-indigo-700"
-              >
-                ← Back to Jobs
-              </Link>
-              <h1 className="text-xl font-bold text-gray-900">Job Detail</h1>
-            </div>
-            <button
-              onClick={() => refetch()}
-              className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <RefreshCw
-                className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
-              />
-              Refresh
-            </button>
-          </div>
-        </header>
+      <div className="min-h-screen bg-slate-950 text-slate-100">
+        <TopNav activePage="explorer" />
 
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          {isLoading ? (
-            <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center text-gray-500">
-              Loading job details...
+        <main className="mx-auto max-w-7xl px-6 py-10">
+          <section className="mb-8 rounded-[32px] border border-slate-800 bg-[radial-gradient(circle_at_top_right,_rgba(14,165,233,0.18),_transparent_34%),radial-gradient(circle_at_bottom_left,_rgba(220,38,38,0.12),_transparent_30%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(2,6,23,0.98))] p-8 shadow-2xl">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <Link
+                  href="/jobs"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-cyan-200 hover:text-cyan-100"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to jobs
+                </Link>
+                <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-cyan-100">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Live job detail
+                </div>
+                <h1 className="mt-4 text-4xl font-bold tracking-tight text-white lg:text-5xl">
+                  Job Detail
+                </h1>
+                <p className="mt-4 break-all font-mono text-sm leading-7 text-slate-300">
+                  {jobId || "Waiting for route parameter"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => jobQuery.refetch()}
+                disabled={!jobId}
+                className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-cyan-500/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${jobQuery.isFetching ? "animate-spin" : ""}`}
+                />
+                Refresh detail
+              </button>
             </div>
-          ) : error || !data ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-8">
-              <h2 className="text-lg font-semibold text-red-900">
+          </section>
+
+          {jobQuery.isLoading ? (
+            <GlassCard className="px-6 py-14 text-center">
+              <RefreshCw className="mx-auto h-6 w-6 animate-spin text-cyan-300" />
+              <p className="mt-3 text-sm text-slate-400">
+                Loading live job detail...
+              </p>
+            </GlassCard>
+          ) : jobQuery.isError || !job ? (
+            <GlassCard className="px-6 py-14 text-center">
+              <AlertCircle className="mx-auto h-8 w-8 text-amber-300" />
+              <h2 className="mt-4 text-lg font-semibold text-white">
                 Job unavailable
               </h2>
-              <p className="mt-2 text-sm text-red-700">
-                {error instanceof Error
-                  ? error.message
-                  : "The requested job could not be loaded."}
+              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-400">
+                {errorMessage}
               </p>
-            </div>
+            </GlassCard>
           ) : (
             <div className="space-y-6">
-              <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.2em] text-gray-500">
-                      Cruzible Job
+              <GlassCard className="p-6">
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                      Cruzible job
                     </p>
-                    <h2 className="mt-2 break-all font-mono text-2xl font-bold text-gray-900">
-                      {data.id}
+                    <h2 className="mt-2 break-all font-mono text-2xl font-bold text-white">
+                      {job.id}
                     </h2>
                     <div className="mt-4 flex flex-wrap items-center gap-3">
-                      <StatusBadge status={data.status} />
-                      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-                        Priority {data.priority}
+                      <StatusBadge status={job.status} />
+                      <span className="rounded-full border border-slate-700 bg-slate-950/70 px-3 py-1 text-xs font-medium text-slate-300">
+                        Priority {job.priority}
                       </span>
-                      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-                        {data.proofType.replace("PROOF_TYPE_", "")}
+                      <span className="rounded-full border border-slate-700 bg-slate-950/70 px-3 py-1 text-xs font-medium text-slate-300">
+                        {formatProofType(job.proofType)}
                       </span>
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                    <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
                       Timeline
                     </p>
-                    <p className="mt-2 text-sm text-gray-900">
-                      Created: {formatDate(data.createdAt)}
+                    <p className="mt-2 text-sm text-slate-300">
+                      Created: {formatDate(job.createdAt)}
                     </p>
-                    <p className="mt-1 text-sm text-gray-900">
-                      Completed: {formatDate(data.completedAt)}
+                    <p className="mt-1 text-sm text-slate-300">
+                      Completed: {formatDate(job.completedAt)}
                     </p>
                   </div>
                 </div>
-              </section>
+              </GlassCard>
 
               <section className="grid gap-4 md:grid-cols-2">
                 <DetailRow
                   label="Creator"
-                  value={data.creator}
-                  copyValue={data.creator}
-                  mono
+                  value={job.creator}
+                  copyValue={job.creator}
                 />
                 <DetailRow
-                  label="Assigned Validator"
-                  value={data.validatorAddress || "Not yet assigned"}
-                  copyValue={data.validatorAddress || undefined}
-                  mono
+                  label="Assigned validator"
+                  value={job.validatorAddress || "Not yet assigned"}
+                  copyValue={job.validatorAddress || undefined}
                 />
                 <DetailRow
-                  label="Input Hash"
-                  value={data.inputHash}
-                  copyValue={data.inputHash}
-                  mono
+                  label="Input hash"
+                  value={job.inputHash}
+                  copyValue={job.inputHash}
                 />
                 <DetailRow
-                  label="Output Hash"
-                  value={data.outputHash || "Not yet available"}
-                  copyValue={data.outputHash || undefined}
-                  mono
+                  label="Output hash"
+                  value={job.outputHash || "Not yet available"}
+                  copyValue={job.outputHash || undefined}
                 />
               </section>
 
-              <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <GlassCard className="p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">
+                    <h3 className="text-lg font-semibold text-white">
                       Model linkage
                     </h3>
-                    <p className="mt-1 text-sm text-gray-600">
+                    <p className="mt-1 text-sm leading-6 text-slate-400">
                       Navigate to the registered model hash associated with this
-                      job.
+                      job. The hash below is copied directly from the live job
+                      response.
                     </p>
                   </div>
                   <Link
-                    href={`/models/${encodeURIComponent(data.modelHash)}`}
-                    className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                    href={`/models/${encodeURIComponent(job.modelHash)}`}
+                    className="inline-flex items-center justify-center rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
                   >
                     Open model detail
+                    <ExternalLink className="ml-2 h-4 w-4" />
                   </Link>
                 </div>
-                <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                  <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Model Hash
+                <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                    Model hash
                   </p>
                   <div className="mt-2 flex items-start gap-2">
-                    <p className="break-all font-mono text-sm text-gray-900">
-                      {data.modelHash}
+                    <p className="break-all font-mono text-sm text-slate-200">
+                      {job.modelHash}
                     </p>
-                    <CopyButton text={data.modelHash} stopPropagation={false} />
+                    <CopyButton text={job.modelHash} stopPropagation={false} />
                   </div>
                 </div>
-              </section>
+              </GlassCard>
             </div>
           )}
         </main>
+
+        <Footer />
       </div>
     </>
   );

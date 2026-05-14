@@ -21,6 +21,7 @@ const criticalRoutes = [
     heading: /Governance stays gated/i,
   },
   { path: "/jobs", heading: /Jobs Explorer/i },
+  { path: "/jobs/e2e-smoke-job", heading: /Job Detail/i },
 ];
 
 test.beforeEach(async ({ page }) => {
