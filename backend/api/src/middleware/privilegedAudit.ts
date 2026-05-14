@@ -46,6 +46,24 @@ interface PrivilegedAuditEntry {
   userAgent: string;
 }
 
+export interface PrivilegedAuditRecord {
+  requestId?: string;
+  method: string;
+  path: string;
+  principalType: PrivilegedPrincipalType;
+  actorAddress?: string;
+  requiredRoles?: readonly string[];
+  tokenRoles?: readonly string[];
+  currentRoles?: readonly string[];
+  decision: PrivilegedDecision;
+  reason?: string;
+  outcome: PrivilegedOutcome;
+  statusCode: number;
+  responseTimeMs?: number;
+  ip: string;
+  userAgent: string;
+}
+
 export interface PersistedPrivilegedAuditEvent {
   requestId: string;
   method: string;
@@ -278,6 +296,64 @@ export async function shutdownPrivilegedAudit(): Promise<void> {
   await auditPrisma?.$disconnect();
 }
 
+export function recordPrivilegedAuditEvent(
+  record: PrivilegedAuditRecord,
+): void {
+  const auditEntry: PrivilegedAuditEntry = {
+    type: "privileged_access_audit",
+    timestamp: new Date().toISOString(),
+    requestId: record.requestId || "unknown",
+    method: record.method,
+    path: record.path,
+    principalType: record.principalType,
+    actorAddress: record.actorAddress,
+    requiredRoles: record.requiredRoles,
+    tokenRoles: record.tokenRoles,
+    currentRoles: record.currentRoles,
+    decision: record.decision,
+    reason: record.reason,
+    outcome: record.outcome,
+    statusCode: record.statusCode,
+    responseTimeMs: record.responseTimeMs ?? 0,
+    ip: record.ip,
+    userAgent: record.userAgent,
+  };
+
+  if (record.decision === "rejected" || record.statusCode >= 400) {
+    logger.warn("Privileged access audit", auditEntry);
+  } else {
+    logger.info("Privileged access audit", auditEntry);
+  }
+
+  if (record.decision === "rejected") {
+    trackPrivilegedAuditTask(
+      emitPrivilegedAccessAlert(auditEntry).catch((error: unknown) => {
+        logger.error("Failed to emit privileged access alert", {
+          requestId: auditEntry.requestId,
+          ...errorContext(error),
+        });
+      }),
+    );
+  }
+
+  trackPrivilegedAuditTask(
+    persistPrivilegedAuditEvent(auditEntry).catch((error: unknown) => {
+      logger.error("Failed to persist privileged access audit", {
+        requestId: auditEntry.requestId,
+        ...errorContext(error),
+      });
+      return emitPrivilegedAuditPersistenceAlert(auditEntry, error).catch(
+        (alertError: unknown) => {
+          logger.error("Failed to emit privileged audit persistence alert", {
+            requestId: auditEntry.requestId,
+            ...errorContext(alertError),
+          });
+        },
+      );
+    }),
+  );
+}
+
 export function auditPrivilegedAccess(
   req: Request,
   res: Response,
@@ -295,9 +371,7 @@ export function auditPrivilegedAccess(
     const elapsedNs = process.hrtime.bigint() - startTime;
     const elapsedMs = Number(elapsedNs) / 1_000_000;
     const statusCode = res.statusCode || 0;
-    const auditEntry: PrivilegedAuditEntry = {
-      type: "privileged_access_audit",
-      timestamp: new Date().toISOString(),
+    recordPrivilegedAuditEvent({
       requestId: req.requestId || "unknown",
       method: req.method,
       path: getAuditPath(req),
@@ -313,41 +387,7 @@ export function auditPrivilegedAccess(
       responseTimeMs: Math.round(elapsedMs * 100) / 100,
       ip: getClientIp(req),
       userAgent: req.get("user-agent") || "unknown",
-    };
-
-    if (context.decision === "rejected" || statusCode >= 400) {
-      logger.warn("Privileged access audit", auditEntry);
-    } else {
-      logger.info("Privileged access audit", auditEntry);
-    }
-
-    if (context.decision === "rejected") {
-      trackPrivilegedAuditTask(
-        emitPrivilegedAccessAlert(auditEntry).catch((error: unknown) => {
-          logger.error("Failed to emit privileged access alert", {
-            requestId: auditEntry.requestId,
-            ...errorContext(error),
-          });
-        }),
-      );
-    }
-
-    trackPrivilegedAuditTask(
-      persistPrivilegedAuditEvent(auditEntry).catch((error: unknown) => {
-        logger.error("Failed to persist privileged access audit", {
-          requestId: auditEntry.requestId,
-          ...errorContext(error),
-        });
-        return emitPrivilegedAuditPersistenceAlert(auditEntry, error).catch(
-          (alertError: unknown) => {
-            logger.error("Failed to emit privileged audit persistence alert", {
-              requestId: auditEntry.requestId,
-              ...errorContext(alertError),
-            });
-          },
-        );
-      }),
-    );
+    });
   };
 
   res.once("finish", emitAudit);

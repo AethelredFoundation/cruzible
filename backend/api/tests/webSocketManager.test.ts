@@ -70,6 +70,22 @@ describe("WebSocketManager", () => {
     );
 
     expect(rejection?.message).toBe("WebSocket authentication required");
+
+    const { flushPendingPrivilegedAuditTasks, getMemoryPrivilegedAuditEvents } =
+      await import("../src/middleware/privilegedAudit");
+    await flushPendingPrivilegedAuditTasks();
+
+    expect(getMemoryPrivilegedAuditEvents()).toContainEqual(
+      expect.objectContaining({
+        method: "WEBSOCKET",
+        path: "/socket.io",
+        principalType: "wallet",
+        decision: "rejected",
+        reason: "WebSocket authentication required",
+        outcome: "rejected",
+        statusCode: 401,
+      }),
+    );
   });
 
   it("rejects production sockets without an origin", async () => {
@@ -130,6 +146,36 @@ describe("WebSocketManager", () => {
       iat: 1_777_928_000,
       roles: ["user"],
     });
+
+    const { flushPendingPrivilegedAuditTasks, getMemoryPrivilegedAuditEvents } =
+      await import("../src/middleware/privilegedAudit");
+    await flushPendingPrivilegedAuditTasks();
+    const events = getMemoryPrivilegedAuditEvents();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        method: "WEBSOCKET",
+        path: "/socket.io",
+        principalType: "wallet",
+        actorAddress: "aeth1user",
+        tokenRoles: ["user"],
+        currentRoles: ["user"],
+        decision: "allowed",
+        outcome: "succeeded",
+        statusCode: 101,
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        method: "WEBSOCKET",
+        path: "/socket.io",
+        principalType: "operational-token",
+        actorAddress: null,
+        decision: "allowed",
+        outcome: "succeeded",
+        statusCode: 101,
+      }),
+    );
   });
 
   it("rejects revoked production access tokens", async () => {

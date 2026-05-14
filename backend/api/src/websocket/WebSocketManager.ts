@@ -2,12 +2,21 @@ import { timingSafeEqual } from "crypto";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 import { isAccessTokenRevoked, verifyAccessToken } from "../auth/service";
 import { config } from "../config";
+import { recordPrivilegedAuditEvent } from "../middleware/privilegedAudit";
 import { logger } from "../utils/logger";
 
 const MAX_PRODUCTION_CONNECTIONS_PER_IP = 10;
+const WS_HANDSHAKE_PATH = "/socket.io";
 const WS_AUTH_ERROR = "WebSocket authentication required";
 const WS_ORIGIN_ERROR = "WebSocket origin is not allowed";
 const WS_THROTTLE_ERROR = "WebSocket connection limit exceeded";
+
+interface WebSocketAuditContext {
+  principalType: "wallet" | "operational-token";
+  actorAddress?: string;
+  tokenRoles?: readonly string[];
+  currentRoles?: readonly string[];
+}
 
 export class WebSocketManager {
   private readonly activeConnectionsByIp = new Map<string, number>();
@@ -17,8 +26,16 @@ export class WebSocketManager {
   initialize(): void {
     this.io.use((socket, next) => {
       void this.authorizeSocket(socket)
-        .then(() => {
+        .then((auditContext) => {
           this.trackSocketConnection(socket);
+          if (auditContext) {
+            recordWebSocketAudit(socket, {
+              ...auditContext,
+              decision: "allowed",
+              outcome: "succeeded",
+              statusCode: 101,
+            });
+          }
           next();
         })
         .catch((error: unknown) => {
@@ -29,6 +46,7 @@ export class WebSocketManager {
             origin: readOrigin(socket),
             ip: readClientIp(socket),
           });
+          recordRejectedWebSocketAudit(socket, rejection.message);
           next(rejection);
         });
     });
@@ -38,9 +56,11 @@ export class WebSocketManager {
     });
   }
 
-  private async authorizeSocket(socket: Socket): Promise<void> {
+  private async authorizeSocket(
+    socket: Socket,
+  ): Promise<WebSocketAuditContext | undefined> {
     if (!config.isProduction) {
-      return;
+      return undefined;
     }
 
     const origin = readOrigin(socket);
@@ -54,7 +74,7 @@ export class WebSocketManager {
     }
 
     if (isOperationalToken(token)) {
-      return;
+      return { principalType: "operational-token" };
     }
 
     try {
@@ -62,6 +82,12 @@ export class WebSocketManager {
       if (await isAccessTokenRevoked(payload)) {
         throw new Error(WS_AUTH_ERROR);
       }
+      return {
+        principalType: "wallet",
+        actorAddress: payload.address,
+        tokenRoles: payload.roles,
+        currentRoles: payload.roles,
+      };
     } catch {
       throw new Error(WS_AUTH_ERROR);
     }
@@ -90,6 +116,46 @@ export class WebSocketManager {
   }
 }
 
+function recordRejectedWebSocketAudit(socket: Socket, reason: string): void {
+  if (!config.isProduction) {
+    return;
+  }
+
+  recordWebSocketAudit(socket, {
+    principalType: inferPrincipalType(socket),
+    decision: "rejected",
+    reason,
+    outcome: "rejected",
+    statusCode: reason === WS_THROTTLE_ERROR ? 429 : 401,
+  });
+}
+
+function recordWebSocketAudit(
+  socket: Socket,
+  audit: WebSocketAuditContext & {
+    decision: "allowed" | "rejected";
+    reason?: string;
+    outcome: "succeeded" | "rejected";
+    statusCode: number;
+  },
+): void {
+  recordPrivilegedAuditEvent({
+    requestId: readRequestId(socket),
+    method: "WEBSOCKET",
+    path: WS_HANDSHAKE_PATH,
+    principalType: audit.principalType,
+    actorAddress: audit.actorAddress,
+    tokenRoles: audit.tokenRoles,
+    currentRoles: audit.currentRoles,
+    decision: audit.decision,
+    reason: audit.reason,
+    outcome: audit.outcome,
+    statusCode: audit.statusCode,
+    ip: readClientIp(socket),
+    userAgent: readUserAgent(socket),
+  });
+}
+
 function readHandshakeToken(socket: Socket): string | undefined {
   const authToken = socket.handshake.auth?.token;
   if (typeof authToken === "string" && authToken.trim()) {
@@ -112,6 +178,20 @@ function readHandshakeToken(socket: Socket): string | undefined {
   }
 
   return token;
+}
+
+function inferPrincipalType(socket: Socket): "wallet" | "operational-token" {
+  const explicitToken = socket.handshake.headers["x-operational-token"];
+  if (typeof explicitToken === "string" && explicitToken.trim()) {
+    return "operational-token";
+  }
+
+  const authToken = socket.handshake.auth?.token;
+  if (typeof authToken === "string" && isOperationalToken(authToken.trim())) {
+    return "operational-token";
+  }
+
+  return "wallet";
 }
 
 function isOperationalToken(token: string): boolean {
@@ -138,4 +218,18 @@ function readOrigin(socket: Socket): string | undefined {
 
 function readClientIp(socket: Socket): string {
   return socket.handshake.address || socket.conn.remoteAddress || "unknown";
+}
+
+function readRequestId(socket: Socket): string {
+  const requestId = socket.handshake.headers["x-request-id"];
+  return typeof requestId === "string" && requestId.trim()
+    ? requestId.trim()
+    : "unknown";
+}
+
+function readUserAgent(socket: Socket): string {
+  const userAgent = socket.handshake.headers["user-agent"];
+  return typeof userAgent === "string" && userAgent.trim()
+    ? userAgent.trim()
+    : "unknown";
 }
