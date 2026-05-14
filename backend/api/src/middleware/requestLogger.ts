@@ -5,9 +5,10 @@
  * - Method, path, status code, response time
  * - Request ID correlation
  * - Sensitive data redaction (auth tokens, passwords)
- * - User agent and IP for security auditing
+ * - Hashed user agent and IP for privacy-preserving security auditing
  */
 
+import { createHash } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { logger } from "../utils/logger";
 import { redactFields, redactHeaders, redactUrlPath } from "../utils/redaction";
@@ -22,6 +23,10 @@ import { redactFields, redactHeaders, redactUrlPath } from "../utils/redaction";
  */
 function getClientIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+function hashLogValue(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -55,8 +60,8 @@ export function requestLogger(
       statusCode: res.statusCode,
       responseTimeMs: Math.round(elapsedMs * 100) / 100,
       contentLength: res.getHeader("content-length") || 0,
-      ip: getClientIp(req),
-      userAgent: req.get("user-agent") || "unknown",
+      ipHash: hashLogValue(getClientIp(req)),
+      userAgentHash: hashLogValue(req.get("user-agent") || "unknown"),
       referer: req.get("referer")
         ? redactUrlPath(req.get("referer"))
         : undefined,
@@ -95,8 +100,8 @@ export function verboseRequestLogger(
     ),
     query: redactFields(req.query),
     body: redactFields(req.body),
-    ip: getClientIp(req),
-    userAgent: req.get("user-agent") || "unknown",
+    ipHash: hashLogValue(getClientIp(req)),
+    userAgentHash: hashLogValue(req.get("user-agent") || "unknown"),
   });
 
   next();

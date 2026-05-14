@@ -33,6 +33,9 @@ describe("request logger redaction", () => {
     await withHttpServer(app, async (baseUrl) => {
       const response = await fetch(
         `${baseUrl}/callback?access_token=token-123&address=aeth1user&signature=sig-123`,
+        {
+          headers: { "User-Agent": "RequestLoggerTest/1.0" },
+        },
       );
 
       expect(response.status).toBe(200);
@@ -40,8 +43,16 @@ describe("request logger redaction", () => {
         "HTTP request completed",
         expect.objectContaining({
           path: "/callback?access_token=[REDACTED]&address=aeth1user&signature=[REDACTED]",
+          ipHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          userAgentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         }),
       );
+      const logContext = vi.mocked(logger.info).mock.calls[0]?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      expect(logContext).not.toHaveProperty("ip");
+      expect(logContext).not.toHaveProperty("userAgent");
+      expect(JSON.stringify(logContext)).not.toContain("RequestLoggerTest/1.0");
     });
   });
 
@@ -85,7 +96,9 @@ describe("request logger redaction", () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "User-Agent": "VerboseRequestLoggerTest/1.0",
             "X-Operational-Token": "ops-token-123",
+            "X-Forwarded-For": "10.0.0.5",
           },
           body: JSON.stringify({
             message: "Aethelred Cruzible API login\nNonce: nonce-123",
@@ -116,9 +129,21 @@ describe("request logger redaction", () => {
             signature: "[REDACTED]",
           }),
           headers: expect.objectContaining({
+            "user-agent": "[REDACTED]",
+            "x-forwarded-for": "[REDACTED]",
             "x-operational-token": "[REDACTED]",
           }),
+          ipHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          userAgentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         }),
+      );
+      const logContext = vi.mocked(logger.info).mock.calls[0]?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      expect(logContext).not.toHaveProperty("ip");
+      expect(logContext).not.toHaveProperty("userAgent");
+      expect(JSON.stringify(logContext)).not.toContain(
+        "VerboseRequestLoggerTest/1.0",
       );
     });
   });

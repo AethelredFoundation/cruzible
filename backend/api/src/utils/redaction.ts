@@ -22,13 +22,19 @@ const DEFAULT_MAX_ARRAY_LENGTH = 100;
 
 const SENSITIVE_HEADERS = new Set([
   "authorization",
+  "cf-connecting-ip",
   "cookie",
+  "forwarded",
   "set-cookie",
+  "true-client-ip",
+  "user-agent",
   "x-api-key",
   "x-auth-token",
   "proxy-authorization",
   "x-csrf-token",
+  "x-forwarded-for",
   "x-operational-token",
+  "x-real-ip",
   "x-xsrf-token",
 ]);
 

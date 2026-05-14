@@ -15,12 +15,14 @@ describe("redaction utilities", () => {
         authorization: "Bearer token-123",
         "x-api-key": "api-key-123",
         "user-agent": "vitest",
+        "x-forwarded-for": "10.0.0.5",
         "x-operational-token": "ops-token-123",
       }),
     ).toEqual({
       authorization: REDACTED,
       "x-api-key": REDACTED,
-      "user-agent": "vitest",
+      "user-agent": REDACTED,
+      "x-forwarded-for": REDACTED,
       "x-operational-token": REDACTED,
     });
 
