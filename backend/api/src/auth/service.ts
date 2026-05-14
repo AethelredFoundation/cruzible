@@ -16,6 +16,7 @@ import { PrismaClient } from "@prisma/client";
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import { errorContext } from "../utils/errorContext";
 
 const ACCESS_TOKEN_AUDIENCE = "aethelred-client";
 const TOKEN_ISSUER = "aethelred-api";
@@ -340,7 +341,7 @@ export async function refreshAccessToken(
 
     return tokens;
   } catch (error) {
-    logger.warn("Token refresh rejected", { error });
+    logger.warn("Token refresh rejected", errorContext(error));
     const invalidRefreshTokenError = new Error(
       "Invalid refresh token",
     ) as Error & {
@@ -470,7 +471,10 @@ export async function cleanupExpiredAuthArtifacts(): Promise<void> {
   nextAuthDbCleanupAt = now.getTime() + AUTH_DB_CLEANUP_INTERVAL_MS;
   authDbCleanupPromise = cleanupExpiredDbAuthArtifacts(prisma, now)
     .catch((error) => {
-      logger.warn("Expired auth artifact cleanup failed", { error });
+      logger.warn(
+        "Expired auth artifact cleanup failed",
+        errorContext(error),
+      );
     })
     .finally(() => {
       authDbCleanupPromise = null;
@@ -1146,7 +1150,7 @@ export async function verifySignature(
     logger.info("Signature verified successfully", { address });
     return true;
   } catch (error) {
-    logger.error("Signature verification threw", { error });
+    logger.error("Signature verification threw", errorContext(error));
     return false;
   }
 }

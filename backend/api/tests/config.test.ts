@@ -191,6 +191,50 @@ describe("backend config hardening", () => {
     );
   });
 
+  it("rejects zero or sub-minute token lifetimes", async () => {
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        JWT_EXPIRES_IN: "0m",
+      }),
+    ).rejects.toThrow(/JWT_EXPIRES_IN/);
+
+    await expect(
+      loadConfigWithEnv({
+        NODE_ENV: "development",
+        JWT_REFRESH_EXPIRES_IN: "15m",
+      }),
+    ).rejects.toThrow(/JWT_REFRESH_EXPIRES_IN/);
+  });
+
+  it("rejects overly long auth nonce lifetimes in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        AUTH_NONCE_TTL_MS: "600001",
+      }),
+    ).rejects.toThrow("AUTH_NONCE_TTL_MS must be 10m or shorter in production");
+  });
+
+  it("rejects control characters in high-value secrets", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        JWT_SECRET: "production-jwt-secret-012345678901\n",
+      }),
+    ).rejects.toThrow("JWT_SECRET must not contain control characters");
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        OPERATIONAL_ENDPOINTS_TOKEN:
+          "production-ops-token-012345678901\t",
+      }),
+    ).rejects.toThrow(
+      "OPERATIONAL_ENDPOINTS_TOKEN must not contain control characters",
+    );
+  });
+
   it("rejects wildcard CORS in production", async () => {
     await expect(
       loadConfigWithEnv({

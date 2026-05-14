@@ -11,8 +11,11 @@ const AUTH_ROLE_ADDRESS_PATTERN = /^aeth1[0-9a-z]{5,}$/;
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
 const MAX_PRODUCTION_ACCESS_TOKEN_MS = 15 * 60 * 1000;
 const MAX_PRODUCTION_REFRESH_TOKEN_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_PRODUCTION_NONCE_TTL_MS = 10 * 60 * 1000;
 const DECIMAL_INTEGER_ENV_PATTERN = /^(0|[1-9]\d*)$/;
 const DECIMAL_NUMBER_ENV_PATTERN = /^(0|[1-9]\d*)(\.\d+)?$/;
+const TOKEN_DURATION_PATTERN = /^([1-9]\d*)([mhd])$/;
+const REFRESH_TOKEN_DURATION_PATTERN = /^([1-9]\d*)([hd])$/;
 const FILE_BACKED_ENV_KEYS = [
   "DATABASE_URL",
   "REDIS_URL",
@@ -138,11 +141,11 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(16).default("cruzible-dev-refresh-secret"),
   JWT_EXPIRES_IN: z
     .string()
-    .regex(/^\d+[mhd]$/)
+    .regex(TOKEN_DURATION_PATTERN)
     .default("15m"),
   JWT_REFRESH_EXPIRES_IN: z
     .string()
-    .regex(/^\d+[hd]$/)
+    .regex(REFRESH_TOKEN_DURATION_PATTERN)
     .default("7d"),
   AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY: optionalBooleanSchema,
   TRUST_PROXY: z.string().default("loopback"),
@@ -331,6 +334,13 @@ const apiDocsEnabled = parsedEnv.API_DOCS_ENABLED ?? !isProduction;
 const authExposeRefreshTokenInBody =
   parsedEnv.AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY ?? !isProduction;
 
+requireNoControlCharacters(parsedEnv.JWT_SECRET, "JWT_SECRET");
+requireNoControlCharacters(parsedEnv.JWT_REFRESH_SECRET, "JWT_REFRESH_SECRET");
+requireNoControlCharacters(
+  parsedEnv.OPERATIONAL_ENDPOINTS_TOKEN,
+  "OPERATIONAL_ENDPOINTS_TOKEN",
+);
+
 function formatUrlProtocols(protocols: readonly string[]): string {
   return protocols.map((protocol) => `${protocol}//`).join(" or ");
 }
@@ -364,6 +374,21 @@ function requireProductionSecretLength(value: string, envName: string): void {
   }
 }
 
+function requireNoControlCharacters(
+  value: string | undefined,
+  envName: string,
+): void {
+  if (
+    value &&
+    [...value].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x1f || codePoint === 0x7f;
+    })
+  ) {
+    throw new Error(`${envName} must not contain control characters`);
+  }
+}
+
 function requireDistinctSecrets(
   firstValue: string | undefined,
   firstName: string,
@@ -376,7 +401,7 @@ function requireDistinctSecrets(
 }
 
 function parseDurationMs(value: string): number {
-  const match = value.match(/^(\d+)([mhd])$/);
+  const match = value.match(TOKEN_DURATION_PATTERN);
   if (!match) {
     throw new Error(`Invalid duration "${value}"`);
   }
@@ -398,6 +423,17 @@ function requireMaxProductionDuration(
   maxLabel: string,
 ): void {
   if (parseDurationMs(value) > maxMs) {
+    throw new Error(`${envName} must be ${maxLabel} or shorter in production`);
+  }
+}
+
+function requireMaxProductionMilliseconds(
+  value: number,
+  envName: string,
+  maxMs: number,
+  maxLabel: string,
+): void {
+  if (value > maxMs) {
     throw new Error(`${envName} must be ${maxLabel} or shorter in production`);
   }
 }
@@ -600,6 +636,12 @@ if (isProduction) {
     "JWT_REFRESH_EXPIRES_IN",
     MAX_PRODUCTION_REFRESH_TOKEN_MS,
     "30d",
+  );
+  requireMaxProductionMilliseconds(
+    parsedEnv.AUTH_NONCE_TTL_MS,
+    "AUTH_NONCE_TTL_MS",
+    MAX_PRODUCTION_NONCE_TTL_MS,
+    "10m",
   );
 
   if (parsedEnv.ALLOW_MOCK_SIGNATURES) {

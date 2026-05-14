@@ -12,6 +12,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { Block, Transaction, Validator, NetworkStats, PaginatedResponse } from '../types';
 import { bytesToHex, computeEligibleUniverseHash } from '../lib/protocolSdk';
+import { errorContext } from '../utils/errorContext';
 
 type ExtendedQueryClient = QueryClient & {
   staking: {
@@ -70,7 +71,10 @@ export class BlockchainService {
 
       logger.info('Blockchain service initialized');
     } catch (error) {
-      logger.error('Failed to initialize blockchain service:', error);
+      logger.error(
+        'Failed to initialize blockchain service',
+        errorContext(error),
+      );
       throw error;
     }
   }

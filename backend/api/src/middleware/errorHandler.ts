@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { ApiError } from "../utils/ApiError";
 import { logger } from "../utils/logger";
 import { config } from "../config";
+import { errorContext } from "../utils/errorContext";
 
 type BodyParserError = Error & {
   status?: number;
@@ -97,7 +98,10 @@ export function errorHandler(
   }
 
   // Server-side only — never sent to client
-  logger.error("Unhandled API error", { requestId: req.requestId, error });
+  logger.error("Unhandled API error", {
+    requestId: req.requestId,
+    ...errorContext(error),
+  });
 
   res.status(500).json({
     error: "InternalServerError",

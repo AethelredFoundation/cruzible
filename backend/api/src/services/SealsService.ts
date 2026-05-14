@@ -12,6 +12,7 @@ import {
   SealStatus,
 } from '@prisma/client';
 import { logger } from '../utils/logger';
+import { errorContext } from '../utils/errorContext';
 
 export interface SealListItem {
   id: string;
@@ -133,7 +134,10 @@ export class SealsService {
         total,
       };
     } catch (error) {
-      logger.error('Failed to fetch seals', { error, options });
+      logger.error('Failed to fetch seals', {
+        options,
+        ...errorContext(error),
+      });
       throw error;
     }
   }
@@ -263,7 +267,10 @@ export class SealsService {
         },
       };
     } catch (error) {
-      logger.error('Failed to fetch seal detail', { error, id });
+      logger.error('Failed to fetch seal detail', {
+        id,
+        ...errorContext(error),
+      });
       throw error;
     }
   }

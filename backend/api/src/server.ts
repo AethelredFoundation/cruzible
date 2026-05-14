@@ -452,7 +452,10 @@ export class ApiGateway {
         // may not be registered
       }
     } catch (error) {
-      logger.error("Error during service disconnection:", error);
+      logger.error(
+        "Error during service disconnection",
+        errorContext(error),
+      );
     }
 
     logger.info("Shutdown complete");
@@ -496,7 +499,7 @@ export class ApiGateway {
           logger.info("WebSocket server closed");
         });
       } catch (err) {
-        logger.error("Error closing WebSocket server:", err);
+        logger.error("Error closing WebSocket server", errorContext(err));
       }
 
       // -------------------------------------------------------------------
@@ -555,7 +558,10 @@ export class ApiGateway {
 
         logger.info("All services disconnected");
       } catch (error) {
-        logger.error("Error during service disconnection:", error);
+        logger.error(
+          "Error during service disconnection",
+          errorContext(error),
+        );
       }
 
       // -------------------------------------------------------------------

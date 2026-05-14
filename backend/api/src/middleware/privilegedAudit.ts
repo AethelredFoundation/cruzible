@@ -5,6 +5,7 @@ import type { Request, Response } from 'express';
 import { container } from 'tsyringe';
 import { config } from '../config';
 import { AlertService, AlertSeverity, AlertType } from '../services/AlertService';
+import { errorContext } from '../utils/errorContext';
 import { logger } from '../utils/logger';
 
 type PrivilegedPrincipalType = 'wallet' | 'operational-token';
@@ -259,22 +260,22 @@ export function auditPrivilegedAccess(
     if (context.decision === 'rejected') {
       void emitPrivilegedAccessAlert(auditEntry).catch((error: unknown) => {
         logger.error('Failed to emit privileged access alert', {
-          error,
           requestId: auditEntry.requestId,
+          ...errorContext(error),
         });
       });
     }
 
     void persistPrivilegedAuditEvent(auditEntry).catch((error: unknown) => {
       logger.error('Failed to persist privileged access audit', {
-        error,
         requestId: auditEntry.requestId,
+        ...errorContext(error),
       });
       void emitPrivilegedAuditPersistenceAlert(auditEntry, error).catch(
         (alertError: unknown) => {
           logger.error('Failed to emit privileged audit persistence alert', {
-            error: alertError,
             requestId: auditEntry.requestId,
+            ...errorContext(alertError),
           });
         },
       );

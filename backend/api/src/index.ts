@@ -7,6 +7,7 @@
  */
 
 import { createAppServer } from './server';
+import { errorContext } from './utils/errorContext';
 import { logger } from './utils/logger';
 
 async function main(): Promise<void> {
@@ -14,7 +15,7 @@ async function main(): Promise<void> {
     const api = createAppServer();
     await api.start();
   } catch (error) {
-    logger.error('Failed to start server:', error);
+    logger.error('Failed to start server', errorContext(error));
     process.exit(1);
   }
 }

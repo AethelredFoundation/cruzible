@@ -19,6 +19,7 @@ import { logger } from "../utils/logger";
 import { config } from "../config";
 import { assertPublicHostnameResolution } from "../utils/networkSafety";
 import { redactRecord } from "../utils/redaction";
+import { errorContext } from "../utils/errorContext";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -377,8 +378,8 @@ export class AlertService {
       });
     } catch (error) {
       logger.error("Failed to persist alert event", {
-        error,
         alertId: alert.id,
+        ...errorContext(error),
       });
     }
   }

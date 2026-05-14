@@ -272,7 +272,10 @@ export class ReconciliationScheduler {
           }
         }
       } catch (error) {
-        logger.error('ReconciliationScheduler tick failed', { error });
+        logger.error(
+          'ReconciliationScheduler tick failed',
+          errorContext(error),
+        );
         checks.push({
           name: 'tick_execution',
           status: 'CRITICAL',
@@ -704,7 +707,10 @@ export class ReconciliationScheduler {
       checks.push(this.checkDailyUsage(configs));
 
     } catch (error) {
-      logger.error('Stablecoin reconciliation checks failed', { error });
+      logger.error(
+        'Stablecoin reconciliation checks failed',
+        errorContext(error),
+      );
       checks.push({
         name: 'stablecoin_bridge',
         status: 'WARNING',

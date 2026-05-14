@@ -12,6 +12,7 @@ import {
   PrismaClient,
 } from '@prisma/client';
 import { logger } from '../utils/logger';
+import { errorContext } from '../utils/errorContext';
 
 export interface ModelListItem {
   modelHash: string;
@@ -133,7 +134,10 @@ export class ModelsService {
         total,
       };
     } catch (error) {
-      logger.error('Failed to fetch models', { error, options });
+      logger.error('Failed to fetch models', {
+        options,
+        ...errorContext(error),
+      });
       throw error;
     }
   }
@@ -262,7 +266,10 @@ export class ModelsService {
         },
       };
     } catch (error) {
-      logger.error('Failed to fetch model detail', { error, modelHash });
+      logger.error('Failed to fetch model detail', {
+        modelHash,
+        ...errorContext(error),
+      });
       throw error;
     }
   }

@@ -457,7 +457,10 @@ export class IndexerService {
       // Subscribe to new blocks
       this.wsProvider.on('block', (blockNumber: number) => {
         this.onNewBlock(blockNumber).catch((err) => {
-          logger.error('Error processing new block from WebSocket:', err);
+          logger.error(
+            'Error processing new block from WebSocket',
+            errorContext(err),
+          );
         });
       });
 
@@ -480,7 +483,7 @@ export class IndexerService {
         });
       }
     } catch (error) {
-      logger.error('Failed to connect WebSocket:', error);
+      logger.error('Failed to connect WebSocket', errorContext(error));
       this._wsConnected = false;
     }
   }
@@ -2004,13 +2007,18 @@ export class IndexerService {
       } catch (error: any) {
         // Prisma unique constraint violation — treat as success (idempotent)
         if (error?.code === 'P2002') {
-          logger.warn('Duplicate key encountered (idempotent skip):', error.meta);
+          logger.warn('Duplicate key encountered (idempotent skip)', {
+            meta: error.meta,
+          });
           return undefined as unknown as T;
         }
 
         attempt++;
         if (attempt >= MAX_RETRIES) {
-          logger.error(`Max retries (${MAX_RETRIES}) exceeded`, error);
+          logger.error(
+            `Max retries (${MAX_RETRIES}) exceeded`,
+            errorContext(error),
+          );
           throw error;
         }
 
@@ -2018,10 +2026,10 @@ export class IndexerService {
           BASE_RETRY_DELAY_MS * 2 ** attempt + Math.random() * 200,
           MAX_RETRY_DELAY_MS,
         );
-        logger.warn(
-          `Retry ${attempt}/${MAX_RETRIES} after ${Math.round(delay)}ms: ` +
-          `${error?.message ?? error}`,
-        );
+        logger.warn(`Retry ${attempt}/${MAX_RETRIES} scheduled`, {
+          delayMs: Math.round(delay),
+          ...errorContext(error),
+        });
 
         await this.sleep(delay);
       }

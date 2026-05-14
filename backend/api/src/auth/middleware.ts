@@ -132,7 +132,7 @@ export async function authenticate(
       return;
     }
 
-    logger.error('Authentication error', { error });
+    logger.error('Authentication error', errorContext(error));
     writeAuthFailureResponse(req, res, {
       statusCode: 500,
       error: 'Internal Server Error',
@@ -279,7 +279,10 @@ export function requireRoles(...allowedRoles: string[]) {
 
       next();
     } catch (error) {
-      logger.error('Authorization freshness check failed', { error });
+      logger.error(
+        'Authorization freshness check failed',
+        errorContext(error),
+      );
       writeAuthFailureResponse(req, res, {
         statusCode: 500,
         error: 'Internal Server Error',

@@ -33,4 +33,8 @@ describe("gitignore secret hardening", () => {
     expect(gitignore).toContain("build/");
     expect(gitignore).toContain("*.egg-info/");
   });
+
+  it("keeps backend API build output out of version control", () => {
+    expect(gitignore).toContain("backend/api/dist/");
+  });
 });

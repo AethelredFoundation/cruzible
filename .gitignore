@@ -28,6 +28,7 @@ yarn-error.log*
 .pytest_cache/
 __pycache__/
 *.py[cod]
+backend/api/dist/
 build/
 *.egg-info/
 

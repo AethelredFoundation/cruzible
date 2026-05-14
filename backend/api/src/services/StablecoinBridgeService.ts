@@ -11,6 +11,7 @@
 import { injectable, inject } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
+import { errorContext } from '../utils/errorContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,7 +102,7 @@ export class StablecoinBridgeService {
         blockNumber: c.blockNumber.toString(),
       }));
     } catch (error) {
-      logger.error('Failed to fetch stablecoin configs', { error });
+      logger.error('Failed to fetch stablecoin configs', errorContext(error));
       throw error;
     }
   }
@@ -132,7 +133,10 @@ export class StablecoinBridgeService {
         blockNumber: config.blockNumber.toString(),
       };
     } catch (error) {
-      logger.error('Failed to fetch stablecoin config', { assetId, error });
+      logger.error('Failed to fetch stablecoin config', {
+        assetId,
+        ...errorContext(error),
+      });
       throw error;
     }
   }
@@ -183,7 +187,10 @@ export class StablecoinBridgeService {
         pagination: { total, limit, offset },
       };
     } catch (error) {
-      logger.error('Failed to fetch bridge history', { assetId, error });
+      logger.error('Failed to fetch bridge history', {
+        assetId,
+        ...errorContext(error),
+      });
       throw error;
     }
   }
@@ -222,7 +229,10 @@ export class StablecoinBridgeService {
         active: config.active,
       };
     } catch (error) {
-      logger.error('Failed to fetch stablecoin status', { assetId, error });
+      logger.error('Failed to fetch stablecoin status', {
+        assetId,
+        ...errorContext(error),
+      });
       throw error;
     }
   }

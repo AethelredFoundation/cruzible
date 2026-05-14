@@ -32,13 +32,19 @@ async function shutdown(
   try {
     await indexerService.shutdown();
   } catch (error) {
-    logger.error('Error while shutting down indexer service:', error);
+    logger.error(
+      'Error while shutting down indexer service',
+      errorContext(error),
+    );
   }
 
   try {
     await blockchainService.disconnect();
   } catch (error) {
-    logger.error('Error while disconnecting blockchain service:', error);
+    logger.error(
+      'Error while disconnecting blockchain service',
+      errorContext(error),
+    );
   }
 
   logger.info('Indexer worker shutdown complete');
@@ -79,6 +85,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  logger.error('Failed to start indexer worker:', error);
+  logger.error('Failed to start indexer worker', errorContext(error));
   process.exit(1);
 });
