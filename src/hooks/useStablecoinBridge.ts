@@ -293,6 +293,23 @@ export function useBridgeOut() {
           return undefined;
         }
 
+        const liveBalance = (await readContract(config, {
+          address: tokenAddr,
+          abi: ERC20ABI,
+          functionName: "balanceOf",
+          args: [address],
+          chainId: activeChain.id,
+        })) as bigint;
+
+        if (amount > liveBalance) {
+          addNotification(
+            "error",
+            "Insufficient Balance",
+            `Your live ${symbol} balance is below this bridge amount. Refresh balances and try again.`,
+          );
+          return undefined;
+        }
+
         const allowance = (await readContract(config, {
           address: tokenAddr,
           abi: ERC20ABI,
