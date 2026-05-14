@@ -95,6 +95,7 @@ function BridgeTab() {
 
   const asset = STABLECOIN_ASSETS[selectedSymbol];
   const balance = wallet.stablecoinBalances[selectedSymbol] ?? 0;
+  const balanceUnits = wallet.stablecoinBalanceUnits[selectedSymbol] ?? 0n;
   const config = useStablecoinConfig(selectedSymbol);
   const { allowance, isLoading: allowanceLoading } =
     useStablecoinAllowance(selectedSymbol);
@@ -114,11 +115,16 @@ function BridgeTab() {
     parsedAmount > 0n && needsTokenApproval(allowance, parsedAmount);
 
   const handleMaxClick = useCallback(() => {
-    setAmount(balance.toString());
-  }, [balance]);
+    if (!asset) {
+      setAmount("0");
+      return;
+    }
+
+    setAmount(formatUnits(balanceUnits, asset.decimals));
+  }, [asset, balanceUnits]);
 
   const handleBridge = useCallback(async () => {
-    if (!amount || parseFloat(amount) <= 0) return;
+    if (parsedAmount <= 0n) return;
     const txHash = await bridgeOut(
       selectedSymbol,
       amount,
@@ -130,7 +136,7 @@ function BridgeTab() {
     if (txHash) {
       setAmount("");
     }
-  }, [selectedSymbol, amount, destDomain, bridgeOut, config]);
+  }, [selectedSymbol, amount, parsedAmount, destDomain, bridgeOut, config]);
 
   // Disable submission until the live on-chain bridge config has loaded.
   const onChainLoading = config.isLoading;
@@ -142,8 +148,8 @@ function BridgeTab() {
     !wallet.connected ||
     wallet.isWrongNetwork ||
     !amount ||
-    parseFloat(amount) <= 0 ||
-    parseFloat(amount) > balance ||
+    parsedAmount <= 0n ||
+    parsedAmount > balanceUnits ||
     onChainBlocked;
 
   return (

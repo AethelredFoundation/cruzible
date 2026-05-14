@@ -88,7 +88,7 @@ import {
   useUserWithdrawals,
   type VaultState,
 } from "@/hooks/useVault";
-import { formatEther } from "viem";
+import { formatEther, parseEther } from "viem";
 import {
   fetchReconciliationControlPlane,
   type ReconciliationControlPlaneSummary,
@@ -101,6 +101,26 @@ import { buildVaultQuoteSafety, formatVaultQuoteAge } from "@/lib/vaultQuotes";
 // ============================================================================
 
 type VaultTab = "overview" | "stake" | "unstake" | "rewards" | "analytics";
+
+const MIN_STAKE_AMOUNT_WEI = parseEther("1");
+
+function parsePositiveEtherInput(value: string): bigint | null {
+  try {
+    const parsed = parseEther(value);
+    return parsed > 0n ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatEtherInputAmount(value: bigint): string {
+  const formatted = formatEther(value);
+  return formatted.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "");
+}
+
+function percentOfBaseUnits(value: bigint, pct: number): bigint {
+  return (value * BigInt(pct)) / 100n;
+}
 
 interface UnstakeRequest {
   id: string;
@@ -1129,8 +1149,10 @@ function StakeTab() {
   const [showCalc, setShowCalc] = useState(false);
   const snapshot = getLiveVaultSnapshot(vaultState);
 
-  const numAmt = parseFloat(amount) || 0;
+  const parsedAmount = useMemo(() => parsePositiveEtherInput(amount), [amount]);
+  const numAmt = parsedAmount ? parseFloat(formatEther(parsedAmount)) : 0;
   const maxBalance = wallet.connected ? wallet.balance : 0;
+  const maxBalanceWei = wallet.connected ? wallet.balanceWei : 0n;
 
   const liveRate = snapshot.exchangeRate;
   const liveApy = snapshot.apy;
@@ -1145,13 +1167,14 @@ function StakeTab() {
   const isValid =
     wallet.connected &&
     !wallet.isWrongNetwork &&
-    numAmt >= 1 &&
-    numAmt <= maxBalance &&
+    parsedAmount !== null &&
+    parsedAmount >= MIN_STAKE_AMOUNT_WEI &&
+    parsedAmount <= maxBalanceWei &&
     stakeQuote.canSubmit;
   const processing = stakeIsPending;
 
   const handleQuick = (pct: number) => {
-    setAmount(((maxBalance * pct) / 100).toFixed(2));
+    setAmount(formatEtherInputAmount(percentOfBaseUnits(maxBalanceWei, pct)));
   };
 
   const handleStake = useCallback(async () => {
@@ -1524,8 +1547,10 @@ function UnstakeTab() {
     () => Date.now() / 1000,
   );
 
-  const numAmt = parseFloat(amount) || 0;
+  const parsedAmount = useMemo(() => parsePositiveEtherInput(amount), [amount]);
+  const numAmt = parsedAmount ? parseFloat(formatEther(parsedAmount)) : 0;
   const maxBal = wallet.connected ? wallet.stBalance : 0;
+  const maxBalWei = wallet.connected ? wallet.stBalanceWei : 0n;
   const liveRate = snapshot.exchangeRate;
 
   const unstakeQuote = buildVaultQuoteSafety({
@@ -1538,8 +1563,8 @@ function UnstakeTab() {
   const isValid =
     wallet.connected &&
     !wallet.isWrongNetwork &&
-    numAmt > 0 &&
-    numAmt <= maxBal &&
+    parsedAmount !== null &&
+    parsedAmount <= maxBalWei &&
     unstakeQuote.canSubmit;
   const processing = unstakeIsPending;
 
@@ -1593,7 +1618,7 @@ function UnstakeTab() {
   }, [onChainWithdrawals, withdrawalClock]);
 
   const handleQuick = (pct: number) =>
-    setAmount(((maxBal * pct) / 100).toFixed(2));
+    setAmount(formatEtherInputAmount(percentOfBaseUnits(maxBalWei, pct)));
 
   const handleUnstake = useCallback(async () => {
     if (!unstakeQuote.canSubmit) {

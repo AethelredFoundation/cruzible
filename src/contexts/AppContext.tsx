@@ -52,10 +52,16 @@ export interface WalletState {
   address: string;
   /** Native AETHEL balance (human-readable units) */
   balance: number;
+  /** Native AETHEL balance in base units for transaction safety checks */
+  balanceWei: bigint;
   /** stAETHEL token balance (human-readable units) */
   stBalance: number;
+  /** stAETHEL token balance in base units for transaction safety checks */
+  stBalanceWei: bigint;
   /** Stablecoin balances keyed by symbol (human-readable units) */
   stablecoinBalances: Record<string, number>;
+  /** Stablecoin balances keyed by symbol in native token base units */
+  stablecoinBalanceUnits: Record<string, bigint>;
   /** Whether we're currently connecting */
   isConnecting: boolean;
   /** Whether we're on the wrong network */
@@ -129,8 +135,11 @@ const DEFAULT_WALLET: WalletState = {
   connected: false,
   address: "",
   balance: 0,
+  balanceWei: 0n,
   stBalance: 0,
+  stBalanceWei: 0n,
   stablecoinBalances: {},
+  stablecoinBalanceUnits: {},
   isConnecting: false,
   isWrongNetwork: false,
   chainId: 0,
@@ -221,15 +230,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Build stablecoin balance map from wagmi query results.
     // Each balance entry uses the token's native decimals (6 for USDC/USDT).
     const stablecoinBalances: Record<string, number> = {};
+    const stablecoinBalanceUnits: Record<string, bigint> = {};
     const stAethelBalance = tokenBalances?.[0]?.result as bigint | undefined;
     const usdcBalance = tokenBalances?.[1]?.result as bigint | undefined;
     const usdtBalance = tokenBalances?.[2]?.result as bigint | undefined;
 
     if (usdcBalance !== undefined) {
       stablecoinBalances.USDC = parseFloat(formatUnits(usdcBalance, 6));
+      stablecoinBalanceUnits.USDC = usdcBalance;
     }
     if (usdtBalance !== undefined) {
       stablecoinBalances.USDT = parseFloat(formatUnits(usdtBalance, 6));
+      stablecoinBalanceUnits.USDT = usdtBalance;
     }
 
     return {
@@ -238,11 +250,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       balance: nativeBalance
         ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
         : 0,
+      balanceWei: nativeBalance?.value ?? 0n,
       stBalance:
         stAethelBalance !== undefined
           ? parseFloat(formatUnits(stAethelBalance, 18))
           : 0,
+      stBalanceWei: stAethelBalance ?? 0n,
       stablecoinBalances,
+      stablecoinBalanceUnits,
       isConnecting: false,
       isWrongNetwork,
       chainId,
