@@ -14,6 +14,7 @@ const TESTABLE_EXTENSIONS = new Set([
 const FULL_TEST_TRIGGER_PATHS = new Set([
   "eslint.config.mjs",
   "next.config.js",
+  "next-sitemap.config.js",
   "package-lock.json",
   "package.json",
   "playwright.config.ts",

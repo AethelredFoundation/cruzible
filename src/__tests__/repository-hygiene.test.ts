@@ -41,6 +41,7 @@ describe("repository hygiene", () => {
     expect(runner).toContain("vitest");
     expect(runner).toContain("related");
     expect(runner).toContain("FULL_TEST_TRIGGER_PATHS");
+    expect(runner).toContain('"next-sitemap.config.js"');
     expect(runner).toContain('"src/pages/"');
   });
 
