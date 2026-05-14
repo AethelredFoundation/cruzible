@@ -18,7 +18,7 @@ The variables below are the ones referenced from `src/` in the current workspace
 | `NEXT_PUBLIC_CHAIN_ENV`                 | Build-time production input | `devnet` locally, `testnet` in CI | Selects `mainnet`, `testnet`, or `devnet` in `src/config/chains.ts`; pass as a Docker build arg for production images                                                                                                             |
 | `NEXT_PUBLIC_API_URL`                   | Required at build time      | `http://localhost:3001/v1`        | Base URL for frontend API requests; Next.js compiles this into browser bundles, so Kubernetes runtime env alone cannot change it; production mainnet/testnet builds must use the exact approved API origin for the selected chain |
 | `NEXT_PUBLIC_APP_VERSION`               | No                          | `local-dev`                       | Displayed in UI and sent in request headers                                                                                                                                                                                       |
-| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`  | Required for mainnet        | blank                             | Needed for WalletConnect flows; mainnet builds fail without it                                                                                                                                                                    |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`  | Required for mainnet        | blank                             | Needed for WalletConnect flows; mainnet builds require a 32-character hex project ID                                                                                                                                              |
 | `NEXT_PUBLIC_CRUZIBLE_ADDRESS`          | Required for mainnet        | blank                             | Cruzible vault contract address; mainnet builds require a non-zero EVM address                                                                                                                                                    |
 | `NEXT_PUBLIC_STAETHEL_ADDRESS`          | Required for mainnet        | blank                             | Liquid staking receipt token address; mainnet builds require a non-zero EVM address                                                                                                                                               |
 | `NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS`      | Required for mainnet        | blank                             | Underlying token address; mainnet builds require a non-zero EVM address                                                                                                                                                           |
@@ -53,7 +53,7 @@ docker build \
   --build-arg NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS=0x... \
   --build-arg NEXT_PUBLIC_USDC_TOKEN_ADDRESS=0x... \
   --build-arg NEXT_PUBLIC_USDT_TOKEN_ADDRESS=0x... \
-  --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=... \
+  --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=0123456789abcdef0123456789abcdef \
   -t cruzible-frontend:mainnet .
 ```
 

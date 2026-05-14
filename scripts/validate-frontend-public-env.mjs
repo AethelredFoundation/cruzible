@@ -7,6 +7,7 @@ const productionApiOriginsByChain = {
 };
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
+const WALLETCONNECT_PROJECT_ID_PATTERN = /^[0-9a-fA-F]{32}$/;
 const MAINNET_REQUIRED_ADDRESS_KEYS = [
   "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
   "NEXT_PUBLIC_STAETHEL_ADDRESS",
@@ -107,6 +108,25 @@ function assertValidAddress(env, key, { required = false } = {}) {
       required
         ? `${key} must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=mainnet.`
         : `${key} must be blank or a non-zero EVM address.`,
+    );
+  }
+}
+
+function assertValidWalletConnectProjectId(env, { required = false } = {}) {
+  const value = env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
+  if (!value) {
+    if (!required) {
+      return;
+    }
+
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=mainnet.",
+    );
+  }
+
+  if (!WALLETCONNECT_PROJECT_ID_PATTERN.test(value)) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID must be a 32-character hex WalletConnect project ID.",
     );
   }
 }
@@ -223,14 +243,7 @@ export function validateFrontendPublicEnv(env = process.env) {
     });
   }
 
-  if (
-    chainEnv === "mainnet" &&
-    !env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim()
-  ) {
-    throw new FrontendPublicEnvError(
-      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=mainnet.",
-    );
-  }
+  assertValidWalletConnectProjectId(env, { required: chainEnv === "mainnet" });
 
   return {
     apiOrigin: parsedApiUrl.origin,
