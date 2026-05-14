@@ -23,34 +23,37 @@ const WALLETCONNECT_PROJECT_ID =
   process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
 const APP_ORIGIN = "https://vault.aethelred.org";
 const APP_LOGO_URL = `${APP_ORIGIN}/cruzible-logo.png`;
+const IS_BROWSER = typeof window !== "undefined";
 
 // ---------------------------------------------------------------------------
 // Connectors
 // ---------------------------------------------------------------------------
 
-const connectors = [
-  injected({
-    shimDisconnect: true,
-  }),
-  ...(WALLETCONNECT_PROJECT_ID
-    ? [
-        walletConnect({
-          projectId: WALLETCONNECT_PROJECT_ID,
-          metadata: {
-            name: "Cruzible by Aethelred",
-            description: "TEE-verified liquid staking protocol",
-            url: APP_ORIGIN,
-            icons: [APP_LOGO_URL],
-          },
-          showQrModal: true,
-        }),
-      ]
-    : []),
-  coinbaseWallet({
-    appName: "Cruzible by Aethelred",
-    appLogoUrl: APP_LOGO_URL,
-  }),
-];
+const connectors = IS_BROWSER
+  ? [
+      injected({
+        shimDisconnect: true,
+      }),
+      ...(WALLETCONNECT_PROJECT_ID
+        ? [
+            walletConnect({
+              projectId: WALLETCONNECT_PROJECT_ID,
+              metadata: {
+                name: "Cruzible by Aethelred",
+                description: "TEE-verified liquid staking protocol",
+                url: APP_ORIGIN,
+                icons: [APP_LOGO_URL],
+              },
+              showQrModal: true,
+            }),
+          ]
+        : []),
+      coinbaseWallet({
+        appName: "Cruzible by Aethelred",
+        appLogoUrl: APP_LOGO_URL,
+      }),
+    ]
+  : [];
 
 // ---------------------------------------------------------------------------
 // Transports

@@ -24,4 +24,16 @@ describe("canonical production origin", () => {
     );
     expect(wagmiConfig).not.toContain("cruzible.aethelred.network/icon.png");
   });
+
+  it("creates wallet connectors only in the browser runtime", () => {
+    const wagmiConfig = readFileSync(
+      resolve(repoRoot, "src/config/wagmi.ts"),
+      "utf8",
+    );
+
+    expect(wagmiConfig).toContain(
+      'const IS_BROWSER = typeof window !== "undefined"',
+    );
+    expect(wagmiConfig).toMatch(/const connectors = IS_BROWSER\s*\?\s*\[/s);
+  });
 });
