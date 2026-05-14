@@ -7,6 +7,7 @@
  */
 
 import { useState, useMemo, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { SEOHead } from "@/components/SEOHead";
 import {
   ArrowUpRight,
@@ -46,12 +47,93 @@ import {
 } from "@/hooks/useStablecoinBridge";
 import { formatUnits, parseUnits } from "viem";
 import { needsTokenApproval } from "@/lib/allowance";
+import { apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 type StablecoinTab = "bridge" | "balances" | "history";
+
+interface StablecoinBridgeEvent {
+  id: string;
+  assetId: string;
+  eventType: string;
+  sender: string;
+  amount: string;
+  destDomain: number | null;
+  txHash: string;
+  blockNumber: string;
+  logIndex: number;
+  timestamp: string;
+}
+
+interface StablecoinBridgeHistoryResponse {
+  data: StablecoinBridgeEvent[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+  };
+}
+
+type StablecoinBridgeHistoryRow = StablecoinBridgeEvent & {
+  symbol: string;
+  decimals: number;
+};
+
+function trimFormattedUnits(value: string): string {
+  return value.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "");
+}
+
+function formatStablecoinAmount(amount: string, decimals: number): string {
+  try {
+    return trimFormattedUnits(formatUnits(BigInt(amount), decimals));
+  } catch {
+    return "unavailable";
+  }
+}
+
+function shortHash(value: string): string {
+  return value.length > 14
+    ? `${value.slice(0, 8)}...${value.slice(-6)}`
+    : value;
+}
+
+async function fetchStablecoinBridgeHistory(
+  assets: StablecoinAsset[],
+): Promise<StablecoinBridgeHistoryRow[]> {
+  const histories = await Promise.all(
+    assets.map(async (asset) => {
+      const response = await apiRequest(
+        `/stablecoins/${asset.assetId}/history?limit=25`,
+      );
+      const payload =
+        await parseApiJsonResponse<StablecoinBridgeHistoryResponse>(response);
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to load ${asset.symbol} bridge history (${response.status})`,
+        );
+      }
+
+      return payload.data.map((event) => ({
+        ...event,
+        symbol: asset.symbol,
+        decimals: asset.decimals,
+      }));
+    }),
+  );
+
+  return histories
+    .flat()
+    .sort(
+      (left, right) =>
+        new Date(right.timestamp).getTime() -
+        new Date(left.timestamp).getTime(),
+    )
+    .slice(0, 25);
+}
 
 // ============================================================================
 // PHASE BADGE
@@ -396,7 +478,22 @@ function BalancesTab() {
 // ============================================================================
 
 function HistoryTab() {
-  // Placeholder — will be connected to backend API via React Query
+  const activeAssets = useMemo(() => getEnabledStablecoins(), []);
+  const {
+    data: events = [],
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: [
+      "stablecoin-bridge-history",
+      activeAssets.map((asset) => asset.assetId).join(","),
+    ],
+    queryFn: () => fetchStablecoinBridgeHistory(activeAssets),
+    enabled: activeAssets.length > 0,
+    refetchInterval: 15_000,
+  });
+
   return (
     <div className="space-y-4">
       <GlassCard>
@@ -406,15 +503,69 @@ function HistoryTab() {
             Bridge History
           </h3>
 
-          <div className="text-center py-12 text-gray-500">
-            <Activity className="w-10 h-10 mx-auto mb-3 text-gray-600" />
-            <p className="text-sm">
-              Bridge event history will appear here once events are indexed.
-            </p>
-            <p className="text-xs text-gray-600 mt-1">
-              Events are synced from the InstitutionalStablecoinBridge contract.
-            </p>
-          </div>
+          {isLoading ? (
+            <div className="text-center py-12 text-gray-500">
+              <Activity className="w-10 h-10 mx-auto mb-3 text-gray-600 animate-pulse" />
+              <p className="text-sm">Loading indexed bridge events...</p>
+            </div>
+          ) : isError ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+              {error instanceof Error
+                ? error.message
+                : "Unable to load bridge history."}
+            </div>
+          ) : events.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <Activity className="w-10 h-10 mx-auto mb-3 text-gray-600" />
+              <p className="text-sm">No indexed bridge events yet.</p>
+              <p className="text-xs text-gray-600 mt-1">
+                Events are synced from the InstitutionalStablecoinBridge
+                contract.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wider text-gray-500">
+                    <th className="py-3 pr-4">Event</th>
+                    <th className="py-3 px-4">Asset</th>
+                    <th className="py-3 px-4 text-right">Amount</th>
+                    <th className="py-3 px-4">Sender</th>
+                    <th className="py-3 px-4">Tx</th>
+                    <th className="py-3 pl-4 text-right">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.map((event) => (
+                    <tr
+                      key={event.id}
+                      className="border-b border-white/5 last:border-0"
+                    >
+                      <td className="py-4 pr-4 text-sm font-medium text-white">
+                        {event.eventType}
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-300">
+                        {event.symbol}
+                      </td>
+                      <td className="py-4 px-4 text-right font-mono text-sm text-white">
+                        {formatStablecoinAmount(event.amount, event.decimals)}
+                      </td>
+                      <td className="py-4 px-4 font-mono text-xs text-gray-400">
+                        {shortHash(event.sender)}
+                      </td>
+                      <td className="py-4 px-4 font-mono text-xs text-gray-400">
+                        {shortHash(event.txHash)}
+                      </td>
+                      <td className="py-4 pl-4 text-right text-xs text-gray-500">
+                        {new Date(event.timestamp).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </GlassCard>
     </div>
