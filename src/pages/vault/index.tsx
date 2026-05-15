@@ -1192,7 +1192,9 @@ function StakeTab() {
       return;
     }
 
-    const hash = await stake(amount);
+    const hash = await stake(amount, {
+      expectedExchangeRate: vaultState.exchangeRate,
+    });
     if (hash) {
       setSuccess(true);
       setTimeout(() => {
@@ -1204,7 +1206,7 @@ function StakeTab() {
       // Error or rejection — stake() already fires notification via useStake
       setShowConfirm(false);
     }
-  }, [addNotification, amount, stake, stakeQuote]);
+  }, [addNotification, amount, stake, stakeQuote, vaultState.exchangeRate]);
 
   return (
     <div className="grid lg:grid-cols-5 gap-8">
@@ -1635,7 +1637,9 @@ function UnstakeTab() {
       return;
     }
 
-    const hash = await unstake(amount);
+    const hash = await unstake(amount, {
+      expectedExchangeRate: vaultState.exchangeRate,
+    });
     if (hash) {
       setSuccess(true);
       refetchWithdrawals();
@@ -1647,7 +1651,14 @@ function UnstakeTab() {
     } else {
       setShowConfirm(false);
     }
-  }, [addNotification, amount, refetchWithdrawals, unstake, unstakeQuote]);
+  }, [
+    addNotification,
+    amount,
+    refetchWithdrawals,
+    unstake,
+    unstakeQuote,
+    vaultState.exchangeRate,
+  ]);
 
   const handleClaim = useCallback(
     async (id: string) => {

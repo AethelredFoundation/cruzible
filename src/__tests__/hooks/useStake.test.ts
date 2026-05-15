@@ -284,6 +284,28 @@ describe("useStake", () => {
       "Your live AETHEL token balance is below this stake amount. Refresh balances and try again.",
     );
   });
+
+  it("blocks staking when the live exchange rate moved beyond the displayed quote", async () => {
+    mocks.readContract.mockResolvedValueOnce(parseEther("1.01"));
+
+    const { result } = renderHook(() => useStake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.stake("1", {
+        expectedExchangeRate: parseEther("1"),
+      });
+    });
+
+    expect(hash).toBeUndefined();
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled();
+    expect(mocks.assertContractSimulation).not.toHaveBeenCalled();
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "error",
+      "Quote Moved",
+      "The vault exchange rate moved more than 0.50% from the displayed quote. Refresh the quote before signing.",
+    );
+  });
 });
 
 describe("useUnstake", () => {
@@ -435,6 +457,28 @@ describe("useUnstake", () => {
       "error",
       "Approval Reverted",
       "The stAETHEL approval was reverted on-chain.",
+    );
+  });
+
+  it("blocks unstaking when the live exchange rate moved beyond the displayed quote", async () => {
+    mocks.readContract.mockResolvedValueOnce(parseEther("0.99"));
+
+    const { result } = renderHook(() => useUnstake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.unstake("1", {
+        expectedExchangeRate: parseEther("1"),
+      });
+    });
+
+    expect(hash).toBeUndefined();
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled();
+    expect(mocks.assertContractSimulation).not.toHaveBeenCalled();
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "error",
+      "Quote Moved",
+      "The vault exchange rate moved more than 0.50% from the displayed quote. Refresh the quote before signing.",
     );
   });
 });

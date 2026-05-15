@@ -61,6 +61,13 @@ export interface WithdrawalRequest {
 type AddNotification = AppContextValue["addNotification"];
 type WalletState = AppContextValue["wallet"];
 
+export interface VaultQuoteGuard {
+  expectedExchangeRate: bigint;
+  maxMovementBps?: number;
+}
+
+const DEFAULT_VAULT_QUOTE_MAX_MOVEMENT_BPS = 50;
+
 function notifyWrongNetwork(addNotification: AddNotification): void {
   addNotification(
     "error",
@@ -90,11 +97,39 @@ function canSubmitTransaction(
   return true;
 }
 
+function formatBps(bps: number): string {
+  return `${(bps / 100).toFixed(2)}%`;
+}
+
+function hasMovedBeyondBps(
+  liveExchangeRate: bigint,
+  expectedExchangeRate: bigint,
+  maxMovementBps: number,
+): boolean {
+  if (
+    expectedExchangeRate <= 0n ||
+    !Number.isFinite(maxMovementBps) ||
+    maxMovementBps < 0
+  ) {
+    return true;
+  }
+
+  const delta =
+    liveExchangeRate > expectedExchangeRate
+      ? liveExchangeRate - expectedExchangeRate
+      : expectedExchangeRate - liveExchangeRate;
+
+  return (
+    delta * 10_000n > expectedExchangeRate * BigInt(Math.floor(maxMovementBps))
+  );
+}
+
 async function assertLiveExchangeRate(
   config: ReturnType<typeof useConfig>,
   cruzibleAddr: Address,
   addNotification: AddNotification,
-): Promise<boolean> {
+  quoteGuard?: VaultQuoteGuard,
+): Promise<bigint | null> {
   try {
     const exchangeRate = (await readContract(config, {
       address: cruzibleAddr,
@@ -109,10 +144,28 @@ async function assertLiveExchangeRate(
         "Quote Unavailable",
         "The vault returned an invalid exchange rate. Try again after the next contract read.",
       );
-      return false;
+      return null;
     }
 
-    return true;
+    if (
+      quoteGuard &&
+      hasMovedBeyondBps(
+        exchangeRate,
+        quoteGuard.expectedExchangeRate,
+        quoteGuard.maxMovementBps ?? DEFAULT_VAULT_QUOTE_MAX_MOVEMENT_BPS,
+      )
+    ) {
+      const maxMovementBps =
+        quoteGuard.maxMovementBps ?? DEFAULT_VAULT_QUOTE_MAX_MOVEMENT_BPS;
+      addNotification(
+        "error",
+        "Quote Moved",
+        `The vault exchange rate moved more than ${formatBps(maxMovementBps)} from the displayed quote. Refresh the quote before signing.`,
+      );
+      return null;
+    }
+
+    return exchangeRate;
   } catch (err: any) {
     addNotification(
       "error",
@@ -122,7 +175,7 @@ async function assertLiveExchangeRate(
         "Could not verify the live vault exchange rate before signing.",
       ),
     );
-    return false;
+    return null;
   }
 }
 
@@ -222,7 +275,10 @@ export function useStake() {
   const tokenAddr = getContractAddress("aethelToken");
 
   const stake = useCallback(
-    async (amountEther: string): Promise<Hash | undefined> => {
+    async (
+      amountEther: string,
+      quoteGuard?: VaultQuoteGuard,
+    ): Promise<Hash | undefined> => {
       if (!cruzibleAddr) {
         addNotification(
           "error",
@@ -258,7 +314,12 @@ export function useStake() {
         }
 
         if (
-          !(await assertLiveExchangeRate(config, cruzibleAddr, addNotification))
+          (await assertLiveExchangeRate(
+            config,
+            cruzibleAddr,
+            addNotification,
+            quoteGuard,
+          )) === null
         ) {
           return undefined;
         }
@@ -453,7 +514,10 @@ export function useUnstake() {
   const stAethelAddr = getContractAddress("stAethel");
 
   const unstake = useCallback(
-    async (sharesEther: string): Promise<Hash | undefined> => {
+    async (
+      sharesEther: string,
+      quoteGuard?: VaultQuoteGuard,
+    ): Promise<Hash | undefined> => {
       if (!cruzibleAddr) {
         addNotification(
           "error",
@@ -489,7 +553,12 @@ export function useUnstake() {
         }
 
         if (
-          !(await assertLiveExchangeRate(config, cruzibleAddr, addNotification))
+          (await assertLiveExchangeRate(
+            config,
+            cruzibleAddr,
+            addNotification,
+            quoteGuard,
+          )) === null
         ) {
           return undefined;
         }
