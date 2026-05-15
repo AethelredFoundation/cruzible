@@ -25,8 +25,8 @@ import { MAX_PUBLIC_PAGINATION_OFFSET } from "../../validation/schemas";
 const router = Router();
 
 // All alert routes require authenticated operators or admins.
-router.use(opsRateLimiter);
 router.use(authenticate);
+router.use(opsRateLimiter);
 router.use(requireRoles("operator", "admin"));
 router.use(noStore);
 
@@ -152,8 +152,8 @@ router.get(
 // ---------------------------------------------------------------------------
 
 const reconciliationStatusRouter = Router();
-reconciliationStatusRouter.use(opsRateLimiter);
 reconciliationStatusRouter.use(authenticate);
+reconciliationStatusRouter.use(opsRateLimiter);
 reconciliationStatusRouter.use(requireRoles("operator", "admin"));
 reconciliationStatusRouter.use(noStore);
 

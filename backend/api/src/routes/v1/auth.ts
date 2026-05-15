@@ -263,8 +263,8 @@ const SessionAddressParamsSchema = z.object({
 });
 
 const requireOperatorAccess = [
-  opsRateLimiter,
   authenticate,
+  opsRateLimiter,
   requireRoles("operator", "admin"),
 ] as const;
 

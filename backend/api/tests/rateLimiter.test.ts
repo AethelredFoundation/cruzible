@@ -141,6 +141,47 @@ describe("rate limiter", () => {
     });
   });
 
+  it("keys ops rate limits by authenticated wallet address before IP", async () => {
+    const { getOpsRateLimitKey } =
+      await import("../src/middleware/rateLimiter");
+
+    expect(
+      getOpsRateLimitKey({
+        ip: "203.0.113.10",
+        user: { address: "AETH1OPERATOR", roles: ["operator"] },
+      } as any),
+    ).toBe("wallet:aeth1operator");
+    expect(getOpsRateLimitKey({ ip: "203.0.113.10" } as any)).toBe(
+      "ip:203.0.113.10",
+    );
+  });
+
+  it("applies ops limiters after authentication on protected operator routes", () => {
+    const authRoute = readFileSync("src/routes/v1/auth.ts", "utf8");
+    const auditRoute = readFileSync("src/routes/v1/audit.ts", "utf8");
+    const alertsRoute = readFileSync("src/routes/v1/alerts.ts", "utf8");
+    const reconciliationRoute = readFileSync(
+      "src/routes/v1/reconciliation.ts",
+      "utf8",
+    );
+
+    expect(authRoute).toMatch(
+      /const requireOperatorAccess = \[\s*authenticate,\s*opsRateLimiter,\s*requireRoles\("operator", "admin"\),\s*\] as const;/s,
+    );
+    expect(auditRoute).toMatch(
+      /router\.use\(authenticate\);\s*router\.use\(opsRateLimiter\);/s,
+    );
+    expect(alertsRoute).toMatch(
+      /router\.use\(authenticate\);\s*router\.use\(opsRateLimiter\);/s,
+    );
+    expect(alertsRoute).toMatch(
+      /reconciliationStatusRouter\.use\(authenticate\);\s*reconciliationStatusRouter\.use\(opsRateLimiter\);/s,
+    );
+    expect(reconciliationRoute).toMatch(
+      /router\.post\(\s*"\/capture",\s*authenticate,\s*opsRateLimiter,/s,
+    );
+  });
+
   it("wires expensive public limiters onto fan-out routes", () => {
     const validatorsRoute = readFileSync("src/routes/v1/validators.ts", "utf8");
     const stablecoinsRoute = readFileSync(

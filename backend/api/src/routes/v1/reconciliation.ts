@@ -417,8 +417,8 @@ router.get(
  */
 router.post(
   "/capture",
-  opsRateLimiter,
   authenticate,
+  opsRateLimiter,
   requireRoles("operator", "admin"),
   [
     query("validator_limit").optional().isInt({ min: 1, max: 500 }).toInt(),

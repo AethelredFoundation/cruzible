@@ -16,8 +16,8 @@ const MAX_AUDIT_PAGINATION_OFFSET = 10_000;
 const SAFE_AUDIT_ACTOR_PATTERN = /^[a-z0-9._:-]{1,64}$/;
 const SAFE_AUDIT_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/;
 
-router.use(opsRateLimiter);
 router.use(authenticate);
+router.use(opsRateLimiter);
 router.use(requireRoles("operator", "admin"));
 router.use(noStore);
 

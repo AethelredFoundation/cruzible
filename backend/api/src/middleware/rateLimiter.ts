@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import type { Request } from "express";
 import rateLimit, { type Store } from "express-rate-limit";
 import { config } from "../config";
 import { logger } from "../utils/logger";
@@ -131,6 +132,7 @@ function namedRateLimiter(options: {
   windowMs: number;
   max: number;
   message: string;
+  keyGenerator?: (req: Request) => string;
 }) {
   return rateLimit({
     windowMs: options.windowMs,
@@ -142,6 +144,7 @@ function namedRateLimiter(options: {
       windowMs: options.windowMs,
       redisUrl: config.redisUrl,
     }),
+    keyGenerator: options.keyGenerator,
     passOnStoreError: false,
     handler: (req, res) => {
       res.status(429).json({
@@ -151,6 +154,15 @@ function namedRateLimiter(options: {
       });
     },
   });
+}
+
+export function getOpsRateLimitKey(req: Request): string {
+  const address = req.user?.address?.trim().toLowerCase();
+  if (address) {
+    return `wallet:${address}`;
+  }
+
+  return `ip:${req.ip}`;
 }
 
 export const authRateLimiter = namedRateLimiter({
@@ -165,6 +177,7 @@ export const opsRateLimiter = namedRateLimiter({
   windowMs: config.opsRateLimitWindowMs,
   max: config.opsRateLimitMax,
   message: "Operations rate limit exceeded",
+  keyGenerator: getOpsRateLimitKey,
 });
 
 export const publicExpensiveRateLimiter = namedRateLimiter({
