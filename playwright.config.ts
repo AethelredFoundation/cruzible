@@ -51,5 +51,10 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "mobile-vault",
+      grep: /renders \/vault during upstream API outage/,
+      use: { ...devices["Pixel 5"] },
+    },
   ],
 });
