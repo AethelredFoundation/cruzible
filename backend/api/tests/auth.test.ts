@@ -686,7 +686,7 @@ describe("auth routes", () => {
     });
   });
 
-  it("rejects refresh rotation from a different user-agent context", async () => {
+  it("revokes the refresh session family after a user-agent context mismatch", async () => {
     await withAuthRoutes(async (baseUrl) => {
       const challenge = await (
         await fetch(`${baseUrl}/v1/auth/nonce`, {
@@ -726,11 +726,15 @@ describe("auth routes", () => {
         },
         body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
       });
-      const matchedTokens = await matchedRefresh.json();
+      const accessAfterMismatch = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+      });
+      const accessAfterMismatchBody = await accessAfterMismatch.json();
 
       expect(mismatchedRefresh.status).toBe(401);
-      expect(matchedRefresh.status).toBe(200);
-      expect(matchedTokens.refreshToken).not.toBe(loginTokens.refreshToken);
+      expect(matchedRefresh.status).toBe(401);
+      expect(accessAfterMismatch.status).toBe(401);
+      expect(accessAfterMismatchBody.message).toContain("Access token revoked");
     });
   });
 

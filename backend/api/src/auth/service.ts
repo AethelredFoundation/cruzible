@@ -12,7 +12,7 @@ import {
 } from "@cosmjs/crypto";
 import { fromBase64, toBech32, fromBech32 } from "@cosmjs/encoding";
 import { serializeSignDoc, type StdSignDoc } from "@cosmjs/amino";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { config } from "../config";
 import { logger } from "../utils/logger";
@@ -23,6 +23,7 @@ const TOKEN_ISSUER = "aethelred-api";
 const LOGIN_DOMAIN = "Aethelred Cruzible API";
 const NONCE_BYTES = 24;
 const AUTH_DB_CLEANUP_INTERVAL_MS = 60_000;
+const REFRESH_CONTEXT_MISMATCH = Symbol("refresh-context-mismatch");
 
 type SessionContext = {
   ip?: string;
@@ -65,6 +66,11 @@ type StoredAccessRevocation = {
   createdAt?: Date | null;
   updatedAt?: Date | null;
 };
+
+type RotateRefreshSessionResult =
+  | StoredRefreshSession
+  | null
+  | typeof REFRESH_CONTEXT_MISMATCH;
 
 export interface TokenPayload {
   address: string;
@@ -334,6 +340,10 @@ export async function refreshAccessToken(
     );
     const rotated = await rotateRefreshSession(tokenHash, nextSession);
 
+    if (rotated === REFRESH_CONTEXT_MISMATCH) {
+      throw new Error("Refresh session context mismatch");
+    }
+
     if (!rotated || rotated.address !== verified.address) {
       await revokeSessionFamilyOnRefreshReuse(tokenHash, verified.address);
       throw new Error("Refresh session is invalid or already rotated");
@@ -541,6 +551,77 @@ async function revokeSessionFamilyOnRefreshReuse(
     sessionId: session.id,
     revokedCount,
     accessTokenNotBefore: accessRevocation.notBefore.toISOString(),
+  });
+}
+
+async function revokeSessionFamilyOnContextMismatch(
+  session: StoredRefreshSession,
+): Promise<void> {
+  const revokedCount = await revokeActiveRefreshSessionsForAddress(
+    session.address,
+  );
+  const accessRevocation = await revokeAccessTokensForAddress(session.address, {
+    actorAddress: "system",
+    reason: "refresh_context_mismatch",
+  });
+
+  logger.warn("Refresh session context mismatch; session family revoked", {
+    address: session.address,
+    sessionId: session.id,
+    revokedCount,
+    accessTokenNotBefore: accessRevocation.notBefore.toISOString(),
+  });
+}
+
+async function revokeSessionFamilyOnContextMismatchInTransaction(
+  tx: Prisma.TransactionClient,
+  session: StoredRefreshSession,
+  now: Date,
+): Promise<void> {
+  const result = await tx.authRefreshSession.updateMany({
+    where: {
+      address: session.address,
+      revokedAt: null,
+      rotatedAt: null,
+      expiresAt: { gt: now },
+    },
+    data: { revokedAt: now },
+  });
+
+  const existingRevocation = await tx.authAccessRevocation.findUnique({
+    where: { address: session.address },
+  });
+  const nextNotBefore =
+    existingRevocation && existingRevocation.notBefore > now
+      ? existingRevocation.notBefore
+      : now;
+
+  if (!existingRevocation) {
+    await tx.authAccessRevocation.create({
+      data: {
+        address: session.address,
+        notBefore: nextNotBefore,
+        reason: "refresh_context_mismatch",
+        actorAddress: "system",
+      },
+    });
+  } else {
+    await tx.authAccessRevocation.update({
+      where: { address: session.address },
+      data: {
+        notBefore: nextNotBefore,
+        reason: "refresh_context_mismatch",
+        actorAddress: "system",
+        requestId: null,
+      },
+    });
+  }
+
+  logger.warn("Refresh session context mismatch; session family revoked", {
+    address: session.address,
+    sessionId: session.id,
+    revokedCount: result.count,
+    accessTokenNotBefore: nextNotBefore.toISOString(),
   });
 }
 
@@ -913,7 +994,7 @@ async function upsertAccessRevocationForAddress(
 async function rotateRefreshSession(
   tokenHash: string,
   nextSession: StoredRefreshSession,
-): Promise<StoredRefreshSession | null> {
+): Promise<RotateRefreshSessionResult> {
   const now = new Date();
 
   if (!authPrisma) {
@@ -922,11 +1003,8 @@ async function rotateRefreshSession(
       return null;
     }
     if (hasRefreshSessionContextMismatch(session, nextSession)) {
-      logger.warn("Refresh session context mismatch during rotation", {
-        address: session.address,
-        sessionId: session.id,
-      });
-      return null;
+      await revokeSessionFamilyOnContextMismatch(session);
+      return REFRESH_CONTEXT_MISMATCH;
     }
     session.revokedAt = now;
     session.rotatedAt = now;
@@ -943,11 +1021,8 @@ async function rotateRefreshSession(
       return null;
     }
     if (hasRefreshSessionContextMismatch(session, nextSession)) {
-      logger.warn("Refresh session context mismatch during rotation", {
-        address: session.address,
-        sessionId: session.id,
-      });
-      return null;
+      await revokeSessionFamilyOnContextMismatchInTransaction(tx, session, now);
+      return REFRESH_CONTEXT_MISMATCH;
     }
 
     const result = await tx.authRefreshSession.updateMany({
