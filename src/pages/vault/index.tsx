@@ -96,6 +96,10 @@ import {
 import { apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 import { buildVaultQuoteSafety, formatVaultQuoteAge } from "@/lib/vaultQuotes";
 import { getTransactionFailureMessage } from "@/lib/transactionPreflight";
+import {
+  toDisplayWithdrawalRequests,
+  type DisplayWithdrawalRequest,
+} from "@/lib/withdrawalRequests";
 
 // ============================================================================
 // TYPES
@@ -121,17 +125,6 @@ function formatEtherInputAmount(value: bigint): string {
 
 function percentOfBaseUnits(value: bigint, pct: number): bigint {
   return (value * BigInt(pct)) / 100n;
-}
-
-interface UnstakeRequest {
-  id: string;
-  amount: number;
-  stAethelAmount: number;
-  startDate: string;
-  completionDate: string;
-  status: "pending" | "ready" | "claimed";
-  daysRemaining: number;
-  totalDays: number;
 }
 
 // ============================================================================
@@ -1588,38 +1581,8 @@ function UnstakeTab() {
   }, [onChainWithdrawals]);
 
   // Render only live withdrawal requests returned by the contract hook.
-  const requests: UnstakeRequest[] = useMemo(() => {
-    return onChainWithdrawals.map((w) => {
-      const completion = Number(w.completionTime);
-      const start = Number(w.requestTime);
-      const totalSecs = completion - start;
-      const daysRemaining = Math.max(
-        0,
-        Math.ceil((completion - withdrawalClock) / 86400),
-      );
-      const totalDays = Math.ceil(totalSecs / 86400);
-      return {
-        id: `w${w.id.toString()}`,
-        amount: parseFloat(formatEther(w.aethelAmount)),
-        stAethelAmount: parseFloat(formatEther(w.shares)),
-        startDate: new Date(start * 1000).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-        completionDate: new Date(completion * 1000).toLocaleDateString(
-          "en-US",
-          { month: "short", day: "numeric", year: "numeric" },
-        ),
-        status: w.claimed
-          ? ("claimed" as const)
-          : daysRemaining === 0
-            ? ("ready" as const)
-            : ("pending" as const),
-        daysRemaining,
-        totalDays: Math.max(totalDays, 1),
-      };
-    });
+  const requests: DisplayWithdrawalRequest[] = useMemo(() => {
+    return toDisplayWithdrawalRequests(onChainWithdrawals, withdrawalClock);
   }, [onChainWithdrawals, withdrawalClock]);
 
   const handleQuick = (pct: number) =>
@@ -1664,9 +1627,7 @@ function UnstakeTab() {
     async (id: string) => {
       const req = requests.find((r) => r.id === id);
       if (!req || req.status !== "ready") return;
-      // Extract the on-chain withdrawal ID (bigint)
-      const withdrawalId = BigInt(id.replace("w", ""));
-      const hash = await claimWithdrawal(withdrawalId);
+      const hash = await claimWithdrawal(req.withdrawalId);
       if (hash) {
         refetchWithdrawals();
       }
