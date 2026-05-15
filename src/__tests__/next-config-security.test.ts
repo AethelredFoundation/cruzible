@@ -91,6 +91,7 @@ describe("Next.js security config", () => {
       nonce: "test-nonce",
       nodeEnv: "production",
       apiUrl: "https://api.testnet.aethelred.org/v1",
+      chainEnv: "testnet",
     });
 
     expect(csp).toContain("default-src 'self'");
@@ -110,9 +111,11 @@ describe("Next.js security config", () => {
     expect(csp).toContain(
       "connect-src 'self' https://api.testnet.aethelred.org",
     );
-    expect(csp).toContain("https://api.aethelred.io");
     expect(csp).toContain("https://api.testnet.aethelred.org");
     expect(csp).toContain("wss://evm-ws-testnet.aethelred.network");
+    expect(csp).not.toContain("https://api.mainnet.aethelred.org");
+    expect(csp).not.toContain("https://evm-rpc.aethelred.network");
+    expect(csp).not.toContain("wss://evm-ws.aethelred.network");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("base-uri 'self'");
     expect(csp).toContain("form-action 'self'");
@@ -120,21 +123,43 @@ describe("Next.js security config", () => {
     expect(csp).toContain("upgrade-insecure-requests");
   });
 
+  it("scopes production CSP connect sources to the active mainnet environment", () => {
+    const csp = buildContentSecurityPolicy({
+      nonce: "test-nonce",
+      nodeEnv: "production",
+      apiUrl: "https://api.mainnet.aethelred.org/v1",
+      chainEnv: "mainnet",
+    });
+    const connectSrc = getCspDirective(csp, "connect-src");
+
+    expect(connectSrc).toContain("https://api.mainnet.aethelred.org");
+    expect(connectSrc).toContain("https://evm-rpc.aethelred.network");
+    expect(connectSrc).toContain("wss://evm-ws.aethelred.network");
+    expect(connectSrc).not.toContain("https://api.testnet.aethelred.org");
+    expect(connectSrc).not.toContain(
+      "https://evm-rpc-testnet.aethelred.network",
+    );
+    expect(connectSrc).not.toContain("wss://evm-ws-testnet.aethelred.network");
+  });
+
   it("fails closed on unsafe production API origins in CSP", () => {
     const lookalikeCsp = buildContentSecurityPolicy({
       nonce: "test-nonce",
       nodeEnv: "production",
       apiUrl: "https://api.testnet.aethelred.org.evil.example/v1",
+      chainEnv: "testnet",
     });
     const localhostCsp = buildContentSecurityPolicy({
       nonce: "test-nonce",
       nodeEnv: "production",
       apiUrl: "http://localhost:3001/v1",
+      chainEnv: "testnet",
     });
     const credentialedCsp = buildContentSecurityPolicy({
       nonce: "test-nonce",
       nodeEnv: "production",
       apiUrl: "https://user:pass@api.testnet.aethelred.org/v1",
+      chainEnv: "testnet",
     });
 
     expect(getCspDirective(lookalikeCsp, "connect-src")).not.toContain(
@@ -226,10 +251,12 @@ describe("Next.js security config", () => {
     const productionCsp = buildContentSecurityPolicy({
       nonce: "prod-nonce",
       nodeEnv: "production",
+      chainEnv: "testnet",
     });
     const developmentCsp = buildContentSecurityPolicy({
       nonce: "dev-nonce",
       nodeEnv: "development",
+      chainEnv: "devnet",
     });
 
     expect(productionCsp).not.toContain("http://localhost:*");
