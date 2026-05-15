@@ -8,6 +8,12 @@ const productionApiOriginsByChain = {
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WALLETCONNECT_PROJECT_ID_PATTERN = /^[0-9a-fA-F]{32}$/;
+const BLOCKED_WALLETCONNECT_PROJECT_IDS = new Set([
+  "00000000000000000000000000000000",
+  "11111111111111111111111111111111",
+  "0123456789abcdef0123456789abcdef",
+  "abcdef0123456789abcdef0123456789",
+]);
 const DEPLOYED_REQUIRED_ADDRESS_KEYS = [
   "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
   "NEXT_PUBLIC_STAETHEL_ADDRESS",
@@ -132,6 +138,12 @@ function assertValidWalletConnectProjectId(
   if (!WALLETCONNECT_PROJECT_ID_PATTERN.test(value)) {
     throw new FrontendPublicEnvError(
       "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID must be a 32-character hex WalletConnect project ID.",
+    );
+  }
+
+  if (BLOCKED_WALLETCONNECT_PROJECT_IDS.has(value.toLowerCase())) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID must not use a placeholder project ID.",
     );
   }
 }

@@ -25,7 +25,7 @@ if (env.VERCEL_ENV === "preview" && !env.NEXT_PUBLIC_API_URL?.trim()) {
     "0x6666666666666666666666666666666666666666";
   env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID =
     env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim() ||
-    "0123456789abcdef0123456789abcdef";
+    "7a4f9c2e1b8d43c6a095f2e7d4b1c830";
   console.warn(
     "Using testnet public preview defaults for Vercel preview build. Configure explicit env for production deployments.",
   );

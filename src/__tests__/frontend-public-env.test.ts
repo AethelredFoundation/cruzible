@@ -13,7 +13,7 @@ const mainnetBaseEnv = {
     "0x4444444444444444444444444444444444444444",
   NEXT_PUBLIC_USDC_TOKEN_ADDRESS: "0x5555555555555555555555555555555555555555",
   NEXT_PUBLIC_USDT_TOKEN_ADDRESS: "0x6666666666666666666666666666666666666666",
-  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "0123456789abcdef0123456789abcdef",
+  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "7a4f9c2e1b8d43c6a095f2e7d4b1c830",
 };
 
 const testnetBaseEnv = {
@@ -68,7 +68,7 @@ describe("frontend public build environment validation", () => {
     );
   });
 
-  it("rejects placeholder WalletConnect project IDs", () => {
+  it("rejects malformed WalletConnect project IDs", () => {
     expect(() =>
       validateFrontendPublicEnv({
         ...mainnetBaseEnv,
@@ -76,6 +76,18 @@ describe("frontend public build environment validation", () => {
       }),
     ).toThrow(
       "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID must be a 32-character hex WalletConnect project ID.",
+    );
+  });
+
+  it("rejects placeholder WalletConnect project IDs", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...mainnetBaseEnv,
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:
+          "0123456789abcdef0123456789abcdef",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID must not use a placeholder project ID.",
     );
   });
 
