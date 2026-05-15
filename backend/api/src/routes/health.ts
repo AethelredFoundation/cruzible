@@ -202,27 +202,15 @@ router.get(
     const clientDb = toClientProbeResult(db);
     const clientRpc = toClientProbeResult(rpc);
 
-    // Indexer metrics (optional)
+    // Indexer metrics (enabled deployments must fail closed if unavailable)
     let indexer: Record<string, unknown> | null = null;
-    try {
-      if (config.indexerEnabled) {
-        const indexerService = container.resolve(IndexerService);
-        indexer = indexerService.getMetrics();
-      }
-    } catch {
-      // Indexer not registered or not started
-    }
-
-    // Reconciliation status (optional)
-    let reconciliation: Record<string, unknown> | null = null;
-
-    // Indexer lag check (if enabled)
     let indexerDegraded = false;
     let indexerCritical = false;
-    try {
-      if (config.indexerEnabled) {
+    if (config.indexerEnabled) {
+      try {
         const indexerService = container.resolve(IndexerService);
         const metrics = indexerService.getMetrics();
+        indexer = metrics;
         const lag = typeof metrics.lag === "number" ? metrics.lag : 0;
         // >100 blocks behind → degraded; >500 blocks behind → critical
         if (lag > 500) {
@@ -230,10 +218,18 @@ router.get(
         } else if (lag > 100) {
           indexerDegraded = true;
         }
+      } catch (err) {
+        logger.error(
+          "Health check: enabled indexer probe unavailable",
+          errorContext(err),
+        );
+        indexerCritical = true;
+        indexer = { ready: false, status: "UNAVAILABLE", lag: null };
       }
-    } catch {
-      // Indexer not registered
     }
+
+    // Reconciliation status (required operational signal)
+    let reconciliation: Record<string, unknown> | null;
 
     // Reconciliation status check
     let reconciliationDegraded = false;
@@ -259,8 +255,21 @@ router.get(
         lastDurationMs: latestResult?.durationMs ?? null,
         activeCriticalAlerts: activeCritical,
       };
-    } catch {
-      // Scheduler not registered or not started
+    } catch (err) {
+      logger.error(
+        "Health check: reconciliation probe unavailable",
+        errorContext(err),
+      );
+      reconciliationCritical = true;
+      reconciliation = {
+        lastRun: null,
+        epoch: null,
+        epochSource: null,
+        status: "UNAVAILABLE",
+        lastDurationMs: null,
+        activeCriticalAlerts: null,
+        ready: false,
+      };
     }
 
     // Determine overall status — now gates on ALL operational signals
@@ -305,7 +314,7 @@ router.get(
  * GET /health/live
  * Kubernetes-style liveness probe. Minimal check — is the process alive?
  */
-router.get("/live", (_req: Request, res: Response) => {
+router.get("/live", noStore, (_req: Request, res: Response) => {
   res.status(200).json({ ok: true, timestamp: new Date().toISOString() });
 });
 
@@ -315,7 +324,7 @@ router.get("/live", (_req: Request, res: Response) => {
  * up: database, RPC, indexer lag (if enabled), and reconciliation status.
  * Returns 503 when any critical signal fails.
  */
-router.get("/ready", async (_req: Request, res: Response) => {
+router.get("/ready", noStore, async (_req: Request, res: Response) => {
   const [dbResult, rpcResult] = await Promise.allSettled([
     checkDatabase(),
     checkBlockchainRpc(),
@@ -337,22 +346,27 @@ router.get("/ready", async (_req: Request, res: Response) => {
   // Indexer readiness (critical lag = not ready)
   let indexerReady = true;
   let indexerLag: number | null = null;
-  try {
-    if (config.indexerEnabled) {
+  if (config.indexerEnabled) {
+    try {
       const indexerService = container.resolve(IndexerService);
       const metrics = indexerService.getMetrics();
       indexerLag = typeof metrics.lag === "number" ? metrics.lag : 0;
       if (indexerLag > 500) {
         indexerReady = false;
       }
+    } catch (err) {
+      logger.error(
+        "Health check: enabled indexer readiness unavailable",
+        errorContext(err),
+      );
+      indexerReady = false;
+      indexerLag = null;
     }
-  } catch {
-    // Indexer not registered
   }
 
   // Reconciliation readiness (CRITICAL status = not ready)
   let reconciliationReady = true;
-  let reconciliationStatus: string | null = null;
+  let reconciliationStatus: string | null;
   let activeCriticalAlerts = 0;
   let latestResult: {
     epoch?: number;
@@ -371,8 +385,13 @@ router.get("/ready", async (_req: Request, res: Response) => {
     if (latestResult?.status === "CRITICAL" || activeCriticalAlerts > 0) {
       reconciliationReady = false;
     }
-  } catch {
-    // Scheduler not registered
+  } catch (err) {
+    logger.error(
+      "Health check: reconciliation readiness unavailable",
+      errorContext(err),
+    );
+    reconciliationReady = false;
+    reconciliationStatus = "UNAVAILABLE";
   }
 
   const ready = coreReady && indexerReady && reconciliationReady;

@@ -112,6 +112,19 @@ describe("/health/ready readiness gating", () => {
     } as any);
   }
 
+  /** Register a broken IndexerService to model enabled-but-unavailable wiring. */
+  async function registerUnavailableIndexer() {
+    const { IndexerService } = await import("../src/services/IndexerService");
+    container.registerInstance(IndexerService, null as any);
+  }
+
+  /** Register a broken scheduler to model unavailable reconciliation wiring. */
+  async function registerUnavailableReconciliation() {
+    const { ReconciliationScheduler } =
+      await import("../src/services/ReconciliationScheduler");
+    container.registerInstance(ReconciliationScheduler, null as any);
+  }
+
   /** Import the health router from a fresh module graph and mount it. */
   async function mountRouter() {
     const { router } = await import("../src/routes/health");
@@ -137,6 +150,71 @@ describe("/health/ready readiness gating", () => {
       expect(res.status).toBe(200);
       expect(body.ready).toBe(true);
       expect(body.checks.reconciliation.ready).toBe(true);
+    });
+  });
+
+  it("prevents public probe responses from being cached", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    await registerIndexer(10);
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const liveRes = await fetch(`${baseUrl}/health/live`);
+      const readyRes = await fetch(`${baseUrl}/health/ready`);
+
+      expect(liveRes.status).toBe(200);
+      expect(liveRes.headers.get("cache-control")).toBe("no-store");
+      expect(readyRes.status).toBe(200);
+      expect(readyRes.headers.get("cache-control")).toBe("no-store");
+    });
+  });
+
+  it("returns 503 when the enabled indexer service is unavailable", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    await registerUnavailableIndexer();
+    const { config } = await import("../src/config");
+    (
+      config as unknown as { operationalEndpointsToken?: string }
+    ).operationalEndpointsToken = OPERATIONAL_TOKEN;
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const readyRes = await fetch(`${baseUrl}/health/ready`);
+      const readyBody = await readyRes.json();
+      const fullHealthRes = await fetch(`${baseUrl}/health`, {
+        headers: { "x-operational-token": OPERATIONAL_TOKEN },
+      });
+      const fullHealthBody = await fullHealthRes.json();
+
+      expect(readyRes.status).toBe(503);
+      expect(readyBody.ready).toBe(false);
+      expect(readyBody.checks.indexer).toEqual({ lag: null, ready: false });
+      expect(fullHealthRes.status).toBe(503);
+      expect(fullHealthBody.status).toBe("unhealthy");
+      expect(fullHealthBody.indexer).toEqual({
+        ready: false,
+        status: "UNAVAILABLE",
+        lag: null,
+      });
+    });
+  });
+
+  it("returns 503 when reconciliation wiring is unavailable", async () => {
+    await setupHealthyCore();
+    await registerIndexer(10);
+    await registerUnavailableReconciliation();
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(body.ready).toBe(false);
+      expect(body.checks.reconciliation.status).toBe("UNAVAILABLE");
+      expect(body.checks.reconciliation.ready).toBe(false);
     });
   });
 
