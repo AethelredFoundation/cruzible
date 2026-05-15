@@ -325,6 +325,7 @@ describe("useUnstake", () => {
     const shares = parseEther("4");
     mocks.readContract
       .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(shares)
       .mockResolvedValueOnce(shares);
     mocks.writeContractAsync.mockResolvedValueOnce(UNSTAKE_HASH);
 
@@ -365,6 +366,7 @@ describe("useUnstake", () => {
     const shares = parseEther("5.25");
     mocks.readContract
       .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(shares)
       .mockResolvedValueOnce(0n);
     mocks.writeContractAsync
       .mockResolvedValueOnce(APPROVAL_HASH)
@@ -430,6 +432,7 @@ describe("useUnstake", () => {
     const shares = parseEther("6");
     mocks.readContract
       .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(shares)
       .mockResolvedValueOnce(0n);
     mocks.writeContractAsync.mockResolvedValueOnce(APPROVAL_HASH);
     mocks.waitForTransactionReceipt.mockResolvedValueOnce({
@@ -458,6 +461,30 @@ describe("useUnstake", () => {
       "Approval Reverted",
       "The stAETHEL approval was reverted on-chain.",
     );
+  });
+
+  it("does not approve or unstake when the live stAETHEL token balance is too low", async () => {
+    const shares = parseEther("4");
+    mocks.readContract
+      .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(parseEther("3.999"));
+
+    const { result } = renderHook(() => useUnstake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.unstake("4");
+    });
+
+    expect(hash).toBeUndefined();
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled();
+    expect(mocks.assertContractSimulation).not.toHaveBeenCalled();
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "error",
+      "Insufficient Balance",
+      "Your live stAETHEL token balance is below this unstake amount. Refresh balances and try again.",
+    );
+    expect(mocks.readContract).toHaveBeenCalledTimes(2);
   });
 
   it("blocks unstaking when the live exchange rate moved beyond the displayed quote", async () => {

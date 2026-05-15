@@ -563,6 +563,23 @@ export function useUnstake() {
           return undefined;
         }
 
+        const liveBalance = (await readContract(config, {
+          address: stAethelAddr,
+          abi: StAETHELABI,
+          functionName: "balanceOf",
+          args: [wallet.address as Address],
+          chainId: activeChain.id,
+        })) as bigint;
+
+        if (shares > liveBalance) {
+          addNotification(
+            "error",
+            "Insufficient Balance",
+            "Your live stAETHEL token balance is below this unstake amount. Refresh balances and try again.",
+          );
+          return undefined;
+        }
+
         addNotification(
           "info",
           "Checking Allowance",
