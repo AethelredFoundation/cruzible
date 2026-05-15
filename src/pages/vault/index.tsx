@@ -100,6 +100,10 @@ import {
   toDisplayWithdrawalRequests,
   type DisplayWithdrawalRequest,
 } from "@/lib/withdrawalRequests";
+import {
+  canSubmitStakeForm,
+  canSubmitUnstakeForm,
+} from "@/lib/vaultFormGuards";
 
 // ============================================================================
 // TYPES
@@ -1160,13 +1164,14 @@ function StakeTab() {
   });
   const receiveSt = stakeQuote.expectedOutput;
   const projected30d = liveApy != null ? (numAmt * liveApy) / 100 / 12 : null;
-  const isValid =
-    wallet.connected &&
-    !wallet.isWrongNetwork &&
-    parsedAmount !== null &&
-    parsedAmount >= MIN_STAKE_AMOUNT_WEI &&
-    parsedAmount <= maxBalanceWei &&
-    stakeQuote.canSubmit;
+  const isValid = canSubmitStakeForm({
+    walletConnected: wallet.connected,
+    isWrongNetwork: wallet.isWrongNetwork,
+    amountWei: parsedAmount,
+    balanceWei: maxBalanceWei,
+    quoteCanSubmit: stakeQuote.canSubmit,
+    minStakeWei: MIN_STAKE_AMOUNT_WEI,
+  });
   const processing = stakeIsPending;
 
   const handleQuick = (pct: number) => {
@@ -1558,12 +1563,13 @@ function UnstakeTab() {
     quoteUpdatedAt: vaultState.quoteUpdatedAt,
   });
   const receiveAethel = unstakeQuote.expectedOutput;
-  const isValid =
-    wallet.connected &&
-    !wallet.isWrongNetwork &&
-    parsedAmount !== null &&
-    parsedAmount <= maxBalWei &&
-    unstakeQuote.canSubmit;
+  const isValid = canSubmitUnstakeForm({
+    walletConnected: wallet.connected,
+    isWrongNetwork: wallet.isWrongNetwork,
+    amountWei: parsedAmount,
+    balanceWei: maxBalWei,
+    quoteCanSubmit: unstakeQuote.canSubmit,
+  });
   const processing = unstakeIsPending;
 
   const completionDate = useMemo(() => {
