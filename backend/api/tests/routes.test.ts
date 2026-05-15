@@ -104,6 +104,7 @@ describe("backend routes", () => {
       await import("../src/services/BlockchainService");
     const cache = new CacheService();
     const blockchain = {
+      getBlocks: vi.fn(),
       getBlockByHeight: vi.fn(),
       getBlockTransactions: vi.fn(),
     } as unknown as BlockchainService;
@@ -126,14 +127,65 @@ describe("backend routes", () => {
       const txResponse = await fetch(
         `${baseUrl}/v1/blocks/123abc/transactions`,
       );
+      const oversizedBlockResponse = await fetch(
+        `${baseUrl}/v1/blocks/9007199254740992`,
+      );
+      const oversizedTxResponse = await fetch(
+        `${baseUrl}/v1/blocks/9007199254740992/transactions`,
+      );
+      const oversizedQueryResponse = await fetch(
+        `${baseUrl}/v1/blocks?height=9007199254740992`,
+      );
 
       expect(blockResponse.status).toBe(400);
       expect(txResponse.status).toBe(400);
+      expect(oversizedBlockResponse.status).toBe(400);
+      expect(oversizedTxResponse.status).toBe(400);
+      expect(oversizedQueryResponse.status).toBe(400);
+      expect(
+        (blockchain.getBlocks as ReturnType<typeof vi.fn>).mock.calls,
+      ).toHaveLength(0);
       expect(
         (blockchain.getBlockByHeight as ReturnType<typeof vi.fn>).mock.calls,
       ).toHaveLength(0);
       expect(
         (blockchain.getBlockTransactions as ReturnType<typeof vi.fn>).mock
+          .calls,
+      ).toHaveLength(0);
+    });
+  });
+
+  it("rejects unsafe reconciliation epochs before service calls", async () => {
+    const { CacheService } = await import("../src/services/CacheService");
+    const { ReconciliationService } =
+      await import("../src/services/ReconciliationService");
+    const { ReconciliationScheduler } =
+      await import("../src/services/ReconciliationScheduler");
+    const cache = new CacheService();
+    const reconciliation = {
+      getSnapshotByEpoch: vi.fn(),
+    } as unknown as ReconciliationService;
+    const reconciliationScheduler = {
+      getLatestResult: vi.fn().mockReturnValue(null),
+    } as unknown as ReconciliationScheduler;
+
+    registerTestInstance(CacheService, cache);
+    registerTestInstance(ReconciliationService, reconciliation);
+    registerTestInstance(ReconciliationScheduler, reconciliationScheduler);
+
+    const { reconciliationRouter } =
+      await import("../src/routes/v1/reconciliation");
+    const app = express();
+    app.use("/v1/reconciliation", reconciliationRouter);
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/reconciliation/9007199254740992`,
+      );
+
+      expect(response.status).toBe(400);
+      expect(
+        (reconciliation.getSnapshotByEpoch as ReturnType<typeof vi.fn>).mock
           .calls,
       ).toHaveLength(0);
     });

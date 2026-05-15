@@ -10,6 +10,7 @@ import { z } from "zod";
 
 export const MAX_PUBLIC_PAGINATION_OFFSET = 10_000;
 export const MAX_PUBLIC_FILTER_LENGTH = 128;
+export const MAX_SAFE_ROUTE_INTEGER = Number.MAX_SAFE_INTEGER;
 const DECIMAL_INTEGER_PATTERN = /^(0|[1-9]\d*)$/;
 const DECIMAL_AMOUNT_PATTERN = /^(0|[1-9]\d*)(\.\d+)?$/;
 const MAX_DECIMAL_AMOUNT_LENGTH = 80;

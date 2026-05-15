@@ -19,6 +19,7 @@ import {
 } from "../../middleware/rateLimiter";
 import { validate } from "../../middleware/validate";
 import { asyncHandler } from "../../utils/asyncHandler";
+import { MAX_SAFE_ROUTE_INTEGER } from "../../validation/schemas";
 
 const router = Router();
 const cacheService = container.resolve(CacheService);
@@ -468,7 +469,10 @@ router.get(
  */
 router.get(
   "/:epoch",
-  [param("epoch").isInt({ min: 0 }).toInt(), validate],
+  [
+    param("epoch").isInt({ min: 0, max: MAX_SAFE_ROUTE_INTEGER }).toInt(),
+    validate,
+  ],
   asyncHandler(async (req: Request, res: Response) => {
     const epoch = Number(req.params.epoch);
     const cacheKey = buildCacheKey("reconciliation", "epoch", epoch);

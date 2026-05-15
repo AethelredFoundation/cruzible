@@ -10,12 +10,17 @@ import { CacheService, buildCacheKey } from "../../services/CacheService";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ApiError } from "../../utils/ApiError";
 import { validate } from "../../middleware/validate";
-import { MAX_PUBLIC_PAGINATION_OFFSET } from "../../validation/schemas";
+import {
+  MAX_PUBLIC_PAGINATION_OFFSET,
+  MAX_SAFE_ROUTE_INTEGER,
+} from "../../validation/schemas";
 
 const router = Router();
 const blockchainService = container.resolve(BlockchainService);
 const cacheService = container.resolve(CacheService);
-const blockHeightValidator = param("height").isInt({ min: 1 }).toInt();
+const blockHeightValidator = param("height")
+  .isInt({ min: 1, max: MAX_SAFE_ROUTE_INTEGER })
+  .toInt();
 
 /**
  * @swagger
@@ -54,7 +59,10 @@ router.get(
       .optional()
       .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
       .toInt(),
-    query("height").optional().isInt({ min: 1 }).toInt(),
+    query("height")
+      .optional()
+      .isInt({ min: 1, max: MAX_SAFE_ROUTE_INTEGER })
+      .toInt(),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
