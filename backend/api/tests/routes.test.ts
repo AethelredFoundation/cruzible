@@ -24,6 +24,11 @@ describe("backend routes", () => {
   });
 
   it("serves health status", async () => {
+    const operationalToken = "12345678901234567890123456789012";
+    const { config } = await import("../src/config");
+    (config as any).operationalEndpointsToken = operationalToken;
+    (config as any).allowUnauthenticatedOperationalEndpoints = false;
+
     const { router } = await import("../src/routes/health");
     const app = express();
     app.use("/health", router);
@@ -32,7 +37,12 @@ describe("backend routes", () => {
       // The full /health endpoint probes database and blockchain RPC.
       // Without real infrastructure the probes fail, so expect 503 with
       // a well-formed response body.
-      const response = await fetch(`${baseUrl}/health`);
+      const unauthenticated = await fetch(`${baseUrl}/health`);
+      expect(unauthenticated.status).toBe(401);
+
+      const response = await fetch(`${baseUrl}/health`, {
+        headers: { authorization: `Bearer ${operationalToken}` },
+      });
       const body = await response.json();
 
       expect(response.status).toBe(503);

@@ -169,9 +169,12 @@ export class ApiGateway {
   }
 
   private validateOperationalSurfaceConfig(): void {
-    if (config.isProduction && !config.operationalEndpointsToken) {
+    if (
+      !config.operationalEndpointsToken &&
+      !config.allowUnauthenticatedOperationalEndpoints
+    ) {
       throw new Error(
-        "Refusing to expose operational endpoints in production without OPERATIONAL_ENDPOINTS_TOKEN",
+        "Refusing to expose operational endpoints without OPERATIONAL_ENDPOINTS_TOKEN or an explicit non-production bypass",
       );
     }
   }

@@ -32,6 +32,9 @@ metadata:
     tier: backend
 spec:
   replicas: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 5
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -52,6 +55,7 @@ spec:
         prometheus.io/scrape: "false"
     spec:
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
@@ -59,6 +63,19 @@ spec:
         runAsUser: 1001
         seccompProfile:
           type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cruzible-api
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cruzible-api
       containers:
         - name: api
           image: ghcr.io/aethelred/cruzible/api@sha256:REPLACE_WITH_API_IMAGE_DIGEST
@@ -269,6 +286,9 @@ metadata:
     tier: backend
 spec:
   replicas: 1
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 5
   strategy:
     type: Recreate
   selector:
@@ -281,6 +301,7 @@ spec:
         tier: backend
     spec:
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001

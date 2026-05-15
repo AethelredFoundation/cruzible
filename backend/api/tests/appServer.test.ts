@@ -122,6 +122,9 @@ describe("ApiGateway lifecycle (server.ts)", () => {
       getStatus: vi.fn().mockResolvedValue(null),
       disconnect: vi.fn().mockResolvedValue(undefined),
     } as any);
+
+    const { config } = await import("../src/config");
+    (config as any).allowUnauthenticatedOperationalEndpoints = true;
   }
 
   // -----------------------------------------------------------------------
@@ -157,7 +160,7 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     );
   });
 
-  it("refuses to expose production operational routes without a token", async () => {
+  it("refuses to expose operational routes without a token or explicit bypass", async () => {
     await registerMockServices();
     const { config } = await import("../src/config");
     const originalConfig = {
@@ -165,18 +168,21 @@ describe("ApiGateway lifecycle (server.ts)", () => {
       metricsEnabled: config.metricsEnabled,
       apiDocsEnabled: config.apiDocsEnabled,
       operationalEndpointsToken: config.operationalEndpointsToken,
+      allowUnauthenticatedOperationalEndpoints:
+        config.allowUnauthenticatedOperationalEndpoints,
     };
 
-    (config as any).isProduction = true;
+    (config as any).isProduction = false;
     (config as any).metricsEnabled = true;
     (config as any).apiDocsEnabled = false;
     (config as any).operationalEndpointsToken = undefined;
+    (config as any).allowUnauthenticatedOperationalEndpoints = false;
 
     try {
       const { createAppServer } = await import("../src/server");
 
       expect(() => createAppServer()).toThrow(
-        "Refusing to expose operational endpoints in production without OPERATIONAL_ENDPOINTS_TOKEN",
+        "Refusing to expose operational endpoints without OPERATIONAL_ENDPOINTS_TOKEN or an explicit non-production bypass",
       );
     } finally {
       Object.assign(config as any, originalConfig);
@@ -191,6 +197,8 @@ describe("ApiGateway lifecycle (server.ts)", () => {
       metricsEnabled: config.metricsEnabled,
       apiDocsEnabled: config.apiDocsEnabled,
       operationalEndpointsToken: config.operationalEndpointsToken,
+      allowUnauthenticatedOperationalEndpoints:
+        config.allowUnauthenticatedOperationalEndpoints,
     };
     const operationalToken = "12345678901234567890123456789012";
 
@@ -198,6 +206,7 @@ describe("ApiGateway lifecycle (server.ts)", () => {
     (config as any).metricsEnabled = true;
     (config as any).apiDocsEnabled = true;
     (config as any).operationalEndpointsToken = operationalToken;
+    (config as any).allowUnauthenticatedOperationalEndpoints = false;
 
     try {
       const { createAppServer } = await import("../src/server");

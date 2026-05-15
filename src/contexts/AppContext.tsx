@@ -50,10 +50,14 @@ export interface WalletState {
   connected: boolean;
   /** The connected EVM address (checksummed) */
   address: string;
-  /** Native AETHEL balance (human-readable units) */
+  /** Native network-token balance used for gas display (human-readable units) */
   balance: number;
-  /** Native AETHEL balance in base units for transaction safety checks */
+  /** Native network-token balance in base units */
   balanceWei: bigint;
+  /** ERC20 AETHEL token balance (human-readable units) used for staking */
+  aethelBalance: number;
+  /** ERC20 AETHEL token balance in base units used for staking safety checks */
+  aethelBalanceWei: bigint;
   /** stAETHEL token balance (human-readable units) */
   stBalance: number;
   /** stAETHEL token balance in base units for transaction safety checks */
@@ -136,6 +140,8 @@ const DEFAULT_WALLET: WalletState = {
   address: "",
   balance: 0,
   balanceWei: 0n,
+  aethelBalance: 0,
+  aethelBalanceWei: 0n,
   stBalance: 0,
   stBalanceWei: 0n,
   stablecoinBalances: {},
@@ -160,6 +166,29 @@ const DEFAULT_REALTIME: RealTimeState = {
   reconciliationComplete: null,
 };
 
+const TRACKED_TOKEN_CONTRACTS = [
+  {
+    symbol: "AETHEL",
+    address: getContractAddress("aethelToken"),
+    decimals: 18,
+  },
+  {
+    symbol: "stAETHEL",
+    address: getContractAddress("stAethel"),
+    decimals: 18,
+  },
+  {
+    symbol: "USDC",
+    address: getContractAddress("usdcToken"),
+    decimals: 6,
+  },
+  {
+    symbol: "USDT",
+    address: getContractAddress("usdtToken"),
+    decimals: 6,
+  },
+] as const;
+
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
@@ -178,42 +207,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
 
-  // Query native AETHEL balance
+  // Query native network-token balance for gas/context display.
   const { data: nativeBalance } = useBalance({
     address: address,
+    chainId: activeChain.id,
     query: { enabled: isConnected, refetchInterval: 12_000 },
   });
 
-  const trackedTokenContracts = [
-    {
-      symbol: "stAETHEL",
-      address: getContractAddress("stAethel"),
-      decimals: 18,
-    },
-    {
-      symbol: "USDC",
-      address: getContractAddress("usdcToken"),
-      decimals: 6,
-    },
-    {
-      symbol: "USDT",
-      address: getContractAddress("usdtToken"),
-      decimals: 6,
-    },
-  ] as const;
-
   const { data: tokenBalances } = useReadContracts({
-    contracts: trackedTokenContracts.map((token) => ({
+    contracts: TRACKED_TOKEN_CONTRACTS.map((token) => ({
       address: token.address ?? zeroAddress,
       abi: ERC20ABI,
       functionName: "balanceOf",
       args: [address ?? "0x0000000000000000000000000000000000000000"],
+      chainId: activeChain.id,
     })),
     query: {
       enabled:
         isConnected &&
         !!address &&
-        trackedTokenContracts.every((token) => Boolean(token.address)),
+        TRACKED_TOKEN_CONTRACTS.every((token) => Boolean(token.address)),
       refetchInterval: 15_000,
     },
   });
@@ -231,9 +244,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Each balance entry uses the token's native decimals (6 for USDC/USDT).
     const stablecoinBalances: Record<string, number> = {};
     const stablecoinBalanceUnits: Record<string, bigint> = {};
-    const stAethelBalance = tokenBalances?.[0]?.result as bigint | undefined;
-    const usdcBalance = tokenBalances?.[1]?.result as bigint | undefined;
-    const usdtBalance = tokenBalances?.[2]?.result as bigint | undefined;
+    const tokenBalanceUnits = new Map<string, bigint>();
+
+    TRACKED_TOKEN_CONTRACTS.forEach((token, index) => {
+      const balance = tokenBalances?.[index]?.result as bigint | undefined;
+      if (balance !== undefined) {
+        tokenBalanceUnits.set(token.symbol, balance);
+      }
+    });
+
+    const aethelBalance = tokenBalanceUnits.get("AETHEL");
+    const stAethelBalance = tokenBalanceUnits.get("stAETHEL");
+    const usdcBalance = tokenBalanceUnits.get("USDC");
+    const usdtBalance = tokenBalanceUnits.get("USDT");
 
     if (usdcBalance !== undefined) {
       stablecoinBalances.USDC = parseFloat(formatUnits(usdcBalance, 6));
@@ -251,6 +274,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
         : 0,
       balanceWei: nativeBalance?.value ?? 0n,
+      aethelBalance:
+        aethelBalance !== undefined
+          ? parseFloat(formatUnits(aethelBalance, 18))
+          : 0,
+      aethelBalanceWei: aethelBalance ?? 0n,
       stBalance:
         stAethelBalance !== undefined
           ? parseFloat(formatUnits(stAethelBalance, 18))

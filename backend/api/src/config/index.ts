@@ -197,6 +197,7 @@ const envSchema = z.object({
   METRICS_ENABLED: optionalBooleanSchema,
   API_DOCS_ENABLED: optionalBooleanSchema,
   OPERATIONAL_ENDPOINTS_TOKEN: optionalSecretSchema,
+  ALLOW_UNAUTHENTICATED_OPERATIONAL_ENDPOINTS: optionalBooleanSchema,
 
   // Indexer configuration
   INDEXER_WS_URL: optionalUrlSchema,
@@ -330,6 +331,8 @@ const authOperatorAddresses = parseAddressList(
 );
 const metricsEnabled = parsedEnv.METRICS_ENABLED ?? true;
 const apiDocsEnabled = parsedEnv.API_DOCS_ENABLED ?? !isProduction;
+const allowUnauthenticatedOperationalEndpoints =
+  parsedEnv.ALLOW_UNAUTHENTICATED_OPERATIONAL_ENDPOINTS ?? false;
 const authExposeRefreshTokenInBody =
   parsedEnv.AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY ?? !isProduction;
 
@@ -732,6 +735,12 @@ if (isProduction && trustProxy === true) {
   );
 }
 
+if (isProduction && allowUnauthenticatedOperationalEndpoints) {
+  throw new Error(
+    "ALLOW_UNAUTHENTICATED_OPERATIONAL_ENDPOINTS cannot be enabled in production",
+  );
+}
+
 const corsOrigins = parseCorsOrigins(parsedEnv.CORS_ORIGINS, isProduction);
 const databaseUrl = parseDatabaseUrl(parsedEnv.DATABASE_URL);
 const redisUrl = parseRedisUrl(parsedEnv.REDIS_URL, isProduction);
@@ -808,6 +817,7 @@ export const config = {
   metricsEnabled,
   apiDocsEnabled,
   operationalEndpointsToken: parsedEnv.OPERATIONAL_ENDPOINTS_TOKEN,
+  allowUnauthenticatedOperationalEndpoints,
 
   // Indexer
   indexerWsUrl,

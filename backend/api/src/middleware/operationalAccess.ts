@@ -37,12 +37,13 @@ export function requireOperationalAccess(
   res: Response,
   next: NextFunction,
 ): void {
-  if (!config.isProduction) {
+  const expectedToken = config.operationalEndpointsToken;
+
+  if (!expectedToken && config.allowUnauthenticatedOperationalEndpoints) {
     next();
     return;
   }
 
-  const expectedToken = config.operationalEndpointsToken;
   const providedToken = readOperationalToken(req);
 
   if (

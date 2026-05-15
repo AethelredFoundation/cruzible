@@ -1154,8 +1154,8 @@ function StakeTab() {
 
   const parsedAmount = useMemo(() => parsePositiveEtherInput(amount), [amount]);
   const numAmt = parsedAmount ? parseFloat(formatEther(parsedAmount)) : 0;
-  const maxBalance = wallet.connected ? wallet.balance : 0;
-  const maxBalanceWei = wallet.connected ? wallet.balanceWei : 0n;
+  const maxBalance = wallet.connected ? wallet.aethelBalance : 0;
+  const maxBalanceWei = wallet.connected ? wallet.aethelBalanceWei : 0n;
 
   const liveRate = snapshot.exchangeRate;
   const liveApy = snapshot.apy;

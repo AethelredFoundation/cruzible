@@ -24,6 +24,9 @@ This runbook does not assume that every checked-in infrastructure artifact is tu
 - Operator/admin wallet addresses are provisioned through `AUTH_OPERATOR_ADDRESSES`
   and `AUTH_ADMIN_ADDRESSES`.
 - Backend env is injected by the runtime environment. `backend/api` does not auto-load `.env` files.
+- Full `/health`, `/metrics`, `/docs`, and operational WebSocket handshakes
+  require `OPERATIONAL_ENDPOINTS_TOKEN` unless a local-only runtime explicitly
+  sets `ALLOW_UNAUTHENTICATED_OPERATIONAL_ENDPOINTS=true` with no token.
 - Protected admin/ops endpoints use JWT bearer auth with wallet-backed nonce
   login, refresh-token rotation, and logout revocation.
 - Operator/admin role changes are re-evaluated on each protected ops request
@@ -111,7 +114,10 @@ readiness. The API service and pods expose Prometheus scrape annotations for
 not expose an HTTP service. All Kubernetes workloads use a read-only root
 filesystem with only a bounded `/tmp` `emptyDir` write surface, explicit
 ephemeral-storage budgets, and backend Secret projections defaulted to `0440`
-for non-root `fsGroup` access.
+for non-root `fsGroup` access. API and frontend rollouts keep a zero-unavailable
+rolling update strategy, minimum ready window, topology spread preferences, and
+PodDisruptionBudgets so voluntary node maintenance does not drain all serving
+replicas at once.
 The base NetworkPolicies do not allow cross-namespace ingress by default; label
 the approved ingress-controller namespace with
 `networking.cruzible.io/external-ingress=true` or patch the selector in an
@@ -135,7 +141,7 @@ files. Prometheus scrapes `/metrics` with the same
 | `GET /health`       | Full health report         | Includes DB, RPC, memory, uptime, optional indexer state, and optional reconciliation state |
 | `GET /health/live`  | Liveness probe             | Simple process-alive probe                                                                  |
 | `GET /health/ready` | Readiness probe            | Fails when DB/RPC are down, indexer lag exceeds 500 blocks, or reconciliation is CRITICAL   |
-| `GET /metrics`      | Prometheus scrape endpoint | Exposes process metrics plus HTTP request count, latency, and in-flight gauges              |
+| `GET /metrics`      | Prometheus scrape endpoint | Token-gated; exposes process metrics plus HTTP request count, latency, and in-flight gauges |
 | `GET /docs`         | Swagger UI                 | Built from checked-in route annotations                                                     |
 
 ### Common checks

@@ -85,6 +85,8 @@ function setConnectedWallet() {
       address: WALLET_ADDRESS,
       balance: 0,
       balanceWei: 0n,
+      aethelBalance: 0,
+      aethelBalanceWei: 0n,
       stBalance: 0,
       stBalanceWei: 0n,
       stablecoinBalances: { USDC: 10 },

@@ -89,6 +89,8 @@ function setConnectedWallet() {
       address: WALLET_ADDRESS,
       balance: 0,
       balanceWei: 0n,
+      aethelBalance: 0,
+      aethelBalanceWei: 0n,
       stBalance: 0,
       stBalanceWei: 0n,
       stablecoinBalances: {},
@@ -117,6 +119,7 @@ describe("useStake", () => {
     const amount = parseEther("1");
     mocks.readContract
       .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(amount)
       .mockResolvedValueOnce(amount);
     mocks.writeContractAsync.mockResolvedValueOnce(STAKE_HASH);
 
@@ -162,6 +165,7 @@ describe("useStake", () => {
     const amount = parseEther("2.5");
     mocks.readContract
       .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(amount)
       .mockResolvedValueOnce(0n);
     mocks.writeContractAsync
       .mockResolvedValueOnce(APPROVAL_HASH)
@@ -227,6 +231,7 @@ describe("useStake", () => {
     const amount = parseEther("3");
     mocks.readContract
       .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(amount)
       .mockResolvedValueOnce(0n);
     mocks.writeContractAsync.mockResolvedValueOnce(APPROVAL_HASH);
     mocks.waitForTransactionReceipt.mockResolvedValueOnce({
@@ -254,6 +259,29 @@ describe("useStake", () => {
       "error",
       "Approval Reverted",
       "The AETHEL approval was reverted on-chain.",
+    );
+  });
+
+  it("does not approve or stake when the live AETHEL token balance is too low", async () => {
+    const amount = parseEther("4");
+    mocks.readContract
+      .mockResolvedValueOnce(parseEther("1"))
+      .mockResolvedValueOnce(parseEther("3.999"));
+
+    const { result } = renderHook(() => useStake());
+    let hash: string | undefined;
+
+    await act(async () => {
+      hash = await result.current.stake("4");
+    });
+
+    expect(hash).toBeUndefined();
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled();
+    expect(mocks.assertContractSimulation).not.toHaveBeenCalled();
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "error",
+      "Insufficient Balance",
+      "Your live AETHEL token balance is below this stake amount. Refresh balances and try again.",
     );
   });
 });

@@ -8,6 +8,9 @@ metadata:
     tier: frontend
 spec:
   replicas: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 5
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -23,6 +26,7 @@ spec:
         tier: frontend
     spec:
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
@@ -30,6 +34,19 @@ spec:
         runAsUser: 1001
         seccompProfile:
           type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cruzible-frontend
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cruzible-frontend
       containers:
         - name: frontend
           # Public frontend API config is baked into this image at docker build
@@ -94,6 +111,17 @@ spec:
       protocol: TCP
       name: http
   type: ClusterIP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cruzible-frontend-pdb
+  namespace: cruzible
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: cruzible-frontend
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

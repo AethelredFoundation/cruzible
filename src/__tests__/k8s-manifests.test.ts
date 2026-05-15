@@ -77,6 +77,31 @@ function expectPodSecurityContext(
   expect(deployment).toContain("type: RuntimeDefault");
 }
 
+function expectRolloutBudget(
+  manifest: string,
+  deploymentName: string,
+  terminationGracePeriodSeconds: number,
+) {
+  const deployment = getDeploymentBlock(manifest, deploymentName);
+
+  expect(deployment).toContain("minReadySeconds: 10");
+  expect(deployment).toContain("progressDeadlineSeconds: 600");
+  expect(deployment).toContain("revisionHistoryLimit: 5");
+  expect(deployment).toContain(
+    `terminationGracePeriodSeconds: ${terminationGracePeriodSeconds}`,
+  );
+}
+
+function expectTopologySpread(manifest: string, deploymentName: string) {
+  const deployment = getDeploymentBlock(manifest, deploymentName);
+
+  expect(deployment).toContain("topologySpreadConstraints:");
+  expect(deployment).toContain("topologyKey: kubernetes.io/hostname");
+  expect(deployment).toContain("topologyKey: topology.kubernetes.io/zone");
+  expect(deployment).toContain("whenUnsatisfiable: ScheduleAnyway");
+  expect(deployment).toContain(`app: ${deploymentName}`);
+}
+
 function expectContainerHardening(manifest: string, deploymentName: string) {
   const deployment = getDeploymentBlock(manifest, deploymentName);
 
@@ -247,6 +272,22 @@ describe("Kubernetes base manifests", () => {
     expectContainerHardening(backendManifest, "cruzible-api");
     expectContainerHardening(backendManifest, "cruzible-indexer");
     expectContainerHardening(frontendManifest, "cruzible-frontend");
+  });
+
+  it("keeps rollouts bounded and resilient during node maintenance", () => {
+    expectRolloutBudget(backendManifest, "cruzible-api", 45);
+    expectRolloutBudget(backendManifest, "cruzible-indexer", 60);
+    expectRolloutBudget(frontendManifest, "cruzible-frontend", 45);
+
+    expectTopologySpread(backendManifest, "cruzible-api");
+    expectTopologySpread(frontendManifest, "cruzible-frontend");
+
+    expect(backendManifest).toContain("kind: PodDisruptionBudget");
+    expect(backendManifest).toContain("name: cruzible-api-pdb");
+    expect(backendManifest).toContain("name: cruzible-indexer-pdb");
+    expect(frontendManifest).toContain("kind: PodDisruptionBudget");
+    expect(frontendManifest).toContain("name: cruzible-frontend-pdb");
+    expect(frontendManifest).toContain("minAvailable: 2");
   });
 
   it("bounds writable runtime storage for read-only-root workloads", () => {

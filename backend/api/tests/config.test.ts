@@ -43,6 +43,7 @@ const CONFIG_ENV_KEYS = [
   "API_DOCS_ENABLED",
   "OPERATIONAL_ENDPOINTS_TOKEN",
   "OPERATIONAL_ENDPOINTS_TOKEN_FILE",
+  "ALLOW_UNAUTHENTICATED_OPERATIONAL_ENDPOINTS",
   "INDEXER_ENABLED",
   "INDEXER_RPC_URL",
   "INDEXER_WS_URL",
@@ -756,12 +757,25 @@ describe("backend config hardening", () => {
       METRICS_ENABLED: "false",
       API_DOCS_ENABLED: "true",
       OPERATIONAL_ENDPOINTS_TOKEN: "12345678901234567890123456789012",
+      ALLOW_UNAUTHENTICATED_OPERATIONAL_ENDPOINTS: "false",
     });
 
     expect(config.metricsEnabled).toBe(false);
     expect(config.apiDocsEnabled).toBe(true);
     expect(config.operationalEndpointsToken).toBe(
       "12345678901234567890123456789012",
+    );
+    expect(config.allowUnauthenticatedOperationalEndpoints).toBe(false);
+  });
+
+  it("rejects unauthenticated operational endpoint bypasses in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        ALLOW_UNAUTHENTICATED_OPERATIONAL_ENDPOINTS: "true",
+      }),
+    ).rejects.toThrow(
+      "ALLOW_UNAUTHENTICATED_OPERATIONAL_ENDPOINTS cannot be enabled in production",
     );
   });
 

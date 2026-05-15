@@ -16,11 +16,14 @@ describe("operational access middleware", () => {
   async function mountProtectedRoute(options: {
     isProduction: boolean;
     operationalEndpointsToken?: string;
+    allowUnauthenticatedOperationalEndpoints?: boolean;
   }) {
     const { config } = await import("../src/config");
     (config as any).isProduction = options.isProduction;
     (config as any).operationalEndpointsToken =
       options.operationalEndpointsToken;
+    (config as any).allowUnauthenticatedOperationalEndpoints =
+      options.allowUnauthenticatedOperationalEndpoints ?? false;
 
     const { requireOperationalAccess } =
       await import("../src/middleware/operationalAccess");
@@ -33,13 +36,47 @@ describe("operational access middleware", () => {
   }
 
   it("allows local operational requests without a token", async () => {
-    const app = await mountProtectedRoute({ isProduction: false });
+    const app = await mountProtectedRoute({
+      isProduction: false,
+      allowUnauthenticatedOperationalEndpoints: true,
+    });
 
     await withHttpServer(app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/metrics`);
 
       expect(response.status).toBe(200);
       expect(await response.text()).toBe("ok");
+    });
+  });
+
+  it("rejects non-production operational requests without an explicit bypass", async () => {
+    const app = await mountProtectedRoute({ isProduction: false });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/metrics`);
+      const body = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(body.error).toBe("Unauthorized");
+    });
+  });
+
+  it("requires a configured token even outside production", async () => {
+    const app = await mountProtectedRoute({
+      isProduction: false,
+      operationalEndpointsToken: OPERATIONAL_TOKEN,
+      allowUnauthenticatedOperationalEndpoints: true,
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const unauthenticatedResponse = await fetch(`${baseUrl}/metrics`);
+      const authenticatedResponse = await fetch(`${baseUrl}/metrics`, {
+        headers: { authorization: `Bearer ${OPERATIONAL_TOKEN}` },
+      });
+
+      expect(unauthenticatedResponse.status).toBe(401);
+      expect(authenticatedResponse.status).toBe(200);
+      expect(await authenticatedResponse.text()).toBe("ok");
     });
   });
 

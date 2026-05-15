@@ -139,26 +139,31 @@ export function useVaultState(): VaultState {
         address: cruzibleAddr ?? zeroAddress,
         abi: CruzibleABI,
         functionName: "totalPooledAethel",
+        chainId: activeChain.id,
       },
       {
         address: cruzibleAddr ?? zeroAddress,
         abi: CruzibleABI,
         functionName: "totalShares",
+        chainId: activeChain.id,
       },
       {
         address: cruzibleAddr ?? zeroAddress,
         abi: CruzibleABI,
         functionName: "getExchangeRate",
+        chainId: activeChain.id,
       },
       {
         address: cruzibleAddr ?? zeroAddress,
         abi: CruzibleABI,
         functionName: "currentEpoch",
+        chainId: activeChain.id,
       },
       {
         address: cruzibleAddr ?? zeroAddress,
         abi: CruzibleABI,
         functionName: "effectiveAPY",
+        chainId: activeChain.id,
       },
     ],
     query: {
@@ -191,6 +196,7 @@ export function useUserWithdrawals() {
     abi: CruzibleABI,
     functionName: "getUserWithdrawals",
     args: address ? [address] : undefined,
+    chainId: activeChain.id,
     query: {
       enabled: Boolean(address && cruzibleAddr),
       refetchInterval: 30_000,
@@ -254,6 +260,23 @@ export function useStake() {
         if (
           !(await assertLiveExchangeRate(config, cruzibleAddr, addNotification))
         ) {
+          return undefined;
+        }
+
+        const liveBalance = (await readContract(config, {
+          address: tokenAddr,
+          abi: ERC20ABI,
+          functionName: "balanceOf",
+          args: [wallet.address as Address],
+          chainId: activeChain.id,
+        })) as bigint;
+
+        if (amount > liveBalance) {
+          addNotification(
+            "error",
+            "Insufficient Balance",
+            "Your live AETHEL token balance is below this stake amount. Refresh balances and try again.",
+          );
           return undefined;
         }
 

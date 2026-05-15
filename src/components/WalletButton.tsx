@@ -115,7 +115,7 @@ export function WalletButton() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">AETHEL</span>
                 <span className="text-sm font-medium text-gray-200">
-                  {formatNumber(wallet.balance, 4)}
+                  {formatNumber(wallet.aethelBalance, 4)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
