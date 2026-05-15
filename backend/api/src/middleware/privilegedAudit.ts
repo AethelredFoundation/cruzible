@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { createHash } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { PrismaClient } from "@prisma/client";
 import type { Request, Response } from "express";
 import { container } from "tsyringe";
@@ -96,6 +96,7 @@ export interface PersistedPrivilegedAuditEvent {
 
 const MAX_MEMORY_AUDIT_EVENTS = 500;
 const PRIVILEGED_AUDIT_DRAIN_TIMEOUT_MS = 5_000;
+const PRIVILEGED_AUDIT_ADVISORY_LOCK_ID = 29_040_501;
 const auditPrisma = config.databaseUrl ? new PrismaClient() : null;
 const memoryAuditEvents: PersistedPrivilegedAuditEvent[] = [];
 const pendingPrivilegedAuditTasks = new Set<Promise<void>>();
@@ -132,8 +133,8 @@ function getOutcome(
   return "succeeded";
 }
 
-function hashValue(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+function hmacAuditValue(value: string): string {
+  return createHmac("sha256", config.logHashSecret).update(value).digest("hex");
 }
 
 function stableAuditJson(value: Record<string, unknown>): string {
@@ -144,6 +145,26 @@ function stableAuditJson(value: Record<string, unknown>): string {
         accumulator[key] = value[key];
         return accumulator;
       }, {}),
+  );
+}
+
+function computePrivilegedAuditEventHash(
+  event: Omit<PersistedPrivilegedAuditEvent, "eventHash">,
+): string {
+  return hmacAuditValue(stableAuditJson(event));
+}
+
+export function verifyPrivilegedAuditEventHash(
+  event: PersistedPrivilegedAuditEvent,
+): boolean {
+  const { eventHash, ...hashInput } = event;
+  const expectedHash = computePrivilegedAuditEventHash(hashInput);
+  const expectedBuffer = Buffer.from(expectedHash, "hex");
+  const actualBuffer = Buffer.from(eventHash, "hex");
+
+  return (
+    expectedBuffer.length === actualBuffer.length &&
+    timingSafeEqual(expectedBuffer, actualBuffer)
   );
 }
 
@@ -171,7 +192,7 @@ function buildPersistedAuditEvent(
     previousEventHash,
     createdAt,
   };
-  const eventHash = hashValue(stableAuditJson(persisted));
+  const eventHash = computePrivilegedAuditEventHash(persisted);
 
   return {
     ...persisted,
@@ -256,6 +277,7 @@ async function persistPrivilegedAuditEvent(
   }
 
   await auditPrisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PRIVILEGED_AUDIT_ADVISORY_LOCK_ID})`;
     const previousEvent = await tx.privilegedAuditEvent.findFirst({
       orderBy: { createdAt: "desc" },
       select: { eventHash: true },

@@ -42,7 +42,7 @@ This runbook does not assume that every checked-in infrastructure artifact is tu
   log events for successful and rejected requests. Retain these logs with the
   corresponding `requestId` during incident review.
 - When PostgreSQL is configured, privileged audit decisions are persisted in the
-  append-only `PrivilegedAuditEvent` table. Treat the event hash chain and
+  append-only `PrivilegedAuditEvent` table. Treat the event HMAC chain and
   `requestId` as incident evidence and preserve database snapshots before
   remediation work.
 

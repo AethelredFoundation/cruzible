@@ -107,6 +107,8 @@ describe("privileged access audit logging", () => {
 
       const { getMemoryPrivilegedAuditEvents } =
         await import("../src/middleware/privilegedAudit");
+      const { verifyPrivilegedAuditEventHash } =
+        await import("../src/middleware/privilegedAudit");
       const persistedEvents = getMemoryPrivilegedAuditEvents();
 
       expect(persistedEvents).toHaveLength(1);
@@ -127,10 +129,54 @@ describe("privileged access audit logging", () => {
         }),
       );
       expect(persistedEvents[0].eventHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(verifyPrivilegedAuditEventHash(persistedEvents[0])).toBe(true);
+      expect(
+        verifyPrivilegedAuditEventHash({
+          ...persistedEvents[0],
+          method: "POST",
+        }),
+      ).toBe(false);
       expect(persistedEvents[0].ipHash).toMatch(/^[a-f0-9]{64}$/);
       expect(persistedEvents[0].userAgentHash).toMatch(/^[a-f0-9]{64}$/);
       expect(JSON.stringify(persistedEvents[0])).not.toContain("secret");
     });
+  });
+
+  it("links consecutive privileged audit events with keyed hashes", async () => {
+    const {
+      getMemoryPrivilegedAuditEvents,
+      recordPrivilegedAuditEvent,
+      verifyPrivilegedAuditEventHash,
+    } = await import("../src/middleware/privilegedAudit");
+
+    const baseRecord = {
+      method: "GET",
+      path: "/ops",
+      principalType: "operational-token" as const,
+      decision: "allowed" as const,
+      outcome: "succeeded" as const,
+      statusCode: 200,
+      ip: "127.0.0.1",
+      userAgent: "AuditRouteTest/1.0",
+    };
+
+    recordPrivilegedAuditEvent({
+      ...baseRecord,
+      requestId: "audit-chain-1",
+    });
+    recordPrivilegedAuditEvent({
+      ...baseRecord,
+      requestId: "audit-chain-2",
+    });
+
+    const persistedEvents = getMemoryPrivilegedAuditEvents();
+
+    expect(persistedEvents).toHaveLength(2);
+    expect(persistedEvents[0].previousEventHash).toBeNull();
+    expect(persistedEvents[1].previousEventHash).toBe(
+      persistedEvents[0].eventHash,
+    );
+    expect(persistedEvents.every(verifyPrivilegedAuditEventHash)).toBe(true);
   });
 
   it("logs rejected wallet-gated requests before role checks run", async () => {
