@@ -267,6 +267,28 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain("http://127.0.0.1:3000/api/health");
   });
 
+  it("validates deployment manifests in CI", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      scripts: Record<string, string>;
+      devDependencies: Record<string, string>;
+    };
+    const validator = readRepoFile("scripts/validate-deployment-manifests.mjs");
+
+    expect(packageJson.scripts["deployment:validate"]).toBe(
+      "node scripts/validate-deployment-manifests.mjs",
+    );
+    expect(packageJson.devDependencies.yaml).toMatch(/^\^2\./);
+    expect(workflow).toContain("deployment-manifests:");
+    expect(workflow).toContain("name: Deployment Manifests");
+    expect(workflow).toContain("Validate deployment manifests");
+    expect(workflow).toContain("npm run deployment:validate");
+    expect(validator).toContain("parseAllDocuments");
+    expect(validator).toContain("assertComposeImagePolicy");
+    expect(validator).toContain("assertKubernetesDeployment");
+    expect(validator).toContain("cruzible-verify-signed-images");
+  });
+
   it("validates release frontend public config before publishing images", () => {
     const workflow = readWorkflow("ci-cd.yml");
     const releaseJob = workflowJobBlocks(workflow).find(

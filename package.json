@@ -21,6 +21,7 @@
     "test:e2e:ui": "playwright test --ui",
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "security:hygiene": "node scripts/security-hygiene-scan.mjs",
+    "deployment:validate": "node scripts/validate-deployment-manifests.mjs",
     "performance:budget": "node scripts/check-frontend-bundle-budget.mjs",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
@@ -76,7 +77,8 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.57.2",
     "vite": "^8.0.7",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "yaml": "^2.8.3"
   },
   "overrides": {
     "@base-org/account": "2.5.4",

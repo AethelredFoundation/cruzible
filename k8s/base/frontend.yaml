@@ -52,6 +52,7 @@ spec:
           # Public frontend API config is baked into this image at docker build
           # time with NEXT_PUBLIC_API_URL/NEXT_PUBLIC_CHAIN_ENV build args.
           image: ghcr.io/aethelred/cruzible/frontend@sha256:REPLACE_WITH_FRONTEND_IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
               name: http
