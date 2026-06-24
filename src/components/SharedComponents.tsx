@@ -30,7 +30,6 @@ import {
   UserCheck,
   ArrowRight,
   Github,
-  Twitter,
 } from "lucide-react";
 import { useApp } from "@/contexts/AppContext";
 import { fetchValidators } from "@/lib/validators";
@@ -989,32 +988,62 @@ export function TopNav({ activePage }: TopNavProps) {
 // Footer
 // ============================================================================
 
-const FOOTER_LINKS = {
-  Resources: [
-    { label: "Documentation", href: "#" },
-    { label: "Whitepaper", href: "#" },
-    { label: "GitHub", href: "#" },
-    { label: "Block Explorer", href: "#" },
+const REPOSITORY_URL = "https://github.com/aethelred-foundation/cruzible";
+const REPOSITORY_DOCS_URL = `${REPOSITORY_URL}/blob/main`;
+
+type FooterLink = {
+  label: string;
+  href: string;
+};
+
+const FOOTER_LINKS: Record<string, FooterLink[]> = {
+  Protocol: [
+    { label: "Vault", href: "/vault" },
+    { label: "Stablecoins", href: "/stablecoins" },
+    { label: "Validators", href: "/validators" },
+    { label: "Reconciliation", href: "/reconciliation" },
   ],
   Developers: [
-    { label: "API Reference", href: "#" },
-    { label: "SDK", href: "#" },
-    { label: "Smart Contracts", href: "#" },
-    { label: "Faucet", href: "#" },
+    { label: "API Health", href: "/api/health" },
+    { label: "Jobs", href: "/jobs" },
+    { label: "Models", href: "/models" },
+    { label: "Seals", href: "/seals" },
   ],
-  Community: [
-    { label: "Discord", href: "#" },
-    { label: "Twitter", href: "#" },
-    { label: "Telegram", href: "#" },
-    { label: "Forum", href: "#" },
+  Operators: [
+    { label: "Runbook", href: `${REPOSITORY_DOCS_URL}/docs/ops/runbook.md` },
+    {
+      label: "Environment Reference",
+      href: `${REPOSITORY_DOCS_URL}/docs/ops/environment-reference.md`,
+    },
+    {
+      label: "Release Manifest",
+      href: `${REPOSITORY_DOCS_URL}/backend/contracts/deployments/release-manifest.example.json`,
+    },
+    { label: "Source Repository", href: REPOSITORY_URL },
   ],
-  Legal: [
-    { label: "Terms", href: "#" },
-    { label: "Privacy", href: "#" },
-    { label: "Security", href: "#" },
-    { label: "Bug Bounty", href: "#" },
+  Trust: [
+    {
+      label: "Readiness Register",
+      href: `${REPOSITORY_DOCS_URL}/docs/architecture/12-public-readiness.md`,
+    },
+    {
+      label: "Security Model",
+      href: `${REPOSITORY_DOCS_URL}/docs/architecture/10-security-trust-model.md`,
+    },
+    {
+      label: "Dependency Posture",
+      href: `${REPOSITORY_DOCS_URL}/docs/security/dependency-exceptions.md`,
+    },
+    {
+      label: "Contract Audit Packet",
+      href: `${REPOSITORY_DOCS_URL}/backend/contracts/AUDIT_PACKET.md`,
+    },
   ],
 };
+
+function isExternalHref(href: string): boolean {
+  return /^https?:\/\//u.test(href);
+}
 
 export function Footer() {
   return (
@@ -1031,16 +1060,30 @@ export function Footer() {
                 {heading}
               </h3>
               <ul className="space-y-2.5">
-                {links.map((link) => (
-                  <li key={link.label}>
-                    <a
-                      href={link.href}
-                      className="text-sm text-slate-400 transition-colors hover:text-white"
-                    >
-                      {link.label}
-                    </a>
-                  </li>
-                ))}
+                {links.map((link) => {
+                  const external = isExternalHref(link.href);
+                  const className =
+                    "text-sm text-slate-400 transition-colors hover:text-white";
+
+                  return (
+                    <li key={link.label}>
+                      {external ? (
+                        <a
+                          href={link.href}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className={className}
+                        >
+                          {link.label}
+                        </a>
+                      ) : (
+                        <Link href={link.href} className={className}>
+                          {link.label}
+                        </Link>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}
@@ -1068,23 +1111,27 @@ export function Footer() {
 
           <div className="flex items-center gap-4">
             <a
-              href="#"
+              href={REPOSITORY_URL}
+              target="_blank"
+              rel="noreferrer noopener"
               className="text-slate-500 transition-colors hover:text-white"
-              aria-label="GitHub"
+              aria-label="Source repository"
             >
               <Github size={18} />
             </a>
-            <a
-              href="#"
+            <Link
+              href="/reconciliation"
               className="text-slate-500 transition-colors hover:text-white"
-              aria-label="Twitter"
+              aria-label="Public reconciliation"
             >
-              <Twitter size={18} />
-            </a>
+              <CheckCircle2 size={18} />
+            </Link>
             <a
-              href="#"
+              href={`${REPOSITORY_DOCS_URL}/docs/architecture/12-public-readiness.md`}
+              target="_blank"
+              rel="noreferrer noopener"
               className="text-slate-500 transition-colors hover:text-white"
-              aria-label="External link"
+              aria-label="Readiness register"
             >
               <ExternalLink size={18} />
             </a>
