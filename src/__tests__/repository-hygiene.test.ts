@@ -65,4 +65,24 @@ describe("repository hygiene", () => {
     expect(runner).toContain('"test:e2e"');
     expect(runner).toContain("!filePath.startsWith(E2E_PREFIX)");
   });
+
+  it("keeps the production gap register in local and CI quality gates", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const securityWorkflow = readFileSync(
+      ".github/workflows/security-audit.yml",
+      "utf8",
+    );
+
+    expect(packageJson.scripts["readiness:gaps"]).toBe(
+      "node scripts/validate-production-gap-register.mjs",
+    );
+    expect(packageJson.scripts.validate).toContain("npm run readiness:gaps");
+    expect(packageJson.scripts["verify:ci"]).toContain(
+      "npm run readiness:gaps",
+    );
+    expect(securityWorkflow).toContain("Validate production gap register");
+    expect(securityWorkflow).toContain("npm run readiness:gaps");
+  });
 });

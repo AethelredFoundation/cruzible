@@ -6,7 +6,8 @@
     <a href="docs/ops/runbook.md">Ops Runbook</a> &middot;
     <a href="docs/ops/environment-reference.md">Environment Reference</a> &middot;
     <a href="docs/architecture/11-benchmarking-slos.md">Benchmarking &amp; SLOs</a> &middot;
-    <a href="docs/architecture/12-public-readiness.md">Public Readiness</a>
+    <a href="docs/architecture/12-public-readiness.md">Public Readiness</a> &middot;
+    <a href="docs/architecture/13-production-gap-register.md">Production Gap Register</a>
   </p>
 </div>
 
@@ -21,6 +22,7 @@ Runtime UI surfaces are expected to fail closed, show readiness-gated states, or
 - [docs/ops/runbook.md](docs/ops/runbook.md)
 - [docs/ops/environment-reference.md](docs/ops/environment-reference.md)
 - [docs/architecture/12-public-readiness.md](docs/architecture/12-public-readiness.md)
+- [docs/architecture/13-production-gap-register.md](docs/architecture/13-production-gap-register.md)
 
 ## Current Repo Surface
 
@@ -147,7 +149,7 @@ cargo test --all
 - Frontend public-data requests require `NEXT_PUBLIC_API_URL` at build time because Next.js public env is compiled into browser bundles; Docker images must pass `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` as build args, and production mainnet/testnet builds accept only the approved chain-specific API origin.
 - `backend/api/src/services/CacheService.ts` uses Redis when `REDIS_URL` is configured and requires TLS Redis URLs in production; local/test runs keep an in-memory fallback.
 - `backend/api/src/services/AlertService.ts` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.
-- Some frontend surfaces remain preview-oriented. Governance explicitly guards against simulated on-chain success, and several pages use mock or fallback data for presentation.
+- Some frontend surfaces remain preview-oriented. Runtime pages fail closed, stay empty, or show readiness gates instead of presenting seeded/mock data as live protocol state.
 
 ## Repository Guide
 

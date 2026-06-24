@@ -21,12 +21,13 @@
     "test:e2e:ui": "playwright test --ui",
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "security:hygiene": "node scripts/security-hygiene-scan.mjs",
+    "readiness:gaps": "node scripts/validate-production-gap-register.mjs",
     "deployment:validate": "node scripts/validate-deployment-manifests.mjs",
     "performance:budget": "node scripts/check-frontend-bundle-budget.mjs",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
-    "validate": "npm run type-check && npm run lint && npm run format:check && npm run test",
-    "verify:ci": "npm run lint && npm run format:check && npm run type-check && npm run test:ci && npm run build"
+    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run test",
+    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run type-check && npm run test:ci && npm run build"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",

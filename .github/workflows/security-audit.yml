@@ -46,6 +46,9 @@ jobs:
       - name: Run repository hygiene scan
         run: npm run security:hygiene
 
+      - name: Validate production gap register
+        run: npm run readiness:gaps
+
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'

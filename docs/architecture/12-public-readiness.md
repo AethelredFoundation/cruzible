@@ -85,3 +85,4 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - [docs/ops/environment-reference.md](../ops/environment-reference.md)
 - [docs/security/dependency-exceptions.md](../security/dependency-exceptions.md)
 - [docs/architecture/11-benchmarking-slos.md](11-benchmarking-slos.md)
+- [docs/architecture/13-production-gap-register.md](13-production-gap-register.md)
