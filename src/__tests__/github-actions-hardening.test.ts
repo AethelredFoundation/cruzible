@@ -255,6 +255,8 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain(
       'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="${CI_FRONTEND_WALLETCONNECT_PROJECT_ID}"',
     );
+    expect(workflow).toContain("Check frontend bundle budget");
+    expect(workflow).toContain("npm run performance:budget");
     expect(workflow).toContain("-t cruzible-frontend:ci .");
     expect(workflow).toContain("Verify frontend container runtime metadata");
     expect(workflow).toContain(
