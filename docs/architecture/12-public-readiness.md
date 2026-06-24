@@ -1,7 +1,7 @@
 # Public Readiness Register
 
 > Repo-backed readiness register for the current Cruzible workspace.
-> Last reconciled on 2026-05-03.
+> Last reconciled on 2026-06-24.
 
 ## 1. Purpose
 

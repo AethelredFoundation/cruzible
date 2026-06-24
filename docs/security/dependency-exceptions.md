@@ -1,6 +1,6 @@
 # Dependency Security Exceptions
 
-> Last reviewed on 2026-05-14.
+> Last reviewed on 2026-06-24.
 > This register tracks dependency advisories that remain after local remediation
 > and require either upstream fixes or an intentional product decision.
 
@@ -12,8 +12,9 @@ No active production dependency exceptions are accepted in this branch.
 
 - The application resolves `postcss@8.5.10`, including the Next.js dependency path.
 - Unused telemetry packages were removed so the production audit surface is limited to the framework itself instead of framework-adjacent packages.
-- Frontend wallet dependencies were upgraded to current safe versions, clearing the prior `wagmi`, `@wagmi/connectors`, `axios`, and Coinbase SDK audit path.
-- CI and local validation continue to run root/backend API production npm audits, TypeScript SDK npm audits, and contract Cargo audits without hidden RustSec suppressions.
+- Frontend wallet dependencies and overrides resolve patched `axios`, `form-data`, `hono`, and `ws` versions across WalletConnect, Coinbase, Wagmi, and Viem paths.
+- Backend API overrides resolve patched `@grpc/grpc-js`, `protobufjs`, `qs`, `ws`, `vite`, and `esbuild` versions across production and build/test paths.
+- CI and local validation continue to run root/backend API production and build/development npm audits, TypeScript SDK npm audits, and contract Cargo audits without hidden RustSec suppressions.
 
 ## Exit Criteria
 
