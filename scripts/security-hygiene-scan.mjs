@@ -76,6 +76,153 @@ const scanRules = [
   },
 ];
 
+const normalizePath = (value) => value.split(path.sep).join("/");
+
+function relativePathFor(root, filePath) {
+  return normalizePath(path.relative(root, filePath));
+}
+
+function isFrontendRuntimeSource(relativePath) {
+  return (
+    relativePath.startsWith("src/") &&
+    !relativePath.startsWith("src/__tests__/") &&
+    !relativePath.startsWith("src/mocks/") &&
+    /\.(?:ts|tsx|js|jsx)$/.test(relativePath)
+  );
+}
+
+function isBackendApiRuntimeSource(relativePath) {
+  return (
+    relativePath.startsWith("backend/api/src/") &&
+    /\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(relativePath)
+  );
+}
+
+function isRuntimeSource(relativePath) {
+  return (
+    isFrontendRuntimeSource(relativePath) ||
+    isBackendApiRuntimeSource(relativePath)
+  );
+}
+
+function isDeploymentRuntimeFile(relativePath) {
+  return (
+    relativePath === "Dockerfile" ||
+    relativePath === "backend/api/Dockerfile" ||
+    relativePath.startsWith("backend/infra/") ||
+    relativePath.startsWith("k8s/") ||
+    relativePath.startsWith("terraform/")
+  );
+}
+
+const scopedLineRules = [
+  {
+    id: "frontend-dangerous-dom-sink",
+    appliesTo: isFrontendRuntimeSource,
+    pattern:
+      /\bdangerouslySetInnerHTML\b|\b__html\s*:|\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\s*\(|\bdocument\.(?:write|writeln)\s*\(|\bDOMParser\s*\(|\bcreateContextualFragment\s*\(/,
+  },
+  {
+    id: "frontend-dynamic-code-execution",
+    appliesTo: isFrontendRuntimeSource,
+    pattern:
+      /(?<![\w$.])eval\s*\(|\bnew\s+Function\s*\(|\bset(?:Timeout|Interval)\s*\(\s*["'`]/,
+  },
+  {
+    id: "frontend-unreviewed-postmessage",
+    appliesTo: isFrontendRuntimeSource,
+    pattern:
+      /\.postMessage\s*\([^,\n]+,\s*["']\*["']|addEventListener\s*\(\s*["']message["']/,
+  },
+  {
+    id: "frontend-sensitive-web-storage",
+    appliesTo: isFrontendRuntimeSource,
+    pattern:
+      /(?:localStorage|sessionStorage).*(?:token|jwt|session|auth|refresh|secret|private|password)|(?:token|jwt|session|auth|refresh|secret|private|password).*(?:localStorage|sessionStorage)/i,
+  },
+  {
+    id: "frontend-placeholder-link",
+    appliesTo: isFrontendRuntimeSource,
+    pattern: /\bhref\s*=\s*["']#["']|\bhref\s*:\s*["']#["']/,
+  },
+  {
+    id: "frontend-window-open",
+    appliesTo: isFrontendRuntimeSource,
+    pattern: /\bwindow\.open\s*\(/,
+  },
+  {
+    id: "frontend-runtime-mock-import",
+    appliesTo: isFrontendRuntimeSource,
+    pattern: /["'](?:@\/mocks|(?:\.\.\/)+mocks)|\bsetupWorker\b|\bmsw\b/,
+  },
+  {
+    id: "runtime-insecure-http-parser",
+    appliesTo: isRuntimeSource,
+    pattern: /\binsecureHTTPParser\s*:\s*true\b/,
+  },
+  {
+    id: "backend-command-execution-sink",
+    appliesTo: isBackendApiRuntimeSource,
+    pattern:
+      /from\s+["']node:child_process["']|require\s*\(\s*["'](?:node:)?child_process["']\s*\)|(?<![\w$.])(?:exec|execSync|spawn|spawnSync|fork)\s*\(|\bshell\s*:\s*true\b/,
+  },
+  {
+    id: "backend-open-redirect-from-request",
+    appliesTo: isBackendApiRuntimeSource,
+    pattern:
+      /\bres\.redirect\s*\(\s*req\.(?:query|body|params)|\bres\.location\s*\(\s*req\.(?:query|body|params)/,
+  },
+  {
+    id: "backend-unsafe-file-serving-from-request",
+    appliesTo: isBackendApiRuntimeSource,
+    pattern:
+      /\bres\.(?:sendFile|download)\s*\(\s*req\.(?:query|body|params)|\bfs\.(?:readFile|createReadStream)\s*\(\s*req\.(?:query|body|params)/,
+  },
+  {
+    id: "backend-unbounded-body-parser",
+    appliesTo: isBackendApiRuntimeSource,
+    pattern: /\bexpress\.(?:json|urlencoded)\s*\(\s*\)/,
+  },
+  {
+    id: "backend-insecure-trust-proxy",
+    appliesTo: isBackendApiRuntimeSource,
+    pattern: /\btrust proxy["']?\s*,\s*true\b/,
+  },
+  {
+    id: "backend-wildcard-cors",
+    appliesTo: isBackendApiRuntimeSource,
+    pattern: /Access-Control-Allow-Origin["']?\s*,?\s*["']\*["']/,
+  },
+  {
+    id: "deployment-node-inspector",
+    appliesTo: isDeploymentRuntimeFile,
+    pattern: /--inspect(?:=|\b)/,
+  },
+  {
+    id: "deployment-next-dev-runtime",
+    appliesTo: isDeploymentRuntimeFile,
+    pattern: /\bnext\s+dev\b/,
+  },
+];
+
+const scopedContextRules = [
+  {
+    id: "frontend-target-blank-without-noopener",
+    appliesTo: isFrontendRuntimeSource,
+    matches(lines, index) {
+      const line = lines[index];
+      if (!/\btarget\s*=\s*["']_blank["']/.test(line)) {
+        return false;
+      }
+
+      const nearbyMarkup = lines.slice(index, index + 4).join("\n");
+      return !/\brel\s*=\s*["'][^"']*\bnoopener\b[^"']*\bnoreferrer\b[^"']*["']|\brel\s*=\s*["'][^"']*\bnoreferrer\b[^"']*\bnoopener\b[^"']*["']/.test(
+        nearbyMarkup,
+      );
+    },
+  },
+];
+
 function isExcludedPath(root, candidate) {
   const relativePath = path.relative(root, candidate);
   const parts = relativePath.split(path.sep);
@@ -144,12 +291,33 @@ export function scanRepository(rootDirectory = process.cwd()) {
     }
 
     const lines = buffer.toString("utf8").split(/\r?\n/);
+    const relativePath = relativePathFor(root, filePath);
 
     for (const [index, line] of lines.entries()) {
       for (const rule of scanRules) {
         if (rule.pattern.test(line)) {
           findings.push({
-            file: path.relative(root, filePath),
+            file: relativePath,
+            line: index + 1,
+            rule: rule.id,
+          });
+        }
+      }
+
+      for (const rule of scopedLineRules) {
+        if (rule.appliesTo(relativePath) && rule.pattern.test(line)) {
+          findings.push({
+            file: relativePath,
+            line: index + 1,
+            rule: rule.id,
+          });
+        }
+      }
+
+      for (const rule of scopedContextRules) {
+        if (rule.appliesTo(relativePath) && rule.matches(lines, index)) {
+          findings.push({
+            file: relativePath,
             line: index + 1,
             rule: rule.id,
           });
