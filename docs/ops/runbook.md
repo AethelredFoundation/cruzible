@@ -217,6 +217,8 @@ cd backend/api
 npm run db:generate
 npm run db:migrate
 npm run db:migrate:status
+npm run db:backup:dry-run -- --output-dir /secure/backups --label pre-migration
+npm run db:backup -- --output-dir /secure/backups --label pre-migration
 npm run db:migrate:deploy
 ```
 
@@ -224,6 +226,8 @@ npm run db:migrate:deploy
 
 - `npm run db:migrate` maps to `prisma migrate dev`, which is appropriate for development workflows but is not, by itself, a production change-management process.
 - `npm run db:migrate:status` checks whether the target database is aligned with the checked-in Prisma migrations.
+- `npm run db:backup:dry-run` prints a redacted backup plan using `DATABASE_URL_FILE` or `DATABASE_URL` without invoking `pg_dump`.
+- `npm run db:backup` creates a PostgreSQL custom-format `.dump` plus a JSON manifest before migration windows; it passes the password through `PGPASSWORD` instead of command-line arguments.
 - `npm run db:migrate:deploy` applies checked-in migrations without creating development migration files and is the production deployment entrypoint.
 - Back up PostgreSQL before destructive data operations.
 - Do not rely on manual table truncation as a generic recovery procedure unless you have already captured a restorable backup and understand the downstream effects on indexer and reconciliation state.

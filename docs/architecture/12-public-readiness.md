@@ -47,7 +47,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | Realtime gateway                   | Partial    | Production Socket.IO handshakes require allowed origins plus access or operational tokens, and active connections are capped per client IP; end-to-end staging validation is still required                                                                                                                                                                                                     |
 | Data persistence model             | Partial    | Prisma-backed database state exists for auth, reconciliation, indexer, and alert events; Redis-backed cache is required for production                                                                                                                                                                                                                                                          |
 | Dependency exception posture       | Good       | Root, backend API, TypeScript SDK, and contract dependency audits report zero high-or-above vulnerabilities; `docs/security/dependency-exceptions.md` has no active accepted exceptions                                                                                                                                                                                                         |
-| Migration workflow                 | Partial    | Development and production Prisma migration scripts exist; rollback still depends on operator-managed database snapshots                                                                                                                                                                                                                                                                        |
+| Migration workflow                 | Partial    | Development and production Prisma migration scripts exist, and the backend now includes a redacted PostgreSQL backup helper for pre-migration snapshots; restore drills still depend on operator-managed database infrastructure                                                                                                                                                                |
 
 ## 5. Launch Blockers From The Current Repo State
 
@@ -56,7 +56,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Stage-test `k8s/base/` with real `cruzible-api-config` values, a provisioned `cruzible-api-secrets` Secret, a labeled ingress-controller namespace or equivalent overlay, and workload checks that confirm the bounded `/tmp` mounts are sufficient for runtime writes.
 - Build frontend images with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` Docker build args; frontend public-data requests fail closed when the API URL is missing, points at the wrong network, or uses a lookalike origin instead of the approved chain-specific API origin.
 - Exercise the `/v1/auth` nonce/login/refresh/logout and session revocation workflow in staging, then provision validated operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
-- Exercise `npm run db:migrate:deploy` in staging and pair it with tested database snapshot/restore procedures.
+- Exercise `npm run db:backup`, `npm run db:migrate:deploy`, and a database restore drill in staging before enabling public traffic.
 
 ## 6. Operator Assumptions That Should Be Treated As Explicit
 
