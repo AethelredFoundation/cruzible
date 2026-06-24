@@ -19,6 +19,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   useAccount,
@@ -37,6 +38,7 @@ import { activeChain } from "@/config/wagmi";
 import { ERC20ABI } from "@/config/abis";
 import { getContractAddress } from "@/config/contracts";
 import {
+  RECONCILIATION_CONTROL_PLANE_QUERY_KEY,
   fetchReconciliationControlPlane,
   type ReconciliationControlPlaneSummary,
 } from "@/lib/reconciliation";
@@ -339,39 +341,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // --- Real-time block data via wagmi --------------------------------------
   const { data: blockNumber } = useBlockNumber({
-    watch: true,
-    query: { refetchInterval: 3_000 },
+    watch: false,
+    query: { refetchInterval: 30_000, staleTime: 10_000 },
   });
 
   const [realTime, setRealTime] = useState<RealTimeState>(DEFAULT_REALTIME);
-  const [controlPlane, setControlPlane] =
-    useState<ReconciliationControlPlaneSummary | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const refreshControlPlane = async () => {
-      try {
-        const summary = await fetchReconciliationControlPlane();
-        if (!cancelled) {
-          setControlPlane(summary);
-        }
-      } catch {
-        // Keep the last known control-plane snapshot and let block height
-        // remain as the fallback source when public reconciliation is unavailable.
-      }
-    };
-
-    void refreshControlPlane();
-    const intervalId = window.setInterval(() => {
-      void refreshControlPlane();
-    }, 15_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  const { data: controlPlane = null } =
+    useQuery<ReconciliationControlPlaneSummary | null>({
+      queryKey: RECONCILIATION_CONTROL_PLANE_QUERY_KEY,
+      queryFn: fetchReconciliationControlPlane,
+      refetchInterval: 30_000,
+      staleTime: 10_000,
+      retry: 1,
+    });
 
   useEffect(() => {
     setRealTime((prev) => {

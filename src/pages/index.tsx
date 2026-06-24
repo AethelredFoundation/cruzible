@@ -21,6 +21,7 @@ import {
 } from "@/components/PagePrimitives";
 import { useApp } from "@/contexts/AppContext";
 import {
+  RECONCILIATION_CONTROL_PLANE_QUERY_KEY,
   fetchLiveReconciliation,
   fetchReconciliationControlPlane,
   type LiveReconciliationDocument,
@@ -116,9 +117,10 @@ export default function HomePage() {
   const { realTime } = useApp();
 
   const controlPlaneQuery = useQuery<ReconciliationControlPlaneSummary>({
-    queryKey: ["home-control-plane"],
+    queryKey: RECONCILIATION_CONTROL_PLANE_QUERY_KEY,
     queryFn: fetchReconciliationControlPlane,
     refetchInterval: 30000,
+    staleTime: 10000,
   });
 
   const liveReconciliationQuery = useQuery<LiveReconciliationDocument>({

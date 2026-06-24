@@ -1,5 +1,9 @@
 import { apiJson } from "@/lib/api-request";
 
+export const RECONCILIATION_CONTROL_PLANE_QUERY_KEY = [
+  "reconciliation-control-plane",
+] as const;
+
 export type ReconciliationCheckStatus =
   | "PASS"
   | "WARNING"
