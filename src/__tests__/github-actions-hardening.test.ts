@@ -253,7 +253,7 @@ describe("GitHub Actions workflow hardening", () => {
       "NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x1111111111111111111111111111111111111111",
     );
     expect(workflow).toContain(
-      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=0123456789abcdef0123456789abcdef",
+      'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="${CI_FRONTEND_WALLETCONNECT_PROJECT_ID}"',
     );
     expect(workflow).toContain("-t cruzible-frontend:ci .");
     expect(workflow).toContain("Verify frontend container runtime metadata");
@@ -263,6 +263,27 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain('config.User !== "nextjs"');
     expect(workflow).toContain('["dumb-init", "--"]');
     expect(workflow).toContain("http://127.0.0.1:3000/api/health");
+  });
+
+  it("validates release frontend public config before publishing images", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const releaseJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "release-images",
+    );
+
+    expect(releaseJob?.block).toContain("Validate frontend release config");
+    expect(releaseJob?.block).toContain("NODE_ENV: production");
+    expect(releaseJob?.block).toContain(
+      "NEXT_PUBLIC_API_URL: ${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}",
+    );
+    expect(releaseJob?.block).toContain(
+      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}",
+    );
+    expect(releaseJob?.block).toContain(
+      "node scripts/validate-frontend-public-env.mjs",
+    );
+    expect(releaseJob?.block).toContain("provenance: mode=max");
+    expect(releaseJob?.block).toContain("sbom: true");
   });
 
   it("preserves Playwright failure evidence from production smoke tests", () => {

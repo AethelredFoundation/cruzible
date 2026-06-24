@@ -24,6 +24,7 @@ env:
   NODE_VERSION: "20"
   CARGO_TERM_COLOR: always
   NEXT_TELEMETRY_DISABLED: "1"
+  CI_FRONTEND_WALLETCONNECT_PROJECT_ID: "7a4f9c2e1b8d43c6a095f2e7d4b1c830"
 
 jobs:
   frontend-quality:
@@ -98,7 +99,7 @@ jobs:
           NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS: "0x4444444444444444444444444444444444444444"
           NEXT_PUBLIC_USDC_TOKEN_ADDRESS: "0x5555555555555555555555555555555555555555"
           NEXT_PUBLIC_USDT_TOKEN_ADDRESS: "0x6666666666666666666666666666666666666666"
-          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "0123456789abcdef0123456789abcdef"
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ env.CI_FRONTEND_WALLETCONNECT_PROJECT_ID }}
         run: npm run build
 
       - name: Build frontend container
@@ -112,7 +113,7 @@ jobs:
             --build-arg NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS=0x4444444444444444444444444444444444444444 \
             --build-arg NEXT_PUBLIC_USDC_TOKEN_ADDRESS=0x5555555555555555555555555555555555555555 \
             --build-arg NEXT_PUBLIC_USDT_TOKEN_ADDRESS=0x6666666666666666666666666666666666666666 \
-            --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=0123456789abcdef0123456789abcdef \
+            --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="${CI_FRONTEND_WALLETCONNECT_PROJECT_ID}" \
             -t cruzible-frontend:ci .
 
       - name: Verify frontend container runtime metadata
@@ -316,6 +317,18 @@ jobs:
 
       - name: Validate frontend release config
         if: matrix.name == 'frontend'
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_CHAIN_ENV: ${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}
+          NEXT_PUBLIC_CRUZIBLE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}
+          NEXT_PUBLIC_STAETHEL_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}
+          NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_GOVERNANCE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_GOVERNANCE_ADDRESS }}
+          NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS }}
+          NEXT_PUBLIC_USDC_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_USDT_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
         run: |
           test -n "${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}" || (echo "RELEASE_NEXT_PUBLIC_API_URL repository variable is required" && exit 1)
           case "${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}" in
@@ -331,6 +344,7 @@ jobs:
             test -n "${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
             test -n "${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}" || (echo "RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID repository variable is required for deployed frontend releases" && exit 1)
           fi
+          node scripts/validate-frontend-public-env.mjs
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd

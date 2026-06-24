@@ -34,6 +34,8 @@ The variables below are the ones referenced from `src/` in the current workspace
 Production frontend images must be built with explicit public config:
 
 ```bash
+export WALLETCONNECT_PROJECT_ID=<your-32-character-project-id>
+
 docker build \
   --build-arg NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org \
   --build-arg NEXT_PUBLIC_CHAIN_ENV=testnet \
@@ -43,7 +45,7 @@ docker build \
   --build-arg NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS=0x... \
   --build-arg NEXT_PUBLIC_USDC_TOKEN_ADDRESS=0x... \
   --build-arg NEXT_PUBLIC_USDT_TOKEN_ADDRESS=0x... \
-  --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=0123456789abcdef0123456789abcdef \
+  --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="$WALLETCONNECT_PROJECT_ID" \
   -t cruzible-frontend:staging .
 ```
 
@@ -51,6 +53,8 @@ Mainnet frontend release images use the same explicit compiled public contract
 configuration, pointed at the mainnet API and mainnet contract deployments:
 
 ```bash
+export WALLETCONNECT_PROJECT_ID=<your-32-character-project-id>
+
 docker build \
   --build-arg NEXT_PUBLIC_API_URL=https://api.mainnet.aethelred.org \
   --build-arg NEXT_PUBLIC_CHAIN_ENV=mainnet \
@@ -60,7 +64,7 @@ docker build \
   --build-arg NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS=0x... \
   --build-arg NEXT_PUBLIC_USDC_TOKEN_ADDRESS=0x... \
   --build-arg NEXT_PUBLIC_USDT_TOKEN_ADDRESS=0x... \
-  --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=0123456789abcdef0123456789abcdef \
+  --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="$WALLETCONNECT_PROJECT_ID" \
   -t cruzible-frontend:mainnet .
 ```
 
