@@ -16,7 +16,7 @@
 
 Cruzible is a pre-mainnet monorepo for the Aethelred liquid staking experience. This README is intentionally aligned to the current workspace snapshot and avoids describing routes, deployment flows, or automation that are not actually checked in here.
 
-Some UI surfaces are production-leaning, while others still contain preview or mock fallback behavior. The operator-facing source of truth for this repository is:
+Runtime UI surfaces are expected to fail closed, show readiness-gated states, or stay empty when live data is unavailable instead of rendering seeded/mock fallback data. Test-only request mocks live under `src/mocks` and are guarded from production imports. The operator-facing source of truth for this repository is:
 
 - [docs/ops/runbook.md](docs/ops/runbook.md)
 - [docs/ops/environment-reference.md](docs/ops/environment-reference.md)
