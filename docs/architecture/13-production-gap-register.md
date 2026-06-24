@@ -62,7 +62,7 @@ The table below is intentionally strict:
 | PG-036 | API input validation | Backend request schemas validate high-risk inputs | `backend/api/src/validation/schemas.ts` | Ready | Add schemas for any new route before exposing it in `/v1` |
 | PG-037 | Rate limiting | API rate limits use Redis and fail closed on store errors | `backend/api/src/middleware/rateLimiter.ts` | Ready | Validate Redis-backed limits under staging load |
 | PG-038 | Health readiness | Liveness and readiness endpoints are split for orchestrators | `backend/api/src/routes/health.ts` | Ready | Confirm production probes match deployed manifests |
-| PG-039 | API docs coverage | Swagger route exists, but OpenAPI completeness is not fully enforced | `backend/api/src/config/swagger.ts` | Open | Add route inventory checks so public `/v1` routes have documented schemas |
+| PG-039 | API docs coverage | Swagger route coverage is now validated against mounted `/v1` routes | `backend/api/scripts/validate-openapi-coverage.mjs` and `backend/api/src/config/openapi-paths.json` | Ready | Keep validator in backend CI so new routes require documented OpenAPI coverage |
 | PG-040 | Database migrations | Prisma migration scripts exist for production deploys | `backend/api/package.json` and `backend/api/prisma/migrations` | Ready | Run migration apply and rollback rehearsal in staging |
 | PG-041 | Database backup | Redacted PostgreSQL backup workflow exists | `backend/api/scripts/backup-database.mjs` | Ready | Pair every migration drill with backup and restore evidence |
 | PG-042 | Restore drill | Restore validation still depends on operator-managed database infrastructure | `docs/ops/runbook.md` | Blocked external | Run a restore drill once staging database infrastructure exists |
@@ -105,8 +105,8 @@ The table below is intentionally strict:
 The next coding work should focus on gaps that are not blocked by funding or
 operator infrastructure:
 
-1. Add OpenAPI route inventory validation for backend `/v1` routes.
-2. Add route inventory validation for public Next.js pages and launch-gated pages.
-3. Add accessibility checks for the landing, vault, and launch-gated surfaces.
-4. Add staged launch drill scripts that can be run once staging secrets exist.
-5. Add SBOM, provenance, and image scan gates to release workflows.
+1. Add route inventory validation for public Next.js pages and launch-gated pages.
+2. Add accessibility checks for the landing, vault, and launch-gated surfaces.
+3. Add staged launch drill scripts that can be run once staging secrets exist.
+4. Add SBOM, provenance, and image scan gates to release workflows.
+5. Add egress NetworkPolicy overlays for RPC, database, Redis, and alert endpoints.

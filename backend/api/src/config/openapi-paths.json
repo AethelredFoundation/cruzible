@@ -1,0 +1,480 @@
+{
+  "/v1/auth/nonce": {
+    "get": {
+      "summary": "Reject nonce reads and direct clients to the POST challenge flow",
+      "tags": ["Auth"],
+      "responses": {
+        "405": {
+          "description": "Method not allowed"
+        }
+      }
+    },
+    "post": {
+      "summary": "Create a wallet login challenge nonce",
+      "tags": ["Auth"],
+      "responses": {
+        "200": {
+          "description": "Login challenge"
+        },
+        "400": {
+          "description": "Invalid wallet address"
+        }
+      }
+    }
+  },
+  "/v1/auth/login": {
+    "post": {
+      "summary": "Verify a wallet signature and issue access credentials",
+      "tags": ["Auth"],
+      "responses": {
+        "200": {
+          "description": "Access token response"
+        },
+        "401": {
+          "description": "Invalid challenge or signature"
+        }
+      }
+    }
+  },
+  "/v1/auth/refresh": {
+    "post": {
+      "summary": "Rotate a refresh token and issue a new access token",
+      "tags": ["Auth"],
+      "responses": {
+        "200": {
+          "description": "Rotated access token response"
+        },
+        "401": {
+          "description": "Invalid refresh token"
+        }
+      }
+    }
+  },
+  "/v1/auth/logout": {
+    "post": {
+      "summary": "Revoke the current refresh token",
+      "tags": ["Auth"],
+      "responses": {
+        "204": {
+          "description": "Refresh token revoked"
+        },
+        "401": {
+          "description": "Invalid refresh token"
+        }
+      }
+    }
+  },
+  "/v1/auth/sessions/{address}": {
+    "get": {
+      "summary": "List active refresh sessions for a wallet",
+      "tags": ["Auth"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "200": {
+          "description": "Refresh session list"
+        },
+        "403": {
+          "description": "Operator or admin role required"
+        }
+      }
+    }
+  },
+  "/v1/auth/sessions/{address}/revoke": {
+    "post": {
+      "summary": "Revoke all refresh sessions for a wallet",
+      "tags": ["Auth"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "200": {
+          "description": "Revocation result"
+        },
+        "403": {
+          "description": "Operator or admin role required"
+        }
+      }
+    }
+  },
+  "/v1/audit/privileged-access": {
+    "get": {
+      "summary": "List privileged access audit events",
+      "tags": ["Audit"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "200": {
+          "description": "Paginated privileged audit events"
+        }
+      }
+    }
+  },
+  "/v1/audit/privileged-access/export": {
+    "get": {
+      "summary": "Export privileged access audit events",
+      "tags": ["Audit"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "200": {
+          "description": "NDJSON or CSV audit export"
+        }
+      }
+    }
+  },
+  "/v1/blocks": {
+    "get": {
+      "summary": "List recent blocks",
+      "tags": ["Blocks"],
+      "responses": {
+        "200": {
+          "description": "Block list"
+        }
+      }
+    }
+  },
+  "/v1/blocks/latest": {
+    "get": {
+      "summary": "Get the latest block",
+      "tags": ["Blocks"],
+      "responses": {
+        "200": {
+          "description": "Latest block"
+        }
+      }
+    }
+  },
+  "/v1/blocks/{height}": {
+    "get": {
+      "summary": "Get a block by height",
+      "tags": ["Blocks"],
+      "responses": {
+        "200": {
+          "description": "Block detail"
+        },
+        "404": {
+          "description": "Block not found"
+        }
+      }
+    }
+  },
+  "/v1/blocks/{height}/transactions": {
+    "get": {
+      "summary": "List transactions in a block",
+      "tags": ["Blocks"],
+      "responses": {
+        "200": {
+          "description": "Block transaction list"
+        }
+      }
+    }
+  },
+  "/v1/jobs": {
+    "get": {
+      "summary": "List jobs",
+      "tags": ["Jobs"],
+      "responses": {
+        "200": {
+          "description": "Job list"
+        }
+      }
+    }
+  },
+  "/v1/jobs/stats": {
+    "get": {
+      "summary": "Get job statistics",
+      "tags": ["Jobs"],
+      "responses": {
+        "200": {
+          "description": "Job statistics"
+        }
+      }
+    }
+  },
+  "/v1/jobs/pricing": {
+    "get": {
+      "summary": "Estimate job pricing",
+      "tags": ["Jobs"],
+      "responses": {
+        "200": {
+          "description": "Pricing response"
+        }
+      }
+    }
+  },
+  "/v1/jobs/queue": {
+    "get": {
+      "summary": "Get the current job queue",
+      "tags": ["Jobs"],
+      "responses": {
+        "200": {
+          "description": "Job queue"
+        }
+      }
+    }
+  },
+  "/v1/jobs/{id}": {
+    "get": {
+      "summary": "Get a job by ID",
+      "tags": ["Jobs"],
+      "responses": {
+        "200": {
+          "description": "Job detail"
+        },
+        "404": {
+          "description": "Job not found"
+        }
+      }
+    }
+  },
+  "/v1/jobs/{id}/verifications": {
+    "get": {
+      "summary": "List verification attempts for a job",
+      "tags": ["Jobs"],
+      "responses": {
+        "200": {
+          "description": "Verification attempts"
+        }
+      }
+    }
+  },
+  "/v1/reconciliation/live": {
+    "get": {
+      "summary": "Get the live reconciliation document",
+      "tags": ["Reconciliation"],
+      "responses": {
+        "200": {
+          "description": "Live reconciliation document"
+        }
+      }
+    }
+  },
+  "/v1/reconciliation/control-plane": {
+    "get": {
+      "summary": "Get the reconciliation control-plane summary",
+      "tags": ["Reconciliation"],
+      "responses": {
+        "200": {
+          "description": "Control-plane summary"
+        }
+      }
+    }
+  },
+  "/v1/reconciliation/scorecard": {
+    "get": {
+      "summary": "Get the reconciliation trust scorecard",
+      "tags": ["Reconciliation"],
+      "responses": {
+        "200": {
+          "description": "Trust scorecard"
+        }
+      }
+    }
+  },
+  "/v1/reconciliation/capture": {
+    "post": {
+      "summary": "Capture an operator-authorized reconciliation snapshot",
+      "tags": ["Reconciliation"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "201": {
+          "description": "Persisted reconciliation snapshot"
+        },
+        "403": {
+          "description": "Operator or admin role required"
+        }
+      }
+    }
+  },
+  "/v1/reconciliation/history": {
+    "get": {
+      "summary": "List reconciliation snapshot history",
+      "tags": ["Reconciliation"],
+      "responses": {
+        "200": {
+          "description": "Reconciliation history"
+        }
+      }
+    }
+  },
+  "/v1/reconciliation/{epoch}": {
+    "get": {
+      "summary": "Get a reconciliation snapshot by epoch",
+      "tags": ["Reconciliation"],
+      "responses": {
+        "200": {
+          "description": "Reconciliation snapshot"
+        }
+      }
+    }
+  },
+  "/v1/reconciliation": {
+    "get": {
+      "summary": "Get the latest reconciliation result",
+      "tags": ["Reconciliation"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "200": {
+          "description": "Latest reconciliation result"
+        }
+      }
+    }
+  },
+  "/v1/reconciliation/summary": {
+    "get": {
+      "summary": "Get reconciliation alert summary",
+      "tags": ["Reconciliation"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "200": {
+          "description": "Reconciliation alert summary"
+        }
+      }
+    }
+  },
+  "/v1/alerts": {
+    "get": {
+      "summary": "List alert events",
+      "tags": ["Alerts"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "200": {
+          "description": "Paginated alert events"
+        }
+      }
+    }
+  },
+  "/v1/alerts/summary": {
+    "get": {
+      "summary": "Get alert counts by severity and type",
+      "tags": ["Alerts"],
+      "security": [{ "bearerAuth": [] }],
+      "responses": {
+        "200": {
+          "description": "Alert summary"
+        }
+      }
+    }
+  },
+  "/v1/stablecoins": {
+    "get": {
+      "summary": "List stablecoin bridge configurations",
+      "tags": ["Stablecoins"],
+      "responses": {
+        "200": {
+          "description": "Stablecoin configuration list"
+        }
+      }
+    }
+  },
+  "/v1/stablecoins/{assetId}": {
+    "get": {
+      "summary": "Get a stablecoin bridge configuration",
+      "tags": ["Stablecoins"],
+      "responses": {
+        "200": {
+          "description": "Stablecoin configuration"
+        },
+        "404": {
+          "description": "Stablecoin not found"
+        }
+      }
+    }
+  },
+  "/v1/stablecoins/{assetId}/history": {
+    "get": {
+      "summary": "List stablecoin bridge history events",
+      "tags": ["Stablecoins"],
+      "responses": {
+        "200": {
+          "description": "Bridge event history"
+        }
+      }
+    }
+  },
+  "/v1/stablecoins/{assetId}/status": {
+    "get": {
+      "summary": "Get stablecoin circuit-breaker and usage status",
+      "tags": ["Stablecoins"],
+      "responses": {
+        "200": {
+          "description": "Stablecoin status"
+        },
+        "404": {
+          "description": "Stablecoin not found"
+        }
+      }
+    }
+  },
+  "/v1/models": {
+    "get": {
+      "summary": "List model registry entries",
+      "tags": ["Models"],
+      "responses": {
+        "200": {
+          "description": "Model list"
+        }
+      }
+    }
+  },
+  "/v1/models/{modelHash}": {
+    "get": {
+      "summary": "Get a model registry entry by hash",
+      "tags": ["Models"],
+      "responses": {
+        "200": {
+          "description": "Model detail"
+        },
+        "404": {
+          "description": "Model not found"
+        }
+      }
+    }
+  },
+  "/v1/seals": {
+    "get": {
+      "summary": "List digital seals",
+      "tags": ["Seals"],
+      "responses": {
+        "200": {
+          "description": "Digital seal list"
+        }
+      }
+    }
+  },
+  "/v1/seals/{id}": {
+    "get": {
+      "summary": "Get a digital seal by ID",
+      "tags": ["Seals"],
+      "responses": {
+        "200": {
+          "description": "Digital seal detail"
+        },
+        "404": {
+          "description": "Digital seal not found"
+        }
+      }
+    }
+  },
+  "/v1/validators": {
+    "get": {
+      "summary": "List validator intelligence records",
+      "tags": ["Validators"],
+      "responses": {
+        "200": {
+          "description": "Validator list"
+        }
+      }
+    }
+  },
+  "/v1/validators/{address}": {
+    "get": {
+      "summary": "Get validator intelligence by operator address",
+      "tags": ["Validators"],
+      "responses": {
+        "200": {
+          "description": "Validator detail"
+        },
+        "404": {
+          "description": "Validator not found"
+        }
+      }
+    }
+  }
+}

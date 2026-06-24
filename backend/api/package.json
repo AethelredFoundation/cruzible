@@ -21,6 +21,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.mjs\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.mjs\"",
     "typecheck": "prisma generate && npm --prefix ../../sdk/typescript run build && tsc --noEmit -p tsconfig.json",
+    "openapi:validate": "node scripts/validate-openapi-coverage.mjs",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
