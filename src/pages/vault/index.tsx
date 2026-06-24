@@ -493,7 +493,7 @@ function OverviewTab({
 
       setClaimConfirm(false);
       setShowClaimModal(false);
-    } catch (err: any) {
+    } catch (err) {
       addNotification(
         "error",
         "Claim Failed",
@@ -2092,7 +2092,7 @@ function RewardsTab({
         amount: BigInt(amount),
         proof,
       });
-    } catch (err: any) {
+    } catch (err) {
       addNotification(
         "error",
         "Claim Failed",

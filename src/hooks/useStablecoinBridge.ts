@@ -40,6 +40,7 @@ import {
 import {
   assertContractSimulation,
   getTransactionFailureMessage,
+  isWalletRejectionError,
 } from "@/lib/transactionPreflight";
 
 // ---------------------------------------------------------------------------
@@ -437,11 +438,8 @@ export function useBridgeOut() {
         );
 
         return hash;
-      } catch (err: any) {
-        const isRejection =
-          err?.code === 4001 || err?.message?.includes("rejected");
-
-        if (isRejection) {
+      } catch (err) {
+        if (isWalletRejectionError(err)) {
           addNotification(
             "warning",
             "Rejected",

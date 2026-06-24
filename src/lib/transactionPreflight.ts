@@ -31,6 +31,36 @@ export function getPreflightFailureMessage(error: unknown): string {
   );
 }
 
+export function isWalletRejectionError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const maybeError = error as {
+    code?: unknown;
+    name?: unknown;
+    shortMessage?: unknown;
+    message?: unknown;
+  };
+  const message =
+    typeof maybeError.shortMessage === "string"
+      ? maybeError.shortMessage
+      : typeof maybeError.message === "string"
+        ? maybeError.message
+        : "";
+  const normalizedMessage = message.toLowerCase();
+
+  return (
+    maybeError.name === "UserRejectedRequestError" ||
+    maybeError.code === 4001 ||
+    normalizedMessage.includes("user rejected") ||
+    normalizedMessage.includes("rejected the request") ||
+    normalizedMessage.includes("transaction rejected") ||
+    normalizedMessage.includes("denied by user") ||
+    normalizedMessage.includes("user denied")
+  );
+}
+
 export async function assertContractSimulation<
   const abi extends Abi | readonly unknown[],
   functionName extends ContractFunctionName<abi, "nonpayable" | "payable">,

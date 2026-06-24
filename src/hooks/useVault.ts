@@ -33,6 +33,7 @@ import { needsTokenApproval } from "@/lib/allowance";
 import {
   assertContractSimulation,
   getTransactionFailureMessage,
+  isWalletRejectionError,
 } from "@/lib/transactionPreflight";
 
 // ---------------------------------------------------------------------------
@@ -166,7 +167,7 @@ async function assertLiveExchangeRate(
     }
 
     return exchangeRate;
-  } catch (err: any) {
+  } catch (err) {
     addNotification(
       "error",
       "Quote Check Failed",
@@ -469,11 +470,8 @@ export function useStake() {
         );
 
         return hash;
-      } catch (err: any) {
-        const isRejection =
-          err?.code === 4001 || err?.message?.includes("rejected");
-
-        if (isRejection) {
+      } catch (err) {
+        if (isWalletRejectionError(err)) {
           addNotification(
             "warning",
             "Rejected",
@@ -699,11 +697,8 @@ export function useUnstake() {
         );
 
         return hash;
-      } catch (err: any) {
-        const isRejection =
-          err?.code === 4001 || err?.message?.includes("rejected");
-
-        if (isRejection) {
+      } catch (err) {
+        if (isWalletRejectionError(err)) {
           addNotification(
             "warning",
             "Rejected",
@@ -815,11 +810,8 @@ export function useWithdraw() {
         );
 
         return hash;
-      } catch (err: any) {
-        const isRejection =
-          err?.code === 4001 || err?.message?.includes("rejected");
-
-        if (isRejection) {
+      } catch (err) {
+        if (isWalletRejectionError(err)) {
           addNotification(
             "warning",
             "Rejected",
@@ -928,11 +920,8 @@ export function useClaimRewards() {
         );
 
         return hash;
-      } catch (err: any) {
-        const isRejection =
-          err?.code === 4001 || err?.message?.includes("rejected");
-
-        if (isRejection) {
+      } catch (err) {
+        if (isWalletRejectionError(err)) {
           addNotification(
             "warning",
             "Rejected",

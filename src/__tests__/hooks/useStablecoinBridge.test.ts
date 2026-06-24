@@ -48,6 +48,14 @@ vi.mock("@/lib/transactionPreflight", () => ({
   assertContractSimulation: mocks.assertContractSimulation,
   getTransactionFailureMessage: (error: unknown, fallback = "Unknown error") =>
     error instanceof Error ? error.message : fallback,
+  isWalletRejectionError: (error: unknown) =>
+    typeof error === "object" &&
+    error !== null &&
+    ("code" in error || "message" in error) &&
+    ((error as { code?: unknown }).code === 4001 ||
+      ((error as { message?: unknown }).message as string | undefined)
+        ?.toLowerCase()
+        .includes("rejected")),
 }));
 
 vi.mock("wagmi", () => ({

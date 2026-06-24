@@ -4,6 +4,7 @@ import {
   assertContractSimulation,
   getPreflightFailureMessage,
   getTransactionFailureMessage,
+  isWalletRejectionError,
 } from "@/lib/transactionPreflight";
 
 const simulateContractMock = vi.fn();
@@ -104,5 +105,28 @@ describe("transaction preflight", () => {
     expect(message).not.toContain("super-secret");
     expect(message).not.toContain("abc.def.ghi");
     expect(message).not.toContain("0xdeadbeef");
+  });
+
+  it("classifies wallet rejections without treating arbitrary strings as trusted errors", () => {
+    expect(
+      isWalletRejectionError(
+        Object.assign(new Error("User rejected the request"), { code: 4001 }),
+      ),
+    ).toBe(true);
+    expect(isWalletRejectionError({ name: "UserRejectedRequestError" })).toBe(
+      true,
+    );
+    expect(
+      isWalletRejectionError({
+        shortMessage: "The wallet says request denied by user",
+      }),
+    ).toBe(true);
+    expect(isWalletRejectionError(new Error("RPC transport failed"))).toBe(
+      false,
+    );
+    expect(
+      isWalletRejectionError(new Error("RPC request denied by policy")),
+    ).toBe(false);
+    expect(isWalletRejectionError("rejected")).toBe(false);
   });
 });

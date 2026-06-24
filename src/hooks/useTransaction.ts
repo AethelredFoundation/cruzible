@@ -15,7 +15,10 @@ import {
   type Hash,
   type TransactionReceipt,
 } from "viem";
-import { getTransactionFailureMessage } from "@/lib/transactionPreflight";
+import {
+  getTransactionFailureMessage,
+  isWalletRejectionError,
+} from "@/lib/transactionPreflight";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -157,16 +160,9 @@ export function useTransaction(): UseTransactionReturn {
         }));
 
         return hash;
-      } catch (err: any) {
-        // Detect user rejection
-        const isRejection =
-          err?.name === "UserRejectedRequestError" ||
-          err?.code === 4001 ||
-          err?.message?.includes("rejected") ||
-          err?.message?.includes("denied");
-
+      } catch (err) {
         setState({
-          status: isRejection ? "rejected" : "error",
+          status: isWalletRejectionError(err) ? "rejected" : "error",
           hash: undefined,
           error: new Error(getTransactionFailureMessage(err)),
           receipt: null,
