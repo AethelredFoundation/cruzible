@@ -287,6 +287,15 @@ describe("GitHub Actions workflow hardening", () => {
     expect(validator).toContain("assertComposeImagePolicy");
     expect(validator).toContain("assertKubernetesDeployment");
     expect(validator).toContain("cruzible-verify-signed-images");
+    expect(validator).toContain("GITHUB_OIDC_ISSUER");
+    expect(validator).toContain("SLSA_PROVENANCE_TYPE");
+    expect(validator).toContain("collectKeylessIssuers");
+    expect(validator).not.toContain(
+      'serialized.includes("https://token.actions.githubusercontent.com")',
+    );
+    expect(validator).not.toContain(
+      'serialized.includes("https://slsa.dev/provenance/v1")',
+    );
   });
 
   it("validates release frontend public config before publishing images", () => {

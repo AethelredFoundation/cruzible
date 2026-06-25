@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Connector } from "wagmi";
 
@@ -68,19 +68,27 @@ describe("WalletButton", () => {
   });
 
   it("connects with the connector selected from the wallet modal", () => {
-    render(<WalletButton />);
+    const { container } = render(<WalletButton />);
+    const walletControls = within(container);
 
-    fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
-    fireEvent.click(screen.getByRole("button", { name: /walletconnect/i }));
+    fireEvent.click(
+      walletControls.getByRole("button", { name: /connect wallet/i }),
+    );
+    fireEvent.click(
+      walletControls.getByRole("button", { name: /walletconnect/i }),
+    );
 
     expect(mocks.connectWallet).toHaveBeenCalledWith(walletConnectConnector);
   });
 
   it("connects directly with the sole available connector", () => {
     mocks.useConnect.mockReturnValue({ connectors: [metaMaskConnector] });
-    render(<WalletButton />);
+    const { container } = render(<WalletButton />);
+    const walletControls = within(container);
 
-    fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+    fireEvent.click(
+      walletControls.getByRole("button", { name: /connect wallet/i }),
+    );
 
     expect(mocks.connectWallet).toHaveBeenCalledWith(metaMaskConnector);
   });

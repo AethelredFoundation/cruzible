@@ -6,6 +6,8 @@ import { parseAllDocuments } from "yaml";
 
 const repoRoot = process.cwd();
 const failures = [];
+const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
+const SLSA_PROVENANCE_TYPE = "https://slsa.dev/provenance/v1";
 
 function fail(message) {
   failures.push(message);
@@ -69,6 +71,14 @@ function getEnvMap(environment) {
 function getNamed(resources, kind, name) {
   return resources.find(
     (resource) => resource?.kind === kind && resource?.metadata?.name === name,
+  );
+}
+
+function collectKeylessIssuers(attestors) {
+  return asArray(attestors).flatMap((attestor) =>
+    asArray(attestor?.entries)
+      .map((entry) => entry?.keyless?.issuer)
+      .filter((issuer) => typeof issuer === "string"),
   );
 }
 
@@ -463,14 +473,33 @@ function assertImageVerificationPolicy(resources) {
     );
   }
 
-  const serialized = JSON.stringify(policy);
+  const verifierIssuers = [
+    ...collectKeylessIssuers(verifier?.attestors),
+    ...asArray(verifier?.attestations).flatMap((attestation) =>
+      collectKeylessIssuers(attestation?.attestors),
+    ),
+  ];
+  const attestationTypes = asArray(verifier?.attestations)
+    .map((attestation) => attestation?.type)
+    .filter((attestationType) => typeof attestationType === "string");
+
   assert(
-    serialized.includes("https://token.actions.githubusercontent.com"),
+    verifierIssuers.includes(GITHUB_OIDC_ISSUER),
     "image verification must require the GitHub OIDC issuer",
   );
   assert(
-    serialized.includes("https://slsa.dev/provenance/v1"),
+    verifierIssuers.every((issuer) => issuer === GITHUB_OIDC_ISSUER),
+    "image verification keyless issuers must exactly match the GitHub OIDC issuer",
+  );
+  assert(
+    attestationTypes.includes(SLSA_PROVENANCE_TYPE),
     "image verification must require SLSA provenance",
+  );
+  assert(
+    attestationTypes.every(
+      (attestationType) => attestationType === SLSA_PROVENANCE_TYPE,
+    ),
+    "image verification attestation types must exactly match SLSA provenance",
   );
 }
 
