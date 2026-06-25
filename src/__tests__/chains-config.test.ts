@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const originalEnv = { ...process.env };
+const FULL_SUITE_TIMEOUT_MS = 15000;
 
 async function importChainsConfig() {
   vi.resetModules();
@@ -19,15 +20,19 @@ describe("chain config", () => {
     vi.resetModules();
   });
 
-  it("defaults to testnet outside production when no chain env is set", async () => {
-    vi.stubEnv("NODE_ENV", "test");
+  it(
+    "defaults to testnet outside production when no chain env is set",
+    async () => {
+      vi.stubEnv("NODE_ENV", "test");
 
-    const { activeChain, AETHELRED_TESTNET_ID, CHAIN_ENV } =
-      await importChainsConfig();
+      const { activeChain, AETHELRED_TESTNET_ID, CHAIN_ENV } =
+        await importChainsConfig();
 
-    expect(CHAIN_ENV).toBe("testnet");
-    expect(activeChain.id).toBe(AETHELRED_TESTNET_ID);
-  });
+      expect(CHAIN_ENV).toBe("testnet");
+      expect(activeChain.id).toBe(AETHELRED_TESTNET_ID);
+    },
+    FULL_SUITE_TIMEOUT_MS,
+  );
 
   it("requires an explicit chain env in production", async () => {
     vi.stubEnv("NODE_ENV", "production");

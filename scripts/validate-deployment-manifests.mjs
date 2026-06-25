@@ -484,7 +484,7 @@ function assertImageVerificationPolicy(resources) {
     .filter((attestationType) => typeof attestationType === "string");
 
   assert(
-    verifierIssuers.includes(GITHUB_OIDC_ISSUER),
+    verifierIssuers.some((issuer) => issuer === GITHUB_OIDC_ISSUER),
     "image verification must require the GitHub OIDC issuer",
   );
   assert(
@@ -492,7 +492,9 @@ function assertImageVerificationPolicy(resources) {
     "image verification keyless issuers must exactly match the GitHub OIDC issuer",
   );
   assert(
-    attestationTypes.includes(SLSA_PROVENANCE_TYPE),
+    attestationTypes.some(
+      (attestationType) => attestationType === SLSA_PROVENANCE_TYPE,
+    ),
     "image verification must require SLSA provenance",
   );
   assert(

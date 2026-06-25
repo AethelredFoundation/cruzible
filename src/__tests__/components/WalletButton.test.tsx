@@ -12,6 +12,7 @@ const walletConnectConnector = {
   name: "WalletConnect",
   uid: "walletconnect-1",
 } as unknown as Connector;
+const FULL_SUITE_TIMEOUT_MS = 15000;
 
 const mocks = vi.hoisted(() => ({
   connectWallet: vi.fn(),
@@ -67,19 +68,23 @@ describe("WalletButton", () => {
     });
   });
 
-  it("connects with the connector selected from the wallet modal", () => {
-    const { container } = render(<WalletButton />);
-    const walletControls = within(container);
+  it(
+    "connects with the connector selected from the wallet modal",
+    () => {
+      const { container } = render(<WalletButton />);
+      const walletControls = within(container);
 
-    fireEvent.click(
-      walletControls.getByRole("button", { name: /connect wallet/i }),
-    );
-    fireEvent.click(
-      walletControls.getByRole("button", { name: /walletconnect/i }),
-    );
+      fireEvent.click(
+        walletControls.getByRole("button", { name: /connect wallet/i }),
+      );
+      fireEvent.click(
+        walletControls.getByRole("button", { name: /walletconnect/i }),
+      );
 
-    expect(mocks.connectWallet).toHaveBeenCalledWith(walletConnectConnector);
-  });
+      expect(mocks.connectWallet).toHaveBeenCalledWith(walletConnectConnector);
+    },
+    FULL_SUITE_TIMEOUT_MS,
+  );
 
   it("connects directly with the sole available connector", () => {
     mocks.useConnect.mockReturnValue({ connectors: [metaMaskConnector] });

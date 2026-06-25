@@ -296,6 +296,8 @@ describe("GitHub Actions workflow hardening", () => {
     expect(validator).not.toContain(
       'serialized.includes("https://slsa.dev/provenance/v1")',
     );
+    expect(validator).not.toContain("verifierIssuers.includes(");
+    expect(validator).not.toContain("attestationTypes.includes(");
   });
 
   it("validates release frontend public config before publishing images", () => {
