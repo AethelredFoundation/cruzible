@@ -66,6 +66,28 @@ describe("repository hygiene", () => {
     expect(runner).toContain("!filePath.startsWith(E2E_PREFIX)");
   });
 
+  it("keeps accessibility readiness checks in the production E2E suite", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const accessibilitySpec = readFileSync(
+      "e2e/accessibility-readiness.spec.ts",
+      "utf8",
+    );
+    const workflow = readFileSync(".github/workflows/ci-cd.yml", "utf8");
+
+    expect(packageJson.scripts["accessibility:check"]).toBe(
+      "playwright test e2e/accessibility-readiness.spec.ts --project=chromium",
+    );
+    expect(packageJson.scripts["test:e2e"]).toBe("playwright test");
+    expect(workflow).toContain("npm run test:e2e");
+    expect(accessibilitySpec).toContain("assertPageAccessibility");
+    expect(accessibilitySpec).toContain(
+      "Visible form fields must be associated with a label or aria label.",
+    );
+    expect(accessibilitySpec).toContain("main#main-content");
+  });
+
   it("keeps the production gap register in local and CI quality gates", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
       scripts: Record<string, string>;

@@ -22,18 +22,19 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | Operator runbook aligned to implemented health, reconciliation, and rollback surfaces | Ready       | `docs/ops/runbook.md`                                                          |
 | Environment reference describing loading behavior and config boundaries               | Ready       | `docs/ops/environment-reference.md`                                            |
 | Public frontend route inventory checked against `src/pages`                           | Ready       | `docs/architecture/public-route-inventory.json` and `npm run readiness:routes` |
+| Launch-facing accessibility baseline checked in production E2E                        | Ready       | `e2e/accessibility-readiness.spec.ts` and `npm run accessibility:check`        |
 | API docs from checked-in Swagger annotations                                          | Partial     | `/docs` once API is running                                                    |
 | Health, liveness, and readiness endpoints                                             | Implemented | `backend/api/src/routes/health.ts`                                             |
 
 ## 3. Supported Surface In This Workspace
 
-| Area      | Current state                                                                                                                                                                                  |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frontend  | Machine-checked Next.js public route inventory for explorer, vault, validators, jobs, models, seals, stablecoins, reconciliation, dev-only tooling, launch-gated governance, and `/api/health` |
-| API       | `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{auth,audit,blocks,jobs,reconciliation,alerts,stablecoins}`                                                                      |
-| Contracts | CosmWasm contracts for AI jobs, vault, governance, model registry, seal manager, and CW20 staking                                                                                              |
-| Testing   | Frontend Vitest, API Vitest, contract Cargo tests                                                                                                                                              |
-| Infra     | Frontend Dockerfile, API Dockerfile, contract artifact Dockerfile, partial Compose scaffold, frontend/API/indexer Kubernetes base manifests                                                    |
+| Area      | Current state                                                                                                                                                                                                                       |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend  | Machine-checked Next.js public route inventory and accessibility readiness coverage for explorer, vault, launch-gated governance, validators, jobs, models, seals, stablecoins, reconciliation, dev-only tooling, and `/api/health` |
+| API       | `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{auth,audit,blocks,jobs,reconciliation,alerts,stablecoins}`                                                                                                           |
+| Contracts | CosmWasm contracts for AI jobs, vault, governance, model registry, seal manager, and CW20 staking                                                                                                                                   |
+| Testing   | Frontend Vitest, API Vitest, contract Cargo tests                                                                                                                                                                                   |
+| Infra     | Frontend Dockerfile, API Dockerfile, contract artifact Dockerfile, partial Compose scaffold, frontend/API/indexer Kubernetes base manifests                                                                                         |
 
 ## 4. Current Readiness Assessment
 
@@ -48,6 +49,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | Realtime gateway                   | Partial    | Production Socket.IO handshakes require allowed origins plus access or operational tokens, and active connections are capped per client IP; end-to-end staging validation is still required                                                                                                                                                                                                     |
 | Data persistence model             | Partial    | Prisma-backed database state exists for auth, reconciliation, indexer, and alert events; Redis-backed cache is required for production                                                                                                                                                                                                                                                          |
 | Dependency exception posture       | Good       | Root, backend API, TypeScript SDK, and contract dependency audits report zero high-or-above vulnerabilities; `docs/security/dependency-exceptions.md` has no active accepted exceptions                                                                                                                                                                                                         |
+| Accessibility readiness            | Good       | Playwright now blocks launch-facing regressions for skip-link wiring, main landmarks, visible H1s, document metadata, labeled navigation/footer landmarks, duplicate ids, interactive accessible names, visible form labels, image alt attributes, and vault tab panels                                                                                                                         |
 | Migration workflow                 | Partial    | Development and production Prisma migration scripts exist, and the backend now includes a redacted PostgreSQL backup helper for pre-migration snapshots; restore drills still depend on operator-managed database infrastructure                                                                                                                                                                |
 
 ## 5. Launch Blockers From The Current Repo State
@@ -57,6 +59,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Stage-test `k8s/base/` with real `cruzible-api-config` values, a provisioned `cruzible-api-secrets` Secret, a labeled ingress-controller namespace or equivalent overlay, and workload checks that confirm the bounded `/tmp` mounts are sufficient for runtime writes.
 - Build frontend images with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` Docker build args; frontend public-data requests fail closed when the API URL is missing, points at the wrong network, or uses a lookalike origin instead of the approved chain-specific API origin.
 - Keep `npm run readiness:routes` green before release so new public pages are explicitly marked ready, launch-gated, operational, or dev-only.
+- Keep `npm run accessibility:check` green before release so launch-facing routes retain keyboard skip-link targets, labeled controls, and baseline landmark semantics.
 - Exercise the `/v1/auth` nonce/login/refresh/logout and session revocation workflow in staging, then provision validated operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
 - Exercise `npm run db:backup`, `npm run db:migrate:deploy`, and a database restore drill in staging before enabling public traffic.
 

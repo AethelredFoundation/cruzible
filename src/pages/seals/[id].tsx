@@ -195,7 +195,7 @@ export default function SealDetailPage() {
       <div className="min-h-screen bg-slate-950 text-slate-100">
         <TopNav activePage="explorer" />
 
-        <main className="mx-auto max-w-7xl px-6 py-10">
+        <main id="main-content" className="mx-auto max-w-7xl px-6 py-10">
           <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <Link

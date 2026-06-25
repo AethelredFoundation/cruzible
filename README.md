@@ -131,6 +131,7 @@ export NEXT_PUBLIC_CHAIN_ENV=testnet
 npm run build
 npm run test
 npm run test:coverage
+npm run accessibility:check
 npm run readiness:routes
 npm run analyze
 

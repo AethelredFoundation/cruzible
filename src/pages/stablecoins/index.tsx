@@ -517,7 +517,7 @@ export default function StablecoinsPage() {
       <div className="min-h-screen bg-gray-950 text-white">
         <TopNav activePage="stablecoins" />
 
-        <main className="max-w-5xl mx-auto px-4 pt-24 pb-16">
+        <main id="main-content" className="max-w-5xl mx-auto px-4 pt-24 pb-16">
           {/* Header */}
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-2">

@@ -220,7 +220,7 @@ export default function ModelsPage() {
       <div className="min-h-screen bg-slate-950 text-slate-100">
         <TopNav activePage="explorer" />
 
-        <main className="mx-auto max-w-7xl px-6 py-10">
+        <main id="main-content" className="mx-auto max-w-7xl px-6 py-10">
           <section className="mb-8 rounded-[32px] border border-slate-800 bg-[radial-gradient(circle_at_top_right,_rgba(34,197,94,0.16),_transparent_34%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.14),_transparent_30%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(2,6,23,0.98))] p-8 shadow-2xl">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">

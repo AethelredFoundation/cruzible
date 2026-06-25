@@ -18,6 +18,7 @@
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "test:changed": "node scripts/run-related-tests.mjs",
     "test:e2e": "playwright test",
+    "accessibility:check": "playwright test e2e/accessibility-readiness.spec.ts --project=chromium",
     "test:e2e:ui": "playwright test --ui",
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "security:hygiene": "node scripts/security-hygiene-scan.mjs",

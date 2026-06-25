@@ -8,8 +8,8 @@
 Cruzible is not yet production-live. The repository is now much stronger than a
 typical prototype because it has fail-closed frontend config, hardened runtime
 security headers, backend auth controls, dependency audits, deployment manifest
-validation, backup tooling, public route inventory validation, and CI gates. The
-remaining gap is not one feature.
+validation, backup tooling, public route inventory validation, accessibility
+readiness checks for launch-facing flows, and CI gates. The remaining gap is not one feature.
 It is the full chain of evidence needed to operate a liquid staking product with
 mainnet funds, public users, and incident pressure.
 
@@ -49,7 +49,7 @@ The table below is intentionally strict:
 | PG-022 | CSP and headers                   | Frontend has nonce CSP and strict security headers                                         | `src/middleware.ts` and `src/__tests__/next-config-security.test.ts`                                | Ready            | Validate runtime headers on every deployed preview and release candidate                           |
 | PG-023 | Bundle control                    | Frontend bundle budget is enforced after production builds                                 | `scripts/check-frontend-bundle-budget.mjs`                                                          | Ready            | Tighten budgets as pages mature and split heavy product surfaces                                   |
 | PG-024 | Performance lab evidence          | Lighthouse or synthetic user journey budgets are not yet CI-enforced                       | `docs/architecture/11-benchmarking-slos.md`                                                         | Open             | Add automated Lighthouse or Playwright performance budgets for critical paths                      |
-| PG-025 | Accessibility evidence            | Accessibility checks are not yet automated                                                 | `src/pages`                                                                                         | Open             | Add axe or equivalent accessibility checks for landing, vault, and auth flows                      |
+| PG-025 | Accessibility evidence            | Launch-facing pages have automated accessibility baseline checks in production E2E         | `e2e/accessibility-readiness.spec.ts` and `npm run accessibility:check`                             | Ready            | Keep extending coverage as new user flows, dialogs, and write paths are added                      |
 | PG-026 | Mobile readiness                  | Mobile smoke coverage exists indirectly, but device-class coverage is thin                 | `e2e/public-readiness.spec.ts`                                                                      | In progress      | Add mobile viewport E2E assertions for vault, validators, and stablecoin flows                     |
 | PG-027 | SEO origin consistency            | Canonical origin and wallet metadata are tested                                            | `src/__tests__/canonical-origin.test.ts`                                                            | Ready            | Re-run checks when launch origin or asset hosting changes                                          |
 | PG-028 | WalletConnect production ID       | Production WalletConnect ID depends on operator-provided public config                     | `scripts/validate-frontend-public-env.mjs`                                                          | In progress      | Validate real WalletConnect project ID in staging and production variables                         |
@@ -106,8 +106,8 @@ The table below is intentionally strict:
 The next coding work should focus on gaps that are not blocked by funding or
 operator infrastructure:
 
-1. Add accessibility checks for the landing, vault, and launch-gated surfaces.
-2. Add staged launch drill scripts that can be run once staging secrets exist.
-3. Add SBOM, provenance, and image scan gates to release workflows.
-4. Add egress NetworkPolicy overlays for RPC, database, Redis, and alert endpoints.
-5. Deepen user-facing risk, validator, liquidity, and withdrawal education.
+1. Add staged launch drill scripts that can be run once staging secrets exist.
+2. Add SBOM, provenance, and image scan gates to release workflows.
+3. Add egress NetworkPolicy overlays for RPC, database, Redis, and alert endpoints.
+4. Deepen user-facing risk, validator, liquidity, and withdrawal education.
+5. Add mobile viewport E2E assertions for vault, validators, and stablecoin flows.

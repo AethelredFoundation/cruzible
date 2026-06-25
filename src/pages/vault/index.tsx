@@ -212,6 +212,7 @@ function CopyBtn({ text, onCopy }: { text: string; onCopy?: () => void }) {
         onCopy?.();
         setTimeout(() => setCopied(false), 2000);
       }}
+      aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
       className="p-1 rounded hover:bg-slate-700 transition-colors"
       title="Copy"
     >
@@ -1013,10 +1014,14 @@ function CalculatorModal({
         </p>
         <div className="space-y-5">
           <div>
-            <label className="text-sm text-slate-400 mb-2 block">
+            <label
+              htmlFor="staking-calculator-amount"
+              className="text-sm text-slate-400 mb-2 block"
+            >
               Amount to Stake (AETHEL)
             </label>
             <input
+              id="staking-calculator-amount"
               type="number"
               value={calcAmount}
               onChange={(e) => setCalcAmount(Number(e.target.value) || 0)}
@@ -1024,13 +1029,17 @@ function CalculatorModal({
             />
           </div>
           <div>
-            <label className="text-sm text-slate-400 mb-2 block">
+            <label
+              htmlFor="staking-calculator-duration"
+              className="text-sm text-slate-400 mb-2 block"
+            >
               Duration:{" "}
               {calcMonths < 12
                 ? `${calcMonths} months`
                 : `${(calcMonths / 12).toFixed(1)} years`}
             </label>
             <input
+              id="staking-calculator-duration"
               type="range"
               min={1}
               max={60}
@@ -1221,7 +1230,10 @@ function StakeTab() {
           <div className="p-8">
             <div className="mb-6">
               <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium text-slate-300">
+                <label
+                  htmlFor="stake-aethel-amount"
+                  className="text-sm font-medium text-slate-300"
+                >
                   AETHEL Amount
                 </label>
                 <span className="text-xs text-slate-500">
@@ -1234,6 +1246,7 @@ function StakeTab() {
               </div>
               <div className="relative">
                 <input
+                  id="stake-aethel-amount"
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -1657,7 +1670,10 @@ function UnstakeTab() {
             <div className="p-8">
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm font-medium text-slate-300">
+                  <label
+                    htmlFor="unstake-staethel-amount"
+                    className="text-sm font-medium text-slate-300"
+                  >
                     stAETHEL Amount
                   </label>
                   <span className="text-xs text-slate-500">
@@ -1670,6 +1686,7 @@ function UnstakeTab() {
                 </div>
                 <div className="relative">
                   <input
+                    id="unstake-staethel-amount"
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
@@ -2553,10 +2570,15 @@ export default function VaultPage() {
         {/* Tab Navigation */}
         <div className="sticky top-16 z-40 bg-slate-900/80 backdrop-blur-xl border-b border-slate-700/50">
           <div className="max-w-[1400px] mx-auto px-6">
-            <nav className="flex gap-1 -mb-px overflow-x-auto">
+            <nav
+              aria-label="Vault sections"
+              className="flex gap-1 -mb-px overflow-x-auto"
+            >
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
+                  type="button"
+                  aria-pressed={activeTab === tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`px-5 py-3.5 text-sm font-medium border-b-2 whitespace-nowrap transition-all ${
                     activeTab === tab.id
@@ -2572,7 +2594,7 @@ export default function VaultPage() {
         </div>
 
         {/* Tab Content */}
-        <main className="max-w-[1400px] mx-auto px-6 py-8">
+        <main id="main-content" className="max-w-[1400px] mx-auto px-6 py-8">
           {activeTab === "overview" && (
             <OverviewTab switchTab={setActiveTab} controlPlane={controlPlane} />
           )}
