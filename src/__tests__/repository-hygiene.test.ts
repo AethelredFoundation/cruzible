@@ -88,6 +88,23 @@ describe("repository hygiene", () => {
     expect(accessibilitySpec).toContain("main#main-content");
   });
 
+  it("keeps mobile readiness checks in the production E2E suite", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const mobileSpec = readFileSync("e2e/mobile-readiness.spec.ts", "utf8");
+    const workflow = readFileSync(".github/workflows/ci-cd.yml", "utf8");
+
+    expect(packageJson.scripts["mobile:check"]).toBe(
+      "playwright test e2e/mobile-readiness.spec.ts --project=chromium",
+    );
+    expect(packageJson.scripts["test:e2e"]).toBe("playwright test");
+    expect(workflow).toContain("npm run test:e2e");
+    expect(mobileSpec).toContain("Pixel 5");
+    expect(mobileSpec).toContain("mobile-ready during upstream API outage");
+    expect(mobileSpec).toContain("horizontal mobile overflow");
+  });
+
   it("keeps the production gap register in local and CI quality gates", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
       scripts: Record<string, string>;
