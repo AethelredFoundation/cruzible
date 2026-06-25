@@ -55,6 +55,9 @@ jobs:
       - name: Validate staged launch drill contract
         run: npm run readiness:launch-drill
 
+      - name: Validate release SBOM generation
+        run: npm run release:sbom
+
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'

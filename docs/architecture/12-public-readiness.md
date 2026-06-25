@@ -67,6 +67,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Keep `npm run readiness:routes` green before release so new public pages are explicitly marked ready, launch-gated, operational, or dev-only.
 - Keep `npm run accessibility:check` green before release so launch-facing routes retain keyboard skip-link targets, labeled controls, and baseline landmark semantics.
 - Keep `npm run performance:journey` green before release so launch-facing routes stay inside synthetic DCL, load, FCP, transfer, resource-count, and runtime-error budgets.
+- Keep `npm run release:sbom` green before release, and archive the SPDX output from `npm run release:sbom:write` with the image digest inventory and contract artifacts for the same commit.
 - Keep `npm run readiness:launch-drill` green in CI, then run `npm run launch:drill:staging -- --frontend-url <staging frontend> --api-url <staging api> --evidence-file .launch-evidence/<release>.json` with `OPERATIONAL_ENDPOINTS_TOKEN` and `STAGING_OPERATOR_BEARER_TOKEN` set before approving production traffic.
 - Exercise the `/v1/auth` nonce/login/refresh/logout and session revocation workflow in staging, then provision validated operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
 - Exercise `npm run db:backup`, `npm run db:migrate:deploy`, and a database restore drill in staging before enabling public traffic.

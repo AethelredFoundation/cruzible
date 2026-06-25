@@ -45,3 +45,4 @@ target/
 backend/contracts/target/
 coverage/
 .launch-evidence/
+.release-evidence/

@@ -83,7 +83,7 @@ The table below is intentionally strict:
 | PG-055 | CI action pinning                 | GitHub Actions use pinned action references                                                | `src/__tests__/github-actions-hardening.test.ts`                                                    | Ready            | Keep new workflow actions pinned by commit                                                         |
 | PG-056 | Static analysis                   | CodeQL runs for JavaScript, Python, Rust, and Actions                                      | `.github/workflows/security-audit.yml`                                                              | Ready            | Review CodeQL findings on every PR before merge                                                    |
 | PG-057 | Dependency review                 | Pull requests run dependency review                                                        | `.github/workflows/security-audit.yml`                                                              | Ready            | Keep advisory exceptions documented and time-bounded                                               |
-| PG-058 | SBOM                              | Software bill of materials generation is not yet part of release CI                        | `.github/workflows/ci-cd.yml`                                                                       | Open             | Generate SBOMs for frontend, API, SDK, and contract release artifacts                              |
+| PG-058 | SBOM                              | SPDX release SBOM generation covers frontend, API, TypeScript SDK, and contract lockfiles and is archived by CI | `scripts/generate-release-sbom.mjs` and `.github/workflows/ci-cd.yml`                               | Ready            | Archive the generated SBOM with every release candidate and review dependency scope changes         |
 | PG-059 | Provenance attestations           | Release provenance and artifact attestations are not yet emitted                           | `.github/workflows/ci-cd.yml`                                                                       | Open             | Add provenance attestations for container images and contract bundles                              |
 | PG-060 | Runtime image scanning            | Container image vulnerability scanning is not yet enforced on built images                 | `.github/workflows/ci-cd.yml`                                                                       | Open             | Add image scan gate after frontend and backend image builds                                        |
 | PG-061 | Incident runbook                  | Operator runbook exists and covers several emergency paths                                 | `docs/ops/runbook.md`                                                                               | Mitigated        | Add evidence sections for each staged incident drill                                               |
@@ -107,7 +107,7 @@ The table below is intentionally strict:
 The next coding work should focus on gaps that are not blocked by funding or
 operator infrastructure:
 
-1. Add SBOM, provenance, and image scan gates to release workflows.
+1. Add remaining provenance and image scan gates to release workflows.
 2. Add egress NetworkPolicy overlays for RPC, database, Redis, and alert endpoints.
 3. Deepen user-facing risk, validator, liquidity, and withdrawal education.
 4. Capture live staged launch drill evidence once staging URLs and secrets exist.

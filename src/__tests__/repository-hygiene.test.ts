@@ -193,4 +193,34 @@ describe("repository hygiene", () => {
     expect(drill).toContain("Do not pass token values as CLI arguments");
     expect(drill).toContain("api-full-health-rejects-anonymous");
   });
+
+  it("keeps release SBOM generation in local and CI quality gates", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const securityWorkflow = readFileSync(
+      ".github/workflows/security-audit.yml",
+      "utf8",
+    );
+    const ciWorkflow = readFileSync(".github/workflows/ci-cd.yml", "utf8");
+    const generator = readFileSync("scripts/generate-release-sbom.mjs", "utf8");
+
+    expect(packageJson.scripts["release:sbom"]).toBe(
+      "node scripts/generate-release-sbom.mjs --check",
+    );
+    expect(packageJson.scripts["release:sbom:write"]).toBe(
+      "node scripts/generate-release-sbom.mjs --output .release-evidence/cruzible-release-sbom.spdx.json",
+    );
+    expect(packageJson.scripts.validate).toContain("npm run release:sbom");
+    expect(packageJson.scripts["verify:ci"]).toContain("npm run release:sbom");
+    expect(securityWorkflow).toContain("Validate release SBOM generation");
+    expect(securityWorkflow).toContain("npm run release:sbom");
+    expect(ciWorkflow).toContain("Release SBOM");
+    expect(ciWorkflow).toContain("npm run release:sbom:write");
+    expect(ciWorkflow).toContain(
+      ".release-evidence/cruzible-release-sbom.spdx.json",
+    );
+    expect(generator).toContain("SPDX-2.3");
+    expect(generator).toContain("backend/contracts/Cargo.lock");
+  });
 });

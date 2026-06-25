@@ -523,4 +523,27 @@ describe("GitHub Actions workflow hardening", () => {
       );
     }
   });
+
+  it("publishes deterministic repository SBOM evidence from CI", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const sbomJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "release-sbom",
+    );
+    const deploymentJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "deployment-manifests",
+    );
+
+    expect(deploymentJob?.block).toContain("Validate release SBOM generation");
+    expect(deploymentJob?.block).toContain("npm run release:sbom");
+    expect(sbomJob?.block).toContain("name: Release SBOM");
+    expect(sbomJob?.block).toContain("contents: read");
+    expect(sbomJob?.block).toContain("persist-credentials: false");
+    expect(sbomJob?.block).toContain("npm run release:sbom:write");
+    expect(sbomJob?.block).toContain("actions/upload-artifact@");
+    expect(sbomJob?.block).toContain("name: release-sbom-${{ github.sha }}");
+    expect(sbomJob?.block).toContain(
+      "path: .release-evidence/cruzible-release-sbom.spdx.json",
+    );
+    expect(sbomJob?.block).toContain("retention-days: 90");
+  });
 });
