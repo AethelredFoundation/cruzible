@@ -9,7 +9,8 @@ Cruzible is not yet production-live. The repository is now much stronger than a
 typical prototype because it has fail-closed frontend config, hardened runtime
 security headers, backend auth controls, dependency audits, deployment manifest
 validation, backup tooling, public route inventory validation, accessibility
-readiness checks for launch-facing flows, and CI gates. The remaining gap is not one feature.
+readiness checks for launch-facing flows, a staged launch drill contract, and
+CI gates. The remaining gap is not one feature.
 It is the full chain of evidence needed to operate a liquid staking product with
 mainnet funds, public users, and incident pressure.
 
@@ -88,7 +89,7 @@ The table below is intentionally strict:
 | PG-061 | Incident runbook                  | Operator runbook exists and covers several emergency paths                                 | `docs/ops/runbook.md`                                                                               | Mitigated        | Add evidence sections for each staged incident drill                                               |
 | PG-062 | Access revocation                 | Access-token revocation watermark and session revocation flows exist                       | `backend/api/src/auth/service.ts`                                                                   | Ready            | Rehearse operator revocation during staging incident drill                                         |
 | PG-063 | Operator onboarding               | Environment reference exists, but platform-specific onboarding is incomplete               | `docs/ops/environment-reference.md`                                                                 | In progress      | Add deployment-platform-specific checklists after staging target is selected                       |
-| PG-064 | Full staging smoke                | End-to-end staging smoke across auth, vault, indexer, and reconciliation is missing        | `docs/architecture/12-public-readiness.md`                                                          | Open             | Create a staged launch drill script and require evidence before production                         |
+| PG-064 | Full staging smoke                | Staged launch drill exists, but live staging evidence has not been captured yet            | `scripts/staged-launch-drill.mjs` and `npm run readiness:launch-drill`                              | In progress      | Run `npm run launch:drill:staging` with real staging URLs and token env vars before production     |
 | PG-065 | Disaster recovery                 | DR recovery time and recovery point targets are not validated                              | `docs/ops/runbook.md`                                                                               | Open             | Define RTO/RPO targets and prove restore timing in staging                                         |
 | PG-066 | SLO benchmarking                  | Benchmarking SLO doc exists, but automated enforcement is partial                          | `docs/architecture/11-benchmarking-slos.md`                                                         | In progress      | Wire API benchmarks and frontend journey budgets into CI or staging jobs                           |
 | PG-067 | Production monitoring calibration | Alert thresholds need real workload calibration                                            | `backend/infra/config/prometheus/alerts.yml`                                                        | Blocked external | Tune thresholds after staged traffic and RPC dependency behavior are observed                      |
@@ -106,8 +107,8 @@ The table below is intentionally strict:
 The next coding work should focus on gaps that are not blocked by funding or
 operator infrastructure:
 
-1. Add staged launch drill scripts that can be run once staging secrets exist.
-2. Add SBOM, provenance, and image scan gates to release workflows.
-3. Add egress NetworkPolicy overlays for RPC, database, Redis, and alert endpoints.
-4. Deepen user-facing risk, validator, liquidity, and withdrawal education.
-5. Add mobile viewport E2E assertions for vault, validators, and stablecoin flows.
+1. Add SBOM, provenance, and image scan gates to release workflows.
+2. Add egress NetworkPolicy overlays for RPC, database, Redis, and alert endpoints.
+3. Deepen user-facing risk, validator, liquidity, and withdrawal education.
+4. Add mobile viewport E2E assertions for vault, validators, and stablecoin flows.
+5. Capture live staged launch drill evidence once staging URLs and secrets exist.

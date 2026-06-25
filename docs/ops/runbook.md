@@ -154,6 +154,36 @@ curl -s http://localhost:3001/metrics | head
 curl -s http://localhost:3001/v1/reconciliation/live?validator_limit=50 | jq
 ```
 
+### Staged launch drill
+
+Before approving public traffic, run the staged launch drill from the repository
+commit intended for release. The dry run is CI-safe and proves the drill
+contract is still maintained:
+
+```bash
+npm run readiness:launch-drill
+```
+
+Live staging mode performs HTTP checks against the deployed frontend and API,
+including frontend health, critical public pages, API liveness/readiness,
+anonymous rejection for full `/health`, `/metrics`, `/docs`, public
+reconciliation, protected reconciliation status, and alert summary. Supply
+secrets through environment variables only; do not pass token values as command
+arguments:
+
+```bash
+export OPERATIONAL_ENDPOINTS_TOKEN=...
+export STAGING_OPERATOR_BEARER_TOKEN=...
+npm run launch:drill:staging -- \
+  --frontend-url https://staging.cruzible.example \
+  --api-url https://api.staging.cruzible.example \
+  --evidence-file .launch-evidence/staging-$(date +%Y%m%dT%H%M%S).json
+```
+
+The evidence file records commit, checked repository evidence, endpoint status,
+request timing, and sanitized response summaries. It records whether token env
+vars were present, but it never records token values.
+
 ### Readiness interpretation
 
 - Database and RPC are hard requirements for readiness.

@@ -127,4 +127,32 @@ describe("repository hygiene", () => {
     expect(securityWorkflow).toContain("Validate public route inventory");
     expect(securityWorkflow).toContain("npm run readiness:routes");
   });
+
+  it("keeps the staged launch drill contract in local and CI quality gates", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const securityWorkflow = readFileSync(
+      ".github/workflows/security-audit.yml",
+      "utf8",
+    );
+    const drill = readFileSync("scripts/staged-launch-drill.mjs", "utf8");
+
+    expect(packageJson.scripts["readiness:launch-drill"]).toBe(
+      "node scripts/staged-launch-drill.mjs --dry-run",
+    );
+    expect(packageJson.scripts["launch:drill:staging"]).toBe(
+      "node scripts/staged-launch-drill.mjs",
+    );
+    expect(packageJson.scripts.validate).toContain(
+      "npm run readiness:launch-drill",
+    );
+    expect(packageJson.scripts["verify:ci"]).toContain(
+      "npm run readiness:launch-drill",
+    );
+    expect(securityWorkflow).toContain("Validate staged launch drill contract");
+    expect(securityWorkflow).toContain("npm run readiness:launch-drill");
+    expect(drill).toContain("Do not pass token values as CLI arguments");
+    expect(drill).toContain("api-full-health-rejects-anonymous");
+  });
 });

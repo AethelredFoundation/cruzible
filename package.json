@@ -24,12 +24,14 @@
     "security:hygiene": "node scripts/security-hygiene-scan.mjs",
     "readiness:gaps": "node scripts/validate-production-gap-register.mjs",
     "readiness:routes": "node scripts/validate-public-route-inventory.mjs",
+    "readiness:launch-drill": "node scripts/staged-launch-drill.mjs --dry-run",
+    "launch:drill:staging": "node scripts/staged-launch-drill.mjs",
     "deployment:validate": "node scripts/validate-deployment-manifests.mjs",
     "performance:budget": "node scripts/check-frontend-bundle-budget.mjs",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
-    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run test",
-    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run type-check && npm run test:ci && npm run build"
+    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:launch-drill && npm run test",
+    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:launch-drill && npm run type-check && npm run test:ci && npm run build"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",

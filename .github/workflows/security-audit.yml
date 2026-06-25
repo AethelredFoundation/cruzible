@@ -52,6 +52,9 @@ jobs:
       - name: Validate public route inventory
         run: npm run readiness:routes
 
+      - name: Validate staged launch drill contract
+        run: npm run readiness:launch-drill
+
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'

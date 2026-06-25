@@ -44,3 +44,4 @@ Thumbs.db
 target/
 backend/contracts/target/
 coverage/
+.launch-evidence/
