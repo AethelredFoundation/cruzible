@@ -1,0 +1,206 @@
+{
+  "version": 1,
+  "lastReconciled": "2026-06-25",
+  "scope": "Next.js public page and API routes under src/pages. Backend /v1 route coverage is enforced separately by backend/api/scripts/validate-openapi-coverage.mjs.",
+  "routes": [
+    {
+      "path": "/",
+      "kind": "page",
+      "file": "src/pages/index.tsx",
+      "status": "ready",
+      "surface": "Landing and protocol overview",
+      "control": "Public landing content links only to checked-in surfaces and avoids seeded protocol claims.",
+      "evidence": [
+        "src/pages/index.tsx",
+        "src/__tests__/footer-links.test.ts",
+        "docs/architecture/12-public-readiness.md"
+      ]
+    },
+    {
+      "path": "/api/health",
+      "kind": "next-api",
+      "file": "src/pages/api/health.ts",
+      "status": "operational",
+      "surface": "Frontend runtime health probe",
+      "control": "Health probe is a bounded operational endpoint used by smoke tests and container health checks.",
+      "evidence": [
+        "src/pages/api/health.ts",
+        "src/__tests__/api-health.test.ts",
+        "e2e/public-readiness.spec.ts"
+      ]
+    },
+    {
+      "path": "/devtools",
+      "kind": "page",
+      "file": "src/pages/devtools.tsx",
+      "status": "dev-only",
+      "surface": "Local diagnostic control surface",
+      "control": "Server-side route guard returns notFound unless devtools are explicitly enabled outside production.",
+      "evidence": [
+        "src/pages/devtools.tsx",
+        "src/config/features.ts",
+        "docs/ops/environment-reference.md"
+      ]
+    },
+    {
+      "path": "/governance",
+      "kind": "page",
+      "file": "src/pages/governance/index.tsx",
+      "status": "launch-gated",
+      "surface": "Governance launch-readiness gate",
+      "control": "Governance remains behind LaunchReadinessPage until real governance contracts, roles, and tests are wired.",
+      "launchGate": {
+        "component": "LaunchReadinessPage",
+        "reason": "Prevents simulated proposals, votes, treasury data, or execution controls from being presented as live governance."
+      },
+      "evidence": [
+        "src/pages/governance/index.tsx",
+        "src/components/LaunchReadinessPage.tsx",
+        "docs/architecture/13-production-gap-register.md"
+      ]
+    },
+    {
+      "path": "/jobs",
+      "kind": "page",
+      "file": "src/pages/jobs/index.tsx",
+      "status": "ready",
+      "surface": "Job explorer",
+      "control": "Job list reads from API-backed state and keeps empty or failed states explicit.",
+      "evidence": [
+        "src/pages/jobs/index.tsx",
+        "src/__tests__/api-client-paths.test.ts",
+        "docs/architecture/12-public-readiness.md"
+      ]
+    },
+    {
+      "path": "/jobs/{id}",
+      "kind": "page",
+      "file": "src/pages/jobs/[id].tsx",
+      "status": "ready",
+      "surface": "Job detail explorer",
+      "control": "Dynamic job details use encoded route parameters and API-backed read paths.",
+      "evidence": [
+        "src/pages/jobs/[id].tsx",
+        "e2e/public-readiness.spec.ts",
+        "src/__tests__/api-client-paths.test.ts"
+      ]
+    },
+    {
+      "path": "/models",
+      "kind": "page",
+      "file": "src/pages/models/index.tsx",
+      "status": "ready",
+      "surface": "Model registry explorer",
+      "control": "Model registry list renders API-backed state with explicit loading and empty states.",
+      "evidence": [
+        "src/pages/models/index.tsx",
+        "src/lib/models.ts",
+        "docs/architecture/12-public-readiness.md"
+      ]
+    },
+    {
+      "path": "/models/{modelHash}",
+      "kind": "page",
+      "file": "src/pages/models/[modelHash].tsx",
+      "status": "ready",
+      "surface": "Model registry detail",
+      "control": "Dynamic model details use encoded identifiers and API-backed read paths.",
+      "evidence": [
+        "src/pages/models/[modelHash].tsx",
+        "src/lib/models.ts",
+        "src/__tests__/api-client-paths.test.ts"
+      ]
+    },
+    {
+      "path": "/reconciliation",
+      "kind": "page",
+      "file": "src/pages/reconciliation.tsx",
+      "status": "operational",
+      "surface": "Public reconciliation evidence",
+      "control": "Reconciliation surface renders live evidence, stale-source warnings, and devtools links only when enabled.",
+      "evidence": [
+        "src/pages/reconciliation.tsx",
+        "src/lib/reconciliation.ts",
+        "docs/architecture/12-public-readiness.md"
+      ]
+    },
+    {
+      "path": "/seals",
+      "kind": "page",
+      "file": "src/pages/seals/index.tsx",
+      "status": "ready",
+      "surface": "Seal explorer",
+      "control": "Seal list reads from API-backed state and keeps unavailable data explicit.",
+      "evidence": [
+        "src/pages/seals/index.tsx",
+        "src/lib/seals.ts",
+        "docs/architecture/12-public-readiness.md"
+      ]
+    },
+    {
+      "path": "/seals/{id}",
+      "kind": "page",
+      "file": "src/pages/seals/[id].tsx",
+      "status": "ready",
+      "surface": "Seal detail explorer",
+      "control": "Dynamic seal details use encoded identifiers and API-backed read paths.",
+      "evidence": [
+        "src/pages/seals/[id].tsx",
+        "src/lib/seals.ts",
+        "src/__tests__/api-client-paths.test.ts"
+      ]
+    },
+    {
+      "path": "/stablecoins",
+      "kind": "page",
+      "file": "src/pages/stablecoins/index.tsx",
+      "status": "ready",
+      "surface": "Stablecoin bridge and reserve controls",
+      "control": "Stablecoin operations are guarded by bridge phase checks and unavailable states.",
+      "evidence": [
+        "src/pages/stablecoins/index.tsx",
+        "src/lib/stablecoinBridgeGuards.ts",
+        "docs/architecture/12-public-readiness.md"
+      ]
+    },
+    {
+      "path": "/validators",
+      "kind": "page",
+      "file": "src/pages/validators/index.tsx",
+      "status": "ready",
+      "surface": "Validator intelligence overview",
+      "control": "Validator list uses API-backed state and surfaces source freshness status for operator review.",
+      "evidence": [
+        "src/pages/validators/index.tsx",
+        "src/lib/validators.ts",
+        "docs/architecture/13-production-gap-register.md"
+      ]
+    },
+    {
+      "path": "/validators/{address}",
+      "kind": "page",
+      "file": "src/pages/validators/[address].tsx",
+      "status": "ready",
+      "surface": "Validator intelligence detail",
+      "control": "Dynamic validator details use encoded addresses and expose validator source context.",
+      "evidence": [
+        "src/pages/validators/[address].tsx",
+        "src/lib/validators.ts",
+        "src/__tests__/api-client-paths.test.ts"
+      ]
+    },
+    {
+      "path": "/vault",
+      "kind": "page",
+      "file": "src/pages/vault/index.tsx",
+      "status": "ready",
+      "surface": "Liquid staking vault",
+      "control": "Vault actions fail closed on unsafe config, unavailable exchange-rate data, or blocked transaction preflight.",
+      "evidence": [
+        "src/pages/vault/index.tsx",
+        "src/lib/vaultFormGuards.ts",
+        "src/lib/transactionPreflight.ts"
+      ]
+    }
+  ]
+}

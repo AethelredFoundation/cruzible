@@ -1,7 +1,7 @@
 # Public Readiness Register
 
 > Repo-backed readiness register for the current Cruzible workspace.
-> Last reconciled on 2026-06-24.
+> Last reconciled on 2026-06-25.
 
 ## 1. Purpose
 
@@ -13,26 +13,27 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 
 ## 2. Repo-Backed Deliverables
 
-| Deliverable                                                                           | Status      | Evidence                            |
-| ------------------------------------------------------------------------------------- | ----------- | ----------------------------------- |
-| Top-level repo guide aligned to current route and startup surface                     | Ready       | `README.md`                         |
-| Backend/operator entry point aligned to current backend surface                       | Ready       | `backend/README.md`                 |
-| Frontend env example aligned to current `src/` usage                                  | Ready       | `.env.example`                      |
-| Backend env example aligned to API runtime and Compose scaffold                       | Ready       | `backend/.env.example`              |
-| Operator runbook aligned to implemented health, reconciliation, and rollback surfaces | Ready       | `docs/ops/runbook.md`               |
-| Environment reference describing loading behavior and config boundaries               | Ready       | `docs/ops/environment-reference.md` |
-| API docs from checked-in Swagger annotations                                          | Partial     | `/docs` once API is running         |
-| Health, liveness, and readiness endpoints                                             | Implemented | `backend/api/src/routes/health.ts`  |
+| Deliverable                                                                           | Status      | Evidence                                                                       |
+| ------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------ |
+| Top-level repo guide aligned to current route and startup surface                     | Ready       | `README.md`                                                                    |
+| Backend/operator entry point aligned to current backend surface                       | Ready       | `backend/README.md`                                                            |
+| Frontend env example aligned to current `src/` usage                                  | Ready       | `.env.example`                                                                 |
+| Backend env example aligned to API runtime and Compose scaffold                       | Ready       | `backend/.env.example`                                                         |
+| Operator runbook aligned to implemented health, reconciliation, and rollback surfaces | Ready       | `docs/ops/runbook.md`                                                          |
+| Environment reference describing loading behavior and config boundaries               | Ready       | `docs/ops/environment-reference.md`                                            |
+| Public frontend route inventory checked against `src/pages`                           | Ready       | `docs/architecture/public-route-inventory.json` and `npm run readiness:routes` |
+| API docs from checked-in Swagger annotations                                          | Partial     | `/docs` once API is running                                                    |
+| Health, liveness, and readiness endpoints                                             | Implemented | `backend/api/src/routes/health.ts`                                             |
 
 ## 3. Supported Surface In This Workspace
 
-| Area      | Current state                                                                                                                               |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frontend  | Next.js pages for explorer, vault, validators, jobs, models, seals, stablecoins, reconciliation, developer tools, and governance preview    |
-| API       | `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{auth,audit,blocks,jobs,reconciliation,alerts,stablecoins}`                   |
-| Contracts | CosmWasm contracts for AI jobs, vault, governance, model registry, seal manager, and CW20 staking                                           |
-| Testing   | Frontend Vitest, API Vitest, contract Cargo tests                                                                                           |
-| Infra     | Frontend Dockerfile, API Dockerfile, contract artifact Dockerfile, partial Compose scaffold, frontend/API/indexer Kubernetes base manifests |
+| Area      | Current state                                                                                                                                                                                  |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend  | Machine-checked Next.js public route inventory for explorer, vault, validators, jobs, models, seals, stablecoins, reconciliation, dev-only tooling, launch-gated governance, and `/api/health` |
+| API       | `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{auth,audit,blocks,jobs,reconciliation,alerts,stablecoins}`                                                                      |
+| Contracts | CosmWasm contracts for AI jobs, vault, governance, model registry, seal manager, and CW20 staking                                                                                              |
+| Testing   | Frontend Vitest, API Vitest, contract Cargo tests                                                                                                                                              |
+| Infra     | Frontend Dockerfile, API Dockerfile, contract artifact Dockerfile, partial Compose scaffold, frontend/API/indexer Kubernetes base manifests                                                    |
 
 ## 4. Current Readiness Assessment
 
@@ -55,6 +56,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Capture a contract staging release manifest with wasm checksums, code IDs, contract addresses, and role owners.
 - Stage-test `k8s/base/` with real `cruzible-api-config` values, a provisioned `cruzible-api-secrets` Secret, a labeled ingress-controller namespace or equivalent overlay, and workload checks that confirm the bounded `/tmp` mounts are sufficient for runtime writes.
 - Build frontend images with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` Docker build args; frontend public-data requests fail closed when the API URL is missing, points at the wrong network, or uses a lookalike origin instead of the approved chain-specific API origin.
+- Keep `npm run readiness:routes` green before release so new public pages are explicitly marked ready, launch-gated, operational, or dev-only.
 - Exercise the `/v1/auth` nonce/login/refresh/logout and session revocation workflow in staging, then provision validated operator/admin address lists for protected routes such as `/v1/alerts` and `/v1/reconciliation/status`.
 - Exercise `npm run db:backup`, `npm run db:migrate:deploy`, and a database restore drill in staging before enabling public traffic.
 
@@ -86,3 +88,4 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - [docs/security/dependency-exceptions.md](../security/dependency-exceptions.md)
 - [docs/architecture/11-benchmarking-slos.md](11-benchmarking-slos.md)
 - [docs/architecture/13-production-gap-register.md](13-production-gap-register.md)
+- [docs/architecture/public-route-inventory.json](public-route-inventory.json)

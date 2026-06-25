@@ -85,4 +85,24 @@ describe("repository hygiene", () => {
     expect(securityWorkflow).toContain("Validate production gap register");
     expect(securityWorkflow).toContain("npm run readiness:gaps");
   });
+
+  it("keeps the public route inventory in local and CI quality gates", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const securityWorkflow = readFileSync(
+      ".github/workflows/security-audit.yml",
+      "utf8",
+    );
+
+    expect(packageJson.scripts["readiness:routes"]).toBe(
+      "node scripts/validate-public-route-inventory.mjs",
+    );
+    expect(packageJson.scripts.validate).toContain("npm run readiness:routes");
+    expect(packageJson.scripts["verify:ci"]).toContain(
+      "npm run readiness:routes",
+    );
+    expect(securityWorkflow).toContain("Validate public route inventory");
+    expect(securityWorkflow).toContain("npm run readiness:routes");
+  });
 });

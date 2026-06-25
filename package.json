@@ -10,8 +10,8 @@
     "lint": "eslint src --max-warnings=0",
     "lint:fix": "eslint src --fix",
     "type-check": "tsc --noEmit",
-    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\" \"e2e/**/*.ts\" \"scripts/**/*.{js,mjs}\" \"playwright.config.ts\" \"*.{js,mjs,json}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\" \"e2e/**/*.ts\" \"scripts/**/*.{js,mjs}\" \"playwright.config.ts\" \"*.{js,mjs,json}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\" \"docs/**/*.json\" \"e2e/**/*.ts\" \"scripts/**/*.{js,mjs}\" \"playwright.config.ts\" \"*.{js,mjs,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\" \"docs/**/*.json\" \"e2e/**/*.ts\" \"scripts/**/*.{js,mjs}\" \"playwright.config.ts\" \"*.{js,mjs,json}\"",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
     "test:ci": "vitest run --config vitest.config.ts --coverage",
@@ -22,12 +22,13 @@
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "security:hygiene": "node scripts/security-hygiene-scan.mjs",
     "readiness:gaps": "node scripts/validate-production-gap-register.mjs",
+    "readiness:routes": "node scripts/validate-public-route-inventory.mjs",
     "deployment:validate": "node scripts/validate-deployment-manifests.mjs",
     "performance:budget": "node scripts/check-frontend-bundle-budget.mjs",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
-    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run test",
-    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run type-check && npm run test:ci && npm run build"
+    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run test",
+    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run type-check && npm run test:ci && npm run build"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",

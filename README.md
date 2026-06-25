@@ -7,7 +7,8 @@
     <a href="docs/ops/environment-reference.md">Environment Reference</a> &middot;
     <a href="docs/architecture/11-benchmarking-slos.md">Benchmarking &amp; SLOs</a> &middot;
     <a href="docs/architecture/12-public-readiness.md">Public Readiness</a> &middot;
-    <a href="docs/architecture/13-production-gap-register.md">Production Gap Register</a>
+    <a href="docs/architecture/13-production-gap-register.md">Production Gap Register</a> &middot;
+    <a href="docs/architecture/public-route-inventory.json">Route Inventory</a>
   </p>
 </div>
 
@@ -23,16 +24,17 @@ Runtime UI surfaces are expected to fail closed, show readiness-gated states, or
 - [docs/ops/environment-reference.md](docs/ops/environment-reference.md)
 - [docs/architecture/12-public-readiness.md](docs/architecture/12-public-readiness.md)
 - [docs/architecture/13-production-gap-register.md](docs/architecture/13-production-gap-register.md)
+- [docs/architecture/public-route-inventory.json](docs/architecture/public-route-inventory.json)
 
 ## Current Repo Surface
 
-| Area              | What exists in this repository now                                                                                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frontend          | Next.js 15 app under `src/` with routes including `/`, `/vault`, `/validators`, `/jobs`, `/models`, `/seals`, `/stablecoins`, `/reconciliation`, `/devtools`, and `/governance` |
-| API               | Express/TypeScript service under `backend/api` with `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{blocks,jobs,reconciliation,alerts,stablecoins}`              |
-| Contracts         | CosmWasm workspace under `backend/contracts/contracts/{ai_job_manager,cw20_staking,governance,model_registry,seal_manager,vault}`                                               |
-| Infra scaffolding | Frontend Dockerfile at repo root, API Dockerfile at `backend/api/Dockerfile`, `backend/infra/docker-compose.yml`, and `k8s/base/frontend.yaml`                                  |
-| Docs              | README, backend README, ops runbook, env reference, readiness register, benchmarking/SLO notes, and contract audit/test reports                                                 |
+| Area              | What exists in this repository now                                                                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Frontend          | Next.js 15 app under `src/` with machine-checked public route inventory for `/`, `/vault`, `/validators`, `/jobs`, `/models`, `/seals`, `/stablecoins`, `/reconciliation`, `/devtools`, `/governance`, and `/api/health` |
+| API               | Express/TypeScript service under `backend/api` with `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{blocks,jobs,reconciliation,alerts,stablecoins}`                                                       |
+| Contracts         | CosmWasm workspace under `backend/contracts/contracts/{ai_job_manager,cw20_staking,governance,model_registry,seal_manager,vault}`                                                                                        |
+| Infra scaffolding | Frontend Dockerfile at repo root, API Dockerfile at `backend/api/Dockerfile`, `backend/infra/docker-compose.yml`, and `k8s/base/frontend.yaml`                                                                           |
+| Docs              | README, backend README, ops runbook, env reference, readiness register, benchmarking/SLO notes, and contract audit/test reports                                                                                          |
 
 ## Prerequisites
 
@@ -129,6 +131,7 @@ export NEXT_PUBLIC_CHAIN_ENV=testnet
 npm run build
 npm run test
 npm run test:coverage
+npm run readiness:routes
 npm run analyze
 
 # API
@@ -174,6 +177,7 @@ cruzible/
 - [docs/ops/environment-reference.md](docs/ops/environment-reference.md)
 - [docs/architecture/11-benchmarking-slos.md](docs/architecture/11-benchmarking-slos.md)
 - [docs/architecture/12-public-readiness.md](docs/architecture/12-public-readiness.md)
+- [docs/architecture/public-route-inventory.json](docs/architecture/public-route-inventory.json)
 - [backend/contracts/README.md](backend/contracts/README.md)
 - [backend/contracts/SECURITY_AUDIT.md](backend/contracts/SECURITY_AUDIT.md)
 

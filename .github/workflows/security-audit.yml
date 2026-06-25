@@ -49,6 +49,9 @@ jobs:
       - name: Validate production gap register
         run: npm run readiness:gaps
 
+      - name: Validate public route inventory
+        run: npm run readiness:routes
+
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'
