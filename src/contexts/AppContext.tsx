@@ -341,6 +341,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // --- Real-time block data via wagmi --------------------------------------
   const { data: blockNumber } = useBlockNumber({
+    chainId: activeChain.id,
     watch: false,
     query: { refetchInterval: 30_000, staleTime: 10_000 },
   });

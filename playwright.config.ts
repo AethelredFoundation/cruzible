@@ -41,7 +41,7 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   webServer: {
-    command: `${e2ePublicEnvCommand} npm run build && PORT=${port} HOSTNAME=127.0.0.1 node .next/standalone/server.js`,
+    command: `${e2ePublicEnvCommand} npm run build && npm run standalone:prepare && PORT=${port} HOSTNAME=127.0.0.1 node .next/standalone/server.js`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,

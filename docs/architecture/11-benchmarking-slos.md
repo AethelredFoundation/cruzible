@@ -13,6 +13,7 @@ This document only covers measurement paths that are backed by code or scripts p
 | ------------------------------- | ------------------------------------------ | --------------------------------------------------------- |
 | Frontend build health           | `npm run build`                            | root `package.json`                                       |
 | Frontend bundle analysis        | `npm run analyze`                          | root `package.json`                                       |
+| Frontend journey budgets        | `npm run performance:journey`              | `e2e/performance-budget.spec.ts`                          |
 | Frontend test coverage          | `npm run test:coverage`                    | root `package.json`                                       |
 | API latency smoke test scaffold | `cd backend/api && npm run benchmark`      | `backend/api/package.json`                                |
 | API readiness                   | `GET /health/live` and `GET /health/ready` | `backend/api/src/routes/health.ts`                        |
@@ -23,12 +24,13 @@ This document only covers measurement paths that are backed by code or scripts p
 
 ### Frontend
 
-| Metric                                                             | Target                                             | How to measure                |
-| ------------------------------------------------------------------ | -------------------------------------------------- | ----------------------------- |
-| Production build succeeds                                          | 100%                                               | `npm run build`               |
-| Landing and vault pages remain usable on desktop/mobile            | manual smoke plus page review                      | local run or deployed preview |
-| Initial page performance stays within a normal modern app envelope | LCP under 2.5s when tested on representative infra | Lighthouse/manual testing     |
-| Regressions in bundle growth are investigated                      | analyze on meaningful changes                      | `npm run analyze`             |
+| Metric                                                             | Target                                                              | How to measure                |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------- | ----------------------------- |
+| Production build succeeds                                          | 100%                                                                | `npm run build`               |
+| Landing and vault pages remain usable on desktop/mobile            | automated smoke plus page review                                    | `npm run test:e2e`            |
+| Critical launch routes stay within synthetic journey budgets       | route-specific DCL, load, FCP, transfer, and resource-count budgets | `npm run performance:journey` |
+| Initial page performance stays within a normal modern app envelope | LCP under 2.5s when tested on representative infra                  | Lighthouse/staging testing    |
+| Regressions in bundle growth are investigated                      | analyze on meaningful changes                                       | `npm run analyze`             |
 
 ### API
 
@@ -53,6 +55,7 @@ This document only covers measurement paths that are backed by code or scripts p
 ```bash
 # Frontend
 npm run build
+npm run performance:journey
 npm run analyze
 npm run test:coverage
 
@@ -79,6 +82,6 @@ cargo test --all
 
 ## 6. Known Measurement Gaps
 
-- There is no checked-in Lighthouse budget or automated frontend performance gate.
+- Synthetic frontend journey budgets are checked in for critical launch routes; Lighthouse and real-user monitoring still need staging calibration.
 - The checked-in Prometheus/Grafana bundle is a baseline; it still needs staging calibration against real production traffic, alert routing, and incident-response ownership.
 - The repository does not currently include a complete turnkey deployment that can be treated as the canonical performance environment.

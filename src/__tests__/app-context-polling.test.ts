@@ -24,6 +24,7 @@ describe("app shell polling", () => {
   it("keeps global block fallback polling on a bounded cadence", () => {
     const appContext = readRepoFile("src/contexts/AppContext.tsx");
 
+    expect(appContext).toContain("chainId: activeChain.id");
     expect(appContext).toContain("watch: false");
     expect(appContext).toContain("refetchInterval: 30_000");
     expect(appContext).not.toContain("refetchInterval: 3_000");

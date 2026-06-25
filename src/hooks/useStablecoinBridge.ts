@@ -75,6 +75,7 @@ export function useStablecoinConfig(symbol: string): StablecoinOnChainConfig {
     address: bridgeAddr ?? zeroAddress,
     abi: StablecoinBridgeABI,
     functionName: "stablecoins",
+    chainId: activeChain.id,
     args: asset ? [asset.assetId] : undefined,
     query: {
       enabled: Boolean(asset && bridgeAddr),
@@ -133,6 +134,7 @@ export function useStablecoinAllowance(symbol: string) {
     address: tokenAddr ?? zeroAddress,
     abi: ERC20ABI,
     functionName: "allowance",
+    chainId: activeChain.id,
     args: address && bridgeAddr ? [address, bridgeAddr] : undefined,
     query: {
       enabled: Boolean(address && tokenAddr && bridgeAddr),

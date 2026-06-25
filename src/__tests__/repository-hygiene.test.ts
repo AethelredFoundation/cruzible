@@ -105,6 +105,27 @@ describe("repository hygiene", () => {
     expect(mobileSpec).toContain("horizontal mobile overflow");
   });
 
+  it("keeps frontend journey performance budgets in the production E2E suite", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const performanceSpec = readFileSync(
+      "e2e/performance-budget.spec.ts",
+      "utf8",
+    );
+    const workflow = readFileSync(".github/workflows/ci-cd.yml", "utf8");
+
+    expect(packageJson.scripts["performance:journey"]).toBe(
+      "playwright test e2e/performance-budget.spec.ts --project=chromium",
+    );
+    expect(packageJson.scripts["test:e2e"]).toBe("playwright test");
+    expect(workflow).toContain("npm run test:e2e");
+    expect(performanceSpec).toContain("routeBudgets");
+    expect(performanceSpec).toContain("first-contentful-paint");
+    expect(performanceSpec).toContain("same-origin transfer budget");
+    expect(performanceSpec).toContain("runtime errors");
+  });
+
   it("keeps the production gap register in local and CI quality gates", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
       scripts: Record<string, string>;

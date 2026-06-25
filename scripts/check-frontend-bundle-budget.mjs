@@ -4,10 +4,11 @@ import { gzipSync } from "node:zlib";
 
 const BUILD_MANIFEST = ".next/build-manifest.json";
 const BYTES_PER_KIB = 1024;
-const DEFAULT_ROUTE_MAX_GZIP_KIB = 950;
+const DEFAULT_ROUTE_MAX_GZIP_KIB = 260;
 const ROUTE_BUDGETS_KIB = {
-  "/_app": 925,
-  "/vault": 1025,
+  "/_app": 220,
+  "/devtools": 380,
+  "/vault": 380,
 };
 
 function readBuildManifest() {

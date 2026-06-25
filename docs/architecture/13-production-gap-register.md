@@ -8,9 +8,9 @@
 Cruzible is not yet production-live. The repository is now much stronger than a
 typical prototype because it has fail-closed frontend config, hardened runtime
 security headers, backend auth controls, dependency audits, deployment manifest
-validation, backup tooling, public route inventory validation, accessibility
-readiness checks for launch-facing flows, a staged launch drill contract, and
-CI gates. The remaining gap is not one feature.
+validation, backup tooling, public route inventory validation, accessibility,
+mobile, and synthetic journey-budget checks for launch-facing flows, a staged
+launch drill contract, and CI gates. The remaining gap is not one feature.
 It is the full chain of evidence needed to operate a liquid staking product with
 mainnet funds, public users, and incident pressure.
 
@@ -49,7 +49,7 @@ The table below is intentionally strict:
 | PG-021 | API origin safety                 | Frontend builds must fail closed on unsafe API origins                                     | `scripts/validate-frontend-public-env.mjs`                                                          | Ready            | Keep chain-specific API origin allowlists updated with real launch domains                         |
 | PG-022 | CSP and headers                   | Frontend has nonce CSP and strict security headers                                         | `src/middleware.ts` and `src/__tests__/next-config-security.test.ts`                                | Ready            | Validate runtime headers on every deployed preview and release candidate                           |
 | PG-023 | Bundle control                    | Frontend bundle budget is enforced after production builds                                 | `scripts/check-frontend-bundle-budget.mjs`                                                          | Ready            | Tighten budgets as pages mature and split heavy product surfaces                                   |
-| PG-024 | Performance lab evidence          | Lighthouse or synthetic user journey budgets are not yet CI-enforced                       | `docs/architecture/11-benchmarking-slos.md`                                                         | Open             | Add automated Lighthouse or Playwright performance budgets for critical paths                      |
+| PG-024 | Performance lab evidence          | Synthetic user journey budgets are CI-enforced for critical launch routes                  | `e2e/performance-budget.spec.ts` and `npm run performance:journey`                                  | Ready            | Calibrate Lighthouse, staging, and real-user monitoring budgets against representative traffic     |
 | PG-025 | Accessibility evidence            | Launch-facing pages have automated accessibility baseline checks in production E2E         | `e2e/accessibility-readiness.spec.ts` and `npm run accessibility:check`                             | Ready            | Keep extending coverage as new user flows, dialogs, and write paths are added                      |
 | PG-026 | Mobile readiness                  | Mobile viewport checks cover vault, validators, and stablecoin launch surfaces             | `e2e/mobile-readiness.spec.ts` and `npm run mobile:check`                                           | Ready            | Keep expanding mobile journeys as new write flows and route surfaces are added                     |
 | PG-027 | SEO origin consistency            | Canonical origin and wallet metadata are tested                                            | `src/__tests__/canonical-origin.test.ts`                                                            | Ready            | Re-run checks when launch origin or asset hosting changes                                          |
@@ -91,7 +91,7 @@ The table below is intentionally strict:
 | PG-063 | Operator onboarding               | Environment reference exists, but platform-specific onboarding is incomplete               | `docs/ops/environment-reference.md`                                                                 | In progress      | Add deployment-platform-specific checklists after staging target is selected                       |
 | PG-064 | Full staging smoke                | Staged launch drill exists, but live staging evidence has not been captured yet            | `scripts/staged-launch-drill.mjs` and `npm run readiness:launch-drill`                              | In progress      | Run `npm run launch:drill:staging` with real staging URLs and token env vars before production     |
 | PG-065 | Disaster recovery                 | DR recovery time and recovery point targets are not validated                              | `docs/ops/runbook.md`                                                                               | Open             | Define RTO/RPO targets and prove restore timing in staging                                         |
-| PG-066 | SLO benchmarking                  | Benchmarking SLO doc exists, but automated enforcement is partial                          | `docs/architecture/11-benchmarking-slos.md`                                                         | In progress      | Wire API benchmarks and frontend journey budgets into CI or staging jobs                           |
+| PG-066 | SLO benchmarking                  | Benchmarking SLO doc exists and frontend journey budgets are automated                     | `docs/architecture/11-benchmarking-slos.md` and `e2e/performance-budget.spec.ts`                    | In progress      | Wire API benchmarks and staging-calibrated frontend budgets into release jobs                      |
 | PG-067 | Production monitoring calibration | Alert thresholds need real workload calibration                                            | `backend/infra/config/prometheus/alerts.yml`                                                        | Blocked external | Tune thresholds after staged traffic and RPC dependency behavior are observed                      |
 | PG-068 | Log redaction                     | Backend and frontend public errors redact sensitive material                               | `backend/api/src/utils/redaction.ts` and `src/lib/publicErrors.ts`                                  | Ready            | Keep redaction test vectors updated for new token or credential formats                            |
 | PG-069 | Privacy hashing                   | Privacy-preserving identifiers are tested                                                  | `backend/api/src/utils/privacyHash.ts`                                                              | Ready            | Confirm privacy salt handling in production secret storage                                         |
@@ -111,4 +111,4 @@ operator infrastructure:
 2. Add egress NetworkPolicy overlays for RPC, database, Redis, and alert endpoints.
 3. Deepen user-facing risk, validator, liquidity, and withdrawal education.
 4. Capture live staged launch drill evidence once staging URLs and secrets exist.
-5. Add performance journey budgets for critical frontend routes.
+5. Add API benchmark gates and staging-calibrated frontend performance evidence.

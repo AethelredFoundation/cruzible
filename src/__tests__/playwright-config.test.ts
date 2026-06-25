@@ -25,6 +25,7 @@ describe("Playwright production smoke config", () => {
 
     expect(playwrightConfig).toContain("e2ePublicEnvCommand");
     expect(playwrightConfig).toContain("npm run build");
+    expect(playwrightConfig).toContain("npm run standalone:prepare");
     expect(playwrightConfig).toContain(".next/standalone/server.js");
     expect(playwrightConfig).toContain("timeout: 300_000");
   });

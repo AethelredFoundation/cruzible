@@ -133,6 +133,7 @@ npm run test
 npm run test:coverage
 npm run accessibility:check
 npm run mobile:check
+npm run performance:journey
 npm run readiness:routes
 npm run readiness:launch-drill
 npm run launch:drill:staging -- --frontend-url https://staging.example --api-url https://api.staging.example --evidence-file .launch-evidence/staging.json

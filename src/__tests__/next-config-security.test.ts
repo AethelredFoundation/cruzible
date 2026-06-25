@@ -112,6 +112,7 @@ describe("Next.js security config", () => {
       "connect-src 'self' https://api.testnet.aethelred.org",
     );
     expect(csp).toContain("https://api.testnet.aethelred.org");
+    expect(csp).toContain("https://api.web3modal.org");
     expect(csp).toContain("wss://evm-ws-testnet.aethelred.network");
     expect(csp).not.toContain("https://api.mainnet.aethelred.org");
     expect(csp).not.toContain("https://evm-rpc.aethelred.network");

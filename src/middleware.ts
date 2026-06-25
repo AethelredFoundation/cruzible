@@ -144,6 +144,7 @@ export function buildContentSecurityPolicy({
     "'self'",
     configuredApiOrigin,
     ...connectSourcesForChain(chainEnv, isProduction),
+    "https://api.web3modal.org",
     "https://*.walletconnect.com",
     "wss://*.walletconnect.com",
     "https://*.walletconnect.org",

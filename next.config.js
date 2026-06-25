@@ -149,37 +149,8 @@ const nextConfig = {
       );
     }
 
-    if (!isServer) {
-      config.optimization.splitChunks = {
-        chunks: "all",
-        cacheGroups: {
-          default: false,
-          vendors: false,
-          vendor: {
-            name: "vendor",
-            chunks: "all",
-            test: /node_modules/,
-            priority: 20,
-          },
-          common: {
-            name: "common",
-            minChunks: 2,
-            chunks: "all",
-            priority: 10,
-            reuseExistingChunk: true,
-            enforce: true,
-          },
-          recharts: {
-            name: "recharts",
-            test: /[\\/]node_modules[\\/]recharts/,
-            priority: 30,
-          },
-        },
-      };
-
-      if (!dev) {
-        config.optimization.minimize = true;
-      }
+    if (!isServer && !dev) {
+      config.optimization.minimize = true;
     }
 
     return config;
