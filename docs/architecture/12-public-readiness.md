@@ -69,6 +69,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Keep `npm run performance:journey` green before release so launch-facing routes stay inside synthetic DCL, load, FCP, transfer, resource-count, and runtime-error budgets.
 - Keep `npm run release:sbom` green before release, and archive the SPDX output from `npm run release:sbom:write` with the image digest inventory and contract artifacts for the same commit.
 - Keep CI runtime image scans green so frontend, API, indexer, and release images fail on high-or-critical OS or library findings before promotion.
+- Keep manual release provenance evidence attached to release images and signed contract artifact bundles before promotion.
 - Keep the vault risk-intelligence tests green so staking, exchange-rate, reward-proof, and withdrawal-liquidity disclosures do not regress into unsupported product claims.
 - Keep the stablecoin bridge risk tests green so settlement, fee, phase, domain, approval, and live-limit disclosures do not regress into unsupported product claims.
 - Keep `npm run readiness:launch-drill` green in CI, then run `npm run launch:drill:staging -- --frontend-url <staging frontend> --api-url <staging api> --evidence-file .launch-evidence/<release>.json` with `OPERATIONAL_ENDPOINTS_TOKEN` and `STAGING_OPERATOR_BEARER_TOKEN` set before approving production traffic.

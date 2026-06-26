@@ -617,6 +617,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      attestations: write
+      artifact-metadata: write
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -644,6 +646,11 @@ jobs:
           COSIGN_CERTIFICATE_IDENTITY: https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main
           COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
         run: bash scripts/verify-audit-artifact-signatures.sh
+
+      - name: Attest signed contract audit artifacts
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
+        with:
+          subject-path: backend/contracts/audit-artifacts/contracts/*
 
       - name: Upload signed CosmWasm audit artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

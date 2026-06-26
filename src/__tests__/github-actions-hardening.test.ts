@@ -129,7 +129,11 @@ describe("GitHub Actions workflow hardening", () => {
 
         if (file === "ci-cd.yml" && job.name === "contract-release-artifacts") {
           expect(job.block).toContain("contents: read");
-          expect(jobPermissionWrites(job.block)).toEqual(["id-token"]);
+          expect(jobPermissionWrites(job.block)).toEqual([
+            "artifact-metadata",
+            "attestations",
+            "id-token",
+          ]);
           continue;
         }
 
@@ -408,6 +412,8 @@ describe("GitHub Actions workflow hardening", () => {
     );
     expect(releaseJob?.block).toContain("needs: contracts");
     expect(releaseJob?.block).toContain("id-token: write");
+    expect(releaseJob?.block).toContain("attestations: write");
+    expect(releaseJob?.block).toContain("artifact-metadata: write");
     expect(releaseJob?.block).toContain("uses: sigstore/cosign-installer@");
     expect(releaseJob?.block).toContain(
       "bash scripts/build-optimized-artifacts.sh",
@@ -422,6 +428,15 @@ describe("GitHub Actions workflow hardening", () => {
     );
     expect(releaseJob?.block).toContain(
       "bash scripts/verify-audit-artifact-signatures.sh",
+    );
+    expect(releaseJob?.block).toContain(
+      "Attest signed contract audit artifacts",
+    );
+    expect(releaseJob?.block).toContain(
+      "uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26",
+    );
+    expect(releaseJob?.block).toContain(
+      "subject-path: backend/contracts/audit-artifacts/contracts/*",
     );
     expect(releaseJob?.block).toContain(
       "name: signed-cosmwasm-contracts-${{ github.sha }}",
