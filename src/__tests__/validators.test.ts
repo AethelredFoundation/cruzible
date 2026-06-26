@@ -1,6 +1,8 @@
 import { vi } from "vitest";
 
 import {
+  buildValidatorEvidenceArtifact,
+  buildValidatorEvidenceFilename,
   buildValidatorMetrics,
   buildValidatorDataQualitySignals,
   fetchValidator,
@@ -13,6 +15,7 @@ import {
   getValidatorSharePercent,
   getValidatorStatus,
   parseTokenAmount,
+  stringifyValidatorEvidenceArtifact,
   type ValidatorRecord,
 } from "@/lib/validators";
 
@@ -246,6 +249,147 @@ describe("buildValidatorDataQualitySignals", () => {
       status: "missing",
       tone: "warning",
     });
+  });
+});
+
+describe("validator evidence artifacts", () => {
+  it("builds deterministic export evidence with timeline, economics, and gaps", () => {
+    const record = validator({
+      address: "aeth1validatorabcdef",
+      moniker: "Atlas Prime",
+      commissionPercent: 5,
+      sharePercent: 2.5,
+      transparencyScore: 100,
+      risk: {
+        level: "low",
+        score: 96,
+        freshnessStatus: "PASS",
+        reasons: ["Validator is inside the eligible bonded universe."],
+        components: [
+          {
+            key: "commission",
+            label: "Commission",
+            status: "PASS",
+            value: "5.00%",
+            message: "Commission is within the guarded operating band.",
+          },
+        ],
+        evidence: {
+          eligibleForUniverse: true,
+          sharePercent: 2.5,
+          commissionPercent: 5,
+          transparencyScore: 100,
+          snapshotAt: "2026-06-26T06:00:00.000Z",
+          reconciliationStatus: "OK",
+          epoch: 42,
+          epochSource: "reconciliation-indexer",
+          epochLag: 0,
+          indexedStateAgeSeconds: 12,
+          staleLimitSeconds: 60,
+        },
+      },
+    });
+    const artifact = buildValidatorEvidenceArtifact(
+      {
+        eligibleUniverseHash: "0xabc",
+        totalBondedTokens: "40000",
+        reconciliationStatus: "OK",
+        freshnessStatus: "PASS",
+        snapshotAt: "2026-06-26T06:00:00.000Z",
+        epoch: 42,
+        epochSource: "reconciliation-indexer",
+      },
+      record,
+      { generatedAt: "2026-06-26T06:01:00.000Z" },
+    );
+
+    expect(artifact).toMatchObject({
+      schema: "cruzible.validator_evidence.v1",
+      generated_at: "2026-06-26T06:01:00.000Z",
+      validator: {
+        address: "aeth1validatorabcdef",
+        moniker: "Atlas Prime",
+        lifecycle_status: "active",
+        eligible_for_universe: true,
+        profile_completeness: 100,
+      },
+      economics: {
+        raw_stake: "1000",
+        total_bonded_tokens: "40000",
+        share_percent: 2.5,
+        commission_percent: 5,
+      },
+      protocol: {
+        eligible_universe_hash: "0xabc",
+        reconciliation_status: "OK",
+        freshness_status: "PASS",
+        epoch: 42,
+        epoch_source: "reconciliation-indexer",
+      },
+      risk: {
+        level: "low",
+        score: 96,
+      },
+      gaps: [],
+    });
+    expect(artifact.timeline.map((event) => event.id)).toEqual([
+      "snapshot",
+      "freshness",
+      "reconciliation",
+      "epoch-source",
+      "universe-hash",
+      "risk-score",
+    ]);
+    expect(stringifyValidatorEvidenceArtifact(artifact)).toContain(
+      '"schema": "cruzible.validator_evidence.v1"',
+    );
+    expect(buildValidatorEvidenceFilename(record)).toBe(
+      "cruzible-validator-evidence-atlas-prime-aeth1validat.json",
+    );
+  });
+
+  it("flags missing validator evidence instead of hiding incomplete proof", () => {
+    const artifact = buildValidatorEvidenceArtifact(
+      { reconciliationStatus: "WARNING", freshnessStatus: "WARNING" },
+      validator({
+        eligibleForUniverse: false,
+        risk: {
+          level: "elevated",
+          score: 60,
+          freshnessStatus: "WARNING",
+          reasons: ["Validator evidence is incomplete."],
+          components: [],
+          evidence: {
+            eligibleForUniverse: false,
+            sharePercent: 0,
+            commissionPercent: 5,
+            transparencyScore: 80,
+            snapshotAt: null,
+            reconciliationStatus: "WARNING",
+            epoch: null,
+            epochSource: null,
+            epochLag: null,
+            indexedStateAgeSeconds: 900,
+            staleLimitSeconds: 300,
+          },
+        },
+      }),
+    );
+
+    expect(
+      artifact.timeline.find((event) => event.id === "snapshot"),
+    ).toMatchObject({
+      status: "missing",
+      tone: "warning",
+    });
+    expect(artifact.gaps).toEqual([
+      "Validator snapshot timestamp is missing.",
+      "Eligible validator universe hash is missing.",
+      "Validator is outside the eligible bonded universe.",
+      "Reconciliation status is WARNING.",
+      "Freshness status is WARNING.",
+      "Risk component breakdown is missing.",
+    ]);
   });
 });
 

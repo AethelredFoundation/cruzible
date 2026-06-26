@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
+  Download,
   ExternalLink,
   FileCheck,
   RefreshCw,
@@ -12,7 +13,10 @@ import { SEOHead } from "@/components/SEOHead";
 import { Footer, TopNav } from "@/components/SharedComponents";
 import { CopyButton, GlassCard } from "@/components/PagePrimitives";
 import { ValidatorDataQualityPanel } from "@/components/ValidatorDataQualityPanel";
+import { downloadTextFile } from "@/lib/download";
 import {
+  buildValidatorEvidenceArtifact,
+  buildValidatorEvidenceFilename,
   buildValidatorDataQualitySignals,
   fetchValidator,
   formatAgeSeconds,
@@ -23,6 +27,7 @@ import {
   getValidatorSharePercent,
   getValidatorStatus,
   parseTokenAmount,
+  stringifyValidatorEvidenceArtifact,
   type ValidatorLifecycleStatus,
   type ValidatorRiskLevel,
 } from "@/lib/validators";
@@ -131,6 +136,15 @@ export default function ValidatorDetailPage() {
     protocol,
     validator,
   );
+  const evidenceArtifact = validator
+    ? buildValidatorEvidenceArtifact(protocol, validator)
+    : null;
+  const evidenceJson = evidenceArtifact
+    ? stringifyValidatorEvidenceArtifact(evidenceArtifact)
+    : "";
+  const evidenceFilename = validator
+    ? buildValidatorEvidenceFilename(validator)
+    : "cruzible-validator-evidence.json";
 
   return (
     <>
@@ -277,81 +291,127 @@ export default function ValidatorDetailPage() {
               </section>
 
               <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-                <GlassCard className="p-6">
-                  <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                    Operator Metadata
-                  </p>
-                  <h2 className="mt-2 text-2xl font-bold text-white">
-                    Published identity and profile signals
-                  </h2>
+                <div className="space-y-6">
+                  <GlassCard className="p-6">
+                    <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                      Operator Metadata
+                    </p>
+                    <h2 className="mt-2 text-2xl font-bold text-white">
+                      Published identity and profile signals
+                    </h2>
 
-                  <div className="mt-5 grid gap-4 md:grid-cols-2">
-                    <GlassCard className="p-4">
-                      <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                        Moniker
-                      </p>
-                      <p className="mt-2 text-sm text-white">
-                        {validator.moniker || "Not published"}
-                      </p>
-                    </GlassCard>
-                    <GlassCard className="p-4">
-                      <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                        Identity
-                      </p>
-                      <p className="mt-2 break-all text-sm text-white">
-                        {validator.identity || "Not published"}
-                      </p>
-                    </GlassCard>
-                    <GlassCard className="p-4 md:col-span-2">
-                      <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                        Details
-                      </p>
-                      <p className="mt-2 text-sm leading-7 text-slate-300">
-                        {validator.details || "No operator details published."}
-                      </p>
-                    </GlassCard>
-                    <GlassCard className="p-4">
-                      <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                        Website
-                      </p>
-                      <p className="mt-2 break-all text-sm text-white">
-                        {validator.website || "Not published"}
-                      </p>
-                    </GlassCard>
-                    <GlassCard className="p-4">
-                      <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                        Unbonding
-                      </p>
-                      <p className="mt-2 text-sm text-white">
-                        Height {validator.unbondingHeight || 0}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {formatTimestamp(validator.unbondingTime)}
-                      </p>
-                    </GlassCard>
-                  </div>
-
-                  <div className="mt-6 grid gap-4 md:grid-cols-2">
-                    {(validator.risk?.components ?? []).map((component) => (
-                      <GlassCard key={component.key} className="p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                              {component.label}
-                            </p>
-                            <p className="mt-2 text-lg font-semibold text-white">
-                              {component.value}
-                            </p>
-                          </div>
-                          <FreshnessPill status={component.status} />
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-slate-300">
-                          {component.message}
+                    <div className="mt-5 grid gap-4 md:grid-cols-2">
+                      <GlassCard className="p-4">
+                        <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                          Moniker
+                        </p>
+                        <p className="mt-2 text-sm text-white">
+                          {validator.moniker || "Not published"}
                         </p>
                       </GlassCard>
-                    ))}
-                  </div>
-                </GlassCard>
+                      <GlassCard className="p-4">
+                        <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                          Identity
+                        </p>
+                        <p className="mt-2 break-all text-sm text-white">
+                          {validator.identity || "Not published"}
+                        </p>
+                      </GlassCard>
+                      <GlassCard className="p-4 md:col-span-2">
+                        <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                          Details
+                        </p>
+                        <p className="mt-2 text-sm leading-7 text-slate-300">
+                          {validator.details ||
+                            "No operator details published."}
+                        </p>
+                      </GlassCard>
+                      <GlassCard className="p-4">
+                        <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                          Website
+                        </p>
+                        <p className="mt-2 break-all text-sm text-white">
+                          {validator.website || "Not published"}
+                        </p>
+                      </GlassCard>
+                      <GlassCard className="p-4">
+                        <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                          Unbonding
+                        </p>
+                        <p className="mt-2 text-sm text-white">
+                          Height {validator.unbondingHeight || 0}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {formatTimestamp(validator.unbondingTime)}
+                        </p>
+                      </GlassCard>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 md:grid-cols-2">
+                      {(validator.risk?.components ?? []).map((component) => (
+                        <GlassCard key={component.key} className="p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                                {component.label}
+                              </p>
+                              <p className="mt-2 text-lg font-semibold text-white">
+                                {component.value}
+                              </p>
+                            </div>
+                            <FreshnessPill status={component.status} />
+                          </div>
+                          <p className="mt-3 text-sm leading-6 text-slate-300">
+                            {component.message}
+                          </p>
+                        </GlassCard>
+                      ))}
+                    </div>
+                  </GlassCard>
+
+                  {evidenceArtifact ? (
+                    <GlassCard className="p-6">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                            Evidence Timeline
+                          </p>
+                          <h2 className="mt-2 text-2xl font-bold text-white">
+                            Audit-ready validator proof trail
+                          </h2>
+                        </div>
+                        <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                          {evidenceArtifact.timeline.length} events ·{" "}
+                          {evidenceArtifact.gaps.length} open gaps
+                        </span>
+                      </div>
+
+                      <div className="mt-5 grid gap-3">
+                        {evidenceArtifact.timeline.map((event) => (
+                          <div
+                            key={event.id}
+                            className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4"
+                          >
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                                  {event.title}
+                                </p>
+                                <p className="mt-2 break-all text-sm font-semibold text-white">
+                                  {event.value}
+                                </p>
+                              </div>
+                              <FreshnessPill status={event.status} />
+                            </div>
+                            <p className="mt-3 text-sm leading-6 text-slate-300">
+                              {event.detail}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </GlassCard>
+                  ) : null}
+                </div>
 
                 <div className="space-y-6">
                   <GlassCard className="p-6">
@@ -398,6 +458,60 @@ export default function ValidatorDetailPage() {
                       </div>
                     </div>
                   </GlassCard>
+
+                  {evidenceArtifact ? (
+                    <GlassCard className="p-6">
+                      <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                        Evidence Export
+                      </p>
+                      <h2 className="mt-2 text-2xl font-bold text-white">
+                        Downloadable validator artifact
+                      </h2>
+                      <p className="mt-3 text-sm leading-6 text-slate-300">
+                        This JSON artifact packages the validator address,
+                        canonical universe context, economics, risk components,
+                        timeline, and remaining evidence gaps for review.
+                      </p>
+                      <div className="mt-5 grid gap-3">
+                        <button
+                          onClick={() =>
+                            downloadTextFile(
+                              evidenceFilename,
+                              evidenceJson,
+                              "application/json;charset=utf-8",
+                            )
+                          }
+                          className="inline-flex items-center justify-between rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm font-medium text-cyan-100 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/15"
+                        >
+                          Download JSON
+                          <Download className="h-4 w-4" />
+                        </button>
+                        <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">
+                          Copy artifact JSON
+                          <CopyButton
+                            text={evidenceJson}
+                            stopPropagation={false}
+                          />
+                        </div>
+                      </div>
+                      {evidenceArtifact.gaps.length > 0 ? (
+                        <div className="mt-5 space-y-2">
+                          {evidenceArtifact.gaps.map((gap) => (
+                            <p
+                              key={gap}
+                              className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-50"
+                            >
+                              {gap}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs leading-5 text-emerald-50">
+                          No open evidence gaps were detected in this payload.
+                        </p>
+                      )}
+                    </GlassCard>
+                  ) : null}
 
                   {protocol?.eligibleUniverseHash ? (
                     <GlassCard className="p-6">

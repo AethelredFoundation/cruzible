@@ -53,6 +53,54 @@ export interface ValidatorDataQualitySignal {
   tone: ValidatorDataQualityTone;
 }
 
+export interface ValidatorEvidenceTimelineEvent {
+  id: string;
+  title: string;
+  status: string;
+  value: string;
+  detail: string;
+  tone: ValidatorDataQualityTone;
+}
+
+export interface ValidatorEvidenceArtifact {
+  schema: "cruzible.validator_evidence.v1";
+  generated_at: string | null;
+  validator: {
+    address: string;
+    moniker: string;
+    lifecycle_status: ValidatorLifecycleStatus;
+    eligible_for_universe: boolean | null;
+    profile_completeness: number;
+  };
+  economics: {
+    raw_stake: string;
+    total_bonded_tokens: string | null;
+    share_percent: number;
+    commission_percent: number;
+    max_commission_percent: number;
+    max_commission_change_percent: number;
+  };
+  protocol: {
+    eligible_universe_hash: string | null;
+    snapshot_at: string | null;
+    reconciliation_status: string;
+    freshness_status: string;
+    indexed_state_age_seconds: number | null;
+    stale_limit_seconds: number | null;
+    epoch: number | null;
+    epoch_source: string | null;
+    epoch_lag: number | null;
+  };
+  risk: {
+    level: ValidatorRiskLevel | "unknown";
+    score: number | null;
+    reasons: string[];
+    components: ValidatorRiskComponent[];
+  };
+  timeline: ValidatorEvidenceTimelineEvent[];
+  gaps: string[];
+}
+
 export interface ValidatorRecord {
   address: string;
   moniker: string;
@@ -400,6 +448,248 @@ export function buildValidatorDataQualitySignals(
   }
 
   return signals;
+}
+
+export function buildValidatorEvidenceArtifact(
+  protocol: ValidatorsProtocolContext | undefined,
+  validator: ValidatorRecord,
+  options?: { generatedAt?: string | null },
+): ValidatorEvidenceArtifact {
+  const evidence = validator.risk?.evidence;
+  const totalBondedTokens = protocol?.totalBondedTokens ?? null;
+  const totalStake = parseTokenAmount(totalBondedTokens ?? "0");
+  const lifecycleStatus = getValidatorStatus(validator);
+  const sharePercent =
+    evidence?.sharePercent ??
+    validator.sharePercent ??
+    getValidatorSharePercent(validator, totalStake);
+  const commissionPercent =
+    evidence?.commissionPercent ??
+    validator.commissionPercent ??
+    getCommissionPercent(validator.commission.rate);
+  const transparencyScore =
+    evidence?.transparencyScore ?? getProfileCompleteness(validator);
+  const snapshotAt = evidence?.snapshotAt ?? protocol?.snapshotAt ?? null;
+  const reconciliationStatus =
+    evidence?.reconciliationStatus ??
+    protocol?.reconciliationStatus ??
+    "UNKNOWN";
+  const freshnessStatus =
+    validator.risk?.freshnessStatus ?? protocol?.freshnessStatus ?? "UNKNOWN";
+  const indexedStateAgeSeconds =
+    evidence?.indexedStateAgeSeconds ??
+    protocol?.indexedStateAgeSeconds ??
+    null;
+  const staleLimitSeconds =
+    evidence?.staleLimitSeconds ?? protocol?.staleLimitSeconds ?? null;
+  const epoch = evidence?.epoch ?? protocol?.epoch ?? null;
+  const epochSource = evidence?.epochSource ?? protocol?.epochSource ?? null;
+  const epochLag = evidence?.epochLag ?? protocol?.epochLag ?? null;
+  const eligibleUniverseHash = protocol?.eligibleUniverseHash ?? null;
+  const eligibleForUniverse =
+    evidence?.eligibleForUniverse ?? validator.eligibleForUniverse ?? null;
+
+  const timeline: ValidatorEvidenceTimelineEvent[] = [
+    {
+      id: "snapshot",
+      title: "Validator snapshot",
+      status: snapshotAt ? "timestamped" : "missing",
+      value: snapshotAt ?? "Unavailable",
+      detail: snapshotAt
+        ? "Backend response included a validator snapshot timestamp."
+        : "Snapshot timestamp is missing from the validator evidence payload.",
+      tone: snapshotAt ? "healthy" : "warning",
+    },
+    {
+      id: "freshness",
+      title: "Indexed state freshness",
+      status: String(freshnessStatus).toLowerCase(),
+      value: formatAgeSeconds(indexedStateAgeSeconds),
+      detail: `Stale limit is ${formatAgeSeconds(staleLimitSeconds)}.`,
+      tone: riskStatusToQualityTone(freshnessStatus),
+    },
+    {
+      id: "reconciliation",
+      title: "Reconciliation posture",
+      status: String(reconciliationStatus).toLowerCase(),
+      value: String(reconciliationStatus),
+      detail:
+        "Validator evidence is tied to the latest public reconciliation status returned by the backend.",
+      tone: riskStatusToQualityTone(
+        reconciliationStatus === "OK" ? "PASS" : reconciliationStatus,
+      ),
+    },
+    {
+      id: "epoch-source",
+      title: "Epoch source",
+      status: epoch != null && epochSource ? "available" : "missing",
+      value:
+        epoch != null && epochSource
+          ? `Epoch ${epoch} from ${epochSource}`
+          : "Unavailable",
+      detail:
+        epochLag != null
+          ? `Epoch lag is ${epochLag}.`
+          : "Epoch lag is unavailable.",
+      tone: epoch != null && epochSource ? "healthy" : "unknown",
+    },
+    {
+      id: "universe-hash",
+      title: "Eligible universe hash",
+      status: eligibleUniverseHash ? "available" : "missing",
+      value: eligibleUniverseHash ?? "Unavailable",
+      detail:
+        "Universe hash lets users compare validator membership evidence with reconciliation artifacts.",
+      tone: eligibleUniverseHash ? "healthy" : "warning",
+    },
+    {
+      id: "risk-score",
+      title: "Risk score",
+      status: validator.risk?.level ?? "unknown",
+      value:
+        validator.risk?.score != null
+          ? `${validator.risk.score}`
+          : "Unavailable",
+      detail:
+        "Risk score is derived from backend-owned lifecycle, concentration, commission, transparency, and freshness checks.",
+      tone: validator.risk
+        ? riskLevelToQualityTone(validator.risk.level)
+        : "unknown",
+    },
+  ];
+
+  const gaps = buildValidatorEvidenceGaps({
+    eligibleForUniverse,
+    eligibleUniverseHash,
+    freshnessStatus,
+    reconciliationStatus,
+    riskComponentCount: validator.risk?.components.length ?? 0,
+    snapshotAt,
+  });
+
+  return {
+    schema: "cruzible.validator_evidence.v1",
+    generated_at: options?.generatedAt ?? snapshotAt,
+    validator: {
+      address: validator.address,
+      moniker: validator.moniker || "Unnamed validator",
+      lifecycle_status: lifecycleStatus,
+      eligible_for_universe: eligibleForUniverse,
+      profile_completeness: transparencyScore,
+    },
+    economics: {
+      raw_stake: validator.tokens,
+      total_bonded_tokens: totalBondedTokens,
+      share_percent: roundEvidenceNumber(sharePercent),
+      commission_percent: roundEvidenceNumber(commissionPercent),
+      max_commission_percent: roundEvidenceNumber(
+        getCommissionPercent(validator.commission.maxRate),
+      ),
+      max_commission_change_percent: roundEvidenceNumber(
+        getCommissionPercent(validator.commission.maxChangeRate),
+      ),
+    },
+    protocol: {
+      eligible_universe_hash: eligibleUniverseHash,
+      snapshot_at: snapshotAt,
+      reconciliation_status: reconciliationStatus,
+      freshness_status: freshnessStatus,
+      indexed_state_age_seconds: indexedStateAgeSeconds,
+      stale_limit_seconds: staleLimitSeconds,
+      epoch,
+      epoch_source: epochSource,
+      epoch_lag: epochLag,
+    },
+    risk: {
+      level: validator.risk?.level ?? "unknown",
+      score: validator.risk?.score ?? null,
+      reasons: validator.risk?.reasons ?? [],
+      components: validator.risk?.components ?? [],
+    },
+    timeline,
+    gaps,
+  };
+}
+
+export function stringifyValidatorEvidenceArtifact(
+  artifact: ValidatorEvidenceArtifact,
+): string {
+  return `${JSON.stringify(artifact, null, 2)}\n`;
+}
+
+export function buildValidatorEvidenceFilename(
+  validator: ValidatorRecord,
+): string {
+  const safeLabel =
+    `${validator.moniker || "validator"}-${validator.address.slice(0, 12)}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "validator";
+
+  return `cruzible-validator-evidence-${safeLabel}.json`;
+}
+
+function buildValidatorEvidenceGaps({
+  eligibleForUniverse,
+  eligibleUniverseHash,
+  freshnessStatus,
+  reconciliationStatus,
+  riskComponentCount,
+  snapshotAt,
+}: {
+  eligibleForUniverse: boolean | null;
+  eligibleUniverseHash: string | null;
+  freshnessStatus: string;
+  reconciliationStatus: string;
+  riskComponentCount: number;
+  snapshotAt: string | null;
+}): string[] {
+  const gaps: string[] = [];
+
+  if (!snapshotAt) {
+    gaps.push("Validator snapshot timestamp is missing.");
+  }
+
+  if (!eligibleUniverseHash) {
+    gaps.push("Eligible validator universe hash is missing.");
+  }
+
+  if (eligibleForUniverse === false) {
+    gaps.push("Validator is outside the eligible bonded universe.");
+  }
+
+  if (reconciliationStatus !== "OK") {
+    gaps.push(`Reconciliation status is ${reconciliationStatus}.`);
+  }
+
+  if (freshnessStatus !== "PASS") {
+    gaps.push(`Freshness status is ${freshnessStatus}.`);
+  }
+
+  if (riskComponentCount === 0) {
+    gaps.push("Risk component breakdown is missing.");
+  }
+
+  return gaps;
+}
+
+function riskLevelToQualityTone(
+  level: ValidatorRiskLevel,
+): ValidatorDataQualityTone {
+  if (level === "low" || level === "guarded") {
+    return "healthy";
+  }
+
+  if (level === "elevated") {
+    return "warning";
+  }
+
+  return "critical";
+}
+
+function roundEvidenceNumber(value: number): number {
+  return Number.isFinite(value) ? Number(value.toFixed(4)) : 0;
 }
 
 export function getSharePercent(value: string | bigint, total: bigint): number {
