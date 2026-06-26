@@ -377,7 +377,7 @@ export default function ValidatorDetailPage() {
                             Evidence Timeline
                           </p>
                           <h2 className="mt-2 text-2xl font-bold text-white">
-                            Audit-ready validator proof trail
+                            Review-ready validator proof trail
                           </h2>
                         </div>
                         <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
