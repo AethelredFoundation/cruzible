@@ -1,7 +1,7 @@
 # Production Gap Register
 
 > Repo-backed self-audit for closing Cruzible's technology and production gaps.
-> Last reconciled on 2026-06-25.
+> Last reconciled on 2026-06-26.
 
 ## Current Stance
 
@@ -91,7 +91,7 @@ The table below is intentionally strict:
 | PG-063 | Operator onboarding               | Environment reference exists, but platform-specific onboarding is incomplete                                                                                  | `docs/ops/environment-reference.md`                                                                                           | In progress      | Add deployment-platform-specific checklists after staging target is selected                                     |
 | PG-064 | Full staging smoke                | Staged launch drill exists, but live staging evidence has not been captured yet                                                                               | `scripts/staged-launch-drill.mjs` and `npm run readiness:launch-drill`                                                        | In progress      | Run `npm run launch:drill:staging` with real staging URLs and token env vars before production                   |
 | PG-065 | Disaster recovery                 | DR recovery time and recovery point targets are not validated                                                                                                 | `docs/ops/runbook.md`                                                                                                         | Open             | Define RTO/RPO targets and prove restore timing in staging                                                       |
-| PG-066 | SLO benchmarking                  | Benchmarking SLO doc exists and frontend journey budgets are automated                                                                                        | `docs/architecture/11-benchmarking-slos.md` and `e2e/performance-budget.spec.ts`                                              | In progress      | Wire API benchmarks and staging-calibrated frontend budgets into release jobs                                    |
+| PG-066 | SLO benchmarking                  | Frontend journey budgets and the API liveness benchmark gate are automated, but live staging calibration is still needed                                      | `docs/architecture/11-benchmarking-slos.md`, `e2e/performance-budget.spec.ts`, and `backend/api/scripts/benchmark-health.mjs` | Mitigated        | Calibrate API and frontend thresholds against staging and real-user traffic before release                        |
 | PG-067 | Production monitoring calibration | Alert thresholds need real workload calibration                                                                                                               | `backend/infra/config/prometheus/alerts.yml`                                                                                  | Blocked external | Tune thresholds after staged traffic and RPC dependency behavior are observed                                    |
 | PG-068 | Log redaction                     | Backend and frontend public errors redact sensitive material                                                                                                  | `backend/api/src/utils/redaction.ts` and `src/lib/publicErrors.ts`                                                            | Ready            | Keep redaction test vectors updated for new token or credential formats                                          |
 | PG-069 | Privacy hashing                   | Privacy-preserving identifiers are tested                                                                                                                     | `backend/api/src/utils/privacyHash.ts`                                                                                        | Ready            | Confirm privacy salt handling in production secret storage                                                       |
@@ -109,6 +109,6 @@ operator infrastructure:
 
 1. Deepen validator-level risk drill-downs, proof timelines, and exportable user evidence.
 2. Capture live staged launch drill evidence once staging URLs and secrets exist.
-3. Add API benchmark gates and staging-calibrated frontend performance evidence.
+3. Capture staging-calibrated frontend and API performance evidence once a representative environment exists.
 4. Add environment-specific Kubernetes rollout smoke tests after a staging target is selected.
 5. Expand contract invariant and fuzz coverage for staking accounting and pause flows.

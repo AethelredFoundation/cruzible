@@ -31,12 +31,13 @@
     "launch:drill:staging": "node scripts/staged-launch-drill.mjs",
     "deployment:validate": "node scripts/validate-deployment-manifests.mjs",
     "standalone:prepare": "node scripts/prepare-next-standalone.mjs",
+    "performance:api": "npm --prefix backend/api run benchmark:check",
     "performance:budget": "node scripts/check-frontend-bundle-budget.mjs",
     "performance:journey": "playwright test e2e/performance-budget.spec.ts --project=chromium",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
-    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:launch-drill && npm run release:sbom && npm run test",
-    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:launch-drill && npm run release:sbom && npm run type-check && npm run test:ci && npm run build"
+    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run test",
+    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run type-check && npm run test:ci && npm run build"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",

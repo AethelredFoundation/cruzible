@@ -1,7 +1,7 @@
 # Public Readiness Register
 
 > Repo-backed readiness register for the current Cruzible workspace.
-> Last reconciled on 2026-06-25.
+> Last reconciled on 2026-06-26.
 
 ## 1. Purpose
 
@@ -25,6 +25,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | Launch-facing accessibility baseline checked in production E2E                        | Ready       | `e2e/accessibility-readiness.spec.ts` and `npm run accessibility:check`        |
 | Mobile viewport readiness for core launch surfaces                                    | Ready       | `e2e/mobile-readiness.spec.ts` and `npm run mobile:check`                      |
 | Synthetic performance journey budgets for critical launch routes                      | Ready       | `e2e/performance-budget.spec.ts` and `npm run performance:journey`             |
+| API liveness benchmark release gate                                                  | Ready       | `backend/api/scripts/benchmark-health.mjs` and `npm run performance:api`       |
 | Staged launch drill contract with sanitized evidence output                           | Ready       | `scripts/staged-launch-drill.mjs` and `npm run readiness:launch-drill`         |
 | API docs from checked-in Swagger annotations                                          | Partial     | `/docs` once API is running                                                    |
 | Health, liveness, and readiness endpoints                                             | Implemented | `backend/api/src/routes/health.ts`                                             |
@@ -45,7 +46,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 | ---------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Documentation baseline             | Good       | Core README, backend README, runbook, env reference, and readiness docs now describe checked-in surfaces instead of inferred ones                                                                                                                                                                                                                                                               |
 | Config examples                    | Good       | Frontend and backend examples now separate runtime inputs from scaffold-only values                                                                                                                                                                                                                                                                                                             |
-| API observability                  | Partial    | Public liveness/readiness probes are implemented, full `/health`, `/metrics`, and `/docs` are token-gated in production, alert history is database-backed when `DATABASE_URL` is configured, and API cache uses Redis when `REDIS_URL` is configured                                                                                                                                            |
+| API observability                  | Partial    | Public liveness/readiness probes are implemented, full `/health`, `/metrics`, and `/docs` are token-gated in production, alert history is database-backed when `DATABASE_URL` is configured, API cache uses Redis when `REDIS_URL` is configured, and checked-in API benchmark thresholds are CI-validated before release                                                                    |
 | Deployment scaffolding             | Partial    | Compose now builds API and indexer targets from the repository root and includes checked-in nginx, Redis, Prometheus, Grafana, and PostgreSQL init baselines; CI validates digest images, localhost-only internal ports, and externalized secret files; operator secrets, TLS material, immutable image digests, and staging validation are still required                                      |
 | Kubernetes readiness               | Partial    | Frontend, API gateway, and indexer manifests are checked in with fail-closed config/secret requirements, read-only roots, bounded `/tmp` write surfaces, secret file permissions, scoped ingress NetworkPolicies, ephemeral-storage budgets, and CI-enforced structured manifest validation; staging validation is still required                                                               |
 | Admin/ops authentication bootstrap | Partial    | Wallet-backed nonce login, context-bound refresh rotation, logout revocation, refresh-session incident endpoints, current-role checks, access-token revocation watermarks, append-only privileged audit evidence, and operator audit retrieval/export endpoints exist; production startup now requires at least one configured operator/admin wallet and deployments must apply auth migrations |
@@ -67,6 +68,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Keep `npm run readiness:routes` green before release so new public pages are explicitly marked ready, launch-gated, operational, or dev-only.
 - Keep `npm run accessibility:check` green before release so launch-facing routes retain keyboard skip-link targets, labeled controls, and baseline landmark semantics.
 - Keep `npm run performance:journey` green before release so launch-facing routes stay inside synthetic DCL, load, FCP, transfer, resource-count, and runtime-error budgets.
+- Keep `npm run performance:api` green before release so API benchmark thresholds remain parseable and fail-closed, then run `cd backend/api && npm run benchmark -- --url <staging-api>/health/live` against staging before traffic promotion.
 - Keep `npm run release:sbom` green before release, and archive the SPDX output from `npm run release:sbom:write` with the image digest inventory and contract artifacts for the same commit.
 - Keep CI runtime image scans green so frontend, API, indexer, and release images fail on high-or-critical OS or library findings before promotion.
 - Keep manual release provenance evidence attached to release images and signed contract artifact bundles before promotion.

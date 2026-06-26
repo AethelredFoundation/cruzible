@@ -202,13 +202,19 @@ describe("GitHub Actions workflow hardening", () => {
       backendJob?.block ?? "",
       "Run backend API tests with coverage",
     );
+    const benchmarkIndex = indexOfRequired(
+      backendJob?.block ?? "",
+      "Validate API benchmark gate",
+    );
 
     expect(backendJob?.block).toContain("run: npm ci --ignore-scripts");
     expect(backendJob?.block).toContain("run: npm run db:generate");
+    expect(backendJob?.block).toContain("run: npm run benchmark:check");
     expect(generateIndex).toBeGreaterThan(installIndex);
     expect(generateIndex).toBeLessThan(lintIndex);
     expect(generateIndex).toBeLessThan(typeCheckIndex);
     expect(generateIndex).toBeLessThan(testsIndex);
+    expect(benchmarkIndex).toBeGreaterThan(testsIndex);
   });
 
   it("avoids high-risk workflow triggers and unpinned action refs", () => {

@@ -304,6 +304,10 @@ jobs:
         working-directory: ./backend/api
         run: npm run test:coverage
 
+      - name: Validate API benchmark gate
+        working-directory: ./backend/api
+        run: npm run benchmark:check
+
   python-sdk:
     name: Python SDK
     runs-on: ubuntu-latest
