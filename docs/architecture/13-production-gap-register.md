@@ -76,7 +76,7 @@ The table below is intentionally strict:
 | PG-048 | Kubernetes hardening              | K8s base enforces read-only roots, secret files, resources, and NetworkPolicies            | `k8s/base`                                                                                          | Ready            | Validate overlays in a real cluster before public traffic                                          |
 | PG-049 | TLS material                      | TLS certificate and key provisioning are outside this repository                           | `backend/infra/docker-compose.yml`                                                                  | Blocked external | Mount real TLS files and validate nginx termination in staging                                     |
 | PG-050 | Immutable production images       | Production image digests still need real release artifacts                                 | `.github/workflows/ci-cd.yml`                                                                       | In progress      | Build release images and update manifests with immutable digests                                   |
-| PG-051 | Network egress                    | Ingress NetworkPolicies exist, but egress policy needs environment-specific tightening     | `k8s/base/network-policy.yaml`                                                                      | Open             | Add explicit egress policy overlays for RPC, database, Redis, and alert endpoints                  |
+| PG-051 | Network egress                    | Base backend pods deny arbitrary egress and a production overlay scopes RPC, database, Redis, and alert endpoints | `k8s/base/network-policy.yaml` and `k8s/overlays/production-egress`                                  | Ready            | Replace documentation CIDRs with real staging egress points and validate in-cluster connectivity   |
 | PG-052 | Resource sizing                   | CPU, memory, and ephemeral-storage budgets need real traffic calibration                   | `k8s/base/backend.yaml`                                                                             | In progress      | Tune resource requests and limits after staging load tests                                         |
 | PG-053 | Observability baseline            | Prometheus and Grafana config is checked in                                                | `backend/infra/config/grafana`                                                                      | Mitigated        | Calibrate dashboards and alerts against staged traffic                                             |
 | PG-054 | Alert routing                     | Alert webhook config is validated, but live routing is not configured here                 | `backend/api/src/config/index.ts`                                                                   | Blocked external | Provision production alert receiver and test incident notifications                                |
@@ -108,7 +108,7 @@ The next coding work should focus on gaps that are not blocked by funding or
 operator infrastructure:
 
 1. Add remaining provenance and image scan gates to release workflows.
-2. Add egress NetworkPolicy overlays for RPC, database, Redis, and alert endpoints.
-3. Deepen user-facing risk, validator, liquidity, and withdrawal education.
-4. Capture live staged launch drill evidence once staging URLs and secrets exist.
-5. Add API benchmark gates and staging-calibrated frontend performance evidence.
+2. Deepen user-facing risk, validator, liquidity, and withdrawal education.
+3. Capture live staged launch drill evidence once staging URLs and secrets exist.
+4. Add API benchmark gates and staging-calibrated frontend performance evidence.
+5. Add environment-specific Kubernetes rollout smoke tests after a staging target is selected.

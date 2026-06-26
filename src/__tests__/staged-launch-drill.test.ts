@@ -46,6 +46,8 @@ function createRepositoryFixture() {
     "backend/infra/docker-compose.yml",
     "k8s/base/kustomization.yaml",
     "k8s/base/network-policy.yaml",
+    "k8s/overlays/production-egress/kustomization.yaml",
+    "k8s/overlays/production-egress/network-policy-egress-allowlist.yaml",
     "backend/contracts/deployments/release-manifest.example.json",
     "scripts/validate-deployment-manifests.mjs",
     "scripts/check-frontend-bundle-budget.mjs",

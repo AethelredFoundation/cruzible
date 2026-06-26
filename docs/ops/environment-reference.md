@@ -186,6 +186,7 @@ The variables below are referenced by `backend/infra/docker-compose.yml`. They s
 - `backend/infra/docker-compose.yml` includes checked-in nginx, Redis, Prometheus, Grafana, and PostgreSQL init baselines, but it still requires real secret files, TLS material, immutable first-party and third-party image digests, and staging validation.
 - `backend/infra/docker-compose.yml` binds internal API, database, RPC, cache, and observability ports to loopback by default; only nginx and the P2P listener are public-facing in the scaffold.
 - `k8s/base/` expects environment overlays to replace checked-in image placeholders with immutable `sha256` digests before rollout.
+- `k8s/base/` defaults backend egress to DNS-only. Use `k8s/overlays/production-egress/` after replacing its documentation CIDRs with the environment's PostgreSQL, Redis, RPC, and alert webhook egress points.
 - `k8s/base/` keeps workload roots read-only, grants only a bounded `/tmp` `emptyDir` write surface, and sets container ephemeral-storage budgets so staging can catch unexpected runtime writes before public rollout.
 - `k8s/base/` sets rollout deadlines, revision history limits, termination grace periods, topology spread preferences for serving replicas, and PodDisruptionBudgets for API, frontend, and indexer workloads.
 - `k8s/base/network-policy.yaml` accepts frontend/API ingress only from the same-namespace frontend pods or namespaces labeled `networking.cruzible.io/external-ingress=true`; label the approved ingress-controller namespace or patch the selector in the target overlay.

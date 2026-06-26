@@ -74,6 +74,58 @@ function getNamed(resources, kind, name) {
   );
 }
 
+function getAllNamed(resources, kind, name) {
+  return resources.filter(
+    (resource) => resource?.kind === kind && resource?.metadata?.name === name,
+  );
+}
+
+function networkPolicyPorts(policy) {
+  return new Set(
+    asArray(policy?.spec?.egress).flatMap((rule) =>
+      asArray(rule?.ports)
+        .map((port) => port?.port)
+        .filter((port) => typeof port === "number"),
+    ),
+  );
+}
+
+function networkPolicyIpBlocks(policy) {
+  return asArray(policy?.spec?.egress).flatMap((rule) =>
+    asArray(rule?.to)
+      .map((destination) => destination?.ipBlock?.cidr)
+      .filter((cidr) => typeof cidr === "string"),
+  );
+}
+
+function assertNoWildcardIpBlocks(resources, context) {
+  for (const policy of resources.filter(
+    (resource) => resource?.kind === "NetworkPolicy",
+  )) {
+    for (const cidr of networkPolicyIpBlocks(policy)) {
+      assert(
+        cidr !== "0.0.0.0/0" && cidr !== "::/0",
+        `${context} ${policy.metadata?.name} must not allow wildcard egress ${cidr}`,
+      );
+    }
+  }
+}
+
+function assertPodSelectorIncludesApps(policy, apps) {
+  const expressions = asArray(policy?.spec?.podSelector?.matchExpressions);
+  const appExpression = expressions.find(
+    (expression) => expression?.key === "app" && expression?.operator === "In",
+  );
+  const values = new Set(asArray(appExpression?.values));
+
+  for (const app of apps) {
+    assert(
+      values.has(app),
+      `${policy?.metadata?.name} must select ${app} with an app matchExpression`,
+    );
+  }
+}
+
 function collectKeylessIssuers(attestors) {
   return asArray(attestors).flatMap((attestor) =>
     asArray(attestor?.entries)
@@ -428,6 +480,87 @@ function assertNetworkPolicies(resources) {
     !serialized.includes('"namespaceSelector":{}'),
     "network policies must not allow every namespace",
   );
+  assertNoWildcardIpBlocks(resources, "base network policy");
+
+  for (const policyName of [
+    "cruzible-api-network",
+    "cruzible-indexer-network",
+  ]) {
+    const policy = getNamed(resources, "NetworkPolicy", policyName);
+    assert(
+      networkPolicyIpBlocks(policy).length === 0,
+      `${policyName} must not define external ipBlock egress in the base`,
+    );
+  }
+}
+
+function assertProductionEgressOverlay(resources) {
+  const kustomization = resources.find(
+    (resource) => resource?.kind === "Kustomization",
+  );
+  const declaredResources = new Set(asArray(kustomization?.resources));
+  const requiredPolicies = {
+    "cruzible-backend-state-egress": [5432, 6379],
+    "cruzible-backend-rpc-egress": [443, 8545, 26657],
+    "cruzible-api-alert-egress": [443],
+  };
+
+  assert(
+    declaredResources.has("../../base"),
+    "production egress overlay must include the hardened base",
+  );
+  assert(
+    declaredResources.has("network-policy-egress-allowlist.yaml"),
+    "production egress overlay must include its egress allowlist",
+  );
+  assertNoWildcardIpBlocks(resources, "production egress overlay");
+
+  for (const [policyName, requiredPorts] of Object.entries(requiredPolicies)) {
+    const policies = getAllNamed(resources, "NetworkPolicy", policyName);
+    const policy = policies[0];
+    const ports = networkPolicyPorts(policy);
+
+    assert(
+      policies.length === 1,
+      `overlay must include exactly one ${policyName}`,
+    );
+    assert(
+      policy?.metadata?.namespace === "cruzible",
+      `${policyName} must live in the cruzible namespace`,
+    );
+    assert(
+      policy?.metadata?.annotations?.[
+        "egress.cruzible.io/replace-example-cidrs"
+      ] === "true",
+      `${policyName} must mark checked-in CIDRs as operator-replaced examples`,
+    );
+    assert(
+      asArray(policy?.spec?.policyTypes).includes("Egress"),
+      `${policyName} must enforce egress`,
+    );
+    assert(
+      networkPolicyIpBlocks(policy).length > 0,
+      `${policyName} must use explicit destination CIDRs`,
+    );
+
+    for (const port of requiredPorts) {
+      assert(ports.has(port), `${policyName} must allow TCP/${port}`);
+    }
+  }
+
+  assertPodSelectorIncludesApps(
+    getNamed(resources, "NetworkPolicy", "cruzible-backend-state-egress"),
+    ["cruzible-api", "cruzible-indexer"],
+  );
+  assertPodSelectorIncludesApps(
+    getNamed(resources, "NetworkPolicy", "cruzible-backend-rpc-egress"),
+    ["cruzible-api", "cruzible-indexer"],
+  );
+  assert(
+    getNamed(resources, "NetworkPolicy", "cruzible-api-alert-egress")?.spec
+      ?.podSelector?.matchLabels?.app === "cruzible-api",
+    "alert webhook egress must be scoped to the API pods only",
+  );
 }
 
 function assertImageVerificationPolicy(resources) {
@@ -565,8 +698,20 @@ function validateKubernetes() {
   );
 }
 
+function validateProductionEgressOverlay() {
+  const resources = [
+    ...readYamlDocuments("k8s/overlays/production-egress/kustomization.yaml"),
+    ...readYamlDocuments(
+      "k8s/overlays/production-egress/network-policy-egress-allowlist.yaml",
+    ),
+  ];
+
+  assertProductionEgressOverlay(resources);
+}
+
 validateCompose();
 validateKubernetes();
+validateProductionEgressOverlay();
 
 if (failures.length > 0) {
   console.error("Deployment manifest validation failed:");

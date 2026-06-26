@@ -77,6 +77,7 @@ This document is not a launch promise. It is a snapshot-aligned record of:
 - Secrets are provisioned externally and rotated outside version control.
 - PostgreSQL and RPC endpoints are operator-managed dependencies.
 - Compose and Kubernetes artifacts in this repository are hardened scaffolding, not complete deployment truth.
+- The Kubernetes base now denies arbitrary backend egress; the `k8s/overlays/production-egress/` allowlist must be replaced with real PostgreSQL, Redis, RPC, and alert webhook CIDRs before a cluster rollout.
 - Full operational diagnostics require `OPERATIONAL_ENDPOINTS_TOKEN`; protected
   `/v1` operational endpoints require externally provisioned JWTs.
 - Some frontend surfaces are still preview-oriented and should not be mistaken for proof of live on-chain wiring.

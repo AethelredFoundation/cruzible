@@ -27,6 +27,17 @@ const networkPolicyManifest = readFileSync(
   resolve(repoRoot, "k8s/base/network-policy.yaml"),
   "utf8",
 );
+const productionEgressKustomization = readFileSync(
+  resolve(repoRoot, "k8s/overlays/production-egress/kustomization.yaml"),
+  "utf8",
+);
+const productionEgressManifest = readFileSync(
+  resolve(
+    repoRoot,
+    "k8s/overlays/production-egress/network-policy-egress-allowlist.yaml",
+  ),
+  "utf8",
+);
 
 function getImageRefs(manifest: string): string[] {
   return Array.from(manifest.matchAll(/^\s*image:\s*(\S+)\s*$/gm)).map(
@@ -318,6 +329,7 @@ describe("Kubernetes base manifests", () => {
   it("enforces fail-closed network policy boundaries", () => {
     const frontendPolicy = getNetworkPolicyBlock("cruzible-frontend-network");
     const apiPolicy = getNetworkPolicyBlock("cruzible-api-network");
+    const indexerPolicy = getNetworkPolicyBlock("cruzible-indexer-network");
 
     expect(kustomizationManifest).toContain("network-policy.yaml");
     expect(networkPolicyManifest).toContain("name: cruzible-default-deny");
@@ -336,10 +348,39 @@ describe("Kubernetes base manifests", () => {
     expect(networkPolicyManifest).toContain("k8s-app: kube-dns");
     expect(networkPolicyManifest).toContain("app: cruzible-api");
     expect(networkPolicyManifest).toContain("port: 3000");
-    expect(networkPolicyManifest).toContain("port: 443");
-    expect(networkPolicyManifest).toContain("port: 5432");
-    expect(networkPolicyManifest).toContain("port: 6379");
-    expect(networkPolicyManifest).toContain("port: 8545");
-    expect(networkPolicyManifest).toContain("port: 26657");
+    expect(apiPolicy).not.toContain("ipBlock:");
+    expect(indexerPolicy).not.toContain("ipBlock:");
+    expect(networkPolicyManifest).not.toContain("cidr: 0.0.0.0/0");
+    expect(networkPolicyManifest).not.toContain("cidr: ::/0");
+  });
+
+  it("adds explicit production egress allowlists for backend dependencies", () => {
+    expect(productionEgressKustomization).toContain("../../base");
+    expect(productionEgressKustomization).toContain(
+      "network-policy-egress-allowlist.yaml",
+    );
+    expect(productionEgressManifest).toContain(
+      'egress.cruzible.io/replace-example-cidrs: "true"',
+    );
+    expect(productionEgressManifest).toContain(
+      "name: cruzible-backend-state-egress",
+    );
+    expect(productionEgressManifest).toContain(
+      "name: cruzible-backend-rpc-egress",
+    );
+    expect(productionEgressManifest).toContain(
+      "name: cruzible-api-alert-egress",
+    );
+    expect(productionEgressManifest).toContain("cidr: 192.0.2.10/32");
+    expect(productionEgressManifest).toContain("cidr: 192.0.2.20/32");
+    expect(productionEgressManifest).toContain("cidr: 198.51.100.0/24");
+    expect(productionEgressManifest).toContain("cidr: 203.0.113.10/32");
+    expect(productionEgressManifest).toContain("port: 443");
+    expect(productionEgressManifest).toContain("port: 5432");
+    expect(productionEgressManifest).toContain("port: 6379");
+    expect(productionEgressManifest).toContain("port: 8545");
+    expect(productionEgressManifest).toContain("port: 26657");
+    expect(productionEgressManifest).not.toContain("cidr: 0.0.0.0/0");
+    expect(productionEgressManifest).not.toContain("cidr: ::/0");
   });
 });
