@@ -44,5 +44,7 @@ Thumbs.db
 target/
 backend/contracts/target/
 coverage/
+playwright-report/
+test-results/
 .launch-evidence/
 .release-evidence/

@@ -101,6 +101,13 @@ import {
   type DisplayWithdrawalRequest,
 } from "@/lib/withdrawalRequests";
 import {
+  buildVaultRiskSignals,
+  buildWithdrawalLiquiditySummary,
+  VAULT_RISK_DISCLOSURES,
+  WITHDRAWAL_LIQUIDITY_CHECKPOINTS,
+  type VaultRiskSignal,
+} from "@/lib/vaultRisk";
+import {
   canSubmitStakeForm,
   canSubmitUnstakeForm,
 } from "@/lib/vaultFormGuards";
@@ -176,6 +183,8 @@ function getLiveVaultSnapshot(vaultState: VaultState) {
   };
 }
 
+type LiveVaultSnapshot = ReturnType<typeof getLiveVaultSnapshot>;
+
 function VaultTruthNotice({
   title,
   body,
@@ -195,6 +204,157 @@ function VaultTruthNotice({
       <p className="font-medium text-white">{title}</p>
       <p className="mt-1">{body}</p>
     </div>
+  );
+}
+
+function riskToneClasses(tone: VaultRiskSignal["tone"]): string {
+  if (tone === "healthy") {
+    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-50";
+  }
+
+  if (tone === "blocked") {
+    return "border-red-500/20 bg-red-500/10 text-red-50";
+  }
+
+  return "border-amber-500/20 bg-amber-500/10 text-amber-50";
+}
+
+function riskToneDotClass(tone: VaultRiskSignal["tone"]): string {
+  if (tone === "healthy") return "bg-emerald-400";
+  if (tone === "blocked") return "bg-red-400";
+  return "bg-amber-400";
+}
+
+function RiskSignalCard({ signal }: { signal: VaultRiskSignal }) {
+  return (
+    <div
+      className={`rounded-2xl border p-4 text-sm leading-6 ${riskToneClasses(signal.tone)}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold text-white">{signal.title}</p>
+        <span className="inline-flex items-center gap-2 rounded-full bg-slate-950/40 px-2.5 py-1 text-xs font-medium text-white">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${riskToneDotClass(signal.tone)}`}
+          />
+          {signal.status}
+        </span>
+      </div>
+      <p className="mt-2 text-slate-200/85">{signal.detail}</p>
+    </div>
+  );
+}
+
+function VaultRiskIntelligencePanel({
+  snapshot,
+  controlPlane,
+}: {
+  snapshot: LiveVaultSnapshot;
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const signals = buildVaultRiskSignals({
+    hasAuthoritativeState: snapshot.hasAuthoritativeState,
+    controlPlaneAvailable: Boolean(controlPlane),
+    controlPlaneWarningCount: controlPlane?.warning_count ?? null,
+    epochSource: controlPlane?.epoch_source ?? null,
+    stakeSnapshotComplete: controlPlane?.stake_snapshot_complete ?? null,
+  });
+
+  return (
+    <GlassCard className="p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-white">
+            Vault risk intelligence
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-300">
+            A production liquid-staking app should help users decide, not just
+            transact. This panel summarizes live evidence, withheld data,
+            slashing exposure, liquidity timing, and proof availability before
+            users stake or exit.
+          </p>
+        </div>
+        <Link
+          href="/validators"
+          className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:border-red-400/40 hover:bg-red-500/15"
+        >
+          Validator intelligence
+          <ExternalLink className="h-4 w-4" />
+        </Link>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {signals.map((signal) => (
+          <RiskSignalCard key={signal.id} signal={signal} />
+        ))}
+      </div>
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-4">
+        {VAULT_RISK_DISCLOSURES.map((item) => (
+          <div
+            key={item.title}
+            className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4"
+          >
+            <p className="text-sm font-semibold text-white">{item.title}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{item.body}</p>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
+  );
+}
+
+function StakeRiskChecklist() {
+  return (
+    <GlassCard className="p-6">
+      <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+        <Shield className="h-4 w-4 text-amber-400" />
+        Before You Stake
+      </h3>
+      <div className="space-y-3">
+        {VAULT_RISK_DISCLOSURES.slice(0, 3).map((item) => (
+          <div
+            key={item.title}
+            className="rounded-xl border border-slate-800 bg-slate-900/70 p-4"
+          >
+            <p className="text-sm font-medium text-white">{item.title}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">{item.body}</p>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
+  );
+}
+
+function WithdrawalLiquidityPanel({ signals }: { signals: VaultRiskSignal[] }) {
+  return (
+    <GlassCard className="p-6">
+      <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+        <Coins className="h-4 w-4 text-cyan-400" />
+        Liquidity Reality Check
+      </h3>
+      <div className="space-y-3">
+        {signals.map((signal) => (
+          <RiskSignalCard key={signal.id} signal={signal} />
+        ))}
+      </div>
+      <div className="mt-5 space-y-3">
+        {WITHDRAWAL_LIQUIDITY_CHECKPOINTS.map((checkpoint, index) => (
+          <div key={checkpoint.title} className="flex gap-3">
+            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-xs font-semibold text-slate-300">
+              {index + 1}
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">
+                {checkpoint.title}
+              </p>
+              <p className="text-xs leading-5 text-slate-400">
+                {checkpoint.body}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
   );
 }
 
@@ -705,6 +865,11 @@ function OverviewTab({
           icon={<AlertCircle className="w-5 h-5" />}
         />
       </div>
+
+      <VaultRiskIntelligencePanel
+        snapshot={snapshot}
+        controlPlane={controlPlane}
+      />
 
       <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
         <GlassCard className="p-6">
@@ -1464,6 +1629,8 @@ function StakeTab() {
         </GlassCard>
 
         {/* Staking Info */}
+        <StakeRiskChecklist />
+
         <GlassCard className="p-6">
           <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
             <Info className="w-4 h-4 text-red-400" />
@@ -1603,6 +1770,18 @@ function UnstakeTab() {
   const requests: DisplayWithdrawalRequest[] = useMemo(() => {
     return toDisplayWithdrawalRequests(onChainWithdrawals, withdrawalClock);
   }, [onChainWithdrawals, withdrawalClock]);
+  const liquiditySignals = useMemo(() => {
+    return buildWithdrawalLiquiditySummary({
+      requestCount: requests.length,
+      pendingCount: requests.filter((request) => request.status === "pending")
+        .length,
+      readyCount: requests.filter((request) => request.status === "ready")
+        .length,
+      claimedCount: requests.filter((request) => request.status === "claimed")
+        .length,
+      hasLiveExchangeRate: liveRate != null,
+    });
+  }, [liveRate, requests]);
 
   const handleQuick = (pct: number) =>
     setAmount(formatEtherInputAmount(percentOfBaseUnits(maxBalWei, pct)));
@@ -1879,15 +2058,18 @@ function UnstakeTab() {
               </div>
               <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4">
                 <p className="text-sm text-red-300 font-medium mb-1">
-                  Emergency Unstake
+                  Instant exits are not guaranteed
                 </p>
                 <p className="text-xs text-slate-400">
-                  Skip cooldown with a 0.5% fee. Contact support for large
-                  amounts.
+                  This vault flow does not promise a shortcut around the
+                  cooldown. Secondary liquidity venues, if used, are external
+                  and may include price impact or unavailable depth.
                 </p>
               </div>
             </div>
           </GlassCard>
+
+          <WithdrawalLiquidityPanel signals={liquiditySignals} />
         </div>
       </div>
 
