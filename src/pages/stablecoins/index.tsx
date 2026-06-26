@@ -16,20 +16,12 @@ import {
   Wallet,
   AlertTriangle,
   ChevronDown,
-  ExternalLink,
   Shield,
   Activity,
 } from "lucide-react";
 import { useApp } from "@/contexts/AppContext";
-import {
-  TopNav,
-  Footer,
-  Tabs,
-  Badge,
-  LiveDot,
-} from "@/components/SharedComponents";
+import { TopNav, Footer, LiveDot } from "@/components/SharedComponents";
 import { GlassCard } from "@/components/PagePrimitives";
-import { BRAND, STATUS_STYLES } from "@/lib/constants";
 import {
   STABLECOIN_ASSETS,
   StablecoinPhase,
@@ -52,12 +44,36 @@ import {
   shortStablecoinHash,
 } from "@/lib/stablecoinHistory";
 import { getPublicErrorMessage } from "@/lib/publicErrors";
+import {
+  buildBridgeReadinessSignals,
+  STABLECOIN_BRIDGE_DISCLOSURES,
+  STABLECOIN_BRIDGE_STEPS,
+  type BridgeRiskSignal,
+} from "@/lib/stablecoinBridgeRisk";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 type StablecoinTab = "bridge" | "balances" | "history";
+
+const STABLECOIN_PHASE_GUIDE = [
+  {
+    title: "Active",
+    body: "The asset can enter bridge flows only after live on-chain config, wallet, allowance, and limit checks pass.",
+    className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-200",
+  },
+  {
+    title: "Read Only",
+    body: "Balances and history can be displayed, but bridge writes stay unavailable until the asset is promoted.",
+    className: "border-amber-500/25 bg-amber-500/10 text-amber-200",
+  },
+  {
+    title: "Coming Soon",
+    body: "The asset is visible for roadmap context only and must not expose balance, approval, or bridge actions.",
+    className: "border-white/10 bg-white/[0.03] text-gray-300",
+  },
+] as const;
 
 // ============================================================================
 // PHASE BADGE
@@ -84,6 +100,205 @@ function PhaseBadge({ phase }: { phase: StablecoinPhase }) {
         </span>
       );
   }
+}
+
+function bridgeToneClasses(tone: BridgeRiskSignal["tone"]): string {
+  switch (tone) {
+    case "healthy":
+      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-200";
+    case "warning":
+      return "border-amber-500/25 bg-amber-500/10 text-amber-200";
+    case "blocked":
+      return "border-red-500/30 bg-red-500/10 text-red-200";
+  }
+}
+
+function bridgeToneDotClass(tone: BridgeRiskSignal["tone"]): string {
+  switch (tone) {
+    case "healthy":
+      return "bg-emerald-400 shadow-emerald-400/40";
+    case "warning":
+      return "bg-amber-400 shadow-amber-400/40";
+    case "blocked":
+      return "bg-red-400 shadow-red-400/40";
+  }
+}
+
+function formatBridgeCap(
+  value: bigint,
+  decimals: number | undefined,
+  symbol: string,
+): string {
+  if (!decimals) {
+    return "Unavailable";
+  }
+
+  if (value <= 0n) {
+    return "No explicit cap reported";
+  }
+
+  return `${formatUnits(value, decimals)} ${symbol}`;
+}
+
+function BridgeRiskCard({ signal }: { signal: BridgeRiskSignal }) {
+  return (
+    <div className={`rounded-xl border p-4 ${bridgeToneClasses(signal.tone)}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.18em] opacity-70">
+            {signal.title}
+          </p>
+          <p className="mt-1 text-sm font-semibold">{signal.status}</p>
+        </div>
+        <span
+          aria-hidden="true"
+          className={`mt-1 h-2.5 w-2.5 rounded-full shadow-lg ${bridgeToneDotClass(
+            signal.tone,
+          )}`}
+        />
+      </div>
+      <p className="mt-3 text-xs leading-relaxed opacity-80">{signal.detail}</p>
+    </div>
+  );
+}
+
+function BridgeEducationPanel({ signals }: { signals: BridgeRiskSignal[] }) {
+  const blockers = signals.filter((signal) => signal.tone === "blocked").length;
+  const warnings = signals.filter((signal) => signal.tone === "warning").length;
+  const readinessSummary =
+    blockers > 0
+      ? `${blockers} blocker${blockers === 1 ? "" : "s"}`
+      : warnings > 0
+        ? `${warnings} review item${warnings === 1 ? "" : "s"}`
+        : "Ready to simulate";
+
+  return (
+    <GlassCard>
+      <div className="p-6 space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Shield className="w-5 h-5 text-red-400" />
+              Bridge Readiness Check
+            </h3>
+            <p className="mt-1 text-sm text-gray-400">
+              Live config, wallet state, allowance, limits, and destination
+              domain are reviewed before a transaction can be signed.
+            </p>
+          </div>
+          <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-gray-200">
+            {readinessSummary}
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {signals.map((signal) => (
+            <BridgeRiskCard key={signal.id} signal={signal} />
+          ))}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-gray-500">
+              Bridge lifecycle
+            </p>
+            <ol className="mt-4 space-y-3">
+              {STABLECOIN_BRIDGE_STEPS.map((step, index) => (
+                <li key={step.title} className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-xs font-semibold text-red-200 ring-1 ring-red-500/30">
+                    {index + 1}
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-white">
+                      {step.title}
+                    </span>
+                    <span className="block text-xs leading-relaxed text-gray-400">
+                      {step.body}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-gray-500">
+              User protection notes
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {STABLECOIN_BRIDGE_DISCLOSURES.map((item) => (
+                <div key={item.title}>
+                  <p className="text-sm font-semibold text-white">
+                    {item.title}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-gray-400">
+                    {item.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+function StablecoinPhaseGuide() {
+  return (
+    <GlassCard>
+      <div className="p-5">
+        <h3 className="text-sm font-semibold text-white">
+          Stablecoin phase policy
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-gray-400">
+          Registry phase is a launch control, not marketing copy. The UI must
+          keep write operations unavailable unless both registry phase and live
+          contract state agree.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {STABLECOIN_PHASE_GUIDE.map((item) => (
+            <div
+              key={item.title}
+              className={`rounded-xl border p-3 ${item.className}`}
+            >
+              <p className="text-sm font-semibold">{item.title}</p>
+              <p className="mt-1 text-xs leading-relaxed opacity-80">
+                {item.body}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+function BridgeHistoryNotice() {
+  return (
+    <GlassCard>
+      <div className="p-5">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Shield className="h-4 w-4 text-red-400" />
+          Bridge history limitations
+        </h3>
+        <div className="mt-3 grid gap-3 text-xs leading-relaxed text-gray-400 md:grid-cols-3">
+          <p>
+            Events are indexed from the bridge contract and may lag source-chain
+            finality or downstream destination execution.
+          </p>
+          <p>
+            Empty history means no indexed event was returned for active assets,
+            not proof that every external transfer path is inactive.
+          </p>
+          <p>
+            Transaction hashes, senders, and timestamps are shortened for UI
+            readability; settlement review should use the full explorer record.
+          </p>
+        </div>
+      </div>
+    </GlassCard>
+  );
 }
 
 // ============================================================================
@@ -120,6 +335,51 @@ function BridgeTab() {
   const approvalRequired =
     parsedAmount > 0n && needsTokenApproval(allowance, parsedAmount);
 
+  const onChainLoading = config.isLoading;
+  const dailyLimitExceeded =
+    parsedAmount > 0n &&
+    config.dailyTxLimit > 0n &&
+    parsedAmount > config.dailyTxLimit;
+  const mintCeilingExceeded =
+    parsedAmount > 0n &&
+    config.mintCeilingPerEpoch > 0n &&
+    parsedAmount > config.mintCeilingPerEpoch;
+  const limitBlocked = dailyLimitExceeded || mintCeilingExceeded;
+  const readinessSignals = useMemo(
+    () =>
+      buildBridgeReadinessSignals({
+        assetSymbol: selectedSymbol,
+        assetPhase: asset?.phase ?? null,
+        configLoading: onChainLoading,
+        configEnabled: onChainLoading ? null : config.enabled,
+        mintPaused: onChainLoading ? null : config.mintPaused,
+        dailyTxLimit: onChainLoading ? null : config.dailyTxLimit,
+        mintCeilingPerEpoch: onChainLoading ? null : config.mintCeilingPerEpoch,
+        walletConnected: wallet.connected,
+        wrongNetwork: wallet.isWrongNetwork,
+        allowanceLoading,
+        approvalRequired,
+        amountEntered: parsedAmount > 0n,
+        parsedAmount,
+        destinationDomain: CCTP_DOMAINS[destDomain],
+      }),
+    [
+      selectedSymbol,
+      asset?.phase,
+      onChainLoading,
+      config.enabled,
+      config.mintPaused,
+      config.dailyTxLimit,
+      config.mintCeilingPerEpoch,
+      wallet.connected,
+      wallet.isWrongNetwork,
+      allowanceLoading,
+      approvalRequired,
+      parsedAmount,
+      destDomain,
+    ],
+  );
+
   const handleMaxClick = useCallback(() => {
     if (!asset) {
       setAmount("0");
@@ -145,7 +405,6 @@ function BridgeTab() {
   }, [selectedSymbol, amount, parsedAmount, destDomain, bridgeOut, config]);
 
   // Disable submission until the live on-chain bridge config has loaded.
-  const onChainLoading = config.isLoading;
   const onChainBlocked =
     !onChainLoading && (config.enabled === false || config.mintPaused === true);
   const isDisabled =
@@ -156,7 +415,21 @@ function BridgeTab() {
     !amount ||
     parsedAmount <= 0n ||
     parsedAmount > balanceUnits ||
+    limitBlocked ||
     onChainBlocked;
+  const limitBlockMessage = dailyLimitExceeded
+    ? `${selectedSymbol} amount exceeds the live daily bridge limit of ${formatBridgeCap(
+        config.dailyTxLimit,
+        asset?.decimals,
+        selectedSymbol,
+      )}.`
+    : mintCeilingExceeded
+      ? `${selectedSymbol} amount exceeds the live epoch mint ceiling of ${formatBridgeCap(
+          config.mintCeilingPerEpoch,
+          asset?.decimals,
+          selectedSymbol,
+        )}.`
+      : null;
 
   return (
     <div className="space-y-6">
@@ -181,6 +454,15 @@ function BridgeTab() {
           </span>
         </div>
       )}
+
+      {limitBlockMessage && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{limitBlockMessage}</span>
+        </div>
+      )}
+
+      <BridgeEducationPanel signals={readinessSignals} />
 
       {/* Bridge Form */}
       <GlassCard>
@@ -284,6 +566,30 @@ function BridgeTab() {
               Approval and bridge checked before wallet opens
             </span>
           </div>
+          <div className="flex justify-between gap-4 text-sm text-gray-400">
+            <span>Daily bridge limit</span>
+            <span className="text-right text-gray-300">
+              {onChainLoading
+                ? "Verifying..."
+                : formatBridgeCap(
+                    config.dailyTxLimit,
+                    asset?.decimals,
+                    selectedSymbol,
+                  )}
+            </span>
+          </div>
+          <div className="flex justify-between gap-4 text-sm text-gray-400">
+            <span>Epoch mint ceiling</span>
+            <span className="text-right text-gray-300">
+              {onChainLoading
+                ? "Verifying..."
+                : formatBridgeCap(
+                    config.mintCeilingPerEpoch,
+                    asset?.decimals,
+                    selectedSymbol,
+                  )}
+            </span>
+          </div>
 
           {/* Submit */}
           <button
@@ -317,6 +623,8 @@ function BalancesTab() {
 
   return (
     <div className="space-y-4">
+      <StablecoinPhaseGuide />
+
       <GlassCard>
         <div className="p-6">
           <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
@@ -420,6 +728,8 @@ function HistoryTab() {
 
   return (
     <div className="space-y-4">
+      <BridgeHistoryNotice />
+
       <GlassCard>
         <div className="p-6">
           <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
