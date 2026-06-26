@@ -13,7 +13,9 @@ import {
 import { SEOHead } from "@/components/SEOHead";
 import { Footer, TopNav } from "@/components/SharedComponents";
 import { CopyButton, GlassCard } from "@/components/PagePrimitives";
+import { ValidatorDataQualityPanel } from "@/components/ValidatorDataQualityPanel";
 import {
+  buildValidatorDataQualitySignals,
   buildValidatorMetrics,
   fetchValidators,
   formatAgeSeconds,
@@ -216,6 +218,10 @@ export default function ValidatorsPage() {
   const freshnessAge = formatAgeSeconds(data?.protocol?.indexedStateAgeSeconds);
   const snapshotAge = formatAgeSeconds(
     data?.protocol?.indexedStateAgeSeconds ?? null,
+  );
+  const dataQualitySignals = useMemo(
+    () => buildValidatorDataQualitySignals(data?.protocol),
+    [data?.protocol],
   );
   const protocolStatus = data?.protocol?.reconciliationStatus ?? "UNKNOWN";
   const validatorCoverage =
@@ -514,6 +520,10 @@ export default function ValidatorsPage() {
                     {data?.protocol?.freshnessMessage ||
                       "Public freshness message is not yet available."}
                   </div>
+                </div>
+
+                <div className="mt-5">
+                  <ValidatorDataQualityPanel signals={dataQualitySignals} />
                 </div>
 
                 {data?.protocol?.eligibleUniverseHash ? (

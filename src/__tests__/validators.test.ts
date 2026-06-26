@@ -2,6 +2,7 @@ import { vi } from "vitest";
 
 import {
   buildValidatorMetrics,
+  buildValidatorDataQualitySignals,
   fetchValidator,
   fetchValidators,
   formatAgeSeconds,
@@ -133,6 +134,118 @@ describe("buildValidatorMetrics", () => {
       totalStake: 1000n,
     });
     expect(metrics.averageCommission).toBeCloseTo(6.33, 2);
+  });
+});
+
+describe("buildValidatorDataQualitySignals", () => {
+  it("marks complete validator provenance as healthy", () => {
+    const signals = buildValidatorDataQualitySignals(
+      {
+        eligibleUniverseHash: "0xabc",
+        reconciliationStatus: "OK",
+        freshnessStatus: "PASS",
+        freshnessMessage: "Indexed state is fresh.",
+        snapshotAt: "2026-06-26T06:00:00.000Z",
+        epoch: 42,
+        epochSource: "reconciliation-indexer",
+        epochLag: 0,
+        indexedStateAgeSeconds: 12,
+        staleLimitSeconds: 60,
+      },
+      validator({
+        risk: {
+          level: "low",
+          score: 92,
+          freshnessStatus: "PASS",
+          reasons: ["fresh"],
+          components: [
+            {
+              key: "freshness",
+              label: "Freshness",
+              status: "PASS",
+              value: "12s",
+              message: "Fresh enough.",
+            },
+          ],
+          evidence: {
+            eligibleForUniverse: true,
+            sharePercent: 1,
+            commissionPercent: 5,
+            transparencyScore: 100,
+            snapshotAt: "2026-06-26T06:00:00.000Z",
+            reconciliationStatus: "OK",
+            epoch: 42,
+            epochSource: "reconciliation-indexer",
+            epochLag: 0,
+            indexedStateAgeSeconds: 12,
+            staleLimitSeconds: 60,
+          },
+        },
+      }),
+    );
+
+    expect(signals.map((signal) => signal.id)).toContain("risk-components");
+    expect(signals.find((signal) => signal.id === "freshness")).toMatchObject({
+      status: "pass",
+      tone: "healthy",
+    });
+    expect(
+      signals.find((signal) => signal.id === "reconciliation"),
+    ).toMatchObject({
+      status: "ok",
+      tone: "healthy",
+    });
+    expect(
+      signals.find((signal) => signal.id === "universe-hash"),
+    ).toMatchObject({
+      status: "available",
+      tone: "healthy",
+    });
+    expect(
+      signals.find((signal) => signal.id === "risk-components"),
+    ).toMatchObject({
+      status: "1 checks",
+      tone: "healthy",
+    });
+  });
+
+  it("warns when source timestamps, universe hash, or risk components are missing", () => {
+    const signals = buildValidatorDataQualitySignals(
+      {
+        reconciliationStatus: "WARNING",
+        freshnessStatus: "WARNING",
+        indexedStateAgeSeconds: 900,
+        staleLimitSeconds: 300,
+      },
+      validator(),
+    );
+
+    expect(signals.find((signal) => signal.id === "freshness")).toMatchObject({
+      status: "warning",
+      tone: "warning",
+    });
+    expect(signals.find((signal) => signal.id === "snapshot")).toMatchObject({
+      status: "missing",
+      tone: "warning",
+    });
+    expect(
+      signals.find((signal) => signal.id === "universe-hash"),
+    ).toMatchObject({
+      status: "unavailable",
+      tone: "warning",
+    });
+    expect(
+      signals.find((signal) => signal.id === "epoch-source"),
+    ).toMatchObject({
+      status: "unavailable",
+      tone: "unknown",
+    });
+    expect(
+      signals.find((signal) => signal.id === "risk-components"),
+    ).toMatchObject({
+      status: "missing",
+      tone: "warning",
+    });
   });
 });
 

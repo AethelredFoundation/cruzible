@@ -10,6 +10,11 @@ export type ValidatorRiskStatus =
   | "CRITICAL"
   | "SKIPPED"
   | "UNKNOWN";
+export type ValidatorDataQualityTone =
+  | "healthy"
+  | "warning"
+  | "critical"
+  | "unknown";
 
 export interface ValidatorRiskComponent {
   key: string;
@@ -38,6 +43,14 @@ export interface ValidatorRiskAssessment {
     indexedStateAgeSeconds: number | null;
     staleLimitSeconds: number | null;
   };
+}
+
+export interface ValidatorDataQualitySignal {
+  id: string;
+  title: string;
+  status: string;
+  detail: string;
+  tone: ValidatorDataQualityTone;
 }
 
 export interface ValidatorRecord {
@@ -248,6 +261,145 @@ export function formatAgeSeconds(seconds?: number | null): string {
 
   const hours = Math.round(minutes / 60);
   return `${hours}h`;
+}
+
+function riskStatusToQualityTone(
+  status?: ValidatorRiskStatus | string | null,
+): ValidatorDataQualityTone {
+  const normalized = (status || "UNKNOWN").toUpperCase();
+
+  if (normalized === "PASS") {
+    return "healthy";
+  }
+
+  if (normalized === "WARNING" || normalized === "SKIPPED") {
+    return "warning";
+  }
+
+  if (normalized === "CRITICAL") {
+    return "critical";
+  }
+
+  return "unknown";
+}
+
+export function buildValidatorDataQualitySignals(
+  protocol?: ValidatorsProtocolContext,
+  validator?: ValidatorRecord,
+): ValidatorDataQualitySignal[] {
+  const evidence = validator?.risk?.evidence;
+  const freshnessStatus =
+    validator?.risk?.freshnessStatus ?? protocol?.freshnessStatus ?? "UNKNOWN";
+  const indexedStateAgeSeconds =
+    evidence?.indexedStateAgeSeconds ??
+    protocol?.indexedStateAgeSeconds ??
+    null;
+  const staleLimitSeconds =
+    evidence?.staleLimitSeconds ?? protocol?.staleLimitSeconds ?? null;
+  const snapshotAt = evidence?.snapshotAt ?? protocol?.snapshotAt ?? null;
+  const epoch = evidence?.epoch ?? protocol?.epoch ?? null;
+  const epochSource = evidence?.epochSource ?? protocol?.epochSource ?? null;
+  const epochLag = evidence?.epochLag ?? protocol?.epochLag ?? null;
+  const reconciliationStatus =
+    evidence?.reconciliationStatus ??
+    protocol?.reconciliationStatus ??
+    "UNKNOWN";
+
+  const signals: ValidatorDataQualitySignal[] = [
+    {
+      id: "freshness",
+      title: "Freshness",
+      status: String(freshnessStatus).toLowerCase(),
+      detail:
+        protocol?.freshnessMessage ||
+        `Indexed state age is ${formatAgeSeconds(
+          indexedStateAgeSeconds,
+        )}; stale limit is ${formatAgeSeconds(staleLimitSeconds)}.`,
+      tone: riskStatusToQualityTone(freshnessStatus),
+    },
+    {
+      id: "reconciliation",
+      title: "Reconciliation",
+      status: String(reconciliationStatus).toLowerCase(),
+      detail:
+        "Validator risk posture is tied to the latest public reconciliation status returned by the backend.",
+      tone: riskStatusToQualityTone(
+        reconciliationStatus === "OK" ? "PASS" : reconciliationStatus,
+      ),
+    },
+    snapshotAt
+      ? {
+          id: "snapshot",
+          title: "Snapshot",
+          status: "timestamped",
+          detail: `Snapshot timestamp: ${new Date(snapshotAt).toLocaleString()}.`,
+          tone: "healthy",
+        }
+      : {
+          id: "snapshot",
+          title: "Snapshot",
+          status: "missing",
+          detail:
+            "No snapshot timestamp was returned, so operators should treat the validator view as incomplete.",
+          tone: "warning",
+        },
+    protocol?.eligibleUniverseHash
+      ? {
+          id: "universe-hash",
+          title: "Universe hash",
+          status: "available",
+          detail:
+            "The eligible validator universe hash is present for reconciliation and copy/export review.",
+          tone: "healthy",
+        }
+      : {
+          id: "universe-hash",
+          title: "Universe hash",
+          status: "unavailable",
+          detail:
+            "The eligible validator universe hash is missing from this response.",
+          tone: "warning",
+        },
+    epoch != null && epochSource
+      ? {
+          id: "epoch-source",
+          title: "Epoch source",
+          status: epochLag && epochLag > 0 ? `lag ${epochLag}` : "current",
+          detail: `Epoch ${epoch} from ${epochSource}.`,
+          tone: epochLag && epochLag > 0 ? "warning" : "healthy",
+        }
+      : {
+          id: "epoch-source",
+          title: "Epoch source",
+          status: "unavailable",
+          detail: "Epoch source or epoch number was not returned.",
+          tone: "unknown",
+        },
+  ];
+
+  if (validator) {
+    signals.push(
+      validator.risk?.components?.length
+        ? {
+            id: "risk-components",
+            title: "Risk components",
+            status: `${validator.risk.components.length} checks`,
+            detail:
+              "Backend-owned lifecycle, concentration, commission, transparency, and freshness checks are attached to this validator.",
+            tone: "healthy",
+          }
+        : {
+            id: "risk-components",
+            title: "Risk components",
+            status: "missing",
+            detail:
+              "No risk component breakdown was returned for this validator.",
+            tone: "warning",
+          },
+    );
+  }
+
+  return signals;
 }
 
 export function getSharePercent(value: string | bigint, total: bigint): number {

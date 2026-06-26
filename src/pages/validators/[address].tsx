@@ -11,7 +11,9 @@ import {
 import { SEOHead } from "@/components/SEOHead";
 import { Footer, TopNav } from "@/components/SharedComponents";
 import { CopyButton, GlassCard } from "@/components/PagePrimitives";
+import { ValidatorDataQualityPanel } from "@/components/ValidatorDataQualityPanel";
 import {
+  buildValidatorDataQualitySignals,
   fetchValidator,
   formatAgeSeconds,
   formatRawTokenAmount,
@@ -125,6 +127,10 @@ export default function ValidatorDetailPage() {
   const profileCompleteness = validator ? getProfileCompleteness(validator) : 0;
   const status = validator ? getValidatorStatus(validator) : "inactive";
   const safeWebsite = getSafeExternalUrl(validator?.website);
+  const dataQualitySignals = buildValidatorDataQualitySignals(
+    protocol,
+    validator,
+  );
 
   return (
     <>
@@ -371,7 +377,10 @@ export default function ValidatorDetailPage() {
                     <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
                       Canonical Context
                     </p>
-                    <div className="mt-3 space-y-3 text-sm text-slate-300">
+                    <div className="mt-4">
+                      <ValidatorDataQualityPanel signals={dataQualitySignals} />
+                    </div>
+                    <div className="mt-5 space-y-3 text-sm text-slate-300">
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3">
                         Universe membership:{" "}
                         {validator.eligibleForUniverse === false
