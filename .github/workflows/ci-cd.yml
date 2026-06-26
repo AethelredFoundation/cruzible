@@ -119,6 +119,16 @@ jobs:
             --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="${CI_FRONTEND_WALLETCONNECT_PROJECT_ID}" \
             -t cruzible-frontend:ci .
 
+      - name: Scan frontend container image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: cruzible-frontend:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
       - name: Verify frontend container runtime metadata
         run: |
           node <<'NODE'
@@ -342,6 +352,26 @@ jobs:
             --target indexer \
             --tag cruzible-api-indexer:ci .
 
+      - name: Scan backend API production image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: cruzible-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Scan backend indexer image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: cruzible-api-indexer:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
   release-images:
     name: Release Images
     runs-on: ubuntu-latest
@@ -444,6 +474,16 @@ jobs:
             NEXT_PUBLIC_USDC_TOKEN_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS }}
             NEXT_PUBLIC_USDT_TOKEN_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}
             NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
+
+      - name: Scan ${{ matrix.name }} release image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: ${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6

@@ -228,6 +228,17 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain("--tag cruzible-api:ci");
     expect(workflow).toContain("--target indexer");
     expect(workflow).toContain("--tag cruzible-api-indexer:ci");
+    expect(workflow).toContain("Scan backend API production image");
+    expect(workflow).toContain("image-ref: cruzible-api:ci");
+    expect(workflow).toContain("Scan backend indexer image");
+    expect(workflow).toContain("image-ref: cruzible-api-indexer:ci");
+    expect(workflow).toContain(
+      "uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8",
+    );
+    expect(workflow).toContain('exit-code: "1"');
+    expect(workflow).toContain("ignore-unfixed: true");
+    expect(workflow).toContain("vuln-type: os,library");
+    expect(workflow).toContain("severity: CRITICAL,HIGH");
   });
 
   it("enforces backend API formatting before type-checking and tests", () => {
@@ -258,6 +269,15 @@ describe("GitHub Actions workflow hardening", () => {
     expect(workflow).toContain("Check frontend bundle budget");
     expect(workflow).toContain("npm run performance:budget");
     expect(workflow).toContain("-t cruzible-frontend:ci .");
+    expect(workflow).toContain("Scan frontend container image");
+    expect(workflow).toContain("image-ref: cruzible-frontend:ci");
+    expect(workflow).toContain(
+      "uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8",
+    );
+    expect(workflow).toContain('exit-code: "1"');
+    expect(workflow).toContain("ignore-unfixed: true");
+    expect(workflow).toContain("vuln-type: os,library");
+    expect(workflow).toContain("severity: CRITICAL,HIGH");
     expect(workflow).toContain("Verify frontend container runtime metadata");
     expect(workflow).toContain(
       '"docker", ["image", "inspect", "cruzible-frontend:ci"]',
@@ -454,6 +474,19 @@ describe("GitHub Actions workflow hardening", () => {
     expect(releaseJob?.block).toContain("push: true");
     expect(releaseJob?.block).toContain("sbom: true");
     expect(releaseJob?.block).toContain("provenance: mode=max");
+    expect(releaseJob?.block).toContain(
+      "Scan ${{ matrix.name }} release image",
+    );
+    expect(releaseJob?.block).toContain(
+      "uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8",
+    );
+    expect(releaseJob?.block).toContain(
+      "image-ref: ${{ matrix.image }}@${{ steps.build.outputs.digest }}",
+    );
+    expect(releaseJob?.block).toContain('exit-code: "1"');
+    expect(releaseJob?.block).toContain("ignore-unfixed: true");
+    expect(releaseJob?.block).toContain("vuln-type: os,library");
+    expect(releaseJob?.block).toContain("severity: CRITICAL,HIGH");
     expect(releaseJob?.block).toContain("uses: sigstore/cosign-installer@");
     expect(releaseJob?.block).toContain("cosign sign --yes");
     expect(releaseJob?.block).toContain(
