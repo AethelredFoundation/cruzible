@@ -12,6 +12,7 @@ const DEFAULT_OPERATOR_TOKEN_ENV = "STAGING_OPERATOR_BEARER_TOKEN";
 const REQUIRED_REPOSITORY_EVIDENCE = [
   "docs/ops/runbook.md",
   "docs/ops/disaster-recovery-targets.json",
+  "docs/ops/restore-drill-evidence.example.json",
   "docs/ops/environment-reference.md",
   "docs/architecture/12-public-readiness.md",
   "docs/architecture/13-production-gap-register.md",

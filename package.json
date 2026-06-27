@@ -29,6 +29,7 @@
     "readiness:routes": "node scripts/validate-public-route-inventory.mjs",
     "readiness:claims": "node scripts/validate-launch-claims.mjs",
     "readiness:dr": "node scripts/validate-dr-targets.mjs",
+    "readiness:restore-drill": "node scripts/validate-restore-drill-evidence.mjs",
     "readiness:launch-drill": "node scripts/staged-launch-drill.mjs --dry-run",
     "launch:drill:staging": "node scripts/staged-launch-drill.mjs",
     "deployment:validate": "node scripts/validate-deployment-manifests.mjs",
@@ -38,8 +39,8 @@
     "performance:journey": "playwright test e2e/performance-budget.spec.ts --project=chromium",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
-    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run test",
-    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run type-check && npm run test:ci && npm run build"
+    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run test",
+    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run type-check && npm run test:ci && npm run build"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",

@@ -6,6 +6,7 @@ const DEFAULT_SCAN_TARGETS = [
   "README.md",
   "docs/architecture",
   "docs/ops",
+  "backend/contracts",
   "src/components",
   "src/lib",
   "src/pages",
@@ -40,6 +41,7 @@ export const LAUNCH_CLAIM_RULES = [
       /\bnot\s+(?:yet\s+)?production[-\s]+ready\b/i,
       /\bshould\s+not\s+be\s+described\s+as\s+production[-\s]+ready\b/i,
       /\bnot\s+a\s+production\s+promise\b/i,
+      /\bdoes\s+not\s+(?:assert|support)\s+(?:a\s+)?production[-\s]+ready\b/i,
       /\bunsupported\b.*\bproduction[-\s]+ready\b/i,
       /\bbefore\b.*\bproduction[-\s]+ready\b/i,
     ],
@@ -51,8 +53,48 @@ export const LAUNCH_CLAIM_RULES = [
       "Do not describe Cruzible as mainnet ready until deployed contracts, operators, and external assurance are complete.",
     allow: [
       /\bnot\s+(?:yet\s+)?mainnet[-\s]+ready\b/i,
-      /\bshould\s+not\s+be\s+described\s+as\s+mainnet[-\s]+ready\b/i,
+      /\bnot\s+a\s+mainnet[-\s]+ready\s+statement\b/i,
+      /\bdoes\s+not\s+(?:assert|support)\b.*\bmainnet[-\s]+ready\b/i,
+      /\bshould\s+not\s+be\s+described\s+as\b.*\bmainnet[-\s]+ready\b/i,
       /\bunsupported\b.*\bmainnet[-\s]+ready\b/i,
+    ],
+  },
+  {
+    id: "CLAIM-DEPLOYMENT-READY",
+    pattern: /\bready\s+for\s+deployment\b/i,
+    message:
+      "Do not describe contracts as ready for deployment until staging evidence, external audit, and operator sign-off are complete.",
+    allow: [
+      /\bnot\s+ready\s+for\s+deployment\b/i,
+      /\bshould\s+not\s+be\s+described\s+as\s+ready\s+for\s+deployment\b/i,
+      /\bunsupported\b.*\bready\s+for\s+deployment\b/i,
+    ],
+  },
+  {
+    id: "CLAIM-ABSOLUTE-COVERAGE",
+    pattern:
+      /\b100%\s+(?:(?:execution\s+path|line|branch|error\s+handling|state\s+transition|query\s+handler)\s+)?coverage\b/i,
+    message:
+      "Do not claim absolute coverage without measured coverage artifacts and reviewable evidence.",
+    allow: [
+      /\bnot\s+(?:a\s+)?100%\s+coverage\s+claim\b/i,
+      /\bshould\s+not\s+be\s+read\s+as\s+a\s+100%\s+coverage\s+claim\b/i,
+      /\bunsupported\b.*\b100%\s+coverage\b/i,
+    ],
+  },
+  {
+    id: "CLAIM-UNBACKED-TEE-PROOF",
+    pattern:
+      /\b(?:proof[-\s]+backed|TEE[-\s]+verified|hardware[-\s]+verified|TEE\s+attestation\s+verification)\b/i,
+    message:
+      "Contract documentation must not imply proof-backed, TEE-verified, or hardware-verified assurance without explicit evidence scope.",
+    paths: [/^backend\/contracts\//],
+    allow: [
+      /\bnot\s+(?:yet\s+)?(?:proof[-\s]+backed|TEE[-\s]+verified|hardware[-\s]+verified)\b/i,
+      /\bnot\s+(?:a\s+)?(?:proof|TEE|hardware)[-\s]+(?:assurance|verification)\s+claim\b/i,
+      /\bunsupported\b.*\b(?:proof|TEE|hardware)[-\s]+(?:backed|verified)\b/i,
+      /\bevidence\b.*\b(?:field|scope|binding|record|manifest)\b/i,
+      /\b(?:field|scope|binding|record|manifest)\b.*\bevidence\b/i,
     ],
   },
   {
@@ -159,6 +201,10 @@ export function scanTextForLaunchClaims(filePath, text) {
 
   lines.forEach((line, index) => {
     for (const rule of LAUNCH_CLAIM_RULES) {
+      if (rule.paths && !rule.paths.some((pattern) => pattern.test(filePath))) {
+        continue;
+      }
+
       if (!rule.pattern.test(line)) {
         continue;
       }

@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  createReadStream,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -207,11 +214,104 @@ export function buildBackupManifest({
       format: "postgres_custom",
       file: basename(backupPath),
       manifest: basename(manifestPath),
+      sha256: null,
+      size_bytes: null,
+    },
+    verification: {
+      status: dryRun ? "not_run" : "pending",
+      checked_at: null,
+      duration_ms: null,
+      object_count: null,
+      pg_restore: {
+        version: dryRun ? "not-executed" : null,
+        command: "pg_restore --list <backup>",
+      },
     },
     pg_dump: {
       version,
       command: pgDumpCommand,
     },
+  };
+}
+
+export function calculateFileSha256(filePath) {
+  return new Promise((resolveHash, rejectHash) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(filePath);
+
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", rejectHash);
+    stream.on("end", () => resolveHash(hash.digest("hex")));
+  });
+}
+
+function getPgRestoreVersion() {
+  const result = spawnSync("pg_restore", ["--version"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  if (result.error) {
+    throw new Error(`pg_restore is required: ${result.error.message}`);
+  }
+
+  if (result.status !== 0) {
+    throw new Error("pg_restore --version failed");
+  }
+
+  return result.stdout.trim();
+}
+
+export function verifyBackupReadable(backupPath, now = new Date()) {
+  const startedAt = Date.now();
+  const result = spawnSync("pg_restore", ["--list", backupPath], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  if (result.error) {
+    throw new Error(`pg_restore --list failed: ${result.error.message}`);
+  }
+
+  if (result.status !== 0) {
+    throw new Error(`pg_restore --list exited with status ${result.status}`);
+  }
+
+  const objectCount = result.stdout
+    .split(/\r?\n/u)
+    .filter((line) => line.trim() && !line.trim().startsWith(";")).length;
+
+  if (objectCount < 1) {
+    throw new Error("pg_restore --list did not report any restorable objects");
+  }
+
+  return {
+    status: "passed",
+    checked_at: now.toISOString(),
+    duration_ms: Date.now() - startedAt,
+    object_count: objectCount,
+    pg_restore: {
+      version: getPgRestoreVersion(),
+      command: "pg_restore --list <backup>",
+    },
+  };
+}
+
+export async function attachBackupArtifactIntegrity(
+  manifest,
+  backupPath,
+  verification,
+) {
+  const stats = statSync(backupPath);
+
+  return {
+    ...manifest,
+    backup: {
+      ...manifest.backup,
+      sha256: await calculateFileSha256(backupPath),
+      size_bytes: stats.size,
+    },
+    verification,
   };
 }
 
@@ -255,7 +355,7 @@ Options:
 `);
 }
 
-export function main(argv = process.argv.slice(2), env = process.env) {
+export async function main(argv = process.argv.slice(2), env = process.env) {
   const options = parseArgs(argv);
 
   if (options.help) {
@@ -270,7 +370,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     options.label,
   );
   const invocation = buildPgDumpInvocation(connection, backupPath, env);
-  const manifest = buildBackupManifest({
+  let manifest = buildBackupManifest({
     backupPath,
     connection,
     dryRun: options.dryRun,
@@ -301,6 +401,12 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     throw new Error(`pg_dump exited with status ${result.status}`);
   }
 
+  const verification = verifyBackupReadable(backupPath);
+  manifest = await attachBackupArtifactIntegrity(
+    manifest,
+    backupPath,
+    verification,
+  );
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
     mode: 0o600,
   });
@@ -312,7 +418,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    process.exitCode = main();
+    process.exitCode = await main();
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

@@ -66,11 +66,26 @@ describe("disaster recovery target validation", () => {
     expect(packageJson.scripts["readiness:dr"]).toBe(
       "node scripts/validate-dr-targets.mjs",
     );
+    expect(packageJson.scripts["readiness:restore-drill"]).toBe(
+      "node scripts/validate-restore-drill-evidence.mjs",
+    );
     expect(packageJson.scripts.validate).toContain("npm run readiness:dr");
+    expect(packageJson.scripts.validate).toContain(
+      "npm run readiness:restore-drill",
+    );
     expect(packageJson.scripts["verify:ci"]).toContain("npm run readiness:dr");
+    expect(packageJson.scripts["verify:ci"]).toContain(
+      "npm run readiness:restore-drill",
+    );
     expect(ciWorkflow).toContain("Validate disaster recovery targets");
     expect(ciWorkflow).toContain("npm run readiness:dr");
+    expect(ciWorkflow).toContain("Validate restore drill evidence contract");
+    expect(ciWorkflow).toContain("npm run readiness:restore-drill");
     expect(securityWorkflow).toContain("Validate disaster recovery targets");
     expect(securityWorkflow).toContain("npm run readiness:dr");
+    expect(securityWorkflow).toContain(
+      "Validate restore drill evidence contract",
+    );
+    expect(securityWorkflow).toContain("npm run readiness:restore-drill");
   });
 });

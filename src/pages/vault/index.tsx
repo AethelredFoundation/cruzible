@@ -689,11 +689,13 @@ function OverviewTab({
         {wallet.connected ? (
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
             <div>
-              <p className="text-xs text-slate-500 mb-1">Staked Balance</p>
-              <p className="text-xl font-bold text-white tabular-nums">
-                {fmtNum(wallet.balance, 2)}
+              <p className="text-xs text-slate-500 mb-1">
+                AETHEL Token Balance
               </p>
-              <p className="text-xs text-slate-500">AETHEL</p>
+              <p className="text-xl font-bold text-white tabular-nums">
+                {fmtNum(wallet.aethelBalance, 2)}
+              </p>
+              <p className="text-xs text-slate-500">Available to stake</p>
             </div>
             <div>
               <p className="text-xs text-slate-500 mb-1">stAETHEL Balance</p>
@@ -1353,6 +1355,8 @@ function StakeTab() {
   };
 
   const handleStake = useCallback(async () => {
+    if (processing) return;
+
     if (!stakeQuote.canSubmit) {
       addNotification(
         "error",
@@ -1378,7 +1382,14 @@ function StakeTab() {
       // Error or rejection — stake() already fires notification via useStake
       setShowConfirm(false);
     }
-  }, [addNotification, amount, stake, stakeQuote, vaultState.exchangeRate]);
+  }, [
+    addNotification,
+    amount,
+    processing,
+    stake,
+    stakeQuote,
+    vaultState.exchangeRate,
+  ]);
 
   return (
     <div className="grid lg:grid-cols-5 gap-8">
@@ -1576,13 +1587,15 @@ function StakeTab() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowConfirm(false)}
+                    disabled={processing}
                     className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-medium transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleStake}
-                    className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+                    disabled={processing}
+                    className="flex-1 py-3 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-colors"
                   >
                     Confirm Stake
                   </button>
@@ -1787,6 +1800,8 @@ function UnstakeTab() {
     setAmount(formatEtherInputAmount(percentOfBaseUnits(maxBalWei, pct)));
 
   const handleUnstake = useCallback(async () => {
+    if (processing) return;
+
     if (!unstakeQuote.canSubmit) {
       addNotification(
         "error",
@@ -1815,6 +1830,7 @@ function UnstakeTab() {
   }, [
     addNotification,
     amount,
+    processing,
     refetchWithdrawals,
     unstake,
     unstakeQuote,
@@ -1824,13 +1840,13 @@ function UnstakeTab() {
   const handleClaim = useCallback(
     async (id: string) => {
       const req = requests.find((r) => r.id === id);
-      if (!req || req.status !== "ready") return;
+      if (!req || req.status !== "ready" || claimIsPending) return;
       const hash = await claimWithdrawal(req.withdrawalId);
       if (hash) {
         refetchWithdrawals();
       }
     },
-    [requests, claimWithdrawal, refetchWithdrawals],
+    [requests, claimIsPending, claimWithdrawal, refetchWithdrawals],
   );
 
   return (
@@ -2011,13 +2027,15 @@ function UnstakeTab() {
                   <div className="flex gap-3">
                     <button
                       onClick={() => setShowConfirm(false)}
+                      disabled={processing}
                       className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-medium transition-colors"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleUnstake}
-                      className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-medium transition-colors"
+                      disabled={processing}
+                      className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-colors"
                     >
                       Confirm Unstake
                     </button>
@@ -2182,9 +2200,10 @@ function UnstakeTab() {
                       {req.status === "ready" ? (
                         <button
                           onClick={() => handleClaim(req.id)}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
+                          disabled={claimIsPending}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
                         >
-                          Claim
+                          {claimIsPending ? "Claiming..." : "Claim"}
                         </button>
                       ) : req.status === "claimed" ? (
                         <span className="text-xs text-slate-500">Claimed</span>

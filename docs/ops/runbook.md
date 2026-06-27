@@ -257,7 +257,7 @@ npm run db:migrate:deploy
 - `npm run db:migrate` maps to `prisma migrate dev`, which is appropriate for development workflows but is not, by itself, a production change-management process.
 - `npm run db:migrate:status` checks whether the target database is aligned with the checked-in Prisma migrations.
 - `npm run db:backup:dry-run` prints a redacted backup plan using `DATABASE_URL_FILE` or `DATABASE_URL` without invoking `pg_dump`.
-- `npm run db:backup` creates a PostgreSQL custom-format `.dump` plus a JSON manifest before migration windows; it passes the password through `PGPASSWORD` instead of command-line arguments.
+- `npm run db:backup` creates a PostgreSQL custom-format `.dump` plus a JSON manifest before migration windows; it passes the password through `PGPASSWORD` instead of command-line arguments, records SHA-256 and byte size, and fails unless `pg_restore --list` can read the backup.
 - `npm run db:migrate:deploy` applies checked-in migrations without creating development migration files and is the production deployment entrypoint.
 - Back up PostgreSQL before destructive data operations.
 - Do not rely on manual table truncation as a generic recovery procedure unless you have already captured a restorable backup and understand the downstream effects on indexer and reconciliation state.
@@ -320,6 +320,10 @@ Every staging or production restore drill must record commit, environment,
 incident scenario, start/recovered timestamps, actual RTO/RPO, backup manifest,
 readiness result, and operator approvals. These targets define the bar; they do
 not replace a live restore drill against operator-managed infrastructure.
+Use [restore-drill-evidence.example.json](restore-drill-evidence.example.json)
+as the evidence contract and keep `npm run readiness:restore-drill` green. The
+example is synthetic repository evidence; replace it with live staging or
+production evidence for actual release decisions.
 
 ## 9. Known Operator Gaps In This Repo Snapshot
 

@@ -222,6 +222,9 @@ jobs:
       - name: Validate disaster recovery targets
         run: npm run readiness:dr
 
+      - name: Validate restore drill evidence contract
+        run: npm run readiness:restore-drill
+
   release-sbom:
     name: Release SBOM
     runs-on: ubuntu-latest

@@ -13,6 +13,7 @@ describe("launch claim validation", () => {
     const { errors, files } = validateLaunchClaims();
 
     expect(files.length).toBeGreaterThan(20);
+    expect(files).toContain("backend/contracts/TEST_SUMMARY.md");
     expect(errors).toEqual([]);
   });
 
@@ -21,6 +22,7 @@ describe("launch claim validation", () => {
       "src/pages/vault/index.tsx",
       [
         "Cruzible is production ready for all users.",
+        "Cruzible is ready for deployment.",
         "Stake with guaranteed APY.",
         "This is a risk-free liquid staking app.",
         "Cruzible is tier 1 audited.",
@@ -29,10 +31,43 @@ describe("launch claim validation", () => {
 
     expect(findings.map((finding) => finding.rule)).toEqual([
       "CLAIM-PRODUCTION-READY",
+      "CLAIM-DEPLOYMENT-READY",
       "CLAIM-GUARANTEED-YIELD",
       "CLAIM-RISK-FREE",
       "CLAIM-AUDITED",
     ]);
+  });
+
+  it("flags contract documentation overclaims", () => {
+    const findings = scanTextForLaunchClaims(
+      "backend/contracts/TEST_SUMMARY.md",
+      [
+        "Test Coverage Status: PRODUCTION READY.",
+        "Critical contracts have 100% execution path coverage.",
+        "All contracts are ready for deployment.",
+        "The verifier provides hardware-verified assurance.",
+        "This is proof-backed contract evidence.",
+        "Complete Job validates TEE attestation verification.",
+      ].join("\n"),
+    );
+
+    expect(findings.map((finding) => finding.rule)).toEqual([
+      "CLAIM-PRODUCTION-READY",
+      "CLAIM-ABSOLUTE-COVERAGE",
+      "CLAIM-DEPLOYMENT-READY",
+      "CLAIM-UNBACKED-TEE-PROOF",
+      "CLAIM-UNBACKED-TEE-PROOF",
+      "CLAIM-UNBACKED-TEE-PROOF",
+    ]);
+  });
+
+  it("keeps TEE and proof assurance checks scoped to contract docs", () => {
+    const findings = scanTextForLaunchClaims(
+      "src/pages/vault/index.tsx",
+      "The vault labels a source as hardware-verified.",
+    );
+
+    expect(findings).toEqual([]);
   });
 
   it("allows defensive disclosure language that avoids overclaiming", () => {
@@ -44,6 +79,9 @@ describe("launch claim validation", () => {
         "This is not a risk-free product.",
         "The contracts are not audited yet.",
         "Block unsupported production-ready, mainnet-ready, and risk-free claims.",
+        "This document does not support a production-ready or mainnet-ready designation.",
+        "This document should not be read as a 100% coverage claim.",
+        "The contracts are not ready for deployment.",
       ].join("\n"),
     );
 

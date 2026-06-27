@@ -9,7 +9,7 @@
  *   - Reading user withdrawals
  */
 
-import { useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   useReadContract,
   useReadContracts,
@@ -272,6 +272,8 @@ export function useStake() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
   const { writeContractAsync, isPending } = useWriteContract();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
   const tokenAddr = getContractAddress("aethelToken");
 
@@ -301,6 +303,18 @@ export function useStake() {
       if (!canSubmitTransaction(wallet, addNotification)) {
         return undefined;
       }
+
+      if (submitLockRef.current) {
+        addNotification(
+          "warning",
+          "Transaction In Progress",
+          "Wait for the current stake transaction to finish before submitting another.",
+        );
+        return undefined;
+      }
+
+      submitLockRef.current = true;
+      setIsSubmitting(true);
 
       try {
         const amount = parseEther(amountEther);
@@ -485,6 +499,9 @@ export function useStake() {
           );
         }
         return undefined;
+      } finally {
+        submitLockRef.current = false;
+        setIsSubmitting(false);
       }
     },
     [
@@ -497,7 +514,7 @@ export function useStake() {
     ],
   );
 
-  return { stake, isPending };
+  return { stake, isPending: isPending || isSubmitting };
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +525,8 @@ export function useUnstake() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
   const { writeContractAsync, isPending } = useWriteContract();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
   const stAethelAddr = getContractAddress("stAethel");
 
@@ -537,6 +556,18 @@ export function useUnstake() {
       if (!canSubmitTransaction(wallet, addNotification)) {
         return undefined;
       }
+
+      if (submitLockRef.current) {
+        addNotification(
+          "warning",
+          "Transaction In Progress",
+          "Wait for the current unstake transaction to finish before submitting another.",
+        );
+        return undefined;
+      }
+
+      submitLockRef.current = true;
+      setIsSubmitting(true);
 
       try {
         const shares = parseEther(sharesEther);
@@ -712,6 +743,9 @@ export function useUnstake() {
           );
         }
         return undefined;
+      } finally {
+        submitLockRef.current = false;
+        setIsSubmitting(false);
       }
     },
     [
@@ -724,7 +758,7 @@ export function useUnstake() {
     ],
   );
 
-  return { unstake, isPending };
+  return { unstake, isPending: isPending || isSubmitting };
 }
 
 // ---------------------------------------------------------------------------
@@ -735,6 +769,8 @@ export function useWithdraw() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
   const { writeContractAsync, isPending } = useWriteContract();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
 
   const withdraw = useCallback(
@@ -751,6 +787,18 @@ export function useWithdraw() {
       if (!canSubmitTransaction(wallet, addNotification)) {
         return undefined;
       }
+
+      if (submitLockRef.current) {
+        addNotification(
+          "warning",
+          "Transaction In Progress",
+          "Wait for the current withdrawal transaction to finish before submitting another.",
+        );
+        return undefined;
+      }
+
+      submitLockRef.current = true;
+      setIsSubmitting(true);
 
       try {
         addNotification(
@@ -825,12 +873,15 @@ export function useWithdraw() {
           );
         }
         return undefined;
+      } finally {
+        submitLockRef.current = false;
+        setIsSubmitting(false);
       }
     },
     [writeContractAsync, config, cruzibleAddr, wallet, addNotification],
   );
 
-  return { withdraw, isPending };
+  return { withdraw, isPending: isPending || isSubmitting };
 }
 
 // ---------------------------------------------------------------------------
@@ -841,6 +892,8 @@ export function useClaimRewards() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
   const { writeContractAsync, isPending } = useWriteContract();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
 
   const claimRewards = useCallback(
@@ -861,6 +914,18 @@ export function useClaimRewards() {
       if (!canSubmitTransaction(wallet, addNotification)) {
         return undefined;
       }
+
+      if (submitLockRef.current) {
+        addNotification(
+          "warning",
+          "Transaction In Progress",
+          "Wait for the current reward claim to finish before submitting another.",
+        );
+        return undefined;
+      }
+
+      submitLockRef.current = true;
+      setIsSubmitting(true);
 
       try {
         addNotification(
@@ -935,10 +1000,13 @@ export function useClaimRewards() {
           );
         }
         return undefined;
+      } finally {
+        submitLockRef.current = false;
+        setIsSubmitting(false);
       }
     },
     [writeContractAsync, config, cruzibleAddr, wallet, addNotification],
   );
 
-  return { claimRewards, isPending };
+  return { claimRewards, isPending: isPending || isSubmitting };
 }

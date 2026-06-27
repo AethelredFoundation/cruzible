@@ -58,6 +58,9 @@ jobs:
       - name: Validate disaster recovery targets
         run: npm run readiness:dr
 
+      - name: Validate restore drill evidence contract
+        run: npm run readiness:restore-drill
+
       - name: Validate release SBOM generation
         run: npm run release:sbom
 

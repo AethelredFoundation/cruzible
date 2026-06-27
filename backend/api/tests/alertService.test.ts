@@ -182,6 +182,57 @@ describe("AlertService", () => {
     }
   });
 
+  it("marks webhook HTTP failures undelivered with sanitized failure evidence", async () => {
+    process.env.ALERT_WEBHOOK_URL =
+      "https://alerts.cruzible.test/hooks/super-secret-route-token";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 503 }));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const upsertSpy = vi.fn().mockResolvedValue({});
+    const { AlertService, AlertSeverity, AlertType } =
+      await import("../src/services/AlertService");
+    const service = new AlertService();
+    (
+      service as unknown as {
+        prisma: { alertEvent: { upsert: typeof upsertSpy } };
+      }
+    ).prisma = { alertEvent: { upsert: upsertSpy } };
+
+    try {
+      const alert = await service.sendAlert(
+        AlertSeverity.CRITICAL,
+        AlertType.RECONCILIATION_MISMATCH,
+        "Reconciliation mismatch",
+        { requestId: "webhook-http-failure" },
+      );
+      const persisted = upsertSpy.mock.calls[0][0].create;
+      const serializedMetadata = JSON.stringify(alert?.metadata);
+      const serializedWarnings = warnSpy.mock.calls
+        .map((call) => call.map((part) => JSON.stringify(part)).join(" "))
+        .join("\n");
+
+      expect(alert?.delivered).toBe(false);
+      expect(persisted.delivered).toBe(false);
+      expect(alert?.metadata).toMatchObject({
+        requestId: "webhook-http-failure",
+        deliveryFailures: [
+          {
+            channel: "webhook",
+            errorType: "HTTP_STATUS",
+            status: 503,
+            webhookOrigin: "https://alerts.cruzible.test",
+          },
+        ],
+      });
+      expect(serializedMetadata).not.toContain("super-secret-route-token");
+      expect(serializedWarnings).not.toContain("super-secret-route-token");
+    } finally {
+      fetchSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   it("redacts sensitive alert metadata before delivery and storage", async () => {
     process.env.ALERT_WEBHOOK_URL = "https://alerts.cruzible.test/hook";
     const fetchSpy = vi
@@ -266,7 +317,7 @@ describe("AlertService", () => {
     (service as unknown as { prisma: null }).prisma = null;
 
     try {
-      await service.sendAlert(
+      const alert = await service.sendAlert(
         AlertSeverity.CRITICAL,
         AlertType.RECONCILIATION_MISMATCH,
         "Reconciliation mismatch",
@@ -277,6 +328,16 @@ describe("AlertService", () => {
         verbatim: true,
       });
       expect(fetchSpy).not.toHaveBeenCalled();
+      expect(alert?.delivered).toBe(false);
+      expect(alert?.metadata).toMatchObject({
+        deliveryFailures: [
+          {
+            channel: "webhook",
+            errorType: "Error",
+            webhookOrigin: "https://alerts.cruzible.org",
+          },
+        ],
+      });
     } finally {
       fetchSpy.mockRestore();
     }
@@ -298,7 +359,7 @@ describe("AlertService", () => {
     const service = new AlertService();
 
     try {
-      await service.sendAlert(
+      const alert = await service.sendAlert(
         AlertSeverity.CRITICAL,
         AlertType.RECONCILIATION_MISMATCH,
         "Reconciliation mismatch",
@@ -310,6 +371,19 @@ describe("AlertService", () => {
 
       expect(serializedWarnings).toContain("https://alerts.cruzible.test");
       expect(serializedWarnings).not.toContain("super-secret-route-token");
+      expect(alert?.delivered).toBe(false);
+      expect(alert?.metadata).toMatchObject({
+        deliveryFailures: [
+          {
+            channel: "webhook",
+            errorType: "Error",
+            webhookOrigin: "https://alerts.cruzible.test",
+          },
+        ],
+      });
+      expect(JSON.stringify(alert?.metadata)).not.toContain(
+        "super-secret-route-token",
+      );
     } finally {
       fetchSpy.mockRestore();
       warnSpy.mockRestore();

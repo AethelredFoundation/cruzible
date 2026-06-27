@@ -64,6 +64,15 @@ export interface AlertSummary {
   activeCritical: number;
 }
 
+type AlertDeliveryChannel = "console" | "webhook";
+
+interface AlertDeliveryResult {
+  channel: AlertDeliveryChannel;
+  required: boolean;
+  success: boolean;
+  metadata?: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -153,10 +162,26 @@ export class AlertService {
       delivered: false,
     };
 
-    // Deliver through channels
-    this.deliverConsole(alert);
-    await this.deliverWebhook(alert);
-    alert.delivered = true;
+    // Deliver through required channels and persist evidence without treating
+    // logged-but-undelivered webhook attempts as successful notifications.
+    const deliveryResults = [
+      this.deliverConsole(alert),
+      await this.deliverWebhook(alert),
+    ].filter((result): result is AlertDeliveryResult => result !== null);
+    const deliveryFailures = deliveryResults.filter(
+      (result) => result.required && !result.success,
+    );
+
+    alert.delivered = deliveryFailures.length === 0;
+    if (deliveryFailures.length > 0) {
+      alert.metadata = {
+        ...alert.metadata,
+        deliveryFailures: deliveryFailures.map((failure) => ({
+          channel: failure.channel,
+          ...failure.metadata,
+        })),
+      };
+    }
 
     // Update rate-limit tracker
     this.lastAlertAt.set(rateLimitKey, now);
@@ -293,7 +318,7 @@ export class AlertService {
   // Delivery channels
   // -----------------------------------------------------------------------
 
-  private deliverConsole(alert: Alert): void {
+  private deliverConsole(alert: Alert): AlertDeliveryResult {
     const prefix = `[ALERT:${alert.severity}:${alert.type}]`;
 
     switch (alert.severity) {
@@ -308,11 +333,19 @@ export class AlertService {
         logger.info(`${prefix} ${alert.message}`, alert.metadata);
         break;
     }
+
+    return {
+      channel: "console",
+      required: true,
+      success: true,
+    };
   }
 
-  private async deliverWebhook(alert: Alert): Promise<void> {
+  private async deliverWebhook(
+    alert: Alert,
+  ): Promise<AlertDeliveryResult | null> {
     if (!this.webhookUrl) {
-      return;
+      return null;
     }
 
     try {
@@ -339,15 +372,43 @@ export class AlertService {
       });
 
       if (!response.ok) {
-        logger.warn(
-          `Alert webhook delivery failed: HTTP ${response.status} ${response.statusText}`,
-        );
+        logger.warn(`Alert webhook delivery failed: HTTP ${response.status}`);
+        return {
+          channel: "webhook",
+          required: true,
+          success: false,
+          metadata: {
+            errorType: "HTTP_STATUS",
+            status: response.status,
+            webhookOrigin: webhookOriginForLogs(this.webhookUrl),
+          },
+        };
       }
+
+      return {
+        channel: "webhook",
+        required: true,
+        success: true,
+        metadata: {
+          status: response.status,
+          webhookOrigin: webhookOriginForLogs(this.webhookUrl),
+        },
+      };
     } catch (error) {
+      const errorType = error instanceof Error ? error.name : typeof error;
       logger.warn("Alert webhook delivery error", {
         webhookOrigin: webhookOriginForLogs(this.webhookUrl),
-        errorName: error instanceof Error ? error.name : typeof error,
+        errorType,
       });
+      return {
+        channel: "webhook",
+        required: true,
+        success: false,
+        metadata: {
+          errorType,
+          webhookOrigin: webhookOriginForLogs(this.webhookUrl),
+        },
+      };
     }
   }
 
