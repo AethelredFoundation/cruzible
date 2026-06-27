@@ -4,8 +4,10 @@
   "description": "Aethelred API Gateway - High-performance REST/WebSocket API for blockchain interaction",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "packageManager": "npm@10.9.4",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   },
   "scripts": {
     "postinstall": "prisma generate",

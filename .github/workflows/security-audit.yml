@@ -46,6 +46,9 @@ jobs:
       - name: Run repository hygiene scan
         run: npm run security:hygiene
 
+      - name: Validate dependency policy
+        run: npm run security:dependencies
+
       - name: Validate dependency advisory remediation register
         run: npm run security:advisories
 

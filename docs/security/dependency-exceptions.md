@@ -10,6 +10,10 @@ No active production dependency exceptions are accepted in this branch.
 
 ## Mitigations In Place
 
+- `npm run security:dependencies` enforces deterministic npm supply-chain
+  policy across the frontend, backend API, and TypeScript SDK: npm package
+  manager metadata, Node/npm engine policy, synchronized lockfile root metadata,
+  registry-only tarballs, and `sha512` package integrity.
 - The application resolves `postcss@8.5.10`, including the Next.js dependency path.
 - Unused telemetry packages were removed so the production audit surface is limited to the framework itself instead of framework-adjacent packages.
 - Frontend wallet dependencies and overrides resolve patched `axios`, `form-data`, `hono`, and `ws` versions across WalletConnect, Coinbase, Wagmi, and Viem paths.
@@ -23,6 +27,6 @@ No active production dependency exceptions are accepted in this branch.
 
 ## Recently Closed
 
-| Package | Advisory | Closure evidence |
-| --- | --- | --- |
+| Package             | Advisory              | Closure evidence                                                                                                                                                                |
+| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `next` -> `postcss` | `GHSA-qx2v-qp2m-jg93` | `npm ls postcss next` resolves `postcss@8.5.10` under `next@15.5.18`; `npm audit --omit=dev --audit-level=high` reports zero production vulnerabilities at the repository root. |
