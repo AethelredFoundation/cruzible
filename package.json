@@ -22,6 +22,7 @@
     "mobile:check": "playwright test e2e/mobile-readiness.spec.ts --project=chromium",
     "test:e2e:ui": "playwright test --ui",
     "security:audit": "npm audit --omit=dev --audit-level=high",
+    "security:advisories": "node scripts/validate-dependency-advisories.mjs",
     "security:hygiene": "node scripts/security-hygiene-scan.mjs",
     "release:sbom": "node scripts/generate-release-sbom.mjs --check",
     "release:sbom:write": "node scripts/generate-release-sbom.mjs --output .release-evidence/cruzible-release-sbom.spdx.json",
@@ -39,8 +40,8 @@
     "performance:journey": "playwright test e2e/performance-budget.spec.ts --project=chromium",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
-    "validate": "npm run type-check && npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run test",
-    "verify:ci": "npm run lint && npm run format:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run type-check && npm run test:ci && npm run build"
+    "validate": "npm run type-check && npm run lint && npm run format:check && npm run security:advisories && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run test",
+    "verify:ci": "npm run lint && npm run format:check && npm run security:advisories && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run type-check && npm run test:ci && npm run build"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",
