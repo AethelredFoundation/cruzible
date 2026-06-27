@@ -67,6 +67,11 @@ detached-signature flows for the checksums and manifest.
   signers, artifact uploaders, contract admins, deployers, and operator
   sign-off approvers. Upload, deployment, admin, signer, and sign-off evidence
   outside those allowlists fails validation.
+- Release manifests must include a `role_owner_policy` covering every
+  privileged deployer, artifact uploader, contract admin, CW20 initial minter,
+  vault operator, vault pauser, and fee collector. The validator rejects
+  single-key custody, non-multisig owners, sub-threshold signer sets, and
+  non-hardware-backed privileged owners.
 - The CW20 staking token manifest records the bootstrap minter plus
   post-instantiate `UpdateTransferHook` and `UpdateMinter` transactions that
   wire the vault as the accounting hook and final minter.
@@ -107,6 +112,7 @@ These are not hidden TODOs. They are explicit pre-production review items:
 | Artifact manifest                  | Ready  | `scripts/build-optimized-artifacts.sh` generates optimized wasm, `manifest.json`, and `SHA256SUMS`.                        |
 | Deployment manifest template       | Ready  | `deployments/release-manifest.example.json` validates artifacts, instantiate payloads, funds, and role wiring in CI.       |
 | Release authority policy           | Ready  | `release_authorities` gates artifact signers, uploaders, deployers, admins, and two-approver sign-off evidence.            |
+| Privileged role owner policy       | Ready  | `role_owner_policy` enforces threshold multisig, hardware-backed owners for privileged release and contract roles.         |
 | Staging deployment manifest        | Open   | Record real code IDs, contract addresses, admins, operators, and artifact checksums.                                       |
 | Staging deployment                 | Open   | Instantiate all contracts on a real chain and exercise core cross-contract flows.                                          |
 | Governance feeder decentralization | Ready  | Production manifests require governance-controlled feeder membership; admin mutation remains explicit bootstrap mode only. |

@@ -29,16 +29,16 @@ Implemented remediation areas:
 
 Vault deployments must wire the CW20 staking token to the vault as both final minter and transfer hook. The minter burn path lets the vault burn stAETHEL during unstake without user allowance, unstake auto-claims accrued rewards before reducing shares, and the transfer hook keeps vault shares, stake principal, and reward debt synchronized across `transfer`, `transfer_from`, and `send`.
 
-Local `cargo test` from `backend/contracts` passes with 312 unit tests:
+Local `cargo test` from `backend/contracts` passes with 373 unit tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            34 |
-| `ai_job_manager` |            72 |
-| `cw20_staking`   |            53 |
-| `governance`     |            53 |
-| `model_registry` |            54 |
-| `seal_manager`   |            46 |
+| `vault`          |            46 |
+| `ai_job_manager` |            84 |
+| `cw20_staking`   |            56 |
+| `governance`     |            61 |
+| `model_registry` |            71 |
+| `seal_manager`   |            55 |
 | Doc tests        |             0 |
 
 ## Build and Test
@@ -80,7 +80,7 @@ approvers; the validator rejects deployment evidence outside those allowlists.
 Before external audit:
 
 - [x] Prior critical remediations implemented in live code.
-- [x] Local `cargo test` passes with 312 unit tests.
+- [x] Local `cargo test` passes with 373 unit tests.
 - [x] CI workflow enforces test, fmt, clippy, and wasm release build gates.
 - [x] CI workflow uploads commit-scoped wasm artifacts, checksums, and manifest.
 - [x] Known residual review items documented for auditor review.
@@ -90,6 +90,8 @@ Before external audit:
 - [x] Release manifest validator checks instantiate messages and funds against reviewed role/config wiring.
 - [x] Release manifest validator checks required post-instantiate CW20 transfer-hook, CW20 minter, and model registry role wiring actions.
 - [x] Release manifest validator enforces artifact signer, uploader, deployer, contract admin, and two-approver sign-off authority.
+- [x] Release manifest validator enforces hardware-backed threshold multisig custody for privileged release and contract roles.
+- [x] Deterministic invariant matrices cover vault accounting/role flows and CW20 supply conservation.
 - [x] Release artifact signing and verification scripts are checked in.
 - [x] Manual main release workflow can publish keylessly signed contract artifact bundles.
 - [x] Governance feeder quorum, tolerance, mutation, quarantine, capacity, and production authority config is validated.

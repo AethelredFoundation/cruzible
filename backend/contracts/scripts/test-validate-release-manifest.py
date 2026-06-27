@@ -228,6 +228,36 @@ class ReleaseManifestValidationTests(unittest.TestCase):
 
             self.assert_manifest_fails(manifest_path)
 
+    def test_role_owner_policy_must_cover_privileged_vault_pauser(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            manifest["role_owner_policy"]["owners"] = [
+                owner
+                for owner in manifest["role_owner_policy"]["owners"]
+                if owner["address"] != "aethel1pauser00000000000000000000000000000000"
+            ]
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_role_owner_policy_rejects_single_key_admin_custody(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            manifest["role_owner_policy"]["single_key_admin_allowed"] = True
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
+    def test_role_owner_policy_requires_hardware_backed_threshold_multisig(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = self.load_example()
+            admin_owner = manifest["role_owner_policy"]["owners"][0]
+            admin_owner["threshold"] = 1
+            admin_owner["hardware_backed"] = False
+            manifest_path = self.write_manifest(Path(temp_dir), manifest)
+
+            self.assert_manifest_fails(manifest_path)
+
     def test_strict_manifest_rejects_example_release_id(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = self.strict_manifest()

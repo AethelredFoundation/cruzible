@@ -283,12 +283,45 @@ npm run db:migrate:deploy
 - Contract rollback, pause, or migration should follow the chain-specific admin or governance process for the deployed environment.
 - Validate the intended rollback path against the actual deployed contract topology before acting.
 
+### Contract emergency drill evidence
+
+Before public traffic, stage a contract incident drill using production-like
+role separation and record the evidence alongside the release manifest:
+
+- Pause transaction hash, signer set, role-owner policy entry, and triggering incident scenario.
+- Rejected write-flow evidence while paused, including stake/unstake or equivalent protected actions.
+- Unauthorized unpause rejection evidence from a non-admin emergency role.
+- Authorized unpause transaction hash with multisig approval evidence.
+- Rollback or no-rollback decision record, including exact contract addresses,
+  code IDs, migration plan, and reason for the selected path.
+- Post-drill readiness evidence from `npm run readiness:launch-drill`,
+  `npm run readiness:dr`, and the release manifest validator.
+
 ### Database
 
 - Restore from a backup or snapshot rather than assuming an automatic Prisma rollback exists.
 - Re-run readiness checks after restore.
 
-## 8. Known Operator Gaps In This Repo Snapshot
+## 8. Disaster Recovery Objectives
+
+The repository now defines machine-checked disaster recovery objectives in
+[disaster-recovery-targets.json](disaster-recovery-targets.json). Keep
+`npm run readiness:dr` green before release.
+
+Initial production targets:
+
+- Recovery time objective: restore critical service within 240 minutes.
+- Recovery point objective: lose no more than 60 minutes of state.
+- Restore drill is required before public traffic.
+- Database backup is required before migrations and destructive data operations.
+- Privileged audit HMAC chain continuity must be preserved across restore.
+
+Every staging or production restore drill must record commit, environment,
+incident scenario, start/recovered timestamps, actual RTO/RPO, backup manifest,
+readiness result, and operator approvals. These targets define the bar; they do
+not replace a live restore drill against operator-managed infrastructure.
+
+## 9. Known Operator Gaps In This Repo Snapshot
 
 - `backend/infra/docker-compose.yml` requires operator-provisioned secret files, Redis credentials, TLS certificate/key files, immutable third-party image digests, and a staging dry run before it can be treated as production-ready.
 - `k8s/base/backend.yaml` contains fail-closed placeholder config and requires environment-specific values plus the `cruzible-api-secrets` Secret before rollout; the base projects those secrets as read-only `0440` files for non-root `fsGroup` access.
@@ -297,7 +330,7 @@ npm run db:migrate:deploy
   `AuthRefreshSession`, and `AlertEvent` Prisma migrations to be applied with
   `npm run db:migrate:deploy` before enabling the API gateway.
 
-## 9. Operator Checklist
+## 10. Operator Checklist
 
 - Read [docs/ops/environment-reference.md](environment-reference.md) before provisioning config.
 - Use [docs/architecture/12-public-readiness.md](../architecture/12-public-readiness.md) as the current readiness register.

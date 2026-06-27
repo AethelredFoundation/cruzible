@@ -40,6 +40,7 @@ function createRepositoryFixture() {
   const root = mkdtempSync(join(tmpdir(), "cruzible-launch-drill-"));
   const requiredFiles = [
     "docs/ops/runbook.md",
+    "docs/ops/disaster-recovery-targets.json",
     "docs/ops/environment-reference.md",
     "docs/architecture/12-public-readiness.md",
     "docs/architecture/13-production-gap-register.md",

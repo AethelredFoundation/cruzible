@@ -81,5 +81,8 @@ python3 scripts/validate-release-manifest.py \
   and wasm artifacts together in the release record.
 - Reconcile the completed staging release manifest against the signed artifact
   directory before operator sign-off.
+- Ensure the staging release manifest's `role_owner_policy` maps each
+  privileged release, contract admin, operator, pauser, minter, and fee
+  collector role to hardware-backed threshold multisig custody.
 - Rotate signer keys through the same operator sign-off process used for
   contract admins and emergency roles.

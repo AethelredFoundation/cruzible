@@ -43,6 +43,8 @@ VAULT_MIN_SEED_AMOUNT = 1_000_000
 VAULT_MIN_UNBONDING_PERIOD_SECONDS = 86_400
 AI_JOB_MAX_PLATFORM_FEE_BPS = 2_000
 MAX_REQUIRED_TEE_TYPE = 3
+MIN_MULTISIG_SIGNERS = 3
+MIN_MULTISIG_THRESHOLD = 2
 STRICT_PLACEHOLDER_TERMS = (
     "example",
     "placeholder",
@@ -825,6 +827,116 @@ def validate_post_instantiate_authorities(root: dict[str, Any], authority_sets: 
             )
 
 
+def collect_privileged_role_owners(
+    authority_sets: dict[str, set[str]],
+    contracts: dict[str, dict[str, Any]],
+) -> dict[str, set[str]]:
+    owners: dict[str, set[str]] = {
+        "artifact_uploader": set(authority_sets["artifact_uploaders"]),
+        "contract_admin": set(authority_sets["contract_admins"]),
+        "deployer": set(authority_sets["deployers"]),
+    }
+
+    cw20_roles = require_mapping(contracts["cw20_staking"].get("roles"), "$.contracts[cw20_staking].roles")
+    vault_roles = require_mapping(contracts["vault"].get("roles"), "$.contracts[vault].roles")
+    ai_jobs_roles = require_mapping(contracts["ai_job_manager"].get("roles"), "$.contracts[ai_job_manager].roles")
+
+    owners["cw20_initial_minter"] = {
+        require_string(cw20_roles.get("initial_minter"), "$.contracts[cw20_staking].roles.initial_minter")
+    }
+    owners["vault_operator"] = {
+        require_string(vault_roles.get("operator"), "$.contracts[vault].roles.operator")
+    }
+    owners["vault_pauser"] = {
+        require_string(vault_roles.get("pauser"), "$.contracts[vault].roles.pauser")
+    }
+    owners["fee_collector"] = {
+        require_string(ai_jobs_roles.get("fee_collector"), "$.contracts[ai_job_manager].roles.fee_collector")
+    }
+
+    return owners
+
+
+def validate_role_owner_policy(
+    root: dict[str, Any],
+    authority_sets: dict[str, set[str]],
+    contracts: dict[str, dict[str, Any]],
+    *,
+    strict: bool,
+) -> None:
+    policy = require_mapping(root.get("role_owner_policy"), "$.role_owner_policy")
+    if policy.get("schema") != "cruzible.role_owner_policy.v1":
+        fail("$.role_owner_policy.schema must be cruzible.role_owner_policy.v1")
+
+    custody_model = require_string(policy.get("custody_model"), "$.role_owner_policy.custody_model")
+    if custody_model != "threshold_multisig":
+        fail("$.role_owner_policy.custody_model must be threshold_multisig")
+
+    minimum_threshold = require_int(policy.get("minimum_threshold"), "$.role_owner_policy.minimum_threshold")
+    minimum_signers = require_int(policy.get("minimum_signers"), "$.role_owner_policy.minimum_signers")
+    if minimum_threshold < MIN_MULTISIG_THRESHOLD:
+        fail(f"$.role_owner_policy.minimum_threshold must be at least {MIN_MULTISIG_THRESHOLD}")
+    if minimum_signers < MIN_MULTISIG_SIGNERS:
+        fail(f"$.role_owner_policy.minimum_signers must be at least {MIN_MULTISIG_SIGNERS}")
+    if minimum_threshold > minimum_signers:
+        fail("$.role_owner_policy.minimum_threshold cannot exceed minimum_signers")
+    if require_bool(policy.get("single_key_admin_allowed"), "$.role_owner_policy.single_key_admin_allowed"):
+        fail("$.role_owner_policy.single_key_admin_allowed must be false")
+    if not require_bool(policy.get("hardware_key_required"), "$.role_owner_policy.hardware_key_required"):
+        fail("$.role_owner_policy.hardware_key_required must be true")
+    if not require_bool(
+        policy.get("breakglass_requires_multisig"),
+        "$.role_owner_policy.breakglass_requires_multisig",
+    ):
+        fail("$.role_owner_policy.breakglass_requires_multisig must be true")
+
+    owners = require_list(policy.get("owners"), "$.role_owner_policy.owners")
+    owners_by_address: dict[str, dict[str, Any]] = {}
+    for index, owner in enumerate(owners):
+        owner_obj = require_mapping(owner, f"$.role_owner_policy.owners[{index}]")
+        address = require_string(owner_obj.get("address"), f"$.role_owner_policy.owners[{index}].address")
+        if address in owners_by_address:
+            fail(f"$.role_owner_policy.owners contains duplicate owner {address}")
+        owners_by_address[address] = owner_obj
+
+        kind = require_string(owner_obj.get("kind"), f"$.role_owner_policy.owners[{index}].kind")
+        if kind != "threshold_multisig":
+            fail(f"$.role_owner_policy.owners[{index}].kind must be threshold_multisig")
+        threshold = require_int(owner_obj.get("threshold"), f"$.role_owner_policy.owners[{index}].threshold")
+        signers = require_int(owner_obj.get("signers"), f"$.role_owner_policy.owners[{index}].signers")
+        if threshold < minimum_threshold:
+            fail(f"$.role_owner_policy.owners[{index}].threshold is below policy minimum")
+        if signers < minimum_signers:
+            fail(f"$.role_owner_policy.owners[{index}].signers is below policy minimum")
+        if threshold > signers:
+            fail(f"$.role_owner_policy.owners[{index}].threshold cannot exceed signers")
+        if not require_bool(owner_obj.get("hardware_backed"), f"$.role_owner_policy.owners[{index}].hardware_backed"):
+            fail(f"$.role_owner_policy.owners[{index}].hardware_backed must be true")
+        require_unique_string_list(owner_obj.get("purposes"), f"$.role_owner_policy.owners[{index}].purposes", min_length=1)
+        emergency_contact = require_string(
+            owner_obj.get("emergency_contact"),
+            f"$.role_owner_policy.owners[{index}].emergency_contact",
+        )
+        if strict:
+            reject_strict_placeholder_text(emergency_contact, f"$.role_owner_policy.owners[{index}].emergency_contact")
+
+    privileged_owners = collect_privileged_role_owners(authority_sets, contracts)
+    for purpose, addresses in privileged_owners.items():
+        for address in addresses:
+            owner = owners_by_address.get(address)
+            if owner is None:
+                fail(f"$.role_owner_policy.owners must include {purpose} owner {address}")
+            purposes = set(
+                require_unique_string_list(
+                    owner.get("purposes"),
+                    f"$.role_owner_policy.owners[{address}].purposes",
+                    min_length=1,
+                )
+            )
+            if purpose not in purposes:
+                fail(f"$.role_owner_policy owner {address} must include purpose {purpose}")
+
+
 def validate_strict_release_evidence(root: dict[str, Any]) -> None:
     release_id = require_string(root.get("release_id"), "$.release_id")
     reject_strict_placeholder_text(release_id, "$.release_id")
@@ -1087,6 +1199,7 @@ def validate_manifest(path: Path, *, strict: bool = False, artifact_dir: Path | 
 
     validate_contract_instantiation(contract_by_name)
     validate_contract_wiring(contract_by_name)
+    validate_role_owner_policy(root, authority_sets, contract_by_name, strict=strict)
     validate_post_instantiate_actions(root, contract_by_name)
     validate_post_instantiate_authorities(root, authority_sets)
     if strict:

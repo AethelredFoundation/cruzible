@@ -55,6 +55,9 @@ jobs:
       - name: Validate staged launch drill contract
         run: npm run readiness:launch-drill
 
+      - name: Validate disaster recovery targets
+        run: npm run readiness:dr
+
       - name: Validate release SBOM generation
         run: npm run release:sbom
 

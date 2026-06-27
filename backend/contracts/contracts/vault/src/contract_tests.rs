@@ -176,6 +176,44 @@ mod security_tests {
         assert!(accounting_health, "accounting-health query must stay green");
     }
 
+    fn user_stake_or_default(
+        deps: &OwnedDeps<MockStorage, MockApi, MockQuerier>,
+        user: &str,
+    ) -> UserStake {
+        USER_STAKES
+            .may_load(deps.as_ref().storage, &Addr::unchecked(user))
+            .unwrap()
+            .unwrap_or_else(empty_user_stake)
+    }
+
+    fn pending_rewards(deps: &OwnedDeps<MockStorage, MockApi, MockQuerier>, user: &str) -> Uint128 {
+        let state = STATE.load(deps.as_ref().storage).unwrap();
+        let stake = user_stake_or_default(deps, user);
+        calculate_rewards(&state, &stake).unwrap()
+    }
+
+    fn first_open_unbonding_id(
+        deps: &OwnedDeps<MockStorage, MockApi, MockQuerier>,
+        user: &str,
+    ) -> Option<u64> {
+        let addr = Addr::unchecked(user);
+        let request_count = UNSTAKE_COUNT
+            .load(deps.as_ref().storage, &addr)
+            .unwrap_or(0);
+
+        (0..request_count).find(|unbonding_id| {
+            UNSTAKE_REQUESTS
+                .may_load(deps.as_ref().storage, (&addr, *unbonding_id))
+                .unwrap()
+                .map(|request| !request.claimed && !request.amount.is_zero())
+                .unwrap_or(false)
+        })
+    }
+
+    fn deterministic_amount(seed: u64, step: u64, floor: u128) -> u128 {
+        floor + u128::from(((seed + 1) * 97 + (step + 3) * 131) % 9_000_000)
+    }
+
     // ============ ACCOUNTING ATTACK TESTS ============
 
     #[test]
@@ -1153,6 +1191,178 @@ mod security_tests {
         )
         .unwrap();
         assert_vault_accounting_invariants(&deps, &env, &users);
+    }
+
+    #[test]
+    fn test_invariant_deterministic_scenario_matrix_preserves_accounting_and_roles() {
+        let users = ["alice", "bob", "carol", "dan", "erin"];
+
+        for seed in 0..12u64 {
+            let (mut deps, mut env, _) = proper_instantiate();
+
+            for step in 0..36u64 {
+                let user = users[((seed + step) as usize) % users.len()];
+                let next_user = users[((seed + step + 1) as usize) % users.len()];
+                let amount = deterministic_amount(seed, step, MIN_DEPOSIT);
+
+                match (seed * 13 + step * 17) % 9 {
+                    0 => {
+                        let _ = stake(&mut deps, &env, user, amount);
+                    }
+                    1 => {
+                        let current = user_stake_or_default(&deps, user);
+                        let state = STATE.load(deps.as_ref().storage).unwrap();
+                        let max_by_shares = if current.shares.is_zero() {
+                            Uint128::zero()
+                        } else {
+                            current
+                                .shares
+                                .multiply_ratio(state.total_staked, state.total_shares)
+                        };
+                        let amount_to_unstake = current
+                            .staked_amount
+                            .min(max_by_shares)
+                            .min(Uint128::from(amount));
+                        if !amount_to_unstake.is_zero() {
+                            let _ = unstake(&mut deps, &env, user, amount_to_unstake.u128());
+                        }
+                    }
+                    2 => {
+                        execute(
+                            deps.as_mut(),
+                            env.clone(),
+                            mock_info("rewards", &coins(amount / 4, "aeth")),
+                            ExecuteMsg::AddRewards {},
+                        )
+                        .unwrap();
+                    }
+                    3 => {
+                        if !pending_rewards(&deps, user).is_zero() {
+                            execute(
+                                deps.as_mut(),
+                                env.clone(),
+                                mock_info(user, &[]),
+                                ExecuteMsg::ClaimRewards {},
+                            )
+                            .unwrap();
+                        }
+                    }
+                    4 => {
+                        if !pending_rewards(&deps, user).is_zero() {
+                            execute(
+                                deps.as_mut(),
+                                env.clone(),
+                                mock_info(user, &[]),
+                                ExecuteMsg::Compound {
+                                    validator: "validator1".to_string(),
+                                },
+                            )
+                            .unwrap();
+                        }
+                    }
+                    5 => {
+                        let from_stake = user_stake_or_default(&deps, user);
+                        let amount_to_transfer = from_stake.shares.min(Uint128::from(amount / 2));
+                        if !amount_to_transfer.is_zero() && user != next_user {
+                            execute(
+                                deps.as_mut(),
+                                env.clone(),
+                                mock_info("staeth", &[]),
+                                ExecuteMsg::SyncStakingTokenTransfer {
+                                    from: user.to_string(),
+                                    to: next_user.to_string(),
+                                    amount: amount_to_transfer,
+                                },
+                            )
+                            .unwrap();
+                        }
+                    }
+                    6 => {
+                        let state = STATE.load(deps.as_ref().storage).unwrap();
+                        let slashable_balance = state.total_staked + state.total_unbonding;
+                        let slash_amount = slashable_balance
+                            .checked_div(Uint128::from(20u128))
+                            .unwrap()
+                            .min(Uint128::from(amount / 5));
+                        if !slash_amount.is_zero() {
+                            execute(
+                                deps.as_mut(),
+                                env.clone(),
+                                mock_info("operator", &[]),
+                                ExecuteMsg::RecordSlash {
+                                    slash_id: seed * 1_000 + step,
+                                    amount: slash_amount,
+                                },
+                            )
+                            .unwrap();
+                        }
+                    }
+                    7 => {
+                        if let Some(unbonding_id) = first_open_unbonding_id(&deps, user) {
+                            execute(
+                                deps.as_mut(),
+                                env.clone(),
+                                mock_info(user, &[]),
+                                ExecuteMsg::Restake { unbonding_id },
+                            )
+                            .unwrap();
+                        }
+                    }
+                    _ => {
+                        execute(
+                            deps.as_mut(),
+                            env.clone(),
+                            mock_info("pauser", &[]),
+                            ExecuteMsg::Pause {},
+                        )
+                        .unwrap();
+
+                        let paused_stake = execute(
+                            deps.as_mut(),
+                            env.clone(),
+                            mock_info(user, &coins(MIN_DEPOSIT, "aeth")),
+                            ExecuteMsg::Stake {
+                                validator: "validator1".to_string(),
+                            },
+                        )
+                        .unwrap_err();
+                        assert_eq!(paused_stake, ContractError::Paused {});
+
+                        let unauthorized_unpause = execute(
+                            deps.as_mut(),
+                            env.clone(),
+                            mock_info("pauser", &[]),
+                            ExecuteMsg::Unpause {},
+                        )
+                        .unwrap_err();
+                        assert_eq!(unauthorized_unpause, ContractError::Unauthorized {});
+
+                        execute(
+                            deps.as_mut(),
+                            env.clone(),
+                            mock_info("creator", &[]),
+                            ExecuteMsg::Unpause {},
+                        )
+                        .unwrap();
+                    }
+                }
+
+                if step % 10 == 9 {
+                    env.block.time = env.block.time.plus_seconds(86400 * 21 + 1);
+                    if first_open_unbonding_id(&deps, user).is_some() {
+                        execute(
+                            deps.as_mut(),
+                            env.clone(),
+                            mock_info(user, &[]),
+                            ExecuteMsg::Claim {},
+                        )
+                        .unwrap();
+                    }
+                }
+
+                assert_vault_accounting_invariants(&deps, &env, &users);
+            }
+        }
     }
 
     #[test]

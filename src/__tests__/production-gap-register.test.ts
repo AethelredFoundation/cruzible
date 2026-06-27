@@ -17,7 +17,7 @@ describe("production gap register", () => {
 
     expect(errors).toEqual([]);
     expect(gapRows.length).toBeGreaterThanOrEqual(50);
-    expect(gapRows.some((row) => row.status === "Open")).toBe(true);
+    expect(gapRows.some((row) => row.status === "In progress")).toBe(true);
     expect(gapRows.some((row) => row.status === "Blocked external")).toBe(true);
     expect(gapRows.some((row) => row.status === "Ready")).toBe(true);
   });

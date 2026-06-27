@@ -10,34 +10,34 @@ The live code includes remediations for the previously tracked critical issues, 
 
 ## Remediation Summary
 
-| Control area                 | Compliance position                                                                                                     |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Vault reward index           | Implemented to prevent repeat reward claims and stale reward capture.                                                   |
-| Vault unbonding double claim | Implemented with claim-state tracking, terminal request handling, and slash-adjusted pending claim amounts.             |
-| Vault rounding controls      | Implemented with protocol-favorable rounding coverage.                                                                  |
+| Control area                 | Compliance position                                                                                                              |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Vault reward index           | Implemented to prevent repeat reward claims and stale reward capture.                                                            |
+| Vault unbonding double claim | Implemented with claim-state tracking, terminal request handling, and slash-adjusted pending claim amounts.                      |
+| Vault rounding controls      | Implemented with protocol-favorable rounding coverage.                                                                           |
 | Vault stAETHEL lifecycle     | Implemented mint-on-stake/compound/restake, auto-claim-on-unstake, minter burn-on-unstake, and transfer-synchronized accounting. |
-| Vault donation controls      | Implemented with accounted balance and donation handling.                                                               |
-| AI job Paid state            | Implemented to prevent repeated settlement of the same verified job.                                                    |
-| Governance snapshots         | Implemented to avoid mutable or placeholder vote weight.                                                                |
-| Governance feeder oracle     | Multi-feeder median consensus with tolerance, cooldown, quarantine, and caps.                                           |
-| Governance feeder control    | Production-mode feeder membership changes require governance self-execution.                                            |
-| Governance quorum            | Implemented to gate proposal execution.                                                                                 |
-| Model registry fees          | Implemented registration fee amount and denom enforcement.                                                              |
-| Model registry authorization | Implemented submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates. |
-| Seal manager job provenance  | Implemented cross-contract job evidence binding and bounded expiration before seal creation.                            |
+| Vault donation controls      | Implemented with accounted balance and donation handling.                                                                        |
+| AI job Paid state            | Implemented to prevent repeated settlement of the same verified job.                                                             |
+| Governance snapshots         | Implemented to avoid mutable or placeholder vote weight.                                                                         |
+| Governance feeder oracle     | Multi-feeder median consensus with tolerance, cooldown, quarantine, and caps.                                                    |
+| Governance feeder control    | Production-mode feeder membership changes require governance self-execution.                                                     |
+| Governance quorum            | Implemented to gate proposal execution.                                                                                          |
+| Model registry fees          | Implemented registration fee amount and denom enforcement.                                                                       |
+| Model registry authorization | Implemented submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates.          |
+| Seal manager job provenance  | Implemented cross-contract job evidence binding and bounded expiration before seal creation.                                     |
 
 ## Test Evidence
 
-Local `cargo test` from `backend/contracts` passes with 312 total unit tests:
+Local `cargo test` from `backend/contracts` passes with 373 total unit tests:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            34 |
-| `ai_job_manager` |            72 |
-| `cw20_staking`   |            53 |
-| `governance`     |            53 |
-| `model_registry` |            54 |
-| `seal_manager`   |            46 |
+| `vault`          |            46 |
+| `ai_job_manager` |            84 |
+| `cw20_staking`   |            56 |
+| `governance`     |            61 |
+| `model_registry` |            71 |
+| `seal_manager`   |            55 |
 | Doc tests        |             0 |
 
 ## Pre-Production Checklist
@@ -50,7 +50,7 @@ Completed for audit-candidate state:
 - [x] Governance snapshot, quorum, and feeder-oracle controls remediated.
 - [x] Model registry fee amount/denom, submit-time verified-model checks, job-manager authorization, and liveness-safe verified-job count updates remediated.
 - [x] Seal manager cross-contract job evidence binding and bounded expiration remediated.
-- [x] Local `cargo test` evidence passes with 312 unit tests.
+- [x] Local `cargo test` evidence passes with 373 unit tests.
 - [x] CI workflow enforces contract fmt, clippy, tests, dependency audit, and wasm release build.
 - [x] CI workflow uploads commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json`.
 - [x] Residual review items and deployment assumptions are documented in `AUDIT_PACKET.md`.

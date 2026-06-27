@@ -331,6 +331,62 @@
       }
     }
   ],
+  "role_owner_policy": {
+    "schema": "cruzible.role_owner_policy.v1",
+    "custody_model": "threshold_multisig",
+    "minimum_threshold": 2,
+    "minimum_signers": 3,
+    "hardware_key_required": true,
+    "single_key_admin_allowed": false,
+    "breakglass_requires_multisig": true,
+    "owners": [
+      {
+        "address": "aethel1admin00000000000000000000000000000000000",
+        "kind": "threshold_multisig",
+        "threshold": 2,
+        "signers": 3,
+        "hardware_backed": true,
+        "purposes": ["contract_admin", "deployer", "cw20_initial_minter"],
+        "emergency_contact": "release-ops"
+      },
+      {
+        "address": "aethel1uploader000000000000000000000000000000000",
+        "kind": "threshold_multisig",
+        "threshold": 2,
+        "signers": 3,
+        "hardware_backed": true,
+        "purposes": ["artifact_uploader"],
+        "emergency_contact": "release-ops"
+      },
+      {
+        "address": "aethel1operator0000000000000000000000000000000",
+        "kind": "threshold_multisig",
+        "threshold": 2,
+        "signers": 3,
+        "hardware_backed": true,
+        "purposes": ["vault_operator"],
+        "emergency_contact": "protocol-ops"
+      },
+      {
+        "address": "aethel1pauser00000000000000000000000000000000",
+        "kind": "threshold_multisig",
+        "threshold": 2,
+        "signers": 3,
+        "hardware_backed": true,
+        "purposes": ["vault_pauser"],
+        "emergency_contact": "incident-commander"
+      },
+      {
+        "address": "aethel1treasury000000000000000000000000000000",
+        "kind": "threshold_multisig",
+        "threshold": 2,
+        "signers": 3,
+        "hardware_backed": true,
+        "purposes": ["fee_collector"],
+        "emergency_contact": "finance-ops"
+      }
+    ]
+  },
   "operator_signoff": {
     "prepared_by": "Ramesh Tamilselvan",
     "approved_by": ["Ramesh Tamilselvan", "Aethelred Release Reviewer"],

@@ -30,19 +30,19 @@ Supporting assurance documents:
 
 The current code includes remediations for the previously tracked critical and high-risk areas:
 
-| Area                      | Current evidence                                                                                                                                                    |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Vault reward accounting   | Reward index/checkpoint controls prevent repeat reward claims and stale pro-rata reward capture.                                                                    |
-| Vault withdrawal claims   | Claimed-state handling, terminal request state, and slash-adjusted pending claim amounts protect unbonding requests.                                                |
-| Vault rounding            | Share mint/burn rounding is protocol-favorable and covered by security tests.                                                                                       |
+| Area                      | Current evidence                                                                                                                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vault reward accounting   | Reward index/checkpoint controls prevent repeat reward claims and stale pro-rata reward capture.                                                                                             |
+| Vault withdrawal claims   | Claimed-state handling, terminal request state, and slash-adjusted pending claim amounts protect unbonding requests.                                                                         |
+| Vault rounding            | Share mint/burn rounding is protocol-favorable and covered by security tests.                                                                                                                |
 | Vault stAETHEL lifecycle  | Stake, compound, and restake mint stAETHEL; unstake auto-claims rewards and burns through the configured staking token minter path; transfers synchronize vault accounting through the hook. |
-| Vault donation controls   | Accounted balance tracking and donation controls prevent direct-transfer share price inflation.                                                                     |
-| AI job payment claims     | Paid-state transition prevents repeated settlement of the same verified job.                                                                                        |
-| Governance voting         | Snapshot voting power and quorum controls replace placeholder voting and execution logic.                                                                           |
-| Governance feeder oracle  | Multi-feeder median consensus rejects unsafe quorum, tolerance, feeder capacity, and authority settings.                                                            |
-| Model registry fees       | Registration fee amount and denom enforcement is active.                                                                                                            |
-| Model registry job counts | Submit-time jobs require verified models; normal job-count updates are emitted by the authorized job manager, with admin mutation retained for controlled recovery. |
-| Seal manager provenance   | Seal creation verifies the referenced job through the configured job manager, binds available job evidence to the requested seal, and enforces default/max expiration. |
+| Vault donation controls   | Accounted balance tracking and donation controls prevent direct-transfer share price inflation.                                                                                              |
+| AI job payment claims     | Paid-state transition prevents repeated settlement of the same verified job.                                                                                                                 |
+| Governance voting         | Snapshot voting power and quorum controls replace placeholder voting and execution logic.                                                                                                    |
+| Governance feeder oracle  | Multi-feeder median consensus rejects unsafe quorum, tolerance, feeder capacity, and authority settings.                                                                                     |
+| Model registry fees       | Registration fee amount and denom enforcement is active.                                                                                                                                     |
+| Model registry job counts | Submit-time jobs require verified models; normal job-count updates are emitted by the authorized job manager, with admin mutation retained for controlled recovery.                          |
+| Seal manager provenance   | Seal creation verifies the referenced job through the configured job manager, binds available job evidence to the requested seal, and enforces default/max expiration.                       |
 
 ## Current Test Evidence
 
@@ -56,21 +56,21 @@ Passing test counts:
 
 | Suite            | Passing tests |
 | ---------------- | ------------: |
-| `vault`          |            34 |
-| `ai_job_manager` |            72 |
-| `cw20_staking`   |            53 |
-| `governance`     |            53 |
-| `model_registry` |            54 |
-| `seal_manager`   |            46 |
+| `vault`          |            46 |
+| `ai_job_manager` |            84 |
+| `cw20_staking`   |            56 |
+| `governance`     |            61 |
+| `model_registry` |            71 |
+| `seal_manager`   |            55 |
 | Doc tests        |             0 |
-| **Total**        |       **312** |
+| **Total**        |       **373** |
 
 ## Audit-Candidate Readiness
 
 The workspace is suitable for an external audit candidate branch after the following evidence is packaged:
 
 - Current source tree and Cargo lockfile.
-- Reproducible `cargo test` output showing 312 passing unit tests.
+- Reproducible `cargo test` output showing 373 passing unit tests.
 - Commit-scoped wasm artifacts, `SHA256SUMS`, and `manifest.json` from CI.
 - Detached artifact signatures generated with `RELEASE_SIGNING.md` before launch.
 - Strict release manifest reconciliation against the signed artifact directory.
