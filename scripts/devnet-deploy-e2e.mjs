@@ -199,6 +199,12 @@ async function main() {
   await write(vault, "setStAethel", [token.address]);
   console.log("vault ↔ token wired");
 
+  // MINIMUM_LIQUIDITY dead-shares lock: the first stake permanently locks 1000
+  // shares to a burn address (share-inflation defense), so the bootstrap staker
+  // holds deposit − 1000 wei. Assertions allow this negligible tolerance.
+  const LOCK = 1000n;
+  const near = (a, b) => (a > b ? a - b : b - a) <= 4000n;
+
   step("stake 5 AETHEL (native)");
   await write(vault, "stake", [], parseEther("5"));
   const shares0 = await read(token, "sharesOf", [account.address]);
@@ -207,16 +213,18 @@ async function main() {
   console.log(
     `shares=${shares0} stAETHEL=${formatEther(bal0)} rate=${formatEther(rate0)}`,
   );
-  if (shares0 !== parseEther("5")) fail("bootstrap shares must equal deposit");
-  if (bal0 !== parseEther("5")) fail("bootstrap balance must equal deposit");
+  if (shares0 !== parseEther("5") - LOCK)
+    fail("bootstrap shares must equal deposit minus the dead-shares lock");
+  if (!near(bal0, parseEther("5"))) fail("bootstrap balance must ~= deposit");
+  if (rate0 !== parseEther("1")) fail("bootstrap rate must be 1");
 
   step("rewards rebase every balance (addRewards 1 AETHEL)");
   await write(vault, "addRewards", [], parseEther("1"));
   const bal1 = await read(token, "balanceOf", [account.address]);
   const rate1 = await read(vault, "getExchangeRate");
   console.log(`stAETHEL=${formatEther(bal1)} rate=${formatEther(rate1)}`);
-  if (bal1 !== parseEther("6"))
-    fail(`balance must rebase to 6, got ${formatEther(bal1)}`);
+  if (!near(bal1, parseEther("6")))
+    fail(`balance must rebase to ~6, got ${formatEther(bal1)}`);
   if (rate1 !== parseEther("1.2"))
     fail(`rate must be 1.2, got ${formatEther(rate1)}`);
 

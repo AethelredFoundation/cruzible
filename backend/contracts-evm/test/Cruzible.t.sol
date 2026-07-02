@@ -110,6 +110,14 @@ contract CruzibleTest {
         passed++;
     }
 
+    /// Absolute-tolerance equality — the MINIMUM_LIQUIDITY dead-shares lock
+    /// (1000 wei) makes exact balance assertions off by a negligible amount.
+    function assertApprox(uint256 a, uint256 b, uint256 tol, string memory what) internal {
+        uint256 diff = a > b ? a - b : b - a;
+        require(diff <= tol, what);
+        passed++;
+    }
+
     // ── core liquid-staking invariants ───────────────────────────────────────
 
     function test_stake_rebase_unstake_withdraw() public {
@@ -118,16 +126,17 @@ contract CruzibleTest {
 
         vm.prank(alice);
         vault.stake{value: 5 ether}();
-        assertEq(token.balanceOf(alice), 5 ether, "bootstrap balance = deposit");
-        assertEq(token.sharesOf(alice), 5 ether, "bootstrap shares = deposit");
+        // Balances are net of the 1000-wei dead-shares bootstrap lock.
+        assertApprox(token.balanceOf(alice), 5 ether, 2000, "bootstrap balance ~= deposit");
+        assertEq(token.sharesOf(alice), 5 ether - 1000, "bootstrap shares = deposit - locked");
         assertEq(vault.getExchangeRate(), 1 ether, "bootstrap rate = 1");
 
         // Rewards rebase every holder's balance up, shares unchanged.
         vm.deal(rewarder, 1 ether);
         vm.prank(rewarder);
         vault.addRewards{value: 1 ether}();
-        assertEq(token.balanceOf(alice), 6 ether, "balance rebased to 6");
-        assertEq(token.sharesOf(alice), 5 ether, "shares unchanged by rebase");
+        assertApprox(token.balanceOf(alice), 6 ether, 2000, "balance rebased to ~6");
+        assertEq(token.sharesOf(alice), 5 ether - 1000, "shares unchanged by rebase");
         assertEq(vault.getExchangeRate(), 1.2 ether, "rate = 1.2");
 
         // Unstake enters the unbonding queue at the current rate.
@@ -144,7 +153,7 @@ contract CruzibleTest {
         assertEq(alice.balance, balBefore + 3 ether, "native AETHEL paid out");
 
         // Remaining holder keeps the un-queued value.
-        assertEq(token.balanceOf(alice), 3 ether, "remaining balance = 3");
+        assertApprox(token.balanceOf(alice), 3 ether, 2000, "remaining balance ~= 3");
     }
 
     function test_two_stakers_share_rewards_pro_rata() public {
@@ -160,7 +169,7 @@ contract CruzibleTest {
         vm.prank(rewarder);
         vault.addRewards{value: 4 ether}(); // pool 4 -> 8, rate 2x
 
-        assertEq(token.balanceOf(alice), 6 ether, "alice 3->6 (75%)");
+        assertApprox(token.balanceOf(alice), 6 ether, 2000, "alice 3->~6 (75%)");
         assertEq(token.balanceOf(bob), 2 ether, "bob 1->2 (25%)");
     }
 
@@ -201,14 +210,14 @@ contract CruzibleTest {
         vm.deal(alice, 5 ether);
         vm.prank(alice);
         vault.stakeWithSeal{value: 5 ether}("job-alice");
-        assertEq(token.balanceOf(alice), 5 ether, "admitted staker receives stAETHEL");
+        assertApprox(token.balanceOf(alice), 5 ether, 2000, "admitted staker receives stAETHEL");
         assertTrue(vault.complianceAdmitted(alice), "alice admitted");
 
         // Once admitted, plain stake() works.
         vm.deal(alice, 2 ether);
         vm.prank(alice);
         vault.stake{value: 2 ether}();
-        assertEq(token.balanceOf(alice), 7 ether, "admitted staker can top up");
+        assertApprox(token.balanceOf(alice), 7 ether, 2000, "admitted staker can top up");
     }
 
     function test_compliance_gate_rejects_seal_bound_to_other() public {
@@ -254,6 +263,125 @@ contract CruzibleTest {
         vm.prank(bob);
         vm.expectRevert(); // SealAlreadyUsed
         vault.stakeWithSeal{value: 5 ether}("job-alice-2");
+    }
+
+    // ── production-hardening: share-inflation, solvency, governance ──────────
+
+    function test_bootstrap_locks_dead_shares() public {
+        setUp();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 5 ether}();
+        // MINIMUM_LIQUIDITY shares are permanently locked to the dead address;
+        // alice holds the remainder.
+        assertEq(token.sharesOf(0x000000000000000000000000000000000000dEaD), 1000, "dead shares locked");
+        assertEq(token.getTotalShares(), 5 ether, "total shares = deposit");
+        assertEq(token.sharesOf(alice), 5 ether - 1000, "alice shares = deposit - locked");
+    }
+
+    function test_dust_bootstrap_reverts() public {
+        setUp();
+        vm.deal(alice, 10 ether);
+        // A bootstrap deposit at or below MINIMUM_LIQUIDITY must revert.
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.StakeTooSmall.selector);
+        vault.stake{value: 1000}();
+    }
+
+    function test_inflation_attack_cannot_zero_out_victim() public {
+        setUp();
+        // Attacker bootstraps with a tiny (but valid) stake.
+        vm.deal(alice, 100 ether);
+        vm.prank(alice);
+        vault.stake{value: 1 ether}();
+
+        // Rewards accrue, pushing the rate up massively.
+        vm.deal(rewarder, 100 ether);
+        vm.prank(rewarder);
+        vault.addRewards{value: 100 ether}();
+
+        // A victim deposits an amount that (pre-fix) could round to 0 shares.
+        // With the guard, either they receive > 0 shares or the tx reverts —
+        // never "funds absorbed for 0 shares".
+        vm.deal(bob, 100 ether);
+        vm.prank(bob);
+        uint256 got = vault.stake{value: 0.5 ether}();
+        assertTrue(got > 0, "victim must receive non-zero shares");
+        assertTrue(token.balanceOf(bob) > 0, "victim balance must be non-zero");
+    }
+
+    function test_solvency_invariant_holds_across_lifecycle() public {
+        setUp();
+        vm.deal(alice, 100 ether);
+        vm.deal(bob, 100 ether);
+        vm.deal(rewarder, 100 ether);
+
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+        vm.prank(bob);
+        vault.stake{value: 5 ether}();
+        vm.prank(rewarder);
+        vault.addRewards{value: 3 ether}();
+        vm.prank(rewarder);
+        vault.fundRewardsProgram{value: 2 ether}();
+
+        vm.prank(alice);
+        vault.unstake(2 ether); // shares -> reserved
+
+        // Solvency: the contract holds exactly what it owes.
+        assertEq(
+            address(vault).balance,
+            vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
+            "balance == pooled + reserved + merkleReserve"
+        );
+    }
+
+    function test_two_step_governance_transfer() public {
+        setUp();
+        address newGov = address(0x9017);
+
+        // Only governance can nominate; nominee must accept.
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.NotGovernance.selector);
+        vault.transferGovernance(newGov);
+
+        vm.prank(gov);
+        vault.transferGovernance(newGov);
+        // Old governance still in charge until acceptance.
+        assertTrue(vault.governance() == gov, "gov unchanged before acceptance");
+
+        // A non-nominee cannot accept.
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.NotPendingGovernance.selector);
+        vault.acceptGovernance();
+
+        vm.prank(newGov);
+        vault.acceptGovernance();
+        assertTrue(vault.governance() == newGov, "gov handed over after acceptance");
+    }
+
+    function test_withdrawals_never_pausable() public {
+        setUp();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 5 ether}();
+        vm.prank(alice);
+        (uint256 wid, ) = vault.unstake(1 ether);
+
+        // Pauser stops deposits...
+        vm.prank(rewarder); // rewarder == pauser in setUp
+        vault.setDepositsPaused(true);
+        vm.deal(bob, 5 ether);
+        vm.prank(bob);
+        vm.expectRevert(Cruzible.DepositsArePaused.selector);
+        vault.stake{value: 5 ether}();
+
+        // ...but a matured withdrawal still succeeds (withdrawals are never gated).
+        vm.warp(block.timestamp + 101);
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.withdraw(wid);
+        assertTrue(alice.balance > before, "withdrawal must succeed while deposits paused");
     }
 
     function _hex(address a) internal pure returns (string memory) {

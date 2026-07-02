@@ -40,8 +40,12 @@ interface IStAETHEL {
 contract Cruzible {
     // ── roles ────────────────────────────────────────────────────────────────
 
-    /// @notice Governance: parameter/policy changes, role rotation.
+    /// @notice Governance: parameter/policy changes, role rotation. Expected to
+    ///         be a timelock (and/or multisig) so stakers see sensitive changes
+    ///         in advance and can exit — see docs/SECURITY.md.
     address public governance;
+    /// @notice Nominated successor governance, pending acceptance (two-step).
+    address public pendingGovernance;
     /// @notice Rewarder: routes staking rewards into the pool, posts Merkle roots.
     address public rewarder;
     /// @notice Pauser: emergency stop for deposits (never for withdrawals).
@@ -114,6 +118,12 @@ contract Cruzible {
     bool public depositsPaused;
     uint256 private locked = 1; // reentrancy guard
 
+    /// @notice Shares permanently locked on the first stake so the exchange
+    ///         rate can never be manipulated back to the 1-wei bootstrap regime.
+    uint256 public constant MINIMUM_LIQUIDITY = 1000;
+    /// @dev Burn address holding the locked bootstrap shares.
+    address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
+
     // ── events ───────────────────────────────────────────────────────────────
 
     event Staked(address indexed user, uint256 amount, uint256 shares);
@@ -134,14 +144,17 @@ contract Cruzible {
     event ComplianceAdmitted(address indexed staker, string sealId, string jobId);
     event DepositsPausedSet(bool paused);
     event RoleSet(bytes32 indexed role, address account);
+    event GovernanceTransferStarted(address indexed from, address indexed to);
 
     // ── errors ───────────────────────────────────────────────────────────────
 
     error NotGovernance();
+    error NotPendingGovernance();
     error NotRewarder();
     error NotPauser();
     error ZeroAmount();
     error ZeroAddress();
+    error StakeTooSmall();
     error DepositsArePaused();
     error TokenAlreadySet();
     error TokenNotSet();
@@ -230,7 +243,25 @@ contract Cruzible {
 
         // Shares at the CURRENT rate (before adding the new deposit).
         shares = stAethel.getSharesByAethel(amount);
+
+        // First-depositor / share-inflation defense. Donation-inflation is
+        // already impossible here (the exchange rate reads the explicit
+        // totalPooledAethel accumulator, never address(this).balance, so a
+        // force-sent transfer cannot move the rate). This guards the remaining
+        // vector — legitimate rewards accruing before a tiny deposit could round
+        // its shares to 0, letting the pool absorb funds for no stAETHEL:
+        //   - bootstrap: permanently lock MINIMUM_LIQUIDITY shares to a dead
+        //     address (Uniswap-V2 / OZ-ERC4626 pattern) so totalShares can never
+        //     return to the pathological 1-wei regime;
+        //   - every stake: reject deposits that would mint 0 shares.
         totalPooledAethel += amount;
+        if (stAethel.getTotalShares() == 0) {
+            if (shares <= MINIMUM_LIQUIDITY) revert StakeTooSmall();
+            stAethel.mintShares(DEAD, MINIMUM_LIQUIDITY);
+            shares -= MINIMUM_LIQUIDITY;
+        } else if (shares == 0) {
+            revert StakeTooSmall();
+        }
         stAethel.mintShares(staker, shares);
 
         emit Staked(staker, amount, shares);
@@ -474,10 +505,21 @@ contract Cruzible {
         emit DepositsPausedSet(paused);
     }
 
-    function setGovernance(address account) external onlyGovernance {
+    /// @notice Step 1 of a two-step governance handover: nominate the successor.
+    ///         Governance is expected to be a timelock/multisig; two-step
+    ///         transfer prevents an unrecoverable hand-off to a wrong address.
+    function transferGovernance(address account) external onlyGovernance {
         if (account == address(0)) revert ZeroAddress();
-        governance = account;
-        emit RoleSet("governance", account);
+        pendingGovernance = account;
+        emit GovernanceTransferStarted(governance, account);
+    }
+
+    /// @notice Step 2: the nominee accepts, atomically becoming governance.
+    function acceptGovernance() external {
+        if (msg.sender != pendingGovernance) revert NotPendingGovernance();
+        emit RoleSet("governance", pendingGovernance);
+        governance = pendingGovernance;
+        pendingGovernance = address(0);
     }
 
     function setRewarder(address account) external onlyGovernance {
