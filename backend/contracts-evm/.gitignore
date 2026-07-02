@@ -1,0 +1,4 @@
+# Foundry build output (artifacts/ is committed deliberately for reproducible,
+# cross-repo-vendored bytecode; cache/ and out/ are local build state).
+cache/
+out/

@@ -1,0 +1,515 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.20;
+
+import "./interfaces/ISeal.sol";
+
+interface IStAETHEL {
+    function mintShares(address to, uint256 sharesAmount) external;
+    function burnShares(address from, uint256 sharesAmount) external;
+    function getSharesByAethel(uint256 aethelAmount) external view returns (uint256);
+    function getAethelByShares(uint256 sharesAmount) external view returns (uint256);
+    function getTotalShares() external view returns (uint256);
+}
+
+/// @title Cruzible — compliance-native liquid staking for Aethelred
+/// @notice Stake native AETHEL, receive rebasing stAETHEL. Built for
+///         sovereign and regulated institutions:
+///
+///         1. **Seal-gated entry (unique to Aethelred).** When compliance
+///            mode is on, `stake()` requires an ACTIVE Digital Seal whose
+///            PoUW job was run for exactly this staker (the seal's purpose
+///            binds `cruzible-stake:0x<address>`) and whose confidentiality
+///            attestation satisfies the vault's policy (jurisdiction,
+///            backend, vendor-root) — evaluated by the ISeal precompile at
+///            0x0900, i.e. by the SAME consensus logic that minted the seal.
+///            No allowlist oracle, no off-chain KYC server in the trust path.
+///         2. **Transparent exchange-rate accounting.** One pool variable
+///            (`totalPooledAethel`), share math in the open, per-epoch rate
+///            checkpoints so APY is COMPUTED from on-chain history — never an
+///            operator-typed number.
+///         3. **Bounded exit liquidity.** Unbonding-delayed withdrawal queue
+///            mirroring the chain's unbonding period; funds for claims are
+///            reserved at request time so a queue can never be diluted.
+///         4. **Merkle rewards.** Off-protocol reward programs (points,
+///            incentives) settle through per-epoch Merkle roots — claims are
+///            proof-verified on-chain.
+///
+/// @dev    Native-token design: no wrapped/ERC-20 AETHEL in the trust path
+///         (one less depeg/approval surface). Checks-effects-interactions
+///         throughout; explicit reentrancy guard on native transfers.
+contract Cruzible {
+    // ── roles ────────────────────────────────────────────────────────────────
+
+    /// @notice Governance: parameter/policy changes, role rotation.
+    address public governance;
+    /// @notice Rewarder: routes staking rewards into the pool, posts Merkle roots.
+    address public rewarder;
+    /// @notice Pauser: emergency stop for deposits (never for withdrawals).
+    address public pauser;
+
+    // ── pool accounting ──────────────────────────────────────────────────────
+
+    /// @notice Total AETHEL under management (staked principal + accrued rewards
+    ///         − amounts reserved for the withdrawal queue).
+    uint256 public totalPooledAethel;
+    /// @notice AETHEL reserved for requested-but-unclaimed withdrawals.
+    uint256 public totalReserved;
+
+    IStAETHEL public stAethel;
+
+    // ── epochs & rate history (for computed APY) ─────────────────────────────
+
+    uint256 public currentEpoch;
+    /// @dev exchange rate (1e18) checkpointed at each epoch advance.
+    mapping(uint256 => uint256) public epochRate;
+    mapping(uint256 => uint256) public epochTime;
+
+    // ── withdrawal queue ─────────────────────────────────────────────────────
+
+    struct Withdrawal {
+        uint256 id;
+        uint256 shares;
+        uint256 aethelAmount;
+        uint256 requestTime;
+        uint256 completionTime;
+        bool claimed;
+    }
+
+    /// @notice Unbonding delay before a requested withdrawal is claimable.
+    uint256 public unbondingPeriod;
+    uint256 private nextWithdrawalId;
+    mapping(address => Withdrawal[]) private userWithdrawals;
+    /// @dev id → (owner, index+1) for O(1) claim lookup; 0 = unknown.
+    mapping(uint256 => address) private withdrawalOwner;
+    mapping(uint256 => uint256) private withdrawalIndexPlus1;
+
+    // ── Merkle rewards ───────────────────────────────────────────────────────
+
+    mapping(uint256 => bytes32) public rewardsRoot; // epoch → root
+    mapping(uint256 => mapping(address => bool)) public rewardsClaimed;
+    /// @notice Segregated funding for Merkle reward programs. Claims can ONLY
+    ///         draw from this reserve — staked principal and the withdrawal
+    ///         queue are never reachable by a rewards claim.
+    uint256 public merkleReserve;
+
+    // ── compliance gate (the Aethelred moat) ─────────────────────────────────
+
+    ISeal internal constant SEAL = ISeal(0x0000000000000000000000000000000000000900);
+
+    /// @notice When true, stake() requires a policy-satisfying Digital Seal.
+    bool public complianceRequired;
+    /// @notice CEAP policy the staker's seal must satisfy (empty arrays = any).
+    string[] public policyAllowedBackends;
+    string public policyMinVerification;
+    string[] public policyAllowedPlatforms;
+    bool public policyRequireVendorRoot;
+    string[] public policyDataResidency;
+    /// @dev A seal authorizes exactly one stake entry (replay protection).
+    mapping(string => bool) public sealUsed;
+    /// @notice Stakers admitted through the compliance gate.
+    mapping(address => bool) public complianceAdmitted;
+
+    // ── misc ─────────────────────────────────────────────────────────────────
+
+    bool public depositsPaused;
+    uint256 private locked = 1; // reentrancy guard
+
+    // ── events ───────────────────────────────────────────────────────────────
+
+    event Staked(address indexed user, uint256 amount, uint256 shares);
+    event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId);
+    event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount);
+    event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount);
+    event RewardsAdded(uint256 amount, uint256 newTotalPooled);
+    event EpochAdvanced(uint256 indexed epoch, uint256 exchangeRate);
+    event RewardsRootSet(uint256 indexed epoch, bytes32 root);
+    event ComplianceModeSet(bool required);
+    event CompliancePolicySet(
+        string[] allowedBackends,
+        string minVerification,
+        string[] allowedPlatforms,
+        bool requireVendorRoot,
+        string[] dataResidency
+    );
+    event ComplianceAdmitted(address indexed staker, string sealId, string jobId);
+    event DepositsPausedSet(bool paused);
+    event RoleSet(bytes32 indexed role, address account);
+
+    // ── errors ───────────────────────────────────────────────────────────────
+
+    error NotGovernance();
+    error NotRewarder();
+    error NotPauser();
+    error ZeroAmount();
+    error ZeroAddress();
+    error DepositsArePaused();
+    error TokenAlreadySet();
+    error TokenNotSet();
+    error InsufficientPool();
+    error UnknownWithdrawal();
+    error NotWithdrawalOwner();
+    error AlreadyClaimed();
+    error NotYetClaimable();
+    error Reentrancy();
+    error ComplianceGateClosed(string reason);
+    error SealAlreadyUsed(string sealId);
+    error SealNotActive(string sealId);
+    error SealNotBoundToStaker(string expectedPurpose);
+    error RewardsProofInvalid();
+    error RootNotSet(uint256 epoch);
+
+    modifier onlyGovernance() {
+        if (msg.sender != governance) revert NotGovernance();
+        _;
+    }
+    modifier onlyRewarder() {
+        if (msg.sender != rewarder) revert NotRewarder();
+        _;
+    }
+    modifier nonReentrant() {
+        if (locked != 1) revert Reentrancy();
+        locked = 2;
+        _;
+        locked = 1;
+    }
+
+    constructor(address _governance, address _rewarder, address _pauser, uint256 _unbondingPeriod) {
+        if (_governance == address(0) || _rewarder == address(0) || _pauser == address(0)) {
+            revert ZeroAddress();
+        }
+        governance = _governance;
+        rewarder = _rewarder;
+        pauser = _pauser;
+        unbondingPeriod = _unbondingPeriod;
+        epochRate[0] = 1e18;
+        epochTime[0] = block.timestamp;
+    }
+
+    /// @notice One-time wiring of the stAETHEL token (deployed after the vault
+    ///         since the token needs the vault address as immutable minter).
+    function setStAethel(address token) external onlyGovernance {
+        if (address(stAethel) != address(0)) revert TokenAlreadySet();
+        if (token == address(0)) revert ZeroAddress();
+        stAethel = IStAETHEL(token);
+    }
+
+    // ── staking ──────────────────────────────────────────────────────────────
+
+    /// @notice Stake native AETHEL; receive rebasing stAETHEL shares. When
+    ///         compliance mode is on, the caller must have been admitted via
+    ///         {stakeWithSeal} (or governance policy change).
+    function stake() public payable returns (uint256 shares) {
+        return _stake(msg.sender, msg.value);
+    }
+
+    /// @notice Stake with a referral code (tracked off-protocol via the event
+    ///         log; the code has no effect on share accounting).
+    function stakeWithReferral(uint256 referralCode) external payable returns (uint256 shares) {
+        shares = _stake(msg.sender, msg.value);
+        emit ReferralRecorded(msg.sender, referralCode, msg.value);
+    }
+
+    event ReferralRecorded(address indexed user, uint256 indexed referralCode, uint256 amount);
+
+    /// @notice Compliance entry: present the Digital Seal minted by the PoUW
+    ///         compliance job that was run for THIS staker. On success the
+    ///         staker is admitted and the stake executes atomically.
+    /// @param jobId The PoUW job whose seal authorizes this staker.
+    function stakeWithSeal(string calldata jobId) external payable returns (uint256 shares) {
+        _admitWithSeal(msg.sender, jobId);
+        return _stake(msg.sender, msg.value);
+    }
+
+    function _stake(address staker, uint256 amount) internal nonReentrant returns (uint256 shares) {
+        if (address(stAethel) == address(0)) revert TokenNotSet();
+        if (amount == 0) revert ZeroAmount();
+        if (depositsPaused) revert DepositsArePaused();
+        if (complianceRequired && !complianceAdmitted[staker]) {
+            revert ComplianceGateClosed("staker not admitted: present a Digital Seal via stakeWithSeal");
+        }
+
+        // Shares at the CURRENT rate (before adding the new deposit).
+        shares = stAethel.getSharesByAethel(amount);
+        totalPooledAethel += amount;
+        stAethel.mintShares(staker, shares);
+
+        emit Staked(staker, amount, shares);
+    }
+
+    // ── compliance gate ──────────────────────────────────────────────────────
+
+    function _admitWithSeal(address staker, string calldata jobId) internal {
+        if (complianceAdmitted[staker]) return; // idempotent
+
+        // Resolve the seal for the compliance job (reverts if job unsealed).
+        string memory sealId = SEAL.getSealIdByJob(jobId);
+        if (sealUsed[sealId]) revert SealAlreadyUsed(sealId);
+        if (!SEAL.verifySeal(sealId)) revert SealNotActive(sealId);
+
+        // The seal must have been minted FOR this staker: the PoUW job's
+        // purpose binds the staker address (set at submit-job time), so a
+        // compliance attestation cannot be replayed for someone else.
+        (, , , , , , string memory purpose, , ) = SEAL.getSeal(sealId);
+        string memory expected = string.concat("cruzible-stake:", _toHexString(staker));
+        if (keccak256(bytes(purpose)) != keccak256(bytes(expected))) {
+            revert SealNotBoundToStaker(expected);
+        }
+
+        // CEAP policy check — consensus-parity Satisfies via the precompile.
+        (bool ok, string memory reason) = SEAL.requireConfidentiality(
+            sealId,
+            policyAllowedBackends,
+            policyMinVerification,
+            policyAllowedPlatforms,
+            policyRequireVendorRoot,
+            policyDataResidency
+        );
+        if (!ok) revert ComplianceGateClosed(reason);
+
+        sealUsed[sealId] = true;
+        complianceAdmitted[staker] = true;
+        emit ComplianceAdmitted(staker, sealId, jobId);
+    }
+
+    /// @notice Governance sets whether staking requires seal admission.
+    function setComplianceRequired(bool required) external onlyGovernance {
+        complianceRequired = required;
+        emit ComplianceModeSet(required);
+    }
+
+    /// @notice Governance sets the CEAP policy staker seals must satisfy.
+    function setCompliancePolicy(
+        string[] calldata allowedBackends,
+        string calldata minVerification,
+        string[] calldata allowedPlatforms,
+        bool requireVendorRoot,
+        string[] calldata dataResidency
+    ) external onlyGovernance {
+        policyAllowedBackends = allowedBackends;
+        policyMinVerification = minVerification;
+        policyAllowedPlatforms = allowedPlatforms;
+        policyRequireVendorRoot = requireVendorRoot;
+        policyDataResidency = dataResidency;
+        emit CompliancePolicySet(
+            allowedBackends, minVerification, allowedPlatforms, requireVendorRoot, dataResidency
+        );
+    }
+
+    // ── unstaking / withdrawal queue ─────────────────────────────────────────
+
+    /// @notice Burn stAETHEL shares and enter the unbonding queue. The AETHEL
+    ///         value is fixed at request time and RESERVED — later rate moves
+    ///         cannot dilute a queued exit, and queued exits cannot dilute
+    ///         remaining stakers.
+    function unstake(uint256 shares) external nonReentrant returns (uint256 withdrawalId, uint256 aethelAmount) {
+        if (address(stAethel) == address(0)) revert TokenNotSet();
+        if (shares == 0) revert ZeroAmount();
+
+        aethelAmount = stAethel.getAethelByShares(shares);
+        if (aethelAmount == 0) revert ZeroAmount();
+        if (aethelAmount > totalPooledAethel) revert InsufficientPool();
+
+        stAethel.burnShares(msg.sender, shares);
+        totalPooledAethel -= aethelAmount;
+        totalReserved += aethelAmount;
+
+        withdrawalId = ++nextWithdrawalId;
+        userWithdrawals[msg.sender].push(
+            Withdrawal({
+                id: withdrawalId,
+                shares: shares,
+                aethelAmount: aethelAmount,
+                requestTime: block.timestamp,
+                completionTime: block.timestamp + unbondingPeriod,
+                claimed: false
+            })
+        );
+        withdrawalOwner[withdrawalId] = msg.sender;
+        withdrawalIndexPlus1[withdrawalId] = userWithdrawals[msg.sender].length;
+
+        emit Unstaked(msg.sender, shares, aethelAmount, withdrawalId);
+    }
+
+    /// @notice Claim a matured withdrawal: native AETHEL is paid out.
+    function withdraw(uint256 withdrawalId) public nonReentrant {
+        Withdrawal storage w = _ownedWithdrawal(withdrawalId);
+        if (w.claimed) revert AlreadyClaimed();
+        if (block.timestamp < w.completionTime) revert NotYetClaimable();
+
+        w.claimed = true;
+        totalReserved -= w.aethelAmount;
+        emit Withdrawn(msg.sender, withdrawalId, w.aethelAmount);
+
+        (bool sent, ) = payable(msg.sender).call{value: w.aethelAmount}("");
+        require(sent, "transfer failed");
+    }
+
+    /// @notice Claim several matured withdrawals in one transaction.
+    function batchWithdraw(uint256[] calldata withdrawalIds) external {
+        for (uint256 i = 0; i < withdrawalIds.length; i++) {
+            withdraw(withdrawalIds[i]);
+        }
+    }
+
+    function _ownedWithdrawal(uint256 withdrawalId) internal view returns (Withdrawal storage) {
+        address owner = withdrawalOwner[withdrawalId];
+        if (owner == address(0)) revert UnknownWithdrawal();
+        if (owner != msg.sender) revert NotWithdrawalOwner();
+        return userWithdrawals[owner][withdrawalIndexPlus1[withdrawalId] - 1];
+    }
+
+    // ── rewards ──────────────────────────────────────────────────────────────
+
+    /// @notice Route staking rewards into the pool: every stAETHEL balance
+    ///         rebases upward. Callable by the rewarder (validator-commission
+    ///         treasury routing).
+    function addRewards() external payable onlyRewarder {
+        if (msg.value == 0) revert ZeroAmount();
+        totalPooledAethel += msg.value;
+        emit RewardsAdded(msg.value, totalPooledAethel);
+    }
+
+    /// @notice Advance the epoch, checkpointing the exchange rate so APY is
+    ///         computable from on-chain history.
+    function advanceEpoch() external onlyRewarder {
+        currentEpoch += 1;
+        uint256 rate = _exchangeRate();
+        epochRate[currentEpoch] = rate;
+        epochTime[currentEpoch] = block.timestamp;
+        emit EpochAdvanced(currentEpoch, rate);
+    }
+
+    /// @notice Post the Merkle root for an epoch's off-protocol reward program.
+    function setRewardsRoot(uint256 epoch, bytes32 root) external onlyRewarder {
+        rewardsRoot[epoch] = root;
+        emit RewardsRootSet(epoch, root);
+    }
+
+    /// @notice Fund the Merkle reward reserve (segregated from the pool).
+    function fundRewardsProgram() external payable onlyRewarder {
+        if (msg.value == 0) revert ZeroAmount();
+        merkleReserve += msg.value;
+    }
+
+    /// @notice Claim epoch rewards with a Merkle proof over (account, amount).
+    ///         Pays exclusively from the segregated reserve.
+    function claimRewards(uint256 epoch, uint256 amount, bytes32[] calldata proof) external nonReentrant {
+        bytes32 root = rewardsRoot[epoch];
+        if (root == bytes32(0)) revert RootNotSet(epoch);
+        if (rewardsClaimed[epoch][msg.sender]) revert AlreadyClaimed();
+        if (amount > merkleReserve) revert InsufficientPool();
+
+        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
+        if (!_verifyProof(proof, root, leaf)) revert RewardsProofInvalid();
+
+        rewardsClaimed[epoch][msg.sender] = true;
+        merkleReserve -= amount;
+        emit RewardsClaimed(msg.sender, epoch, amount);
+
+        (bool sent, ) = payable(msg.sender).call{value: amount}("");
+        require(sent, "transfer failed");
+    }
+
+    function _verifyProof(bytes32[] calldata proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
+        bytes32 computed = leaf;
+        for (uint256 i = 0; i < proof.length; i++) {
+            bytes32 node = proof[i];
+            computed = computed <= node
+                ? keccak256(abi.encodePacked(computed, node))
+                : keccak256(abi.encodePacked(node, computed));
+        }
+        return computed == root;
+    }
+
+    // ── views the frontend consumes ──────────────────────────────────────────
+
+    function totalShares() external view returns (uint256) {
+        if (address(stAethel) == address(0)) return 0;
+        return stAethel.getTotalShares();
+    }
+
+    function getExchangeRate() external view returns (uint256) {
+        return _exchangeRate();
+    }
+
+    function _exchangeRate() internal view returns (uint256) {
+        if (address(stAethel) == address(0)) return 1e18;
+        uint256 shares_ = stAethel.getTotalShares();
+        if (shares_ == 0) return 1e18;
+        return (totalPooledAethel * 1e18) / shares_;
+    }
+
+    function getUserWithdrawals(address user) external view returns (Withdrawal[] memory) {
+        return userWithdrawals[user];
+    }
+
+    function isWithdrawalClaimable(address user, uint256 withdrawalId) external view returns (bool) {
+        address owner = withdrawalOwner[withdrawalId];
+        if (owner != user) return false;
+        Withdrawal storage w = userWithdrawals[owner][withdrawalIndexPlus1[withdrawalId] - 1];
+        return !w.claimed && block.timestamp >= w.completionTime;
+    }
+
+    /// @notice APY in basis points, COMPUTED from the exchange-rate growth
+    ///         between the two most recent epoch checkpoints and annualized —
+    ///         never an operator-typed number. Returns 0 until two checkpoints
+    ///         with elapsed time exist.
+    function effectiveAPY() external view returns (uint256) {
+        if (currentEpoch == 0) return 0;
+        uint256 r1 = epochRate[currentEpoch];
+        uint256 r0 = epochRate[currentEpoch - 1];
+        uint256 t1 = epochTime[currentEpoch];
+        uint256 t0 = epochTime[currentEpoch - 1];
+        if (r0 == 0 || t1 <= t0 || r1 <= r0) return 0;
+        // growth (1e18-scaled) over the interval, annualized linearly, in bps.
+        uint256 growth = ((r1 - r0) * 1e18) / r0;
+        return (growth * 365 days * 10_000) / ((t1 - t0) * 1e18);
+    }
+
+    // ── admin ────────────────────────────────────────────────────────────────
+
+    function setDepositsPaused(bool paused) external {
+        if (msg.sender != pauser && msg.sender != governance) revert NotPauser();
+        depositsPaused = paused;
+        emit DepositsPausedSet(paused);
+    }
+
+    function setGovernance(address account) external onlyGovernance {
+        if (account == address(0)) revert ZeroAddress();
+        governance = account;
+        emit RoleSet("governance", account);
+    }
+
+    function setRewarder(address account) external onlyGovernance {
+        if (account == address(0)) revert ZeroAddress();
+        rewarder = account;
+        emit RoleSet("rewarder", account);
+    }
+
+    function setPauser(address account) external onlyGovernance {
+        if (account == address(0)) revert ZeroAddress();
+        pauser = account;
+        emit RoleSet("pauser", account);
+    }
+
+    function setUnbondingPeriod(uint256 period) external onlyGovernance {
+        unbondingPeriod = period;
+    }
+
+    // ── util ─────────────────────────────────────────────────────────────────
+
+    /// @dev Lowercase 0x-prefixed hex of an address (EIP-55 not required: the
+    ///      PoUW purpose binding is written lowercase by convention).
+    function _toHexString(address account) internal pure returns (string memory) {
+        bytes20 data = bytes20(account);
+        bytes16 alphabet = "0123456789abcdef";
+        bytes memory out = new bytes(42);
+        out[0] = "0";
+        out[1] = "x";
+        for (uint256 i = 0; i < 20; i++) {
+            out[2 + i * 2] = alphabet[uint8(data[i]) >> 4];
+            out[3 + i * 2] = alphabet[uint8(data[i]) & 0x0f];
+        }
+        return string(out);
+    }
+}

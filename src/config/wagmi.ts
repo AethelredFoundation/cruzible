@@ -40,7 +40,8 @@ const connectors = IS_BROWSER
               projectId: WALLETCONNECT_PROJECT_ID,
               metadata: {
                 name: "Cruzible by Aethelred",
-                description: "TEE-verified liquid staking protocol",
+                description:
+                  "Compliance-gated liquid staking for sovereign and regulated institutions",
                 url: APP_ORIGIN,
                 icons: [APP_LOGO_URL],
               },
@@ -59,18 +60,32 @@ const connectors = IS_BROWSER
 // Transports
 // ---------------------------------------------------------------------------
 
+// Testnet and devnet share the confirmed EVM chain id (7332, different
+// endpoints), so one 7332 transport covers both; mainnet is the distinct id.
 const transports = {
   [aethelredMainnet.id]: http(),
-  [aethelredTestnet.id]: http(),
-  [aethelredDevnet.id]: http(),
+  [aethelredTestnet.id]: http(), // 7332 — also serves aethelredDevnet
 };
+
+// wagmi rejects duplicate chain ids in its chains tuple, so dedupe by id.
+// activeChain is always one of the three, so it is always present.
+const uniqueChains = Array.from(
+  new Map(
+    [aethelredMainnet, aethelredTestnet, aethelredDevnet].map(
+      (c) => [c.id, c] as const,
+    ),
+  ).values(),
+);
 
 // ---------------------------------------------------------------------------
 // Wagmi Config
 // ---------------------------------------------------------------------------
 
 export const wagmiConfig = createConfig({
-  chains: [aethelredMainnet, aethelredTestnet, aethelredDevnet],
+  chains: uniqueChains as unknown as readonly [
+    typeof aethelredMainnet,
+    ...(typeof aethelredMainnet)[],
+  ],
   connectors,
   transports,
   // Use noopStorage on server to avoid hydration mismatches
