@@ -80,13 +80,43 @@ const fail = (msg) => {
 const step = (msg) => console.log(`\n== ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Aethelred's cosmos/evm EVM charges max(actualGas, gasLimit/2) — a refund of
+// more than half the gas limit is capped — so an over-large fixed limit
+// overpays (e.g. a 3M limit is billed 1.5M even for a ~130k call). Its
+// eth_estimateGas is accurate for settled state, so the limit is 2x the estimate
+// (the fee stays at the true cost, with 100% headroom), floored for safety.
+// Keeping estimation on the path is also required here: expectRevert relies on a
+// disallowed call throwing at estimate time rather than being mined as a failed
+// tx. The floor covers the window where the estimate momentarily lags
+// just-committed state. WRITE_GAS overrides the estimate entirely if ever needed.
+const WRITE_GAS = process.env.WRITE_GAS ? BigInt(process.env.WRITE_GAS) : null;
+const FLOOR_WRITE = 800_000n;
+const withHeadroom = (estimate, floor) => {
+  const doubled = estimate * 2n;
+  return doubled > floor ? doubled : floor;
+};
+
 async function write(functionName, args = [], value = 0n, from = walletClient) {
+  const gas =
+    WRITE_GAS ??
+    withHeadroom(
+      await publicClient.estimateContractGas({
+        address: CRUZIBLE_ADDRESS,
+        abi,
+        functionName,
+        args,
+        value,
+        account: from.account,
+      }),
+      FLOOR_WRITE,
+    );
   const hash = await from.writeContract({
     address: CRUZIBLE_ADDRESS,
     abi,
     functionName,
     args,
     value,
+    gas,
   });
   const receipt = await publicClient.waitForTransactionReceipt({
     hash,
