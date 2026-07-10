@@ -21,6 +21,7 @@ const mockConfig = { uid: "wagmi-config" };
 const mocks = vi.hoisted(() => ({
   addNotification: vi.fn(),
   assertContractSimulation: vi.fn(),
+  getBalance: vi.fn(),
   readContract: vi.fn(),
   useApp: vi.fn(),
   useConfig: vi.fn(),
@@ -78,6 +79,7 @@ vi.mock("wagmi", () => ({
 }));
 
 vi.mock("wagmi/actions", () => ({
+  getBalance: mocks.getBalance,
   readContract: mocks.readContract,
   waitForTransactionReceipt: mocks.waitForTransactionReceipt,
 }));
@@ -121,14 +123,16 @@ describe("useStake", () => {
     });
     mocks.assertContractSimulation.mockResolvedValue(true);
     mocks.waitForTransactionReceipt.mockResolvedValue({ status: "success" });
+    // Native AETHEL: staking reads the account's native balance (not an
+    // ERC-20). Default to a balance that covers the test amounts.
+    mocks.getBalance.mockResolvedValue({ value: parseEther("1000"), decimals: 18 });
   });
 
-  it("skips approval when the existing allowance covers the requested stake", async () => {
+  it("stakes native AETHEL as msg.value with no ERC-20 approval step", async () => {
+    // AETHEL is the native coin — the deployed vault's stake() is payable
+    // and takes the amount as value. There is no approve/allowance dance.
     const amount = parseEther("1");
-    mocks.readContract
-      .mockResolvedValueOnce(parseEther("1"))
-      .mockResolvedValueOnce(amount)
-      .mockResolvedValueOnce(amount);
+    mocks.readContract.mockResolvedValueOnce(parseEther("1")); // exchange rate
     mocks.writeContractAsync.mockResolvedValueOnce(STAKE_HASH);
 
     const { result } = renderHook(() => useStake());
@@ -139,14 +143,20 @@ describe("useStake", () => {
     });
 
     expect(hash).toBe(STAKE_HASH);
+    // Exactly one write — the stake — and never an approve.
     expect(mocks.writeContractAsync).toHaveBeenCalledTimes(1);
     expect(mocks.writeContractAsync).toHaveBeenCalledWith({
       address: CRUZIBLE_ADDRESS,
       abi: [],
       functionName: "stake",
-      args: [amount],
+      args: [],
+      value: amount,
       chainId: 4242,
     });
+    expect(mocks.writeContractAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ functionName: "approve" }),
+    );
+    // The simulation preview carries the same native value as the send.
     expect(mocks.assertContractSimulation).toHaveBeenCalledTimes(1);
     expect(mocks.assertContractSimulation).toHaveBeenCalledWith(
       mockConfig,
@@ -155,29 +165,24 @@ describe("useStake", () => {
       expect.objectContaining({
         address: CRUZIBLE_ADDRESS,
         functionName: "stake",
-        args: [amount],
+        args: [],
+        value: amount,
       }),
     );
     expect(mocks.waitForTransactionReceipt).toHaveBeenCalledTimes(1);
     expect(mocks.waitForTransactionReceipt).toHaveBeenCalledWith(mockConfig, {
       hash: STAKE_HASH,
     });
-    expect(mocks.addNotification).toHaveBeenCalledWith(
-      "info",
-      "Allowance Ready",
-      "Existing AETHEL allowance covers this stake.",
-    );
   });
 
-  it("approves the exact stake amount before staking when allowance is missing", async () => {
+  it("reads the NATIVE balance (not an ERC-20) to gate the stake amount", async () => {
     const amount = parseEther("2.5");
-    mocks.readContract
-      .mockResolvedValueOnce(parseEther("1"))
-      .mockResolvedValueOnce(amount)
-      .mockResolvedValueOnce(0n);
-    mocks.writeContractAsync
-      .mockResolvedValueOnce(APPROVAL_HASH)
-      .mockResolvedValueOnce(STAKE_HASH);
+    mocks.readContract.mockResolvedValueOnce(parseEther("1")); // exchange rate
+    mocks.getBalance.mockResolvedValueOnce({
+      value: parseEther("10"),
+      decimals: 18,
+    });
+    mocks.writeContractAsync.mockResolvedValueOnce(STAKE_HASH);
 
     const { result } = renderHook(() => useStake());
     let hash: string | undefined;
@@ -187,61 +192,19 @@ describe("useStake", () => {
     });
 
     expect(hash).toBe(STAKE_HASH);
-    expect(mocks.assertContractSimulation).toHaveBeenNthCalledWith(
-      1,
+    // Balance came from the native getBalance, keyed by the wallet address.
+    expect(mocks.getBalance).toHaveBeenCalledWith(
       mockConfig,
-      mocks.addNotification,
-      "AETHEL Approval",
-      expect.objectContaining({
-        address: AETHEL_TOKEN_ADDRESS,
-        functionName: "approve",
-        args: [CRUZIBLE_ADDRESS, amount],
-      }),
+      expect.objectContaining({ address: WALLET_ADDRESS }),
     );
-    expect(mocks.assertContractSimulation).toHaveBeenNthCalledWith(
-      2,
-      mockConfig,
-      mocks.addNotification,
-      "Stake",
-      expect.objectContaining({
-        address: CRUZIBLE_ADDRESS,
-        functionName: "stake",
-        args: [amount],
-      }),
-    );
-    expect(mocks.writeContractAsync).toHaveBeenNthCalledWith(1, {
-      address: AETHEL_TOKEN_ADDRESS,
-      abi: [],
-      functionName: "approve",
-      args: [CRUZIBLE_ADDRESS, amount],
-      chainId: 4242,
-    });
-    expect(mocks.writeContractAsync).toHaveBeenNthCalledWith(2, {
-      address: CRUZIBLE_ADDRESS,
-      abi: [],
-      functionName: "stake",
-      args: [amount],
-      chainId: 4242,
-    });
-    expect(mocks.waitForTransactionReceipt).toHaveBeenNthCalledWith(
-      1,
-      mockConfig,
-      { hash: APPROVAL_HASH },
-    );
-    expect(mocks.waitForTransactionReceipt).toHaveBeenNthCalledWith(
-      2,
-      mockConfig,
-      { hash: STAKE_HASH },
+    expect(mocks.writeContractAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ functionName: "stake", args: [], value: amount }),
     );
   });
 
-  it("does not submit stake when the required approval reverts", async () => {
-    const amount = parseEther("3");
-    mocks.readContract
-      .mockResolvedValueOnce(parseEther("1"))
-      .mockResolvedValueOnce(amount)
-      .mockResolvedValueOnce(0n);
-    mocks.writeContractAsync.mockResolvedValueOnce(APPROVAL_HASH);
+  it("reports the on-chain revert when the stake transaction reverts", async () => {
+    mocks.readContract.mockResolvedValueOnce(parseEther("1")); // exchange rate
+    mocks.writeContractAsync.mockResolvedValueOnce(STAKE_HASH);
     mocks.waitForTransactionReceipt.mockResolvedValueOnce({
       status: "reverted",
     });
@@ -254,27 +217,19 @@ describe("useStake", () => {
     });
 
     expect(hash).toBeUndefined();
-    expect(mocks.writeContractAsync).toHaveBeenCalledTimes(1);
-    expect(mocks.writeContractAsync).toHaveBeenCalledWith({
-      address: AETHEL_TOKEN_ADDRESS,
-      abi: [],
-      functionName: "approve",
-      args: [CRUZIBLE_ADDRESS, amount],
-      chainId: 4242,
-    });
-    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledTimes(1);
     expect(mocks.addNotification).toHaveBeenCalledWith(
       "error",
-      "Approval Reverted",
-      "The AETHEL approval was reverted on-chain.",
+      "Stake Reverted",
+      "The stake transaction was reverted on-chain.",
     );
   });
 
-  it("does not approve or stake when the live AETHEL token balance is too low", async () => {
-    const amount = parseEther("4");
-    mocks.readContract
-      .mockResolvedValueOnce(parseEther("1"))
-      .mockResolvedValueOnce(parseEther("3.999"));
+  it("does not stake when the live native balance is too low", async () => {
+    mocks.readContract.mockResolvedValueOnce(parseEther("1")); // exchange rate
+    mocks.getBalance.mockResolvedValueOnce({
+      value: parseEther("3.999"),
+      decimals: 18,
+    });
 
     const { result } = renderHook(() => useStake());
     let hash: string | undefined;
@@ -289,7 +244,7 @@ describe("useStake", () => {
     expect(mocks.addNotification).toHaveBeenCalledWith(
       "error",
       "Insufficient Balance",
-      "Your live AETHEL token balance is below this stake amount. Refresh balances and try again.",
+      "Your live AETHEL balance is below this stake amount. Refresh balances and try again.",
     );
   });
 

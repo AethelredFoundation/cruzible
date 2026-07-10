@@ -191,6 +191,16 @@ const TRACKED_TOKEN_CONTRACTS = [
   },
 ] as const;
 
+/**
+ * Only tokens with a configured contract address can be read. Filtering here
+ * (instead of gating the whole batch on `every(address)`) means one unset
+ * env var — e.g. no bridged-AETHEL ERC-20 on a chain where AETHEL is native —
+ * no longer silently disables every other token read (stAETHEL included).
+ */
+const CONFIGURED_TOKEN_CONTRACTS = TRACKED_TOKEN_CONTRACTS.filter((token) =>
+  Boolean(token.address),
+);
+
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
@@ -217,7 +227,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
 
   const { data: tokenBalances } = useReadContracts({
-    contracts: TRACKED_TOKEN_CONTRACTS.map((token) => ({
+    contracts: CONFIGURED_TOKEN_CONTRACTS.map((token) => ({
       address: token.address ?? zeroAddress,
       abi: ERC20ABI,
       functionName: "balanceOf",
@@ -226,9 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })),
     query: {
       enabled:
-        isConnected &&
-        !!address &&
-        TRACKED_TOKEN_CONTRACTS.every((token) => Boolean(token.address)),
+        isConnected && !!address && CONFIGURED_TOKEN_CONTRACTS.length > 0,
       refetchInterval: 15_000,
     },
   });
@@ -248,14 +256,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const stablecoinBalanceUnits: Record<string, bigint> = {};
     const tokenBalanceUnits = new Map<string, bigint>();
 
-    TRACKED_TOKEN_CONTRACTS.forEach((token, index) => {
+    CONFIGURED_TOKEN_CONTRACTS.forEach((token, index) => {
       const balance = tokenBalances?.[index]?.result as bigint | undefined;
       if (balance !== undefined) {
         tokenBalanceUnits.set(token.symbol, balance);
       }
     });
 
-    const aethelBalance = tokenBalanceUnits.get("AETHEL");
+    // AETHEL is the NATIVE coin on Aethelred (x/precisebank bridges the
+    // 6-decimal bank denom to the 18-decimal EVM face) — there is no ERC-20
+    // to read, so the stakeable balance comes from the native query. A
+    // configured bridged-AETHEL ERC-20 (other chains) still takes priority.
+    const aethelBalance = tokenBalanceUnits.get("AETHEL") ?? nativeBalance?.value;
     const stAethelBalance = tokenBalanceUnits.get("stAETHEL");
     const usdcBalance = tokenBalanceUnits.get("USDC");
     const usdtBalance = tokenBalanceUnits.get("USDT");

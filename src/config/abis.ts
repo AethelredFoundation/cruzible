@@ -75,10 +75,21 @@ export const CruzibleABI = [
 
   // --- Write Functions ---
   {
+    // Native staking: the deployed vault takes AETHEL as msg.value —
+    // matches backend/contracts-evm/artifacts/Cruzible.abi.
     name: "stake",
     type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "amount", type: "uint256" }],
+    stateMutability: "payable",
+    inputs: [],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+  {
+    // Compliance-gated entry: verifies the Digital Seal for the given PoUW
+    // job via the ISeal precompile before admitting the stake.
+    name: "stakeWithSeal",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [{ name: "jobId", type: "string" }],
     outputs: [{ name: "shares", type: "uint256" }],
   },
   {

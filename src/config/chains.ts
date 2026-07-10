@@ -25,10 +25,18 @@ export const AETHELRED_DEVNET_ID = 7332;
 /**
  * Resolve an RPC endpoint with an optional env override, so an operator can
  * point Cruzible at their own aethelredd node without editing source.
+ *
+ * IMPORTANT: the override MUST be passed in as a literal
+ * `process.env.NEXT_PUBLIC_*` expression at the CALL SITE. Next.js inlines
+ * client env vars only for literal property reads — a dynamic
+ * `process.env[name]` lookup compiles to `undefined` in the browser bundle,
+ * which silently disabled every RPC override here no matter what the
+ * operator set, leaving the never-deployed fallback domains. Same root
+ * cause as the ZeroID chains.ts fix.
  */
-function rpcEndpoint(envVar: string, fallback: string): string {
-  const override = process.env[envVar]?.trim();
-  return override && override.length > 0 ? override : fallback;
+function rpcEndpoint(override: string | undefined, fallback: string): string {
+  const trimmed = override?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +85,7 @@ export const aethelredTestnet = defineChain({
     default: {
       http: [
         rpcEndpoint(
-          "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL",
+          process.env.NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL,
           "https://evm-rpc-testnet.aethelred.network",
         ),
       ],
@@ -85,7 +93,7 @@ export const aethelredTestnet = defineChain({
     public: {
       http: [
         rpcEndpoint(
-          "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL",
+          process.env.NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL,
           "https://evm-rpc-testnet.aethelred.network",
         ),
       ],
@@ -114,7 +122,7 @@ export const aethelredDevnet = defineChain({
     default: {
       http: [
         rpcEndpoint(
-          "NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL",
+          process.env.NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL,
           "http://127.0.0.1:8545",
         ),
       ],
@@ -122,7 +130,7 @@ export const aethelredDevnet = defineChain({
     public: {
       http: [
         rpcEndpoint(
-          "NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL",
+          process.env.NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL,
           "http://127.0.0.1:8545",
         ),
       ],
