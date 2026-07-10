@@ -40,6 +40,26 @@ interface IStAETHEL {
 /// @dev cosmos/evm staking precompile surface (0x0800). Amounts in the bond
 ///      denom's base units (uaethel, 6 decimals).
 interface IStakingPrecompile {
+    struct Coin {
+        string denom;
+        uint256 amount;
+    }
+
+    struct UnbondingDelegationEntry {
+        int64 creationHeight;
+        int64 completionTime;
+        uint256 initialBalance;
+        uint256 balance;
+        uint64 unbondingId;
+        int64 unbondingOnHoldRefCount;
+    }
+
+    struct UnbondingDelegationOutput {
+        string delegatorAddress;
+        string validatorAddress;
+        UnbondingDelegationEntry[] entries;
+    }
+
     function delegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
         external
         returns (bool success);
@@ -47,6 +67,20 @@ interface IStakingPrecompile {
     function undelegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
         external
         returns (int64 completionTime);
+
+    /// @dev Returns zero values (not a revert) when no delegation exists.
+    function delegation(address delegatorAddress, string calldata validatorAddress)
+        external
+        view
+        returns (uint256 shares, Coin memory balance);
+
+    /// @dev Returns an empty entries array when nothing is unbonding. Matured
+    ///      entries are removed by the chain at end-of-block; `balance`
+    ///      reflects any slashing applied while unbonding.
+    function unbondingDelegation(address delegatorAddress, string calldata validatorAddress)
+        external
+        view
+        returns (UnbondingDelegationOutput memory unbondingDelegation);
 }
 
 /// @dev cosmos/evm distribution precompile surface (0x0801).
@@ -140,6 +174,29 @@ contract Cruzible {
     ///         stakers' claim (inside totalPooledAethel) but leave the native
     ///         balance — the free buffer shrinks accordingly.
     uint256 public totalDelegated;
+    /// @notice Bonded principal per validator (18-decimal). Reconciled against
+    ///         the chain's own delegation record by {reconcileValidator}.
+    mapping(string => uint256) public delegatedTo;
+
+    /// @notice Pooled AETHEL in flight back to the vault: undelegated but not
+    ///         yet paid out by the chain's unbonding queue (18-decimal).
+    ///         Counts as coverage for the withdrawal queue — see queueDeficit.
+    uint256 public totalUnbonding;
+    /// @notice In-flight unbonding per validator (18-decimal).
+    mapping(string => uint256) public unbondingFrom;
+
+    /// @dev The vault's own record of each undelegation, FIFO per validator.
+    ///      completionTime comes from the chain (the precompile's return
+    ///      value); {syncUndelegations} pops matured entries. Slashing while
+    ///      unbonding is reconciled against the chain's entries — aggregates,
+    ///      not per-entry, because the chain merges same-height entries.
+    struct PendingUndelegation {
+        uint256 amountWei;
+        uint256 completionTime;
+    }
+
+    mapping(string => PendingUndelegation[]) internal pendingUndelegations;
+    mapping(string => uint256) internal pendingHead;
 
     // ── compliance gate (the Aethelred moat) ─────────────────────────────────
 
@@ -192,6 +249,9 @@ contract Cruzible {
     event InstantUnstaked(address indexed user, uint256 shares, uint256 amountPaid, uint256 fee);
     event Delegated(string validator, uint256 amountWei);
     event Undelegated(string validator, uint256 amountWei, int64 completionTime);
+    event QueueUndelegated(string validator, uint256 amountWei, address indexed caller);
+    event UndelegationsMatured(string validator, uint256 amountWei);
+    event SlashingRealized(string validator, uint256 lossWei, uint256 newTotalPooled);
     event RealYieldClaimed(string validator, uint256 amountWei, uint256 newTotalPooled);
     event RateGuardSet(uint256 maxRebaseBps, uint256 minRewardInterval);
     event InstantExitFeeSet(uint256 feeBps);
@@ -237,6 +297,7 @@ contract Cruzible {
     error SlippageExceeded();
     error BadParam();
     error DelegationFailed();
+    error NoQueueDeficit();
     error ComplianceGateClosed(string reason);
     error SealAlreadyUsed(string sealId);
     error SealNotActive(string sealId);
@@ -502,6 +563,7 @@ contract Cruzible {
         if (amountWei > freeBuffer()) revert InsufficientBuffer();
 
         totalDelegated += amountWei;
+        delegatedTo[validator] += amountWei;
         bool ok = STAKING.delegate(address(this), validator, amountWei / DECIMAL_BRIDGE);
         if (!ok) revert DelegationFailed();
         emit Delegated(validator, amountWei);
@@ -517,11 +579,168 @@ contract Cruzible {
         returns (int64 completionTime)
     {
         if (amountWei == 0 || amountWei % DECIMAL_BRIDGE != 0) revert BadParam();
-        if (amountWei > totalDelegated) revert BadParam();
+        if (amountWei > delegatedTo[validator]) revert BadParam();
 
+        completionTime = _undelegate(validator, amountWei);
+    }
+
+    /// @notice Cover the withdrawal queue from delegated funds: undelegates
+    ///         exactly the queue's uncovered deficit (rounded up to a whole
+    ///         uaethel), capped by what is delegated to `validator`.
+    ///         PERMISSIONLESS — the amount is COMPUTED from the deficit, not
+    ///         caller-chosen, and it can only move funds from a validator back
+    ///         toward stakers who are already owed them; a keeper or a queued
+    ///         withdrawer can call it. This closes the operational gap between
+    ///         queued exits and real chain undelegations.
+    function undelegateForQueue(string calldata validator)
+        external
+        nonReentrant
+        returns (uint256 amountWei)
+    {
+        _syncUndelegations(validator);
+
+        uint256 deficit = queueDeficit();
+        if (deficit == 0) revert NoQueueDeficit();
+
+        // Round UP to a whole uaethel so a dusty deficit is fully coverable.
+        amountWei = ((deficit + DECIMAL_BRIDGE - 1) / DECIMAL_BRIDGE) * DECIMAL_BRIDGE;
+        uint256 available = delegatedTo[validator];
+        if (available == 0) revert BadParam();
+        if (amountWei > available) amountWei = available; // partial cover
+
+        _undelegate(validator, amountWei);
+        emit QueueUndelegated(validator, amountWei, msg.sender);
+    }
+
+    /// @notice Pop this validator's matured undelegations from the vault's
+    ///         FIFO: the chain has paid those funds into the vault's balance,
+    ///         so they stop counting as in-flight coverage. Permissionless.
+    function syncUndelegations(string calldata validator) external returns (uint256 maturedWei) {
+        return _syncUndelegations(validator);
+    }
+
+    /// @notice Realize slashing losses against consensus truth. Compares the
+    ///         vault's recorded bonded and in-flight-unbonding amounts with
+    ///         the staking precompile's own state and socializes any shortfall
+    ///         across the pool — every holder rebases down pro-rata (the
+    ///         incumbent model) instead of the last exiters absorbing the
+    ///         whole loss. PERMISSIONLESS: it reads chain state and can only
+    ///         mark the rate DOWN to reality, never up.
+    function reconcileValidator(string calldata validator)
+        external
+        nonReentrant
+        returns (uint256 lossWei)
+    {
+        _syncUndelegations(validator);
+
+        // Bonded principal vs the chain's delegation record.
+        uint256 recordedBonded = delegatedTo[validator];
+        if (recordedBonded > 0) {
+            (, IStakingPrecompile.Coin memory bal) = STAKING.delegation(address(this), validator);
+            uint256 actualWei = bal.amount * DECIMAL_BRIDGE;
+            if (actualWei < recordedBonded) {
+                uint256 loss = recordedBonded - actualWei;
+                delegatedTo[validator] = actualWei;
+                totalDelegated -= loss;
+                lossWei += loss;
+            }
+        }
+
+        // In-flight unbonding vs the chain's (unmatured) entries. Entries can
+        // be slashed while unbonding. Compare AGGREGATES — the chain merges
+        // same-height entries, so per-entry alignment is not guaranteed — and
+        // apply any shortfall to the vault's recorded FIFO from the tail so
+        // maturity accounting stays exact.
+        uint256 recordedUnbonding = unbondingFrom[validator];
+        if (recordedUnbonding > 0) {
+            IStakingPrecompile.UnbondingDelegationOutput memory u =
+                STAKING.unbondingDelegation(address(this), validator);
+            uint256 actualWei;
+            for (uint256 i = 0; i < u.entries.length; i++) {
+                actualWei += u.entries[i].balance * DECIMAL_BRIDGE;
+            }
+            if (actualWei < recordedUnbonding) {
+                uint256 loss = recordedUnbonding - actualWei;
+                _applyUnbondingLoss(validator, loss);
+                unbondingFrom[validator] = actualWei;
+                totalUnbonding -= loss;
+                lossWei += loss;
+            }
+        }
+
+        if (lossWei > 0) {
+            // Socialize. The pool can never go below zero even in a
+            // catastrophic (100%) slash of everything delegated.
+            uint256 applied = lossWei > totalPooledAethel ? totalPooledAethel : lossWei;
+            totalPooledAethel -= applied;
+            emit SlashingRealized(validator, lossWei, totalPooledAethel);
+        }
+    }
+
+    /// @notice Native AETHEL the withdrawal queue (and Merkle reserve) is owed
+    ///         beyond what the balance plus in-flight undelegations cover.
+    ///         A positive deficit opens the permissionless {undelegateForQueue}.
+    function queueDeficit() public view returns (uint256) {
+        uint256 promised = totalReserved + merkleReserve;
+        uint256 covered = address(this).balance + totalUnbonding;
+        return promised > covered ? promised - covered : 0;
+    }
+
+    /// @notice Total assets under management: native balance + bonded
+    ///         delegations + in-flight undelegations. The Phase-2 solvency
+    ///         invariant is totalManaged() >= totalPooledAethel +
+    ///         totalReserved + merkleReserve (strictly greater once rewards
+    ///         accrue between claims).
+    function totalManaged() public view returns (uint256) {
+        return address(this).balance + totalDelegated + totalUnbonding;
+    }
+
+    function _undelegate(string calldata validator, uint256 amountWei)
+        internal
+        returns (int64 completionTime)
+    {
         totalDelegated -= amountWei;
+        delegatedTo[validator] -= amountWei;
+        totalUnbonding += amountWei;
+        unbondingFrom[validator] += amountWei;
+
         completionTime = STAKING.undelegate(address(this), validator, amountWei / DECIMAL_BRIDGE);
+        pendingUndelegations[validator].push(
+            PendingUndelegation({amountWei: amountWei, completionTime: uint256(uint64(completionTime))})
+        );
         emit Undelegated(validator, amountWei, completionTime);
+    }
+
+    function _syncUndelegations(string calldata validator) internal returns (uint256 maturedWei) {
+        PendingUndelegation[] storage q = pendingUndelegations[validator];
+        uint256 head = pendingHead[validator];
+        uint256 len = q.length;
+        while (head < len && q[head].completionTime <= block.timestamp) {
+            maturedWei += q[head].amountWei;
+            delete q[head];
+            head++;
+        }
+        if (maturedWei > 0) {
+            pendingHead[validator] = head;
+            totalUnbonding -= maturedWei;
+            unbondingFrom[validator] -= maturedWei;
+            emit UndelegationsMatured(validator, maturedWei);
+        }
+    }
+
+    /// @dev Absorb an unbonding-slash into the recorded FIFO, newest entries
+    ///      first, so a later {_syncUndelegations} releases exactly what the
+    ///      chain will actually pay.
+    function _applyUnbondingLoss(string calldata validator, uint256 loss) internal {
+        PendingUndelegation[] storage q = pendingUndelegations[validator];
+        uint256 head = pendingHead[validator];
+        uint256 i = q.length;
+        while (loss > 0 && i > head) {
+            i--;
+            uint256 cut = q[i].amountWei < loss ? q[i].amountWei : loss;
+            q[i].amountWei -= cut;
+            loss -= cut;
+        }
     }
 
     /// @notice Withdraw the vault's EARNED x/staking rewards from a validator

@@ -74,15 +74,50 @@ contract MockISeal {
 
 /// Mock cosmos/evm staking precompile (0x0800): records the last delegate /
 /// undelegate call so vault tests can assert argument encoding and the
-/// 18→6-decimal conversion. The REAL precompile also moves bank funds
+/// 18→6-decimal conversion, and models the chain's bonded + unbonding state
+/// (single validator, like the devnet) so queue-wiring and slashing
+/// reconciliation can be tested. The REAL precompile also moves bank funds
 /// (the vault's native balance drops); that effect is proven on the live
-/// devnet (scripts/devnet-phase2-e2e.mjs), not simulated here.
+/// devnet (scripts/devnet-phase2-e2e.mjs / devnet-phase25-e2e.mjs), not
+/// simulated here — tests mirror it with explicit vm.deal balance moves.
 contract MockStakingPrecompile {
+    struct Coin {
+        string denom;
+        uint256 amount;
+    }
+
+    struct UnbondingDelegationEntry {
+        int64 creationHeight;
+        int64 completionTime;
+        uint256 initialBalance;
+        uint256 balance;
+        uint64 unbondingId;
+        int64 unbondingOnHoldRefCount;
+    }
+
+    struct UnbondingDelegationOutput {
+        string delegatorAddress;
+        string validatorAddress;
+        UnbondingDelegationEntry[] entries;
+    }
+
     address public lastDelegator;
     string public lastValidator;
     uint256 public lastAmount;
     uint256 public delegateCalls;
     uint256 public undelegateCalls;
+
+    /// Chain-side state (uaethel): bonded principal + unbonding entries.
+    uint256 public bondedUaethel;
+    UnbondingDelegationEntry[] internal entries;
+    /// @dev Set explicitly after vm.etch — etch copies code, NOT storage, so
+    ///      a field initializer would silently read as zero on the precompile
+    ///      address (instant maturity, breaking every unbonding test).
+    uint256 public unbondingPeriod;
+
+    function setUnbondingPeriod(uint256 period) external {
+        unbondingPeriod = period;
+    }
 
     function delegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
         external
@@ -92,18 +127,68 @@ contract MockStakingPrecompile {
         lastValidator = validatorAddress;
         lastAmount = amount;
         delegateCalls++;
+        bondedUaethel += amount;
         return true;
     }
 
     function undelegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
         external
-        returns (int64)
+        returns (int64 completionTime)
     {
         lastDelegator = delegatorAddress;
         lastValidator = validatorAddress;
         lastAmount = amount;
         undelegateCalls++;
-        return int64(uint64(block.timestamp + 60));
+        bondedUaethel -= amount;
+        completionTime = int64(uint64(block.timestamp + unbondingPeriod));
+        entries.push(
+            UnbondingDelegationEntry({
+                creationHeight: int64(uint64(block.number)),
+                completionTime: completionTime,
+                initialBalance: amount,
+                balance: amount,
+                unbondingId: uint64(entries.length),
+                unbondingOnHoldRefCount: 0
+            })
+        );
+    }
+
+    /// Simulate a slash of the bonded delegation (the query then reports less
+    /// than the vault delegated).
+    function slashBonded(uint256 newUaethel) external {
+        bondedUaethel = newUaethel;
+    }
+
+    /// Simulate a slash hitting an entry that is still unbonding.
+    function slashUnbonding(uint256 idx, uint256 newBalanceUaethel) external {
+        entries[idx].balance = newBalanceUaethel;
+    }
+
+    function delegation(address, string calldata)
+        external
+        view
+        returns (uint256 shares, Coin memory balance)
+    {
+        // Shares scale is irrelevant to the vault (it reads balance.amount).
+        return (bondedUaethel * 1e18, Coin({denom: "uaethel", amount: bondedUaethel}));
+    }
+
+    function unbondingDelegation(address, string calldata)
+        external
+        view
+        returns (UnbondingDelegationOutput memory out)
+    {
+        // The real chain removes matured entries at EndBlock; mirror that by
+        // returning only entries whose completion is still in the future.
+        uint256 n;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (uint64(entries[i].completionTime) > block.timestamp) n++;
+        }
+        out.entries = new UnbondingDelegationEntry[](n);
+        uint256 j;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (uint64(entries[i].completionTime) > block.timestamp) out.entries[j++] = entries[i];
+        }
     }
 }
 
@@ -649,6 +734,7 @@ contract CruzibleTest {
         MockStakingPrecompile stImpl = new MockStakingPrecompile();
         vm.etch(STAKING, address(stImpl).code);
         st = MockStakingPrecompile(STAKING);
+        st.setUnbondingPeriod(60); // etch copies code only — set storage explicitly
         MockDistributionPrecompile distImpl = new MockDistributionPrecompile();
         vm.etch(DISTRIBUTION, address(distImpl).code);
         dist = MockDistributionPrecompile(payable(DISTRIBUTION));
@@ -749,5 +835,166 @@ contract CruzibleTest {
         uint256 claimed = vault.claimStakingRewards("aethelvaloper1abc");
         assertEq(claimed, 0, "nothing to claim");
         assertEq(vault.getExchangeRate(), rateBefore, "rate unchanged");
+    }
+
+    // ── Phase-2.5: queue↔undelegation wiring + slashing accounting ──────────
+
+    string constant VAL = "aethelvaloper1abc";
+
+    /// alice staked 10, 8 delegated out: buffer 2, delegatedTo[VAL] 8. The
+    /// vm.deal mirrors the REAL precompile's bank move (delegated funds leave
+    /// the vault's native balance), which the mock cannot perform.
+    function setUpDelegatedVault()
+        internal
+        returns (MockStakingPrecompile st, MockDistributionPrecompile dist)
+    {
+        (st, dist) = setUpStakingMocks();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+        vm.prank(gov);
+        vault.delegateToValidator(VAL, 8 ether);
+        vm.deal(address(vault), address(vault).balance - 8 ether);
+    }
+
+    function test_undelegate_for_queue_is_permissionless_and_deficit_bounded() public {
+        setUp();
+        (MockStakingPrecompile st, ) = setUpDelegatedVault();
+
+        // No deficit yet: the buffer covers every promise.
+        vm.prank(bob);
+        vm.expectRevert(Cruzible.NoQueueDeficit.selector);
+        vault.undelegateForQueue(VAL);
+
+        // Alice queues an exit worth 5 AETHEL; only 2 sit in the buffer.
+        vm.prank(alice);
+        vault.unstake(5 ether);
+        assertEq(vault.queueDeficit(), 3 ether, "deficit = promised - (balance + in-flight)");
+
+        // ANYONE can cover the queue — the amount is computed, not chosen:
+        // exactly the deficit, so the permissionless path cannot over-undelegate.
+        vm.prank(bob);
+        uint256 undelegated = vault.undelegateForQueue(VAL);
+        assertEq(undelegated, 3 ether, "undelegates exactly the deficit");
+        assertEq(vault.totalDelegated(), 5 ether, "bonded tracking reduced");
+        assertEq(vault.delegatedTo(VAL), 5 ether, "per-validator tracking reduced");
+        assertEq(vault.totalUnbonding(), 3 ether, "in-flight unbonding tracked");
+        assertEq(vault.queueDeficit(), 0, "in-flight unbonding counts as queue coverage");
+        assertEq(st.undelegateCalls(), 1, "one precompile undelegation");
+
+        // With the queue covered, the permissionless path is closed again.
+        vm.prank(bob);
+        vm.expectRevert(Cruzible.NoQueueDeficit.selector);
+        vault.undelegateForQueue(VAL);
+    }
+
+    function test_matured_undelegations_release_coverage_and_fund_withdrawals() public {
+        setUp();
+        setUpDelegatedVault();
+        vm.prank(alice);
+        (uint256 wid, ) = vault.unstake(5 ether);
+        vm.prank(bob);
+        vault.undelegateForQueue(VAL);
+
+        // The chain pays the vault when its unbonding period (60s in the mock)
+        // completes — simulate the bank credit alongside the passage of time.
+        vm.warp(block.timestamp + 61);
+        vm.deal(address(vault), address(vault).balance + 3 ether);
+        uint256 matured = vault.syncUndelegations(VAL);
+        assertEq(matured, 3 ether, "matured entries popped from the FIFO");
+        assertEq(vault.totalUnbonding(), 0, "no more in-flight unbonding");
+
+        // Alice's queued withdrawal (vault unbonding 100s) is now fully funded.
+        vm.warp(block.timestamp + 40);
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.withdraw(wid);
+        assertEq(alice.balance - before, 5 ether, "queued exit paid in full");
+    }
+
+    function test_total_managed_covers_all_promises_across_delegation() public {
+        setUp();
+        setUpDelegatedVault();
+        vm.prank(alice);
+        vault.unstake(5 ether);
+        vm.prank(bob);
+        vault.undelegateForQueue(VAL);
+        // The solvency invariant, generalized for Phase 2: assets under
+        // management (balance + bonded + unbonding) cover every liability.
+        assertEq(
+            vault.totalManaged(),
+            vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
+            "balance + delegated + unbonding == pooled + reserved + merkleReserve"
+        );
+    }
+
+    function test_reconcile_realizes_bonded_slash_and_socializes() public {
+        setUp();
+        (MockStakingPrecompile st, ) = setUpDelegatedVault();
+
+        // The chain slashed the validator 10%: the vault's on-chain delegation
+        // is now 7.2 AETHEL while the vault still records 8.
+        st.slashBonded(7_200_000);
+
+        uint256 rateBefore = vault.getExchangeRate();
+        vm.prank(bob); // permissionless: reads chain truth, only corrects DOWN
+        uint256 loss = vault.reconcileValidator(VAL);
+
+        assertEq(loss, 0.8 ether, "loss = recorded - chain truth");
+        assertEq(vault.totalDelegated(), 7.2 ether, "bonded tracking matches chain");
+        assertEq(vault.delegatedTo(VAL), 7.2 ether, "per-validator tracking matches chain");
+        assertEq(vault.totalPooledAethel(), 9.2 ether, "loss socialized across the pool");
+        assertTrue(vault.getExchangeRate() < rateBefore, "rate honestly reflects the slash");
+
+        // Reconcile is idempotent: a second run realizes nothing new.
+        assertEq(vault.reconcileValidator(VAL), 0, "second reconcile is a no-op");
+    }
+
+    function test_reconcile_realizes_unbonding_slash() public {
+        setUp();
+        (MockStakingPrecompile st, ) = setUpDelegatedVault();
+        vm.prank(gov);
+        vault.undelegateFromValidator(VAL, 4 ether);
+        assertEq(vault.totalUnbonding(), 4 ether, "governance undelegation also tracked");
+
+        // The validator is slashed while the entry is still unbonding: the
+        // chain's entry balance drops from 4 to 3.6 AETHEL.
+        st.slashUnbonding(0, 3_600_000);
+
+        vm.prank(bob);
+        uint256 loss = vault.reconcileValidator(VAL);
+        assertEq(loss, 0.4 ether, "unbonding slash realized");
+        assertEq(vault.totalUnbonding(), 3.6 ether, "in-flight tracking matches chain");
+        assertEq(vault.totalPooledAethel(), 9.6 ether, "loss socialized");
+
+        // Maturity then releases the post-slash amount — the FIFO entry was
+        // adjusted by the reconcile, so accounting stays exact.
+        vm.warp(block.timestamp + 61);
+        vm.deal(address(vault), address(vault).balance + 3.6 ether);
+        assertEq(vault.syncUndelegations(VAL), 3.6 ether, "post-slash maturity");
+        assertEq(vault.totalUnbonding(), 0, "in-flight fully released");
+    }
+
+    function test_undelegate_for_queue_caps_at_validator_delegation() public {
+        setUp();
+        setUpStakingMocks();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+        // Only 2 delegated to VAL; the rest of the pool stays in the buffer.
+        vm.prank(gov);
+        vault.delegateToValidator(VAL, 2 ether);
+        vm.deal(address(vault), address(vault).balance - 2 ether);
+
+        // Alice queues a full exit worth 10: deficit 2 beyond the 8 buffer.
+        vm.prank(alice);
+        vault.unstake(10 ether - 1000); // her entire share balance
+        assertTrue(vault.queueDeficit() > 0, "queue under-covered");
+
+        // The permissionless cover takes everything VAL has, no more.
+        vm.prank(bob);
+        uint256 undelegated = vault.undelegateForQueue(VAL);
+        assertEq(undelegated, 2 ether, "capped at the validator's delegation");
+        assertEq(vault.delegatedTo(VAL), 0, "validator fully undelegated");
     }
 }

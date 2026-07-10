@@ -50,14 +50,17 @@ The moat is real. The gaps below are what a diligent LP or integrator would find
 
 All Phase-1 items land with Foundry coverage and a live devnet end-to-end proof.
 
-## Phase 2 — the real yield engine — **PLUMBING LANDED (2026-07-11)**
+## Phase 2 — the real yield engine — **CLOSED (2026-07-11)**
 
-The core loop is live and proven end-to-end on a devnet (`scripts/devnet-phase2-e2e.mjs`):
+P-1 and P-2 are closed at the protocol level, proven live end-to-end
+(`scripts/devnet-phase2-e2e.mjs`, `scripts/devnet-phase25-e2e.mjs`):
 
-- **Chain**: cosmos/evm's staking (0x0800) and distribution (0x0801) precompiles are activated (`feat/staking-distribution-precompiles`); `delegation()` via `eth_call` reads real x/staking state.
-- **Vault**: `delegateToValidator` moves pooled AETHEL into x/staking through the precompile (native balance drops — the free buffer and instant-exit path honestly reflect it), `claimStakingRewards` (permissionless) folds EARNED block rewards into `totalPooledAethel` — the exchange rate rises with zero `addRewards` calls. Amounts convert across the 6↔18-decimal bridge with dust rejected.
+- **Chain**: cosmos/evm's staking (0x0800) and distribution (0x0801) precompiles are activated (`feat/staking-distribution-precompiles`); the vault reads and mutates real x/staking state through them.
+- **Earn (P-1)**: `delegateToValidator` moves pooled AETHEL into x/staking (native balance drops — the free buffer and instant-exit path honestly reflect it), `claimStakingRewards` (permissionless) folds EARNED block rewards into `totalPooledAethel` — the exchange rate rises with zero `addRewards` calls. Amounts convert across the 6↔18-decimal bridge with dust rejected.
+- **Exit (Phase 2.5)**: when queued withdrawals exceed the buffer, the PERMISSIONLESS `undelegateForQueue` undelegates exactly the computed deficit; the chain's real unbonding period runs, x/staking pays the vault back automatically, `syncUndelegations` releases the in-flight coverage, and the queued exit is paid in full — governance is not in the exit path. Proven live with a 60s-unbonding devnet: keeper-driven cover of a 4-AETHEL deficit, chain payout, 12-AETHEL withdrawal paid.
+- **Slashing (P-2)**: the PERMISSIONLESS `reconcileValidator` compares recorded bonded + in-flight-unbonding amounts against the staking precompile's `delegation()`/`unbondingDelegation()` state and socializes any shortfall across the pool (Lido model). Loss realization is Foundry-proven (bonded and mid-unbonding slashes); the live decode paths against the real precompile queries are exercised in the Phase-2.5 e2e. A live slash drill needs a multi-validator net — a single-node devnet cannot jail its only validator.
 
-**Honest remaining scope before calling P-1 closed:** delegation is governance-operated during the rollout (no automatic per-stake delegation policy yet); the withdrawal queue is not yet fed by real undelegations automatically (`undelegateFromValidator` exists; funds return to the vault after chain unbonding, but queue-matching is operational); P-2 slashing accounting is still open; multi-validator allocation strategy is still open. These are the Phase-2.5 work items.
+**Honest remaining scope:** delegation policy is governance-operated (no automatic per-stake delegation / multi-validator allocation strategy yet — an operational choice during rollout, not a protocol gap); a staged live slash drill on the multi-validator testnet is pending (C-5 program).
 
 ## Phase 3 — depth
 
