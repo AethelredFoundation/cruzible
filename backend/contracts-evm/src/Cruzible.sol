@@ -113,6 +113,22 @@ contract Cruzible {
     /// @notice Stakers admitted through the compliance gate.
     mapping(address => bool) public complianceAdmitted;
 
+    // ── rate guard + instant exit (Phase-1 economic security) ────────────────
+
+    /// @notice Max exchange-rate rebase a single addRewards report may cause,
+    ///         in basis points of the current pool. Bounds the rewarder key:
+    ///         even a compromised key cannot move the rate arbitrarily in one
+    ///         transaction (Lido-style oracle sanity check). Hard cap 20%.
+    uint256 public maxRebaseBps = 500;
+    /// @notice Minimum seconds between reward reports. Floor 10 minutes.
+    uint256 public minRewardInterval = 1 hours;
+    /// @notice Timestamp of the last accepted reward report.
+    uint256 public lastRewardsAt;
+
+    /// @notice Fee on instant exits, in basis points. The fee REMAINS in the
+    ///         pool, rebasing every remaining holder upward. Hard cap 2%.
+    uint256 public instantExitFeeBps = 50;
+
     // ── misc ─────────────────────────────────────────────────────────────────
 
     bool public depositsPaused;
@@ -128,6 +144,9 @@ contract Cruzible {
 
     event Staked(address indexed user, uint256 amount, uint256 shares);
     event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId);
+    event InstantUnstaked(address indexed user, uint256 shares, uint256 amountPaid, uint256 fee);
+    event RateGuardSet(uint256 maxRebaseBps, uint256 minRewardInterval);
+    event InstantExitFeeSet(uint256 feeBps);
     event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount);
     event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount);
     event RewardsAdded(uint256 amount, uint256 newTotalPooled);
@@ -164,6 +183,11 @@ contract Cruzible {
     error AlreadyClaimed();
     error NotYetClaimable();
     error Reentrancy();
+    error RebaseTooLarge();
+    error RewardsTooFrequent();
+    error InsufficientBuffer();
+    error SlippageExceeded();
+    error BadParam();
     error ComplianceGateClosed(string reason);
     error SealAlreadyUsed(string sealId);
     error SealNotActive(string sealId);
@@ -361,6 +385,53 @@ contract Cruzible {
         emit Unstaked(msg.sender, shares, aethelAmount, withdrawalId);
     }
 
+    /// @notice Exit immediately from the vault's free buffer, paying the
+    ///         instant-exit fee instead of waiting out the unbonding queue.
+    ///
+    ///         The free buffer is the vault's native balance minus every
+    ///         queued-withdrawal reservation and the segregated Merkle
+    ///         reserve — instant exits can never touch funds already promised
+    ///         to the queue or to reward programs. The fee stays in the pool,
+    ///         so every remaining holder rebases upward.
+    /// @param shares  stAETHEL shares to burn.
+    /// @param minOut  Slippage guard on the paid amount (post-fee).
+    function instantUnstake(uint256 shares, uint256 minOut)
+        external
+        nonReentrant
+        returns (uint256 amountPaid)
+    {
+        if (address(stAethel) == address(0)) revert TokenNotSet();
+        if (shares == 0) revert ZeroAmount();
+
+        uint256 aethelAmount = stAethel.getAethelByShares(shares);
+        if (aethelAmount == 0) revert ZeroAmount();
+        if (aethelAmount > totalPooledAethel) revert InsufficientPool();
+
+        uint256 fee = (aethelAmount * instantExitFeeBps) / 10_000;
+        amountPaid = aethelAmount - fee;
+        if (amountPaid < minOut) revert SlippageExceeded();
+        if (amountPaid > freeBuffer()) revert InsufficientBuffer();
+
+        stAethel.burnShares(msg.sender, shares);
+        // Only the PAID amount leaves the pool: the fee remains inside
+        // totalPooledAethel with fewer shares outstanding — a pro-rata
+        // rebase to everyone still staked.
+        totalPooledAethel -= amountPaid;
+
+        emit InstantUnstaked(msg.sender, shares, amountPaid, fee);
+
+        (bool sent, ) = payable(msg.sender).call{value: amountPaid}("");
+        require(sent, "transfer failed");
+    }
+
+    /// @notice Native balance not promised to the withdrawal queue or the
+    ///         Merkle reward reserve — the only funds instant exits may use.
+    function freeBuffer() public view returns (uint256) {
+        uint256 promised = totalReserved + merkleReserve;
+        uint256 balance = address(this).balance;
+        return balance > promised ? balance - promised : 0;
+    }
+
     /// @notice Claim a matured withdrawal: native AETHEL is paid out.
     function withdraw(uint256 withdrawalId) public nonReentrant {
         Withdrawal storage w = _ownedWithdrawal(withdrawalId);
@@ -396,8 +467,39 @@ contract Cruzible {
     ///         treasury routing).
     function addRewards() external payable onlyRewarder {
         if (msg.value == 0) revert ZeroAmount();
+        // Rate guard: a single report may not rebase the pool by more than
+        // maxRebaseBps, and reports may not arrive faster than
+        // minRewardInterval. This bounds the rewarder key itself — a
+        // compromised or fat-fingered key cannot swing the exchange rate in
+        // one transaction (the incumbent-standard oracle sanity check).
+        // No previous report → nothing to rate-limit against.
+        if (lastRewardsAt != 0 && block.timestamp < lastRewardsAt + minRewardInterval) {
+            revert RewardsTooFrequent();
+        }
+        if (totalPooledAethel > 0 && msg.value * 10_000 > totalPooledAethel * maxRebaseBps) {
+            revert RebaseTooLarge();
+        }
+        lastRewardsAt = block.timestamp;
         totalPooledAethel += msg.value;
         emit RewardsAdded(msg.value, totalPooledAethel);
+    }
+
+    /// @notice Tune the reward-report guard, within hard bounds the guard
+    ///         itself enforces: the cap can never exceed 20% per report and
+    ///         the interval can never drop below 10 minutes — governance is
+    ///         bounded too.
+    function setRateGuard(uint256 maxRebaseBps_, uint256 minRewardInterval_) external onlyGovernance {
+        if (maxRebaseBps_ == 0 || maxRebaseBps_ > 2000 || minRewardInterval_ < 10 minutes) revert BadParam();
+        maxRebaseBps = maxRebaseBps_;
+        minRewardInterval = minRewardInterval_;
+        emit RateGuardSet(maxRebaseBps_, minRewardInterval_);
+    }
+
+    /// @notice Tune the instant-exit fee, hard-capped at 2%.
+    function setInstantExitFee(uint256 feeBps) external onlyGovernance {
+        if (feeBps > 200) revert BadParam();
+        instantExitFeeBps = feeBps;
+        emit InstantExitFeeSet(feeBps);
     }
 
     /// @notice Advance the epoch, checkpointing the exchange rate so APY is

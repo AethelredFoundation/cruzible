@@ -133,6 +133,10 @@ contract CruzibleTest {
 
         // Rewards rebase every holder's balance up, shares unchanged.
         vm.deal(rewarder, 1 ether);
+        // Opt into the guard's hard cap for large test rebases.
+        vm.prank(gov);
+        vault.setRateGuard(2000, 10 minutes);
+        vm.warp(block.timestamp + 11 minutes);
         vm.prank(rewarder);
         vault.addRewards{value: 1 ether}();
         assertApprox(token.balanceOf(alice), 6 ether, 2000, "balance rebased to ~6");
@@ -165,9 +169,21 @@ contract CruzibleTest {
         vm.prank(bob);
         vault.stake{value: 1 ether}();
 
-        vm.deal(rewarder, 4 ether);
-        vm.prank(rewarder);
-        vault.addRewards{value: 4 ether}(); // pool 4 -> 8, rate 2x
+        // pool 4 -> 8 (rate 2x) via guard-compliant 20%-capped reports
+        vm.prank(gov);
+        vault.setRateGuard(2000, 10 minutes);
+        uint256 target = 8 ether;
+        uint256 t = block.timestamp;
+        while (vault.totalPooledAethel() < target) {
+            uint256 step = (vault.totalPooledAethel() * 2000) / 10_000;
+            uint256 remaining = target - vault.totalPooledAethel();
+            if (step > remaining) step = remaining;
+            t += 11 minutes;
+            vm.warp(t);
+            vm.deal(rewarder, step);
+            vm.prank(rewarder);
+            vault.addRewards{value: step}();
+        }
 
         assertApprox(token.balanceOf(alice), 6 ether, 2000, "alice 3->~6 (75%)");
         assertEq(token.balanceOf(bob), 2 ether, "bob 1->2 (25%)");
@@ -295,10 +311,25 @@ contract CruzibleTest {
         vm.prank(alice);
         vault.stake{value: 1 ether}();
 
-        // Rewards accrue, pushing the rate up massively.
-        vm.deal(rewarder, 100 ether);
-        vm.prank(rewarder);
-        vault.addRewards{value: 100 ether}();
+        // Rewards accrue over time, pushing the rate up massively. The rate
+        // guard already blocks a single-tx 100x donation (the classic
+        // inflation-attack setup), so this accumulates the same rate rise
+        // through guard-compliant capped reports — proving the dead-shares
+        // lock still defends the victim even after a huge CUMULATIVE rebase.
+        vm.prank(gov);
+        vault.setRateGuard(2000, 10 minutes);
+        uint256 target = 101 ether;
+        uint256 t = block.timestamp;
+        while (vault.totalPooledAethel() < target) {
+            uint256 step = (vault.totalPooledAethel() * 2000) / 10_000;
+            uint256 remaining = target - vault.totalPooledAethel();
+            if (step > remaining) step = remaining;
+            t += 11 minutes;
+            vm.warp(t);
+            vm.deal(rewarder, step);
+            vm.prank(rewarder);
+            vault.addRewards{value: step}();
+        }
 
         // A victim deposits an amount that (pre-fix) could round to 0 shares.
         // With the guard, either they receive > 0 shares or the tx reverts —
@@ -320,6 +351,9 @@ contract CruzibleTest {
         vault.stake{value: 10 ether}();
         vm.prank(bob);
         vault.stake{value: 5 ether}();
+        // 3 ether on a 15-ether pool = 20%; opt into the guard's hard cap.
+        vm.prank(gov);
+        vault.setRateGuard(2000, 10 minutes);
         vm.prank(rewarder);
         vault.addRewards{value: 3 ether}();
         vm.prank(rewarder);
@@ -395,5 +429,145 @@ contract CruzibleTest {
             out[3 + i * 2] = alphabet[uint8(data[i]) & 0x0f];
         }
         return string(out);
+    }
+    // ── Phase-1 sophistication: rate guard ──────────────────────────────────
+
+    function test_addRewards_bounded_by_max_rebase() public {
+        setUp();
+        vm.deal(alice, 100 ether);
+        vm.prank(alice);
+        vault.stake{value: 100 ether}();
+
+        // 6% of the pool in one report exceeds the 5% default cap.
+        vm.deal(rewarder, 10 ether);
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(rewarder);
+        vm.expectRevert(Cruzible.RebaseTooLarge.selector);
+        vault.addRewards{value: 6 ether}();
+
+        // 4% passes.
+        vm.prank(rewarder);
+        vault.addRewards{value: 4 ether}();
+        assertEq(vault.totalPooledAethel(), 104 ether, "guarded reward applied");
+    }
+
+    function test_addRewards_min_interval() public {
+        setUp();
+        vm.deal(alice, 100 ether);
+        vm.prank(alice);
+        vault.stake{value: 100 ether}();
+
+        vm.deal(rewarder, 4 ether);
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(rewarder);
+        vault.addRewards{value: 2 ether}();
+
+        // A second report inside the interval is rejected.
+        vm.prank(rewarder);
+        vm.expectRevert(Cruzible.RewardsTooFrequent.selector);
+        vault.addRewards{value: 1 ether}();
+
+        // After the interval passes, reporting resumes.
+        vm.warp(block.timestamp + 1 hours + 1);
+        vm.prank(rewarder);
+        vault.addRewards{value: 1 ether}();
+        assertEq(vault.totalPooledAethel(), 103 ether, "post-interval reward applied");
+    }
+
+    function test_rate_guard_params_bounded_and_governed() public {
+        setUp();
+
+        // Governance can tune within hard bounds…
+        vm.prank(gov);
+        vault.setRateGuard(1000, 30 minutes);
+        assertEq(vault.maxRebaseBps(), 1000, "cap updated");
+        assertEq(vault.minRewardInterval(), 30 minutes, "interval updated");
+
+        // …but not beyond them: >20% cap or <10min interval are rejected.
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.setRateGuard(2001, 1 hours);
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.setRateGuard(500, 9 minutes);
+
+        // And only governance holds the dial.
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.NotGovernance.selector);
+        vault.setRateGuard(500, 1 hours);
+    }
+
+    // ── Phase-1 sophistication: instant unstake ─────────────────────────────
+
+    function test_instant_unstake_pays_from_buffer_with_fee() public {
+        setUp();
+        vm.deal(alice, 10 ether);
+        vm.deal(bob, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+        vm.prank(bob);
+        vault.stake{value: 10 ether}();
+
+        uint256 shares = token.sharesOf(alice) / 2;
+        uint256 amount = token.getAethelByShares(shares);
+        uint256 fee = (amount * vault.instantExitFeeBps()) / 10_000;
+        uint256 balBefore = alice.balance;
+        uint256 bobBefore = token.balanceOf(bob);
+
+        vm.prank(alice);
+        uint256 paid = vault.instantUnstake(shares, amount - fee);
+
+        assertEq(paid, amount - fee, "payout = value minus instant-exit fee");
+        assertEq(alice.balance - balBefore, paid, "native AETHEL arrived immediately");
+        // The fee stays in the pool: every remaining holder rebases upward.
+        assertTrue(token.balanceOf(bob) > bobBefore, "fee accrues to remaining stakers");
+        // The queue path's reservations are untouched.
+        assertEq(vault.totalReserved(), 0, "no queue reservation consumed");
+    }
+
+    function test_instant_unstake_reverts_when_buffer_dry() public {
+        setUp();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+
+        // While every pooled AETHEL sits in the vault, the buffer always
+        // covers instant exits. The dry case is the Phase-2 reality —
+        // pooled funds DELEGATED out to validators — which we model by
+        // draining the vault's native balance directly.
+        vm.deal(address(vault), 2 ether);
+
+        uint256 aliceShares = token.sharesOf(alice);
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.InsufficientBuffer.selector);
+        vault.instantUnstake(aliceShares, 0);
+    }
+
+    function test_instant_unstake_min_out_slippage() public {
+        setUp();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+
+        uint256 shares = token.sharesOf(alice) / 2;
+        uint256 amount = token.getAethelByShares(shares);
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.SlippageExceeded.selector);
+        vault.instantUnstake(shares, amount + 1); // demands more than value-minus-fee
+    }
+
+    function test_instant_exit_fee_governed_and_capped() public {
+        setUp();
+        vm.prank(gov);
+        vault.setInstantExitFee(100);
+        assertEq(vault.instantExitFeeBps(), 100, "fee updated");
+
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.setInstantExitFee(201); // hard cap 2%
+
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.NotGovernance.selector);
+        vault.setInstantExitFee(10);
     }
 }
