@@ -37,6 +37,30 @@ interface IStAETHEL {
 /// @dev    Native-token design: no wrapped/ERC-20 AETHEL in the trust path
 ///         (one less depeg/approval surface). Checks-effects-interactions
 ///         throughout; explicit reentrancy guard on native transfers.
+/// @dev cosmos/evm staking precompile surface (0x0800). Amounts in the bond
+///      denom's base units (uaethel, 6 decimals).
+interface IStakingPrecompile {
+    function delegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
+        external
+        returns (bool success);
+
+    function undelegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
+        external
+        returns (int64 completionTime);
+}
+
+/// @dev cosmos/evm distribution precompile surface (0x0801).
+interface IDistributionPrecompile {
+    struct Coin {
+        string denom;
+        uint256 amount;
+    }
+
+    function withdrawDelegatorRewards(address delegatorAddress, string calldata validatorAddress)
+        external
+        returns (Coin[] memory amount);
+}
+
 contract Cruzible {
     // ── roles ────────────────────────────────────────────────────────────────
 
@@ -96,6 +120,27 @@ contract Cruzible {
     ///         queue are never reachable by a rewards claim.
     uint256 public merkleReserve;
 
+    // ── native staking surface (Phase-2 real yield) ──────────────────────────
+
+    /// @dev cosmos/evm staking precompile: delegate/undelegate pooled AETHEL.
+    ///      AMOUNTS ARE IN THE BOND DENOM'S BASE UNITS (uaethel, 6 decimals) —
+    ///      the vault converts from its 18-decimal accounting via
+    ///      DECIMAL_BRIDGE before every call.
+    IStakingPrecompile internal constant STAKING =
+        IStakingPrecompile(0x0000000000000000000000000000000000000800);
+    /// @dev cosmos/evm distribution precompile: withdraw EARNED staking
+    ///      rewards; the chain credits them to the vault's native balance.
+    IDistributionPrecompile internal constant DISTRIBUTION =
+        IDistributionPrecompile(0x0000000000000000000000000000000000000801);
+    /// @dev x/precisebank bridges 6-decimal uaethel ↔ 18-decimal EVM units.
+    uint256 internal constant DECIMAL_BRIDGE = 1e12;
+
+    /// @notice Pooled AETHEL currently delegated to validators, in the same
+    ///         18-decimal units as totalPooledAethel. Delegated funds remain
+    ///         stakers' claim (inside totalPooledAethel) but leave the native
+    ///         balance — the free buffer shrinks accordingly.
+    uint256 public totalDelegated;
+
     // ── compliance gate (the Aethelred moat) ─────────────────────────────────
 
     ISeal internal constant SEAL = ISeal(0x0000000000000000000000000000000000000900);
@@ -145,6 +190,9 @@ contract Cruzible {
     event Staked(address indexed user, uint256 amount, uint256 shares);
     event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId);
     event InstantUnstaked(address indexed user, uint256 shares, uint256 amountPaid, uint256 fee);
+    event Delegated(string validator, uint256 amountWei);
+    event Undelegated(string validator, uint256 amountWei, int64 completionTime);
+    event RealYieldClaimed(string validator, uint256 amountWei, uint256 newTotalPooled);
     event RateGuardSet(uint256 maxRebaseBps, uint256 minRewardInterval);
     event InstantExitFeeSet(uint256 feeBps);
     event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount);
@@ -188,6 +236,7 @@ contract Cruzible {
     error InsufficientBuffer();
     error SlippageExceeded();
     error BadParam();
+    error DelegationFailed();
     error ComplianceGateClosed(string reason);
     error SealAlreadyUsed(string sealId);
     error SealNotActive(string sealId);
@@ -425,11 +474,74 @@ contract Cruzible {
     }
 
     /// @notice Native balance not promised to the withdrawal queue or the
-    ///         Merkle reward reserve — the only funds instant exits may use.
+    ///         Merkle reward reserve — the only funds instant exits (and new
+    ///         delegations) may use.
     function freeBuffer() public view returns (uint256) {
         uint256 promised = totalReserved + merkleReserve;
         uint256 balance = address(this).balance;
         return balance > promised ? balance - promised : 0;
+    }
+
+    // ── Phase-2 real yield: delegate pooled AETHEL, claim EARNED rewards ─────
+
+    /// @notice Delegate pooled AETHEL to a validator through the chain's
+    ///         staking precompile. The delegated amount remains the stakers'
+    ///         claim (totalPooledAethel is unchanged) but leaves the native
+    ///         balance — x/staking now holds it and it earns REAL rewards.
+    ///         Governance-operated during the rollout; queue and Merkle
+    ///         reservations are never delegatable.
+    /// @param validator  Bech32 valoper address.
+    /// @param amountWei  18-decimal amount; must be a whole uaethel multiple
+    ///                   (the 1e12 bridge would silently drop dust otherwise).
+    function delegateToValidator(string calldata validator, uint256 amountWei)
+        external
+        onlyGovernance
+        nonReentrant
+    {
+        if (amountWei == 0 || amountWei % DECIMAL_BRIDGE != 0) revert BadParam();
+        if (amountWei > freeBuffer()) revert InsufficientBuffer();
+
+        totalDelegated += amountWei;
+        bool ok = STAKING.delegate(address(this), validator, amountWei / DECIMAL_BRIDGE);
+        if (!ok) revert DelegationFailed();
+        emit Delegated(validator, amountWei);
+    }
+
+    /// @notice Begin undelegating from a validator. The funds return to the
+    ///         vault's native balance automatically once the chain's
+    ///         unbonding period completes (x/staking pays out — no claim tx).
+    function undelegateFromValidator(string calldata validator, uint256 amountWei)
+        external
+        onlyGovernance
+        nonReentrant
+        returns (int64 completionTime)
+    {
+        if (amountWei == 0 || amountWei % DECIMAL_BRIDGE != 0) revert BadParam();
+        if (amountWei > totalDelegated) revert BadParam();
+
+        totalDelegated -= amountWei;
+        completionTime = STAKING.undelegate(address(this), validator, amountWei / DECIMAL_BRIDGE);
+        emit Undelegated(validator, amountWei, completionTime);
+    }
+
+    /// @notice Withdraw the vault's EARNED x/staking rewards from a validator
+    ///         and fold them into the pool: the exchange rate rises from real,
+    ///         consensus-verified yield — not an operator's report. The
+    ///         addRewards rate guard does not apply here; these amounts are
+    ///         chain truth. PERMISSIONLESS: anyone may trigger a claim, since
+    ///         it can only ever benefit every staker.
+    function claimStakingRewards(string calldata validator)
+        external
+        nonReentrant
+        returns (uint256 claimedWei)
+    {
+        uint256 before = address(this).balance;
+        DISTRIBUTION.withdrawDelegatorRewards(address(this), validator);
+        claimedWei = address(this).balance - before;
+        if (claimedWei > 0) {
+            totalPooledAethel += claimedWei;
+            emit RealYieldClaimed(validator, claimedWei, totalPooledAethel);
+        }
     }
 
     /// @notice Claim a matured withdrawal: native AETHEL is paid out.

@@ -71,6 +71,75 @@ contract MockISeal {
     }
 }
 
+
+/// Mock cosmos/evm staking precompile (0x0800): records the last delegate /
+/// undelegate call so vault tests can assert argument encoding and the
+/// 18→6-decimal conversion. The REAL precompile also moves bank funds
+/// (the vault's native balance drops); that effect is proven on the live
+/// devnet (scripts/devnet-phase2-e2e.mjs), not simulated here.
+contract MockStakingPrecompile {
+    address public lastDelegator;
+    string public lastValidator;
+    uint256 public lastAmount;
+    uint256 public delegateCalls;
+    uint256 public undelegateCalls;
+
+    function delegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
+        external
+        returns (bool)
+    {
+        lastDelegator = delegatorAddress;
+        lastValidator = validatorAddress;
+        lastAmount = amount;
+        delegateCalls++;
+        return true;
+    }
+
+    function undelegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
+        external
+        returns (int64)
+    {
+        lastDelegator = delegatorAddress;
+        lastValidator = validatorAddress;
+        lastAmount = amount;
+        undelegateCalls++;
+        return int64(uint64(block.timestamp + 60));
+    }
+}
+
+/// Mock cosmos/evm distribution precompile (0x0801): pays a preset native
+/// reward to the delegator, mirroring how the real precompile credits the
+/// withdrawn rewards to the delegator's (bridged) balance.
+contract MockDistributionPrecompile {
+    struct Coin {
+        string denom;
+        uint256 amount;
+    }
+
+    uint256 public rewardWei;
+
+    function setReward(uint256 amount) external {
+        rewardWei = amount;
+    }
+
+    function withdrawDelegatorRewards(address delegatorAddress, string calldata)
+        external
+        returns (Coin[] memory coins)
+    {
+        uint256 amount = rewardWei;
+        rewardWei = 0;
+        if (amount > 0) {
+            // The REAL precompile credits the delegator's balance through the
+            // stateDB — no CALL, no receive() needed on the delegator. Mirror
+            // that exactly with the cheatcode balance write.
+            Vm vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+            vm.deal(delegatorAddress, delegatorAddress.balance + amount);
+        }
+        coins = new Coin[](1);
+        coins[0] = Coin({denom: "uaethel", amount: amount / 1e12});
+    }
+}
+
 contract CruzibleTest {
     Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     address constant ISEAL = 0x0000000000000000000000000000000000000900;
@@ -569,5 +638,116 @@ contract CruzibleTest {
         vm.prank(alice);
         vm.expectRevert(Cruzible.NotGovernance.selector);
         vault.setInstantExitFee(10);
+    }
+
+    // ── Phase-2 real yield: delegation plumbing + earned rewards ────────────
+
+    address constant STAKING = 0x0000000000000000000000000000000000000800;
+    address constant DISTRIBUTION = 0x0000000000000000000000000000000000000801;
+
+    function setUpStakingMocks() internal returns (MockStakingPrecompile st, MockDistributionPrecompile dist) {
+        MockStakingPrecompile stImpl = new MockStakingPrecompile();
+        vm.etch(STAKING, address(stImpl).code);
+        st = MockStakingPrecompile(STAKING);
+        MockDistributionPrecompile distImpl = new MockDistributionPrecompile();
+        vm.etch(DISTRIBUTION, address(distImpl).code);
+        dist = MockDistributionPrecompile(payable(DISTRIBUTION));
+    }
+
+    function test_delegate_converts_to_bond_denom_and_tracks() public {
+        setUp();
+        (MockStakingPrecompile st, ) = setUpStakingMocks();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+
+        vm.prank(gov);
+        vault.delegateToValidator("aethelvaloper1abc", 4 ether);
+
+        assertEq(vault.totalDelegated(), 4 ether, "delegated tracked in wei accounting");
+        assertEq(st.lastAmount(), 4 ether / 1e12, "precompile amount in uaethel (6-dec)");
+        assertEq(st.delegateCalls(), 1, "delegate called once");
+        assertTrue(st.lastDelegator() == address(vault), "vault is the delegator");
+    }
+
+    function test_delegate_rejects_dusty_and_oversized_amounts() public {
+        setUp();
+        setUpStakingMocks();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+
+        // Not a whole uaethel multiple: the 1e12 bridge would silently drop dust.
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.delegateToValidator("aethelvaloper1abc", 4 ether + 1);
+
+        // More than the free buffer (queue/merkle reservations are untouchable).
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.InsufficientBuffer.selector);
+        vault.delegateToValidator("aethelvaloper1abc", 11 ether);
+
+        // Governance-only.
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.NotGovernance.selector);
+        vault.delegateToValidator("aethelvaloper1abc", 1 ether);
+    }
+
+    function test_undelegate_reduces_tracking() public {
+        setUp();
+        (MockStakingPrecompile st, ) = setUpStakingMocks();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+        vm.prank(gov);
+        vault.delegateToValidator("aethelvaloper1abc", 4 ether);
+
+        vm.prank(gov);
+        vault.undelegateFromValidator("aethelvaloper1abc", 3 ether);
+        assertEq(vault.totalDelegated(), 1 ether, "undelegation reduces tracking");
+        assertEq(st.undelegateCalls(), 1, "undelegate called once");
+        assertEq(st.lastAmount(), 3 ether / 1e12, "undelegate amount in uaethel");
+
+        // Cannot undelegate more than is tracked as delegated.
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.undelegateFromValidator("aethelvaloper1abc", 2 ether);
+    }
+
+    function test_claim_staking_rewards_folds_earned_yield_into_rate() public {
+        setUp();
+        (, MockDistributionPrecompile dist) = setUpStakingMocks();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+
+        uint256 rateBefore = vault.getExchangeRate();
+        uint256 balBefore = token.balanceOf(alice);
+
+        // The chain owes the vault 1 AETHEL of REAL staking rewards.
+        vm.deal(DISTRIBUTION, 1 ether);
+        dist.setReward(1 ether);
+
+        // Permissionless: anyone may trigger the claim — rewards are
+        // consensus truth and benefit every staker.
+        vm.prank(bob);
+        uint256 claimed = vault.claimStakingRewards("aethelvaloper1abc");
+
+        assertEq(claimed, 1 ether, "claimed the earned rewards");
+        assertTrue(vault.getExchangeRate() > rateBefore, "earned yield raises the rate");
+        assertTrue(token.balanceOf(alice) > balBefore, "every staker rebases upward");
+    }
+
+    function test_claim_with_no_rewards_is_a_noop() public {
+        setUp();
+        setUpStakingMocks();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+
+        uint256 rateBefore = vault.getExchangeRate();
+        uint256 claimed = vault.claimStakingRewards("aethelvaloper1abc");
+        assertEq(claimed, 0, "nothing to claim");
+        assertEq(vault.getExchangeRate(), rateBefore, "rate unchanged");
     }
 }

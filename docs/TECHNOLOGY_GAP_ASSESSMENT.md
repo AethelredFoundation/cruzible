@@ -50,9 +50,14 @@ The moat is real. The gaps below are what a diligent LP or integrator would find
 
 All Phase-1 items land with Foundry coverage and a live devnet end-to-end proof.
 
-## Phase 2 — the real yield engine (needs chain + dApp together)
+## Phase 2 — the real yield engine — **PLUMBING LANDED (2026-07-11)**
 
-Activate cosmos/evm's staking/distribution precompiles in `ActiveStaticPrecompiles`, then teach the vault to delegate pooled AETHEL across the validator set, claim rewards, and drive the exchange rate from **earned** rewards, with the 21-day queue backed by real undelegations. P-2 slashing accounting follows from the same wiring. This is the item that converts Cruzible from "vault with administered yield" into a genuine liquid-staking protocol, and it is the correct next engineering investment.
+The core loop is live and proven end-to-end on a devnet (`scripts/devnet-phase2-e2e.mjs`):
+
+- **Chain**: cosmos/evm's staking (0x0800) and distribution (0x0801) precompiles are activated (`feat/staking-distribution-precompiles`); `delegation()` via `eth_call` reads real x/staking state.
+- **Vault**: `delegateToValidator` moves pooled AETHEL into x/staking through the precompile (native balance drops — the free buffer and instant-exit path honestly reflect it), `claimStakingRewards` (permissionless) folds EARNED block rewards into `totalPooledAethel` — the exchange rate rises with zero `addRewards` calls. Amounts convert across the 6↔18-decimal bridge with dust rejected.
+
+**Honest remaining scope before calling P-1 closed:** delegation is governance-operated during the rollout (no automatic per-stake delegation policy yet); the withdrawal queue is not yet fed by real undelegations automatically (`undelegateFromValidator` exists; funds return to the vault after chain unbonding, but queue-matching is operational); P-2 slashing accounting is still open; multi-validator allocation strategy is still open. These are the Phase-2.5 work items.
 
 ## Phase 3 — depth
 
