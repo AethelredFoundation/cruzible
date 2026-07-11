@@ -265,6 +265,15 @@ async function main() {
   if (rate0 !== parseEther("1")) fail("bootstrap rate must be 1");
 
   step("rewards rebase every balance (addRewards 1 AETHEL)");
+  // Checkpoint the pre-reward rate first so the APY step below can compute
+  // growth across ONE report — the Phase-1 rate guard's 10-minute interval
+  // floor makes back-to-back reports impossible on a live chain by design.
+  await write(vault, "advanceEpoch");
+  await sleep(4000); // real elapsed time between checkpoints
+  // 1 AETHEL on a 5-AETHEL pool is a 20% rebase: opt into the guard's hard
+  // cap explicitly (governance-tunable, never beyond 20%) — the same opt-in
+  // the Foundry tests use for large test rebases.
+  await write(vault, "setRateGuard", [2000n, 600n]);
   await write(vault, "addRewards", [], parseEther("1"));
   const bal1 = await read(token, "balanceOf", [account.address]);
   const rate1 = await read(vault, "getExchangeRate");
@@ -275,9 +284,6 @@ async function main() {
     fail(`rate must be 1.2, got ${formatEther(rate1)}`);
 
   step("epoch checkpoints → computed APY");
-  await write(vault, "advanceEpoch");
-  await sleep(4000); // real elapsed time between checkpoints
-  await write(vault, "addRewards", [], parseEther("0.1"));
   await write(vault, "advanceEpoch");
   const apy = await read(vault, "effectiveAPY");
   console.log(`effectiveAPY: ${apy} bps (computed from on-chain rate history)`);
