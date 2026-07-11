@@ -83,6 +83,22 @@ next stake instantly → the suspended wallet still exits in full. 43 Foundry
 tests green (5 new). Deploy support: `ZEROID_REGISTRY=0x...` on
 `scripts/deploy-contracts.mjs`.
 
+All three surfaces carry the integration:
+
+- **Contract** (above) — the gate itself, live-checked per stake.
+- **Cruzible frontend** — `useIdentityGate` reads `identityRequired` +
+  `isIdentityVerified`; the stake form shows a "ZeroID verified" /
+  "identity required" banner ONLY when the deployment actually enforces the
+  gate (no compliance theater), and stake submission is blocked exactly when
+  the vault would revert. Optional `NEXT_PUBLIC_ZEROID_APP_URL` renders the
+  register link.
+- **Aethelred Wallet** — the approval sheet decodes the whole first-party
+  surface (W-1 CLOSED: stake/stakeWithSeal/unstake/instantUnstake/withdraw/
+  claimStakingRewards/wrap/unwrap + ZeroID `registerIdentity`), and the
+  portfolio Staking tab is a LIVE Cruzible reader (W-2 CLOSED: stAETHEL
+  balance, exchange rate, on-chain APY, unbonding queue with claimability —
+  vault discovered on-chain from the token's `vault()` immutable).
+
 ## Phase 3 — depth
 
-Oracle committee for reward reporting (P-3), DEX liquidity for wstAETHEL, wallet position card + approval decoding (W-1/W-2), external audit + staged slashing drills (C-5).
+Oracle committee for reward reporting (P-3), DEX liquidity for wstAETHEL, external audit + staged slashing drills (C-5). W-3 (seal-quorum E2E) remains with the chain team's multi-validator seal pipeline.

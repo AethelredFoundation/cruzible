@@ -17,7 +17,11 @@ import {
   useAccount,
   useConfig,
 } from "wagmi";
-import { getBalance, readContract, waitForTransactionReceipt } from "wagmi/actions";
+import {
+  getBalance,
+  readContract,
+  waitForTransactionReceipt,
+} from "wagmi/actions";
 import {
   parseEther,
   formatEther,
@@ -265,6 +269,64 @@ export function useUserWithdrawals() {
 }
 
 // ---------------------------------------------------------------------------
+// Identity Gate Hook (ZeroID — three-way integration)
+// ---------------------------------------------------------------------------
+
+export interface IdentityGateState {
+  /** Whether the vault enforces the ZeroID identity gate. */
+  identityRequired: boolean;
+  /** Whether the CONNECTED wallet currently passes the gate. Only
+   *  meaningful when identityRequired is true and a wallet is connected. */
+  isVerified: boolean;
+  /** identityRequired && wallet connected && not verified — the exact
+   *  condition under which the vault would revert a stake. */
+  blocksStaking: boolean;
+  isLoading: boolean;
+}
+
+/**
+ * Reads the vault's ZeroID identity gate: `identityRequired()` plus the
+ * one-call `isIdentityVerified(staker)` surface. The check is LIVE on
+ * chain (revocations in ZeroID reflect within a poll interval), so the UI
+ * never caches an admission the contract would refuse.
+ */
+export function useIdentityGate(): IdentityGateState {
+  const { address } = useAccount();
+  const cruzibleAddr = getContractAddress("cruzible");
+
+  const { data, isLoading } = useReadContracts({
+    contracts: [
+      {
+        address: cruzibleAddr ?? zeroAddress,
+        abi: CruzibleABI,
+        functionName: "identityRequired",
+        chainId: activeChain.id,
+      },
+      {
+        address: cruzibleAddr ?? zeroAddress,
+        abi: CruzibleABI,
+        functionName: "isIdentityVerified",
+        args: [address ?? zeroAddress],
+        chainId: activeChain.id,
+      },
+    ],
+    query: {
+      enabled: Boolean(cruzibleAddr),
+      refetchInterval: 30_000,
+    },
+  });
+
+  const identityRequired = data?.[0]?.result === true;
+  const isVerified = Boolean(address) && data?.[1]?.result === true;
+  return {
+    identityRequired,
+    isVerified,
+    blocksStaking: identityRequired && Boolean(address) && !isVerified,
+    isLoading,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Stake Hook
 // ---------------------------------------------------------------------------
 
@@ -422,13 +484,7 @@ export function useStake() {
         setIsSubmitting(false);
       }
     },
-    [
-      writeContractAsync,
-      config,
-      cruzibleAddr,
-      wallet,
-      addNotification,
-    ],
+    [writeContractAsync, config, cruzibleAddr, wallet, addNotification],
   );
 
   return { stake, isPending: isPending || isSubmitting };

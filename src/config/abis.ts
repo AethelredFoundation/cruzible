@@ -29,6 +29,24 @@ export const CruzibleABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
   {
+    // ZeroID identity gate (three-way integration): when true, every stake
+    // entry requires a registered, ACTIVE ZeroID identity for the staker.
+    name: "identityRequired",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    // Single-call verification surface for the UI chip. True when the gate
+    // is off (nothing to verify against).
+    name: "isIdentityVerified",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "staker", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
     name: "currentEpoch",
     type: "function",
     stateMutability: "view",
