@@ -5,12 +5,12 @@
 
 ## Where Cruzible is already ahead
 
-| Capability | Cruzible | Incumbents |
-|---|---|---|
+| Capability                 | Cruzible                                                                                                                                      | Incumbents                                                        |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | Compliance-gated admission | `stakeWithSeal` verifies a consensus-minted Digital Seal via the ISeal precompile (purpose-bound to the staker, live revocation, CEAP policy) | None — no incumbent can gate staking on chain-verified compliance |
-| Truth-first UI | Vault hero renders only live contract-backed TVL/rate/APY; synthetic overlays hidden until proofs exist | Widely mixed; several render projected/indexed values as live |
-| Withdrawal queue integrity | Withdrawals never pausable (tested), two-step governance, per-user queue with on-chain ids | Comparable at the top end (Lido v2 withdrawals) |
-| Wallet trust surface | Per-origin consent, policy engine with spending context, fail-closed pricing, EIP-191/1193 correctness — all guard-tested | MetaMask-class wallets are permissive by comparison |
+| Truth-first UI             | Vault hero renders only live contract-backed TVL/rate/APY; synthetic overlays hidden until proofs exist                                       | Widely mixed; several render projected/indexed values as live     |
+| Withdrawal queue integrity | Withdrawals never pausable (tested), two-step governance, per-user queue with on-chain ids                                                    | Comparable at the top end (Lido v2 withdrawals)                   |
+| Wallet trust surface       | Per-origin consent, policy engine with spending context, fail-closed pricing, EIP-191/1193 correctness — all guard-tested                     | MetaMask-class wallets are permissive by comparison               |
 
 The moat is real. The gaps below are what a diligent LP or integrator would find behind it.
 
@@ -18,29 +18,29 @@ The moat is real. The gaps below are what a diligent LP or integrator would find
 
 ### Protocol layer
 
-| # | Gap | Evidence | Incumbent bar | Phase |
-|---|---|---|---|---|
-| P-1 | **Yield is governance-pushed, not earned.** `addRewards()` is a payable rewarder call; pooled AETHEL sits undelegated in the vault | `Cruzible.sol:397` | Lido stakes on the consensus layer; oracles report earned rewards | **P2 — requires chain work: the EVM activates only ISeal/IVerify/IPoUW precompiles (`app/evmconfig/evmconfig.go:56`); cosmos/evm's staking (0x800) & distribution (0x801) precompiles exist upstream but are not registered.** Activating them lets the vault delegate pooled AETHEL and earn real x/staking rewards — the single highest-impact item in this document |
-| P-2 | **No slashing accounting.** A validator slashing event has no representation in vault accounting | absent from `Cruzible.sol`; UI discloses it | Lido socializes slashing across the pool | P2 (depends on P-1 delegation) |
-| P-3 | **Rewarder is a single key.** Reward reporting has no quorum | `onlyRewarder` | Lido: oracle committee with quorum + sanity bounds | P3 (oracle committee); P1 adds the sanity bounds now |
+| #   | Gap                                                                                                                                | Evidence                                    | Incumbent bar                                                     | Phase                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P-1 | **Yield is governance-pushed, not earned.** `addRewards()` is a payable rewarder call; pooled AETHEL sits undelegated in the vault | `Cruzible.sol:397`                          | Lido stakes on the consensus layer; oracles report earned rewards | **P2 — requires chain work: the EVM activates only ISeal/IVerify/IPoUW precompiles (`app/evmconfig/evmconfig.go:56`); cosmos/evm's staking (0x800) & distribution (0x801) precompiles exist upstream but are not registered.** Activating them lets the vault delegate pooled AETHEL and earn real x/staking rewards — the single highest-impact item in this document |
+| P-2 | **No slashing accounting.** A validator slashing event has no representation in vault accounting                                   | absent from `Cruzible.sol`; UI discloses it | Lido socializes slashing across the pool                          | P2 (depends on P-1 delegation)                                                                                                                                                                                                                                                                                                                                         |
+| P-3 | **Rewarder is a single key.** Reward reporting has no quorum                                                                       | `onlyRewarder`                              | Lido: oracle committee with quorum + sanity bounds                | P3 (oracle committee); P1 adds the sanity bounds now                                                                                                                                                                                                                                                                                                                   |
 
 ### Contract layer
 
-| # | Gap | Evidence | Incumbent bar | Phase |
-|---|---|---|---|---|
-| C-1 | **Unbounded rate manipulation by one key.** `addRewards` accepts any value at any frequency — a compromised/typoing rewarder key can move the exchange rate arbitrarily in one tx | `Cruzible.sol:397-401` | Lido caps oracle report deltas (annual-limit sanity checks) | **P1 (this pass)** |
-| C-2 | **No instant exit.** Only the unbonding queue (21d prod); the UI honestly says secondary-market exit is out of scope | `unstake/withdraw` only | Instant exit via protocol buffer/liquidity with fee is table stakes | **P1 (this pass)** |
-| C-3 | **No non-rebasing wrapper.** Rebasing stAETHEL breaks AMMs, lending markets, and vault integrations | only `StAETHEL.sol` (rebasing) | wstETH pattern; ERC-4626-style accounting | **P1 (this pass)** |
-| C-4 | **No gasless approvals.** No EIP-2612 permit anywhere | `StAETHEL.sol` | Standard across incumbents | **P1 (on the wrapper)** |
-| C-5 | External audit + slashing drills | disclosed in UI | All incumbents are multi-audited | Ongoing (RFP program exists) |
+| #   | Gap                                                                                                                                                                               | Evidence                       | Incumbent bar                                                       | Phase                        |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------- | ---------------------------- |
+| C-1 | **Unbounded rate manipulation by one key.** `addRewards` accepts any value at any frequency — a compromised/typoing rewarder key can move the exchange rate arbitrarily in one tx | `Cruzible.sol:397-401`         | Lido caps oracle report deltas (annual-limit sanity checks)         | **P1 (this pass)**           |
+| C-2 | **No instant exit.** Only the unbonding queue (21d prod); the UI honestly says secondary-market exit is out of scope                                                              | `unstake/withdraw` only        | Instant exit via protocol buffer/liquidity with fee is table stakes | **P1 (this pass)**           |
+| C-3 | **No non-rebasing wrapper.** Rebasing stAETHEL breaks AMMs, lending markets, and vault integrations                                                                               | only `StAETHEL.sol` (rebasing) | wstETH pattern; ERC-4626-style accounting                           | **P1 (this pass)**           |
+| C-4 | **No gasless approvals.** No EIP-2612 permit anywhere                                                                                                                             | `StAETHEL.sol`                 | Standard across incumbents                                          | **P1 (on the wrapper)**      |
+| C-5 | External audit + slashing drills                                                                                                                                                  | disclosed in UI                | All incumbents are multi-audited                                    | Ongoing (RFP program exists) |
 
 ### Wallet-integration layer
 
-| # | Gap | Evidence | Incumbent bar | Phase |
-|---|---|---|---|---|
-| W-1 | Approval sheet shows raw calldata for vault methods — no human decoding of stake/unstake intent | wallet `handleSendTransaction` decode path lacks Cruzible ABI | Rabby-class wallets decode intent + simulate outcome | P2 |
-| W-2 | No staked-position card in the wallet portfolio (stAETHEL balance, pending withdrawals, claimables) | portfolio reads token balances only | Native staking views in top wallets | P2 |
-| W-3 | Seal-gated admission E2E needs the multi-validator seal pipeline | single-node devnet cannot mint a quorum seal (mapped 2026-07-10) | n/a (moat feature) | Chain team |
+| #   | Gap                                                                                                 | Evidence                                                         | Incumbent bar                                        | Phase      |
+| --- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- | ---------- |
+| W-1 | Approval sheet shows raw calldata for vault methods — no human decoding of stake/unstake intent     | wallet `handleSendTransaction` decode path lacks Cruzible ABI    | Rabby-class wallets decode intent + simulate outcome | P2         |
+| W-2 | No staked-position card in the wallet portfolio (stAETHEL balance, pending withdrawals, claimables) | portfolio reads token balances only                              | Native staking views in top wallets                  | P2         |
+| W-3 | Seal-gated admission E2E needs the multi-validator seal pipeline                                    | single-node devnet cannot mint a quorum seal (mapped 2026-07-10) | n/a (moat feature)                                   | Chain team |
 
 ## Phase 1 — shipped in this pass
 

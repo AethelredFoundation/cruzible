@@ -45,14 +45,14 @@ for steps 3 and 4 ready to paste.
 
 Optional env:
 
-| Variable                   | Default  | Purpose                                                                                                                                                            |
-| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GOVERNANCE`               | deployer | Nominates a separate governance address (two-step: it must call `acceptGovernance()`; deployer keeps control until then)                                           |
-| `REWARDER`, `PAUSER`       | deployer | Role separation at deploy time                                                                                                                                     |
-| `UNBONDING_PERIOD_SECONDS` | `3600`   | Withdrawal-queue delay. 1h is right for testing; set `1814400` (21d) once delegation to validators is live so the vault queue mirrors the chain's unbonding period |
-| `SKIP_WSTAETHEL=1`         | unset    | Skip the wrapper                                                                                                                                                   |
+| Variable                   | Default  | Purpose                                                                                                                                                                                                                                                                     |
+| -------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GOVERNANCE`               | deployer | Nominates a separate governance address (two-step: it must call `acceptGovernance()`; deployer keeps control until then)                                                                                                                                                    |
+| `REWARDER`, `PAUSER`       | deployer | Role separation at deploy time                                                                                                                                                                                                                                              |
+| `UNBONDING_PERIOD_SECONDS` | `3600`   | Withdrawal-queue delay. 1h is right for testing; set `1814400` (21d) once delegation to validators is live so the vault queue mirrors the chain's unbonding period                                                                                                          |
+| `SKIP_WSTAETHEL=1`         | unset    | Skip the wrapper                                                                                                                                                                                                                                                            |
 | `ZEROID_REGISTRY=0x...`    | unset    | Turn the **ZeroID identity gate** on: staking then requires a registered, ACTIVE ZeroID identity for the staker (checked live — revocation in ZeroID blocks new stakes instantly; exits are never gated). Point at the ZeroID registry already deployed on the same network |
-| `OUT=<path>`               | unset    | Also write a JSON deployment manifest                                                                                                                              |
+| `OUT=<path>`               | unset    | Also write a JSON deployment manifest                                                                                                                                                                                                                                       |
 
 Notes vs the ZeroID forge flags: gas is estimated per-tx and sent with **2×
 headroom** (the `--gas-estimate-multiplier 200` equivalent — harmless on nodes
