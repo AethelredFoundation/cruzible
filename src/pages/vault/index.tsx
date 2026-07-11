@@ -1580,7 +1580,9 @@ function StakeTab() {
                           ? "Waiting for Live Exchange Rate"
                           : !stakeQuote.isFresh
                             ? "Waiting for Fresh Quote"
-                            : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
+                            : identityGate.blocksStaking
+                              ? "ZeroID Identity Required"
+                              : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
               </button>
             ) : success ? (
               <div className="text-center py-4">
