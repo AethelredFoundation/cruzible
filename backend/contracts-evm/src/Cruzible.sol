@@ -9,6 +9,7 @@ interface IStAETHEL {
     function getSharesByAethel(uint256 aethelAmount) external view returns (uint256);
     function getAethelByShares(uint256 sharesAmount) external view returns (uint256);
     function getTotalShares() external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 /// @title Cruzible — compliance-native liquid staking for Aethelred
@@ -250,8 +251,31 @@ contract Cruzible {
     uint256 public lastRewardsAt;
 
     /// @notice Fee on instant exits, in basis points. The fee REMAINS in the
-    ///         pool, rebasing every remaining holder upward. Hard cap 2%.
+    ///         pool, rebasing every remaining holder upward. Hard cap 2%;
+    ///         raises are additionally step-bounded (max +50 bps per action)
+    ///         so a governance action cannot jump the fee on in-flight users.
     uint256 public instantExitFeeBps = 50;
+    /// @dev Maximum fee increase a single governance action may apply.
+    uint256 internal constant MAX_FEE_RAISE_STEP_BPS = 50;
+
+    // ── in-contract economic limits (0 = disabled) ───────────────────────────
+
+    /// @notice TVL cap: staking that would push totalPooledAethel above this
+    ///         reverts. For staged rollouts (canary limits). Never gates exits.
+    uint256 public maxTotalPooled;
+    /// @notice Per-account cap on the resulting stAETHEL balance after a stake.
+    uint256 public maxStakePerAccount;
+    /// @notice Per-validator delegation cap, in bps of totalPooledAethel.
+    uint256 public maxValidatorBps;
+    /// @notice Minimum share of the pool that must remain liquid (native
+    ///         balance) after any delegation, in bps of totalPooledAethel.
+    uint256 public minBufferBps;
+    /// @dev Bound on batchWithdraw fan-out per call (keeper-work bound).
+    uint256 public constant MAX_BATCH_WITHDRAW = 100;
+    /// @dev Bound on matured-FIFO entries processed per sync call: progress is
+    ///      monotonic and the function is callable repeatedly, so no queue
+    ///      length can make it permanently uncallable.
+    uint256 internal constant MAX_SYNC_PER_CALL = 64;
 
     // ── misc ─────────────────────────────────────────────────────────────────
 
@@ -277,6 +301,12 @@ contract Cruzible {
     event RealYieldClaimed(string validator, uint256 amountWei, uint256 newTotalPooled);
     event RateGuardSet(uint256 maxRebaseBps, uint256 minRewardInterval);
     event InstantExitFeeSet(uint256 feeBps);
+    event EconomicLimitsSet(
+        uint256 maxTotalPooled,
+        uint256 maxStakePerAccount,
+        uint256 maxValidatorBps,
+        uint256 minBufferBps
+    );
     event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount);
     event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount);
     event RewardsAdded(uint256 amount, uint256 newTotalPooled);
@@ -321,6 +351,11 @@ contract Cruzible {
     error BadParam();
     error DelegationFailed();
     error NoQueueDeficit();
+    error TvlCapExceeded();
+    error AccountCapExceeded();
+    error ValidatorConcentrationExceeded();
+    error BufferPolicyViolated();
+    error BatchTooLarge();
     error ComplianceGateClosed(string reason);
     error IdentityGateClosed(string reason);
     error SealAlreadyUsed(string sealId);
@@ -406,6 +441,14 @@ contract Cruzible {
         }
         if (complianceRequired && !complianceAdmitted[staker]) {
             revert ComplianceGateClosed("staker not admitted: present a Digital Seal via stakeWithSeal");
+        }
+        // In-contract economic limits (0 = disabled). Enforced on ENTRY only —
+        // exits are never gated by any limit.
+        if (maxTotalPooled != 0 && totalPooledAethel + amount > maxTotalPooled) {
+            revert TvlCapExceeded();
+        }
+        if (maxStakePerAccount != 0 && stAethel.balanceOf(staker) + amount > maxStakePerAccount) {
+            revert AccountCapExceeded();
         }
 
         // Shares at the CURRENT rate (before adding the new deposit).
@@ -615,6 +658,21 @@ contract Cruzible {
     {
         if (amountWei == 0 || amountWei % DECIMAL_BRIDGE != 0) revert BadParam();
         if (amountWei > freeBuffer()) revert InsufficientBuffer();
+        // In-contract delegation limits (0 = disabled): per-validator
+        // concentration cap and a minimum-liquid-buffer policy, both in bps
+        // of the pool.
+        if (
+            maxValidatorBps != 0 &&
+            (delegatedTo[validator] + amountWei) * 10_000 > totalPooledAethel * maxValidatorBps
+        ) {
+            revert ValidatorConcentrationExceeded();
+        }
+        if (
+            minBufferBps != 0 &&
+            (freeBuffer() - amountWei) * 10_000 < totalPooledAethel * minBufferBps
+        ) {
+            revert BufferPolicyViolated();
+        }
 
         totalDelegated += amountWei;
         delegatedTo[validator] += amountWei;
@@ -769,7 +827,11 @@ contract Cruzible {
         PendingUndelegation[] storage q = pendingUndelegations[validator];
         uint256 head = pendingHead[validator];
         uint256 len = q.length;
-        while (head < len && q[head].completionTime <= block.timestamp) {
+        // Bounded work per call: progress is monotonic and the function is
+        // permissionless + repeatable, so no FIFO length can make it
+        // permanently uncallable.
+        uint256 limit = head + MAX_SYNC_PER_CALL;
+        while (head < len && head < limit && q[head].completionTime <= block.timestamp) {
             maturedWei += q[head].amountWei;
             delete q[head];
             head++;
@@ -831,8 +893,12 @@ contract Cruzible {
         require(sent, "transfer failed");
     }
 
-    /// @notice Claim several matured withdrawals in one transaction.
+    /// @notice Claim several matured withdrawals in one transaction. Bounded
+    ///         to MAX_BATCH_WITHDRAW entries per call so a caller cannot
+    ///         construct an unbounded-gas loop; larger sets are claimed over
+    ///         multiple calls.
     function batchWithdraw(uint256[] calldata withdrawalIds) external {
+        if (withdrawalIds.length > MAX_BATCH_WITHDRAW) revert BatchTooLarge();
         for (uint256 i = 0; i < withdrawalIds.length; i++) {
             withdraw(withdrawalIds[i]);
         }
@@ -880,11 +946,35 @@ contract Cruzible {
         emit RateGuardSet(maxRebaseBps_, minRewardInterval_);
     }
 
-    /// @notice Tune the instant-exit fee, hard-capped at 2%.
+    /// @notice Tune the instant-exit fee: hard-capped at 2%, and raises are
+    ///         step-bounded to +50 bps per action so no single governance
+    ///         action can jump the fee on users with transactions in flight.
+    ///         Lowering is always unrestricted.
     function setInstantExitFee(uint256 feeBps) external onlyGovernance {
         if (feeBps > 200) revert BadParam();
+        if (feeBps > instantExitFeeBps && feeBps - instantExitFeeBps > MAX_FEE_RAISE_STEP_BPS) {
+            revert BadParam();
+        }
         instantExitFeeBps = feeBps;
         emit InstantExitFeeSet(feeBps);
+    }
+
+    /// @notice Set the in-contract economic limits (0 disables a limit):
+    ///         TVL cap and per-account cap bind on ENTRY only; the validator
+    ///         concentration cap and minimum-buffer policy bind on DELEGATION.
+    ///         Exits are never limited. For staged/canary rollouts.
+    function setEconomicLimits(
+        uint256 maxTotalPooled_,
+        uint256 maxStakePerAccount_,
+        uint256 maxValidatorBps_,
+        uint256 minBufferBps_
+    ) external onlyGovernance {
+        if (maxValidatorBps_ > 10_000 || minBufferBps_ > 10_000) revert BadParam();
+        maxTotalPooled = maxTotalPooled_;
+        maxStakePerAccount = maxStakePerAccount_;
+        maxValidatorBps = maxValidatorBps_;
+        minBufferBps = minBufferBps_;
+        emit EconomicLimitsSet(maxTotalPooled_, maxStakePerAccount_, maxValidatorBps_, minBufferBps_);
     }
 
     /// @notice Advance the epoch, checkpointing the exchange rate so APY is

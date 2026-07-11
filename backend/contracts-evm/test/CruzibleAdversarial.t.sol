@@ -412,6 +412,118 @@ contract CruzibleAdversarialTest {
         assertTrue(loss1 == 0.4 ether && loss2 == 0, "reconcile must be idempotent");
     }
 
+    // ── in-contract economic limits (consultant §4: enforce in code) ────────
+
+    /// TVL and per-account caps: enforced at stake time, 0 = disabled.
+    function test_economic_limits_tvl_and_account_caps() public {
+        setUp();
+        vm.prank(gov);
+        vault.setEconomicLimits(100 ether, 40 ether, 0, 0);
+
+        vm.deal(alice, 200 ether);
+        vm.prank(alice);
+        vault.stake{value: 40 ether}(); // at the account cap exactly: allowed
+
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.AccountCapExceeded.selector);
+        vault.stake{value: 1 ether}(); // would exceed the per-account cap
+
+        vm.deal(bob, 200 ether);
+        vm.prank(bob);
+        vault.stake{value: 40 ether}();
+        address carol = address(0xCA401);
+        vm.deal(carol, 200 ether);
+        vm.prank(carol);
+        vm.expectRevert(Cruzible.TvlCapExceeded.selector);
+        vault.stake{value: 30 ether}(); // 40+40+30 > 100 TVL cap
+
+        // Caps never gate exits.
+        vm.prank(alice);
+        vault.instantUnstake(1 ether, 0);
+        passed++;
+    }
+
+    /// Validator-concentration cap and minimum-liquid-buffer policy:
+    /// enforced at delegation time, 0 = disabled.
+    function test_economic_limits_concentration_and_min_buffer() public {
+        setUp();
+        setUpStakingMocksLocal();
+        vm.deal(alice, 100 ether);
+        vm.prank(alice);
+        vault.stake{value: 100 ether}();
+
+        // Max 30% of the pool per validator; keep >= 20% liquid.
+        vm.prank(gov);
+        vault.setEconomicLimits(0, 0, 3000, 2000);
+
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.ValidatorConcentrationExceeded.selector);
+        vault.delegateToValidator("aethelvaloper1abc", 31 ether);
+
+        vm.prank(gov);
+        vault.delegateToValidator("aethelvaloper1abc", 30 ether); // at cap: ok
+        vm.deal(address(vault), address(vault).balance - 30 ether);
+        vm.prank(gov);
+        vault.delegateToValidator("aethelvaloper1xyz", 30 ether); // second validator: ok
+        vm.deal(address(vault), address(vault).balance - 30 ether);
+
+        // A third validator passes concentration (25 <= 30%), but the buffer
+        // policy binds: 40 liquid − 25 = 15% < the 20% floor.
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BufferPolicyViolated.selector);
+        vault.delegateToValidator("aethelvaloper1third", 25 ether);
+
+        vm.prank(gov);
+        vault.delegateToValidator("aethelvaloper1third", 15 ether); // 25% liquid: ok
+        passed++;
+    }
+
+    /// Fee raises are step-bounded in-contract (max +50 bps per action);
+    /// lowering is always free; the 2% hard cap still binds.
+    function test_instant_exit_fee_raise_step_bounded() public {
+        setUp();
+        vm.startPrank(gov);
+        vault.setInstantExitFee(100); // 50 → 100: exactly +50, allowed
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.setInstantExitFee(151); // +51 in one action: rejected
+        vault.setInstantExitFee(10); // lowering: always allowed
+        vault.setInstantExitFee(60); // +50 from 10: allowed
+        vm.stopPrank();
+        assertTrue(vault.instantExitFeeBps() == 60, "step-bounded raises applied");
+    }
+
+    /// Keeper batch work is bounded per call: oversized batches revert with a
+    /// dedicated error instead of running unbounded loops.
+    function test_batch_withdraw_bounded_per_call() public {
+        setUp();
+        uint256[] memory ids = new uint256[](101);
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.BatchTooLarge.selector);
+        vault.batchWithdraw(ids);
+        passed++;
+    }
+
+    /// Governance-only, validated setter.
+    function test_economic_limits_governed_and_validated() public {
+        setUp();
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.NotGovernance.selector);
+        vault.setEconomicLimits(0, 0, 0, 0);
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.setEconomicLimits(0, 0, 10_001, 0); // bps out of range
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.setEconomicLimits(0, 0, 0, 10_001);
+        passed++;
+    }
+
+    function setUpStakingMocksLocal() internal {
+        MockStakingPrecompile stImpl = new MockStakingPrecompile();
+        vm.etch(STAKING, address(stImpl).code);
+        MockStakingPrecompile(STAKING).setUnbondingPeriod(60);
+    }
+
     // ── the identity-control boundary (docs/IDENTITY_POLICY.md) ─────────────
     //
     // Model A (default): identity gates PRIMARY ISSUANCE only — the receipt

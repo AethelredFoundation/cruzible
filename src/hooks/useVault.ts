@@ -188,6 +188,15 @@ async function assertLiveExchangeRate(
 // Vault State Hook
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-mount jittered poll interval (base + 0..20%): many clients mounting
+ * together must not synchronize into a "thundering herd" of identical
+ * RPC bursts — each mount picks its own phase.
+ */
+function jitteredIntervalMs(baseMs: number): number {
+  return baseMs + Math.floor(Math.random() * baseMs * 0.2);
+}
+
 export function useVaultState(): VaultState {
   const cruzibleAddr = getContractAddress("cruzible");
 
@@ -226,7 +235,7 @@ export function useVaultState(): VaultState {
     ],
     query: {
       enabled: Boolean(cruzibleAddr),
-      refetchInterval: 15_000,
+      refetchInterval: jitteredIntervalMs(15_000),
     },
   });
 
@@ -257,7 +266,7 @@ export function useUserWithdrawals() {
     chainId: activeChain.id,
     query: {
       enabled: Boolean(address && cruzibleAddr),
-      refetchInterval: 30_000,
+      refetchInterval: jitteredIntervalMs(30_000),
     },
   });
 
@@ -312,7 +321,7 @@ export function useIdentityGate(): IdentityGateState {
     ],
     query: {
       enabled: Boolean(cruzibleAddr),
-      refetchInterval: 30_000,
+      refetchInterval: jitteredIntervalMs(30_000),
     },
   });
 
