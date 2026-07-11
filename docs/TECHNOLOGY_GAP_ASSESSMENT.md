@@ -62,6 +62,27 @@ P-1 and P-2 are closed at the protocol level, proven live end-to-end
 
 **Honest remaining scope:** delegation policy is governance-operated (no automatic per-stake delegation / multi-validator allocation strategy yet — an operational choice during rollout, not a protocol gap); a staged live slash drill on the multi-validator testnet is pending (C-5 program).
 
+## Three-way integration — ZeroID identity layer — **LANDED (2026-07-11)**
+
+Cruzible now composes BOTH halves of the Aethelred trust story at admission,
+and no incumbent can express either:
+
+- **Identity gate (WHO is staking):** governance points the vault at the real
+  ZeroID registry (`setIdentityGate`); every stake entry then requires a
+  registered, ACTIVE ZeroID identity for the staker — checked live on every
+  stake, never cached, so a suspension/revocation in ZeroID blocks new stakes
+  in the same block. Exits are NEVER identity-gated. `isIdentityVerified` is
+  the one-call surface for wallet/frontend chips.
+- **Seal gate (was THIS entry cleared):** the existing per-job Digital Seal
+  admission, unchanged. The two gates compose — either or both can be on.
+
+Proven live against the REAL `ZeroID.sol` (not a mock) on a devnet
+(`scripts/devnet-identity-gate-e2e.mjs`): unregistered wallet rejected →
+`registerIdentity` → same stake admitted → governance suspension blocks the
+next stake instantly → the suspended wallet still exits in full. 43 Foundry
+tests green (5 new). Deploy support: `ZEROID_REGISTRY=0x...` on
+`scripts/deploy-contracts.mjs`.
+
 ## Phase 3 — depth
 
 Oracle committee for reward reporting (P-3), DEX liquidity for wstAETHEL, wallet position card + approval decoding (W-1/W-2), external audit + staged slashing drills (C-5).

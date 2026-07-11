@@ -29,6 +29,10 @@
  *                              the chain's validators goes live, so the vault
  *                              queue mirrors the chain's unbonding period)
  *   SKIP_WSTAETHEL=1           don't deploy the wrapper
+ *   ZEROID_REGISTRY            deployed ZeroID registry address — turns the
+ *                              identity gate ON (staking requires a
+ *                              registered, ACTIVE ZeroID identity; exits are
+ *                              never gated)
  *   OUT=<path>                 also write the deployment manifest JSON here
  *
  * Gas: every tx is estimated on-chain and sent with 2x headroom (the same
@@ -203,6 +207,20 @@ async function main() {
     fail("unbonding period mismatch");
   console.log("  wiring ✓  exchange rate 1.0 ✓");
 
+  // Optional ZeroID identity gate: point the vault at a deployed ZeroID
+  // registry so staking requires a registered, ACTIVE identity (exits are
+  // never gated). Must run before any governance handover.
+  if (process.env.ZEROID_REGISTRY) {
+    if (!isAddress(process.env.ZEROID_REGISTRY))
+      fail(
+        `ZEROID_REGISTRY is not a valid EVM address: ${process.env.ZEROID_REGISTRY}`,
+      );
+    await write(vault, "setIdentityGate", [process.env.ZEROID_REGISTRY, true]);
+    console.log(
+      `  identity gate ON → ZeroID registry ${process.env.ZEROID_REGISTRY}`,
+    );
+  }
+
   let governanceNote = `governance: ${account.address} (deployer)`;
   if (
     process.env.GOVERNANCE &&
@@ -229,6 +247,14 @@ async function main() {
       pauser,
     },
     unbondingPeriodSeconds: Number(UNBONDING),
+    ...(process.env.ZEROID_REGISTRY
+      ? {
+          identityGate: {
+            registry: process.env.ZEROID_REGISTRY,
+            required: true,
+          },
+        }
+      : {}),
   };
   if (process.env.OUT) {
     mkdirSync(dirname(process.env.OUT), { recursive: true });

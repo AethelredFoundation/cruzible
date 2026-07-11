@@ -72,6 +72,28 @@ contract MockISeal {
 }
 
 
+/// Mock ZeroID identity registry: the minimal surface Cruzible's identity
+/// gate consumes (resolveByController + isActiveIdentity). The REAL registry
+/// is ZeroID.sol in the zeroid repo — deployed alongside the vault in the
+/// live devnet proof (scripts/devnet-identity-gate-e2e.mjs).
+contract MockZeroIDRegistry {
+    mapping(address => bytes32) internal didOf;
+    mapping(bytes32 => bool) internal activeOf;
+
+    function setIdentity(address controller, bytes32 did, bool active) external {
+        didOf[controller] = did;
+        activeOf[did] = active;
+    }
+
+    function resolveByController(address controller) external view returns (bytes32) {
+        return didOf[controller];
+    }
+
+    function isActiveIdentity(bytes32 didHash) external view returns (bool) {
+        return activeOf[didHash];
+    }
+}
+
 /// Mock cosmos/evm staking precompile (0x0800): records the last delegate /
 /// undelegate call so vault tests can assert argument encoding and the
 /// 18→6-decimal conversion, and models the chain's bonded + unbonding state
@@ -973,6 +995,115 @@ contract CruzibleTest {
         vm.deal(address(vault), address(vault).balance + 3.6 ether);
         assertEq(vault.syncUndelegations(VAL), 3.6 ether, "post-slash maturity");
         assertEq(vault.totalUnbonding(), 0, "in-flight fully released");
+    }
+
+    // ── the identity layer: ZeroID-gated staking (three-way integration) ────
+
+    function test_identity_gate_blocks_unregistered_staker() public {
+        setUp();
+        MockZeroIDRegistry registry = new MockZeroIDRegistry();
+        vm.prank(gov);
+        vault.setIdentityGate(address(registry), true);
+
+        vm.deal(alice, 5 ether);
+        vm.prank(alice);
+        vm.expectRevert(); // IdentityGateClosed: no identity registered
+        vault.stake{value: 5 ether}();
+    }
+
+    function test_identity_gate_admits_active_identity() public {
+        setUp();
+        MockZeroIDRegistry registry = new MockZeroIDRegistry();
+        vm.prank(gov);
+        vault.setIdentityGate(address(registry), true);
+
+        registry.setIdentity(alice, keccak256("did:zeroid:alice"), true);
+        assertTrue(vault.isIdentityVerified(alice), "view reflects active identity");
+
+        vm.deal(alice, 5 ether);
+        vm.prank(alice);
+        vault.stake{value: 5 ether}();
+        assertApprox(token.balanceOf(alice), 5 ether, 2000, "verified staker admitted");
+    }
+
+    function test_identity_gate_blocks_revoked_identity_live() public {
+        setUp();
+        MockZeroIDRegistry registry = new MockZeroIDRegistry();
+        vm.prank(gov);
+        vault.setIdentityGate(address(registry), true);
+
+        // Alice registers, stakes, then her identity is suspended/revoked in
+        // ZeroID: the NEXT stake is blocked — the check is live per stake,
+        // not a cached admission.
+        bytes32 did = keccak256("did:zeroid:alice");
+        registry.setIdentity(alice, did, true);
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 5 ether}();
+
+        registry.setIdentity(alice, did, false);
+        assertTrue(!vault.isIdentityVerified(alice), "view reflects revocation");
+        vm.prank(alice);
+        vm.expectRevert(); // IdentityGateClosed: identity not active
+        vault.stake{value: 2 ether}();
+
+        // Exits are NEVER identity-gated: a revoked identity can still leave.
+        vm.prank(alice);
+        (uint256 wid, ) = vault.unstake(1 ether);
+        vm.warp(block.timestamp + 101);
+        vm.prank(alice);
+        vault.withdraw(wid);
+        passed++;
+    }
+
+    function test_identity_gate_governed_and_validated() public {
+        setUp();
+        MockZeroIDRegistry registry = new MockZeroIDRegistry();
+
+        // Only governance holds the dial.
+        vm.prank(alice);
+        vm.expectRevert(Cruzible.NotGovernance.selector);
+        vault.setIdentityGate(address(registry), true);
+
+        // Requiring identity with no registry configured is invalid.
+        vm.prank(gov);
+        vm.expectRevert(Cruzible.BadParam.selector);
+        vault.setIdentityGate(address(0), true);
+
+        // Gate off (default): unregistered stakers pass.
+        vm.deal(bob, 2 ether);
+        vm.prank(bob);
+        vault.stake{value: 2 ether}();
+        passed++;
+    }
+
+    function test_identity_gate_composes_with_seal_gate() public {
+        setUp();
+        MockZeroIDRegistry registry = new MockZeroIDRegistry();
+        vm.startPrank(gov);
+        vault.setIdentityGate(address(registry), true);
+        vault.setComplianceRequired(true);
+        vm.stopPrank();
+
+        // Identity alone is not enough — the seal gate still binds…
+        registry.setIdentity(alice, keccak256("did:zeroid:alice"), true);
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vm.expectRevert(); // ComplianceGateClosed
+        vault.stake{value: 5 ether}();
+
+        // …and a valid seal alone is not enough for an unregistered staker.
+        seal.setSeal("job-bob", "seal-bob", true, string.concat("cruzible-stake:", _hex(bob)));
+        vm.deal(bob, 10 ether);
+        vm.prank(bob);
+        vm.expectRevert(); // IdentityGateClosed
+        vault.stakeWithSeal{value: 5 ether}("job-bob");
+
+        // Both layers satisfied → admitted.
+        seal.setSeal("job-alice", "seal-alice", true, string.concat("cruzible-stake:", _hex(alice)));
+        vm.prank(alice);
+        vault.stakeWithSeal{value: 5 ether}("job-alice");
+        assertApprox(token.balanceOf(alice), 5 ether, 2000, "identity + seal both satisfied");
     }
 
     function test_undelegate_for_queue_caps_at_validator_delegation() public {

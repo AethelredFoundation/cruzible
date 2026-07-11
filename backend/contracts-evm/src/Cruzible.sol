@@ -83,6 +83,17 @@ interface IStakingPrecompile {
         returns (UnbondingDelegationOutput memory unbondingDelegation);
 }
 
+/// @dev ZeroID identity registry surface (the zeroid repo's ZeroID.sol):
+///      Aethelred's default identity layer. resolveByController returns the
+///      DID hash bound to a wallet (zero if none); isActiveIdentity reflects
+///      live status — suspension/revocation in ZeroID immediately closes the
+///      gate here, with no cache to go stale.
+interface IZeroIDRegistry {
+    function resolveByController(address controller) external view returns (bytes32 didHash);
+
+    function isActiveIdentity(bytes32 didHash) external view returns (bool);
+}
+
 /// @dev cosmos/evm distribution precompile surface (0x0801).
 interface IDistributionPrecompile {
     struct Coin {
@@ -215,6 +226,17 @@ contract Cruzible {
     /// @notice Stakers admitted through the compliance gate.
     mapping(address => bool) public complianceAdmitted;
 
+    // ── identity gate (ZeroID — the Aethelred identity layer) ────────────────
+
+    /// @notice When set and required, every stake entry additionally demands a
+    ///         registered, ACTIVE ZeroID identity for the staker. Checked live
+    ///         on every stake (never cached), so a suspension or revocation in
+    ///         ZeroID blocks new stakes immediately. Exits are NEVER
+    ///         identity-gated — a revoked identity can always leave.
+    IZeroIDRegistry public identityRegistry;
+    /// @notice Whether the identity gate is enforced.
+    bool public identityRequired;
+
     // ── rate guard + instant exit (Phase-1 economic security) ────────────────
 
     /// @notice Max exchange-rate rebase a single addRewards report may cause,
@@ -269,6 +291,7 @@ contract Cruzible {
         string[] dataResidency
     );
     event ComplianceAdmitted(address indexed staker, string sealId, string jobId);
+    event IdentityGateSet(address registry, bool required);
     event DepositsPausedSet(bool paused);
     event RoleSet(bytes32 indexed role, address account);
     event GovernanceTransferStarted(address indexed from, address indexed to);
@@ -299,6 +322,7 @@ contract Cruzible {
     error DelegationFailed();
     error NoQueueDeficit();
     error ComplianceGateClosed(string reason);
+    error IdentityGateClosed(string reason);
     error SealAlreadyUsed(string sealId);
     error SealNotActive(string sealId);
     error SealNotBoundToStaker(string expectedPurpose);
@@ -371,6 +395,15 @@ contract Cruzible {
         if (address(stAethel) == address(0)) revert TokenNotSet();
         if (amount == 0) revert ZeroAmount();
         if (depositsPaused) revert DepositsArePaused();
+        if (identityRequired) {
+            bytes32 did = identityRegistry.resolveByController(staker);
+            if (did == bytes32(0)) {
+                revert IdentityGateClosed("no ZeroID identity registered for staker");
+            }
+            if (!identityRegistry.isActiveIdentity(did)) {
+                revert IdentityGateClosed("ZeroID identity is not active");
+            }
+        }
         if (complianceRequired && !complianceAdmitted[staker]) {
             revert ComplianceGateClosed("staker not admitted: present a Digital Seal via stakeWithSeal");
         }
@@ -440,6 +473,27 @@ contract Cruzible {
     function setComplianceRequired(bool required) external onlyGovernance {
         complianceRequired = required;
         emit ComplianceModeSet(required);
+    }
+
+    /// @notice Governance wires the ZeroID identity registry and turns the
+    ///         identity gate on or off. The two admission layers compose:
+    ///         ZeroID answers "WHO is staking" (persistent, revocable
+    ///         identity), the Digital Seal answers "was THIS entry cleared"
+    ///         (per-job compliance attestation) — either or both can be on.
+    function setIdentityGate(address registry, bool required) external onlyGovernance {
+        if (required && registry == address(0)) revert BadParam();
+        identityRegistry = IZeroIDRegistry(registry);
+        identityRequired = required;
+        emit IdentityGateSet(registry, required);
+    }
+
+    /// @notice Whether `staker` currently passes the identity gate — the
+    ///         single call the frontend needs for its verification chip.
+    ///         True when the gate is off (nothing to verify against).
+    function isIdentityVerified(address staker) external view returns (bool) {
+        if (!identityRequired) return true;
+        bytes32 did = identityRegistry.resolveByController(staker);
+        return did != bytes32(0) && identityRegistry.isActiveIdentity(did);
     }
 
     /// @notice Governance sets the CEAP policy staker seals must satisfy.
