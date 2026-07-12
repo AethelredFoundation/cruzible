@@ -68,10 +68,13 @@ const transports = {
 };
 
 // wagmi rejects duplicate chain ids in its chains tuple, so dedupe by id.
-// activeChain is always one of the three, so it is always present.
+// Map keeps the LAST entry per key, so activeChain goes last: without it,
+// devnet (last in the list) survived as the 7332 chain and its default
+// 127.0.0.1:8545 RPC would serve TESTNET traffic. With activeChain last, the
+// surviving 7332 entry carries the endpoints of the selected environment.
 const uniqueChains = Array.from(
   new Map(
-    [aethelredMainnet, aethelredTestnet, aethelredDevnet].map(
+    [aethelredMainnet, aethelredTestnet, aethelredDevnet, activeChain].map(
       (c) => [c.id, c] as const,
     ),
   ).values(),
