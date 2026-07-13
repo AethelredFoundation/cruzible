@@ -57,6 +57,11 @@ services:
       dockerfile: backend/api/Dockerfile
       target: production
     env_file: .env
+    # Lets .env reference a node running on the SAME machine as
+    # host.docker.internal (Docker Desktop provides this name; on plain Linux
+    # it only exists because of this mapping).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       # Compose-internal endpoints; override any host-oriented values in .env.
       DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
@@ -79,6 +84,8 @@ services:
       dockerfile: backend/api/Dockerfile
       target: indexer
     env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
       REDIS_URL: redis://redis:6379
