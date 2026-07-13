@@ -38,6 +38,19 @@ npm run standalone:prepare
 node .next/standalone/server.js   # with the two exports still set
 ```
 
+> **The `export`ed pair is read at RUNTIME, not baked at build.** The
+> `NEXT_PUBLIC_*` values are compiled into the bundle, but
+> `CRUZIBLE_ALLOW_PLAINTEXT_HTTP` and `CRUZIBLE_EXTRA_API_ORIGINS` are
+> evaluated by the CSP middleware on every request. If they are absent from
+> the environment of `node .next/standalone/server.js`, the served CSP still
+> contains `upgrade-insecure-requests` (https upgrade, broken assets) and
+> omits your API origin from `connect-src` (blocked API calls) — **without
+> any rebuild being needed to fix it**: just restart the server with both
+> variables set. Verify from any machine:
+> `curl -sI http://<frontend-host>:3000/ | grep -i content-security` — the
+> policy must NOT contain `upgrade-insecure-requests` and MUST list your API
+> origin in `connect-src`.
+
 ## 2. Prerequisites outside this repo
 
 - **Node RPC reachable from testers' browsers.** The frontend's chain reads
