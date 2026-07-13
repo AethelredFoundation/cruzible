@@ -70,10 +70,18 @@ const nextConfig = {
         source: "/:path*",
         headers: [
           { key: "X-DNS-Prefetch-Control", value: "off" },
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
+          // HSTS pins browsers to https for two years — poison for a
+          // pre-DNS/pre-TLS testnet host serving plain HTTP on a public IP.
+          // CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true (same opt-out the CSP
+          // middleware honors) omits it; defaults stay secure.
+          ...(process.env.CRUZIBLE_ALLOW_PLAINTEXT_HTTP === "true"
+            ? []
+            : [
+                {
+                  key: "Strict-Transport-Security",
+                  value: "max-age=63072000; includeSubDomains; preload",
+                },
+              ]),
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           {

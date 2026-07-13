@@ -22,13 +22,20 @@ export const AETHELRED_MAINNET_ID = 7331;
 export const AETHELRED_TESTNET_ID = 7332;
 export const AETHELRED_DEVNET_ID = 7332;
 
+// Next.js inlines ONLY literal `process.env.NEXT_PUBLIC_*` reads into the
+// browser bundle — a dynamic `process.env[name]` lookup compiles to an empty
+// shim client-side, silently discarding the operator's override. Read the
+// overrides as literals here and pass the values through.
+const TESTNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL;
+const DEVNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL;
+
 /**
  * Resolve an RPC endpoint with an optional env override, so an operator can
  * point Cruzible at their own aethelredd node without editing source.
  */
-function rpcEndpoint(envVar: string, fallback: string): string {
-  const override = process.env[envVar]?.trim();
-  return override && override.length > 0 ? override : fallback;
+function rpcEndpoint(override: string | undefined, fallback: string): string {
+  const trimmed = override?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +84,7 @@ export const aethelredTestnet = defineChain({
     default: {
       http: [
         rpcEndpoint(
-          "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL",
+          TESTNET_RPC_OVERRIDE,
           "https://evm-rpc-testnet.aethelred.network",
         ),
       ],
@@ -85,7 +92,7 @@ export const aethelredTestnet = defineChain({
     public: {
       http: [
         rpcEndpoint(
-          "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL",
+          TESTNET_RPC_OVERRIDE,
           "https://evm-rpc-testnet.aethelred.network",
         ),
       ],
@@ -112,20 +119,10 @@ export const aethelredDevnet = defineChain({
     // Defaults to a local `aethelredd start --json-rpc.enable` node (which
     // returns chain id 7332); override with the env var for a remote node.
     default: {
-      http: [
-        rpcEndpoint(
-          "NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL",
-          "http://127.0.0.1:8545",
-        ),
-      ],
+      http: [rpcEndpoint(DEVNET_RPC_OVERRIDE, "http://127.0.0.1:8545")],
     },
     public: {
-      http: [
-        rpcEndpoint(
-          "NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL",
-          "http://127.0.0.1:8545",
-        ),
-      ],
+      http: [rpcEndpoint(DEVNET_RPC_OVERRIDE, "http://127.0.0.1:8545")],
     },
   },
   testnet: true,

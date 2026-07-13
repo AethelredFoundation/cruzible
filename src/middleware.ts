@@ -5,7 +5,76 @@ type CspOptions = {
   nodeEnv?: string;
   apiUrl?: string;
   chainEnv?: string;
+  allowPlaintextHttp?: boolean;
+  extraApiOrigins?: readonly string[];
+  rpcOverrideUrl?: string;
 };
+
+// Literal reads — Next.js only inlines literal `process.env.*` expressions,
+// and these must agree with the values compiled into the client bundle
+// (src/config/chains.ts) or the CSP blocks the app's own RPC calls.
+const TESTNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL;
+const DEVNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL;
+
+// The same operator allowlist the build validator
+// (scripts/validate-frontend-public-env.mjs) accepts — a build that passed
+// with CRUZIBLE_EXTRA_API_ORIGINS must not have its API origin stripped from
+// connect-src at runtime. https-only, bare origins; malformed entries are
+// ignored here because the build validator already rejects them loudly.
+function parseExtraApiOrigins(raw: string | undefined): readonly string[] {
+  if (!raw) {
+    return [];
+  }
+
+  const origins: string[] = [];
+  for (const entry of raw.split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    try {
+      const parsed = new URL(trimmed);
+      if (
+        parsed.protocol === "https:" &&
+        !parsed.username &&
+        !parsed.password &&
+        !parsed.search &&
+        !parsed.hash
+      ) {
+        origins.push(parsed.origin);
+      }
+    } catch {
+      // Ignored: the build validator is the loud gate for malformed entries.
+    }
+  }
+  return origins;
+}
+
+const EXTRA_API_ORIGINS = parseExtraApiOrigins(
+  process.env.CRUZIBLE_EXTRA_API_ORIGINS,
+);
+
+/** Bare http(s) origin of an operator-set URL, or null if unusable. */
+function bareOriginOrNull(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash ||
+      (parsed.protocol !== "https:" && parsed.protocol !== "http:")
+    ) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
 
 type ChainEnv = "mainnet" | "testnet" | "devnet";
 
@@ -57,7 +126,12 @@ function resolveChainEnv(
 function isAllowedProductionApiOrigin(
   chainEnv: ChainEnv | null,
   origin: string,
+  extraApiOrigins: readonly string[],
 ): boolean {
+  if (extraApiOrigins.includes(origin)) {
+    return true;
+  }
+
   if (chainEnv === "mainnet" || chainEnv === "testnet") {
     return PRODUCTION_API_ORIGINS_BY_CHAIN[chainEnv].includes(origin);
   }
@@ -69,6 +143,7 @@ function sourceForUrl(
   value: string | undefined,
   isProduction: boolean,
   chainEnv: ChainEnv | null,
+  extraApiOrigins: readonly string[],
 ): string | null {
   if (!value) {
     return null;
@@ -92,7 +167,10 @@ function sourceForUrl(
     return null;
   }
 
-  if (isProduction && !isAllowedProductionApiOrigin(chainEnv, parsed.origin)) {
+  if (
+    isProduction &&
+    !isAllowedProductionApiOrigin(chainEnv, parsed.origin, extraApiOrigins)
+  ) {
     return null;
   }
 
@@ -131,6 +209,13 @@ export function buildContentSecurityPolicy({
   nodeEnv = process.env.NODE_ENV,
   apiUrl = process.env.NEXT_PUBLIC_API_URL,
   chainEnv: configuredChainEnv = process.env.NEXT_PUBLIC_CHAIN_ENV,
+  // Pre-DNS/pre-TLS testnet hosting serves plain HTTP on a public IP; the
+  // upgrade-insecure-requests directive would rewrite every asset request to
+  // https and break the page outright (ERR_SSL_PROTOCOL_ERROR). Explicit,
+  // server-side opt-out only — defaults stay secure.
+  allowPlaintextHttp = process.env.CRUZIBLE_ALLOW_PLAINTEXT_HTTP === "true",
+  extraApiOrigins = EXTRA_API_ORIGINS,
+  rpcOverrideUrl,
 }: CspOptions): string {
   if (!nonce || /[<>&]/u.test(nonce)) {
     throw new Error("Invalid CSP nonce");
@@ -139,10 +224,25 @@ export function buildContentSecurityPolicy({
   const isProduction = nodeEnv === "production";
   const chainEnv = resolveChainEnv(configuredChainEnv, isProduction);
   const nonceSource = `'nonce-${nonce}'`;
-  const configuredApiOrigin = sourceForUrl(apiUrl, isProduction, chainEnv);
+  const configuredApiOrigin = sourceForUrl(
+    apiUrl,
+    isProduction,
+    chainEnv,
+    extraApiOrigins,
+  );
+  // The RPC origin compiled into the client bundle (chains.ts override) must
+  // be reachable under this CSP, or the app blocks its own chain reads.
+  const rpcOverride =
+    rpcOverrideUrl ??
+    (chainEnv === "testnet"
+      ? TESTNET_RPC_OVERRIDE
+      : chainEnv === "devnet"
+        ? DEVNET_RPC_OVERRIDE
+        : undefined);
   const connectSrc = uniqueSources([
     "'self'",
     configuredApiOrigin,
+    bareOriginOrNull(rpcOverride),
     ...connectSourcesForChain(chainEnv, isProduction),
     "https://api.web3modal.org",
     "https://*.walletconnect.com",
@@ -202,7 +302,9 @@ export function buildContentSecurityPolicy({
       "https://verify.walletconnect.org",
     ],
     ["frame-ancestors", "'none'"],
-    ...(isProduction ? [["upgrade-insecure-requests"]] : []),
+    ...(isProduction && !allowPlaintextHttp
+      ? [["upgrade-insecure-requests"]]
+      : []),
   ]
     .map((directive) => directive.join(" "))
     .join("; ");

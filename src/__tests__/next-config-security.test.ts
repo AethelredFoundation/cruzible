@@ -124,6 +124,37 @@ describe("Next.js security config", () => {
     expect(csp).toContain("upgrade-insecure-requests");
   });
 
+  it("omits upgrade-insecure-requests when plaintext HTTP is explicitly allowed", () => {
+    const csp = buildContentSecurityPolicy({
+      nonce: "test-nonce",
+      nodeEnv: "production",
+      apiUrl: "https://api.testnet.aethelred.org/v1",
+      chainEnv: "testnet",
+      allowPlaintextHttp: true,
+    });
+
+    expect(csp).not.toContain("upgrade-insecure-requests");
+    expect(csp).toContain("frame-ancestors 'none'");
+  });
+
+  it("admits operator-allowlisted API and RPC origins into connect-src", () => {
+    const csp = buildContentSecurityPolicy({
+      nonce: "test-nonce",
+      nodeEnv: "production",
+      apiUrl: "https://54.165.44.130:3001/v1",
+      chainEnv: "testnet",
+      extraApiOrigins: ["https://54.165.44.130:3001"],
+      rpcOverrideUrl: "http://93.127.132.52:8545",
+    });
+
+    expect(getCspDirective(csp, "connect-src")).toContain(
+      "https://54.165.44.130:3001",
+    );
+    expect(getCspDirective(csp, "connect-src")).toContain(
+      "http://93.127.132.52:8545",
+    );
+  });
+
   it("scopes production CSP connect sources to the active mainnet environment", () => {
     const csp = buildContentSecurityPolicy({
       nonce: "test-nonce",
