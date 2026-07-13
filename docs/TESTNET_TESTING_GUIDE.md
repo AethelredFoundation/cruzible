@@ -21,13 +21,20 @@ Three env vars beyond the addresses matter here:
 - `CRUZIBLE_EXTRA_API_ORIGINS` — same value as at validate time; the CSP
   middleware admits it into `connect-src` so the browser may call your API.
 
+Topology note: `<node-host>` is the chain-node server (ports 26657/8545) and
+`<dapp-host>` is the machine running the compose backend (:3001) and this
+frontend (:3000) — often the same machine for the frontend and API, and a
+different one for the node. The compose backend serves plain **http**; under
+the plaintext profile the build gate accepts an `http://` API origin, so no
+TLS or certificate step is needed for testing.
+
 ```bash
 git pull   # branch ramesh/production-grade-hardening
 
 export CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true
-export CRUZIBLE_EXTRA_API_ORIGINS=https://<api-host>:3001
+export CRUZIBLE_EXTRA_API_ORIGINS=http://<dapp-host>:3001
 NEXT_PUBLIC_CHAIN_ENV=testnet \
-NEXT_PUBLIC_API_URL=https://<api-host>:3001/v1 \
+NEXT_PUBLIC_API_URL=http://<dapp-host>:3001/v1 \
 NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://<node-host>:8545 \
 NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x<vault> \
 NEXT_PUBLIC_STAETHEL_ADDRESS=0x<staethel> \
@@ -57,10 +64,12 @@ node .next/standalone/server.js   # with the two exports still set
   come from the browser, not the server — the EVM JSON-RPC (:8545) must be
   publicly reachable and must allow cross-origin requests from the frontend
   origin (enable CORS on the node's JSON-RPC config for testing).
-- **API certificate.** The API is served over https with a self-signed
-  certificate; each tester's browser must trust it once — open
-  `https://<api-host>:3001/health/live` directly, accept the warning, confirm
-  `{"ok":true}`. Until then API calls fail silently in the app.
+- **API certificate — only if you serve the API over https.** The compose
+  backend is plain http, so under the plaintext profile there is no
+  certificate step. If you later front the API with a self-signed https
+  proxy, each tester's browser must trust it once — open
+  `https://<dapp-host>:3001/health/live`, accept the warning, confirm
+  `{"ok":true}`; until then API calls fail silently in the app.
 - **WalletConnect project ID.** Use a real ID from cloud.walletconnect.com and
   add your frontend origin to its allowed domains — otherwise the console
   shows a 403 from `api.web3modal.org` (harmless for injected-wallet testing,

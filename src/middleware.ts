@@ -19,9 +19,14 @@ const DEVNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL;
 // The same operator allowlist the build validator
 // (scripts/validate-frontend-public-env.mjs) accepts — a build that passed
 // with CRUZIBLE_EXTRA_API_ORIGINS must not have its API origin stripped from
-// connect-src at runtime. https-only, bare origins; malformed entries are
-// ignored here because the build validator already rejects them loudly.
-function parseExtraApiOrigins(raw: string | undefined): readonly string[] {
+// connect-src at runtime. https-only bare origins, plus http origins under
+// the pre-TLS testing profile (CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true, matching
+// the validator); malformed entries are ignored here because the build
+// validator already rejects them loudly.
+function parseExtraApiOrigins(
+  raw: string | undefined,
+  plaintextAllowed: boolean,
+): readonly string[] {
   if (!raw) {
     return [];
   }
@@ -34,8 +39,11 @@ function parseExtraApiOrigins(raw: string | undefined): readonly string[] {
     }
     try {
       const parsed = new URL(trimmed);
+      const protocolAllowed =
+        parsed.protocol === "https:" ||
+        (parsed.protocol === "http:" && plaintextAllowed);
       if (
-        parsed.protocol === "https:" &&
+        protocolAllowed &&
         !parsed.username &&
         !parsed.password &&
         !parsed.search &&
@@ -52,6 +60,7 @@ function parseExtraApiOrigins(raw: string | undefined): readonly string[] {
 
 const EXTRA_API_ORIGINS = parseExtraApiOrigins(
   process.env.CRUZIBLE_EXTRA_API_ORIGINS,
+  process.env.CRUZIBLE_ALLOW_PLAINTEXT_HTTP === "true",
 );
 
 /** Bare http(s) origin of an operator-set URL, or null if unusable. */

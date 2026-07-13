@@ -147,7 +147,7 @@ describe("frontend public build environment validation", () => {
         NEXT_PUBLIC_CHAIN_ENV: "testnet",
       }),
     ).toThrow(
-      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost.",
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost, or CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true",
     );
   });
 
@@ -312,6 +312,46 @@ describe("frontend public build environment validation", () => {
       }),
     ).toThrow(
       "NEXT_PUBLIC_CRUZIBLE_ADDRESS must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=testnet.",
+    );
+  });
+
+  it("accepts an http API origin under the plaintext testing profile", () => {
+    expect(
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "http://93.127.132.52:3001/v1",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        CRUZIBLE_EXTRA_API_ORIGINS: "http://93.127.132.52:3001",
+        CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "true",
+        NEXT_PUBLIC_CRUZIBLE_ADDRESS:
+          "0x1111111111111111111111111111111111111111",
+        NEXT_PUBLIC_STAETHEL_ADDRESS:
+          "0x2222222222222222222222222222222222222222",
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:
+          "7a4f9c2e1b8d43c6a095f2e7d4b1c830",
+      }),
+    ).toEqual({
+      apiOrigin: "http://93.127.132.52:3001",
+      chainEnv: "testnet",
+    });
+  });
+
+  it("rejects http API origins without the plaintext testing profile", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "http://93.127.132.52:3001/v1",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        CRUZIBLE_EXTRA_API_ORIGINS: "http://93.127.132.52:3001",
+        NEXT_PUBLIC_CRUZIBLE_ADDRESS:
+          "0x1111111111111111111111111111111111111111",
+        NEXT_PUBLIC_STAETHEL_ADDRESS:
+          "0x2222222222222222222222222222222222222222",
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:
+          "7a4f9c2e1b8d43c6a095f2e7d4b1c830",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost, or CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true",
     );
   });
 

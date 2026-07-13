@@ -168,11 +168,21 @@ const EXTRA_API_ORIGINS_KEY = "CRUZIBLE_EXTRA_API_ORIGINS";
 // sets it in the build environment and it is never compiled into the bundle —
 // the anti-phishing property (a testnet-labeled build only talks to origins
 // the build operator explicitly named) is preserved.
+//
+// http entries are admitted ONLY under the pre-TLS testing profile
+// (CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true) — the compose backend serves plain
+// HTTP, so a pre-DNS deployment has no https API origin to name.
+function allowsPlaintextHttp(env) {
+  return env.CRUZIBLE_ALLOW_PLAINTEXT_HTTP?.trim() === "true";
+}
+
 function parseExtraApiOrigins(env) {
   const raw = env[EXTRA_API_ORIGINS_KEY]?.trim();
   if (!raw) {
     return [];
   }
+
+  const plaintextAllowed = allowsPlaintextHttp(env);
 
   return raw
     .split(",")
@@ -189,9 +199,12 @@ function parseExtraApiOrigins(env) {
         );
       }
 
-      if (parsed.protocol !== "https:") {
+      if (
+        parsed.protocol !== "https:" &&
+        !(parsed.protocol === "http:" && plaintextAllowed)
+      ) {
         throw new FrontendPublicEnvError(
-          `${EXTRA_API_ORIGINS_KEY} entries must use https; got "${entry}".`,
+          `${EXTRA_API_ORIGINS_KEY} entries must use https (http requires CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true); got "${entry}".`,
         );
       }
 
@@ -309,10 +322,11 @@ export function validateFrontendPublicEnv(env = process.env) {
 
   if (
     parsedApiUrl.protocol !== "https:" &&
-    !(chainEnv === "devnet" && isLocalHost)
+    !(chainEnv === "devnet" && isLocalHost) &&
+    !allowsPlaintextHttp(env)
   ) {
     throw new FrontendPublicEnvError(
-      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost.",
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost, or CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true (pre-TLS testing profile).",
     );
   }
 
