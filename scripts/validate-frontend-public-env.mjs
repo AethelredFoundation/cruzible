@@ -14,14 +14,25 @@ const BLOCKED_WALLETCONNECT_PROJECT_IDS = new Set([
   "0123456789abcdef0123456789abcdef",
   "abcdef0123456789abcdef0123456789",
 ]);
-const DEPLOYED_REQUIRED_ADDRESS_KEYS = [
-  "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
-  "NEXT_PUBLIC_STAETHEL_ADDRESS",
-  "NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS",
-  "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS",
-  "NEXT_PUBLIC_USDC_TOKEN_ADDRESS",
-  "NEXT_PUBLIC_USDT_TOKEN_ADDRESS",
-];
+// Required per chain env. Testnet requires only the contracts this repo can
+// actually deploy (backend/contracts-evm: Cruzible + StAETHEL) — the bridge,
+// stablecoin, wrapped-token, and governance addresses have no contracts here
+// yet, and the frontend feature-gates cleanly when they are blank
+// (getContractAddress → undefined → hooks disabled). Mainnet keeps the full
+// requirement: launching there without the periphery deployed is a decision
+// that must be taken deliberately, not by leaving variables blank.
+const DEPLOYED_REQUIRED_ADDRESS_KEYS_BY_CHAIN = {
+  mainnet: [
+    "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
+    "NEXT_PUBLIC_STAETHEL_ADDRESS",
+    "NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS",
+    "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS",
+    "NEXT_PUBLIC_USDC_TOKEN_ADDRESS",
+    "NEXT_PUBLIC_USDT_TOKEN_ADDRESS",
+  ],
+  testnet: ["NEXT_PUBLIC_CRUZIBLE_ADDRESS", "NEXT_PUBLIC_STAETHEL_ADDRESS"],
+  devnet: [],
+};
 const PUBLIC_ADDRESS_KEYS = [
   "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
   "NEXT_PUBLIC_STAETHEL_ADDRESS",
@@ -308,7 +319,7 @@ export function validateFrontendPublicEnv(env = process.env) {
   assertAllowedProductionApiOrigin(env, chainEnv, parsedApiUrl.origin);
 
   const requiredDeployedAddressKeys = new Set(
-    chainEnv === "devnet" ? [] : DEPLOYED_REQUIRED_ADDRESS_KEYS,
+    DEPLOYED_REQUIRED_ADDRESS_KEYS_BY_CHAIN[chainEnv],
   );
   for (const key of PUBLIC_ADDRESS_KEYS) {
     assertValidAddress(env, key, {

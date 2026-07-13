@@ -46,14 +46,14 @@ describe("frontend public build environment validation", () => {
     );
   });
 
-  it("requires contract addresses for deployed testnet builds", () => {
+  it("requires the full periphery contract set for mainnet builds", () => {
     expect(() =>
       validateFrontendPublicEnv({
-        ...testnetBaseEnv,
+        ...mainnetBaseEnv,
         NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS: "",
       }),
     ).toThrow(
-      "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=testnet.",
+      "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=mainnet.",
     );
   });
 
@@ -278,6 +278,41 @@ describe("frontend public build environment validation", () => {
         CRUZIBLE_EXTRA_API_ORIGINS: "http://54.165.44.130:3001",
       }),
     ).toThrow("CRUZIBLE_EXTRA_API_ORIGINS entries must use https");
+  });
+
+  it("accepts testnet builds with only the deployable contracts set", () => {
+    expect(
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_CRUZIBLE_ADDRESS:
+          "0x1111111111111111111111111111111111111111",
+        NEXT_PUBLIC_STAETHEL_ADDRESS:
+          "0x2222222222222222222222222222222222222222",
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:
+          "7a4f9c2e1b8d43c6a095f2e7d4b1c830",
+      }),
+    ).toEqual({
+      apiOrigin: "https://api.testnet.aethelred.org",
+      chainEnv: "testnet",
+    });
+  });
+
+  it("still requires the vault and stAETHEL addresses for testnet builds", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        NODE_ENV: "production" as const,
+        NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
+        NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_STAETHEL_ADDRESS:
+          "0x2222222222222222222222222222222222222222",
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:
+          "7a4f9c2e1b8d43c6a095f2e7d4b1c830",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_CRUZIBLE_ADDRESS must be a non-zero EVM address when NEXT_PUBLIC_CHAIN_ENV=testnet.",
+    );
   });
 
   it("rejects deep-path entries in CRUZIBLE_EXTRA_API_ORIGINS", () => {
