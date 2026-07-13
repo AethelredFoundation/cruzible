@@ -246,4 +246,49 @@ describe("frontend public build environment validation", () => {
       chainEnv: "devnet",
     });
   });
+
+  it("accepts a self-hosted testnet API origin allowlisted via CRUZIBLE_EXTRA_API_ORIGINS", () => {
+    expect(
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_API_URL: "https://54.165.44.130:3001/v1",
+        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:3001",
+      }),
+    ).toEqual({
+      apiOrigin: "https://54.165.44.130:3001",
+      chainEnv: "testnet",
+    });
+  });
+
+  it("still rejects testnet API origins missing from the extra allowlist", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_API_URL: "https://198.51.100.7:3001/v1",
+        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:3001",
+      }),
+    ).toThrow("NEXT_PUBLIC_API_URL must be one of");
+  });
+
+  it("rejects plaintext http entries in CRUZIBLE_EXTRA_API_ORIGINS", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_API_URL: "https://54.165.44.130:3001/v1",
+        CRUZIBLE_EXTRA_API_ORIGINS: "http://54.165.44.130:3001",
+      }),
+    ).toThrow("CRUZIBLE_EXTRA_API_ORIGINS entries must use https");
+  });
+
+  it("rejects deep-path entries in CRUZIBLE_EXTRA_API_ORIGINS", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_API_URL: "https://54.165.44.130:3001/v1",
+        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:3001/v1",
+      }),
+    ).toThrow(
+      "CRUZIBLE_EXTRA_API_ORIGINS entries must be bare origins, not deep paths",
+    );
+  });
 });

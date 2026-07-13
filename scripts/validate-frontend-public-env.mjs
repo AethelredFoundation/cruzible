@@ -148,15 +148,71 @@ function assertValidWalletConnectProjectId(
   }
 }
 
-function assertAllowedProductionApiOrigin(chainEnv, origin) {
+const EXTRA_API_ORIGINS_KEY = "CRUZIBLE_EXTRA_API_ORIGINS";
+
+// Build-time escape hatch for self-hosted staging/testnet API deployments
+// (e.g. a validator team fronting the API on its own host before canonical
+// DNS exists). Comma-separated https origins, validated as strictly as the
+// primary allowlist. Deliberately NOT a NEXT_PUBLIC_ variable: the operator
+// sets it in the build environment and it is never compiled into the bundle —
+// the anti-phishing property (a testnet-labeled build only talks to origins
+// the build operator explicitly named) is preserved.
+function parseExtraApiOrigins(env) {
+  const raw = env[EXTRA_API_ORIGINS_KEY]?.trim();
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      let parsed;
+
+      try {
+        parsed = new URL(entry);
+      } catch {
+        throw new FrontendPublicEnvError(
+          `${EXTRA_API_ORIGINS_KEY} entries must be absolute URLs; got "${entry}".`,
+        );
+      }
+
+      if (parsed.protocol !== "https:") {
+        throw new FrontendPublicEnvError(
+          `${EXTRA_API_ORIGINS_KEY} entries must use https; got "${entry}".`,
+        );
+      }
+
+      if (parsed.username || parsed.password) {
+        throw new FrontendPublicEnvError(
+          `${EXTRA_API_ORIGINS_KEY} entries must not include credentials.`,
+        );
+      }
+
+      if (parsed.search || parsed.hash || parsed.pathname.replace(/\/+$/, "")) {
+        throw new FrontendPublicEnvError(
+          `${EXTRA_API_ORIGINS_KEY} entries must be bare origins, not deep paths; got "${entry}".`,
+        );
+      }
+
+      return parsed.origin;
+    });
+}
+
+function assertAllowedProductionApiOrigin(env, chainEnv, origin) {
   if (chainEnv === "devnet") {
     return;
   }
 
-  const allowedOrigins = productionApiOriginsByChain[chainEnv];
+  const allowedOrigins = [
+    ...productionApiOriginsByChain[chainEnv],
+    ...parseExtraApiOrigins(env),
+  ];
   if (!allowedOrigins.includes(origin)) {
     throw new FrontendPublicEnvError(
-      `NEXT_PUBLIC_API_URL must be one of ${allowedOrigins.join(", ")} when NEXT_PUBLIC_CHAIN_ENV=${chainEnv}.`,
+      `NEXT_PUBLIC_API_URL must be one of ${allowedOrigins.join(", ")} when NEXT_PUBLIC_CHAIN_ENV=${chainEnv}. ` +
+        `Self-hosted API origins can be allowlisted at build time via ${EXTRA_API_ORIGINS_KEY} (comma-separated https origins).`,
     );
   }
 }
@@ -249,7 +305,7 @@ export function validateFrontendPublicEnv(env = process.env) {
     );
   }
 
-  assertAllowedProductionApiOrigin(chainEnv, parsedApiUrl.origin);
+  assertAllowedProductionApiOrigin(env, chainEnv, parsedApiUrl.origin);
 
   const requiredDeployedAddressKeys = new Set(
     chainEnv === "devnet" ? [] : DEPLOYED_REQUIRED_ADDRESS_KEYS,
