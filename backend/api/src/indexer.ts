@@ -7,6 +7,7 @@
  */
 
 import "reflect-metadata";
+import "./di";
 import { container } from "tsyringe";
 
 import { BlockchainService } from "./services/BlockchainService";

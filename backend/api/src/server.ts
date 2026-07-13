@@ -12,6 +12,7 @@
  */
 
 import "reflect-metadata";
+import "./di";
 import express, { Application, Request, Response, NextFunction } from "express";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
