@@ -72,6 +72,14 @@ const WS_RECONNECT_DELAY_MS = 3_000;
 /** Maximum WebSocket reconnect attempts before falling back to polling. */
 const WS_MAX_RECONNECT_ATTEMPTS = 20;
 
+/**
+ * Upper bound on waiting for the WebSocket provider to become ready.
+ * connectWebSocket() is awaited on the server-boot path, and ethers v6's
+ * getNetwork() never settles against a dead endpoint — without this bound a
+ * misconfigured WS URL would keep the API from ever listening.
+ */
+const WS_READY_TIMEOUT_MS = 15_000;
+
 /** Fixed primary key for the singleton VaultState row. */
 const VAULT_STATE_ID = "cruzible-vault-state";
 
@@ -448,11 +456,57 @@ export class IndexerService {
   private async connectWebSocket(): Promise<void> {
     if (!this.cfg.wsUrl || !this.running) return;
 
+    let readyTimeout: NodeJS.Timeout | undefined;
+
     try {
       this.wsProvider = new WebSocketProvider(this.cfg.wsUrl);
 
-      // Wait for the provider to be ready (ethers v6)
-      const network = await this.wsProvider.getNetwork();
+      // Attach transport-level handlers BEFORE any await: the raw ws socket
+      // starts connecting in the constructor, and a refused connection
+      // (ECONNREFUSED) emits 'error' on it on the next tick — with no
+      // listener attached yet, Node treats that as an unhandled 'error'
+      // event and kills the WHOLE process, before getNetwork() ever rejects.
+      let failBeforeReady: ((err: Error) => void) | undefined;
+      const transportFailure = new Promise<never>((_, reject) => {
+        failBeforeReady = reject;
+      });
+      // Register a no-op handler so a transport failure AFTER readiness (when
+      // the race below has already settled) is not an unhandled rejection.
+      transportFailure.catch(() => {});
+
+      const ws =
+        (this.wsProvider as any)._websocket ??
+        (this.wsProvider as any).websocket;
+      if (ws && typeof ws.on === "function") {
+        ws.on("close", () => {
+          logger.warn("WebSocket connection closed");
+          failBeforeReady?.(new Error("WebSocket closed before ready"));
+          this.handleWsDisconnect();
+        });
+        ws.on("error", (err: Error) => {
+          logger.error("WebSocket transport error", errorContext(err));
+          failBeforeReady?.(
+            err instanceof Error ? err : new Error(String(err)),
+          );
+          this.handleWsDisconnect();
+        });
+      }
+
+      // Wait for the provider to be ready (ethers v6) — with a bound. On a
+      // dead endpoint getNetwork() never settles, and connectWebSocket() is
+      // awaited on the server-boot path: an unbounded wait here keeps the
+      // whole API from ever listening. WS is best-effort; failing this race
+      // lands in the catch below while reconnects/polling proceed.
+      const network = await Promise.race([
+        this.wsProvider.getNetwork(),
+        transportFailure,
+        new Promise<never>((_, reject) => {
+          readyTimeout = setTimeout(
+            () => reject(new Error("WebSocket ready timeout")),
+            WS_READY_TIMEOUT_MS,
+          );
+        }),
+      ]);
       this._wsConnected = true;
       this.wsReconnectAttempts = 0;
 
@@ -476,24 +530,13 @@ export class IndexerService {
         logger.error("WebSocket provider error", errorContext(err));
         this.handleWsDisconnect();
       });
-
-      // In ethers v6, detect disconnection via the websocket property
-      const ws =
-        (this.wsProvider as any)._websocket ??
-        (this.wsProvider as any).websocket;
-      if (ws && typeof ws.on === "function") {
-        ws.on("close", () => {
-          logger.warn("WebSocket connection closed");
-          this.handleWsDisconnect();
-        });
-        ws.on("error", (err: Error) => {
-          logger.error("WebSocket transport error", errorContext(err));
-          this.handleWsDisconnect();
-        });
-      }
     } catch (error) {
       logger.error("Failed to connect WebSocket", errorContext(error));
       this._wsConnected = false;
+    } finally {
+      if (readyTimeout) {
+        clearTimeout(readyTimeout);
+      }
     }
   }
 
