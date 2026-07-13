@@ -1,0 +1,97 @@
+# Cruzible backend stack — single-box testnet bring-up.
+#
+#   cp .env.testnet.example .env    # then edit: chain endpoints + deployed addresses
+#   docker compose up --build       # Postgres + Redis + Prisma migrations + API on :3001
+#
+# Optionally run the chain indexer as well (needs INDEXER_RPC_URL in .env):
+#   docker compose --profile indexer up --build
+#
+# The API waits for healthy Postgres/Redis and for migrations to complete,
+# then serves (health probes: /health/live, /health/ready). This is the
+# bring-up profile: NODE_ENV defaults to development because the hardened
+# production config path additionally requires real 32+ character secrets
+# and a TLS (rediss://) Redis — see backend/api/src/config/index.ts.
+# Production-grade deployment goes through k8s/.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cruzible
+      POSTGRES_PASSWORD: cruzible
+      POSTGRES_DB: cruzible
+    volumes:
+      - cruzible-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cruzible -d cruzible"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # One-shot: applies backend/api/prisma/migrations against the compose
+  # database. Runs from the builder stage because the prisma CLI is a dev
+  # dependency and is pruned from the production image.
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+      target: builder
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+      target: production
+    env_file: .env
+    environment:
+      # Compose-internal endpoints; override any host-oriented values in .env.
+      DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV:-development}
+      # Container port stays 3000 — the image's healthcheck probes it.
+      PORT: "3000"
+    ports:
+      - "${CRUZIBLE_API_PORT:-3001}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  indexer:
+    profiles: ["indexer"]
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+      target: indexer
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV:-development}
+    # The indexer is a worker process, not an HTTP server — disable the
+    # inherited API healthcheck.
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  cruzible-pg:

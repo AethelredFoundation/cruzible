@@ -9,6 +9,7 @@ out/
 # Environment
 .env*
 !.env.example
+!.env.testnet.example
 !backend/.env.example
 
 # Secrets and local TLS material
