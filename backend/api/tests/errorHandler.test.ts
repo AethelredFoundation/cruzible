@@ -52,7 +52,7 @@ describe("error handler", () => {
       "[cruzible-api] Unhandled API error",
       {
         requestId: "unhandled-error-request",
-        error: { errorName: "Error" },
+        error: expect.objectContaining({ errorName: "Error" }),
       },
     );
   });

@@ -79,6 +79,15 @@ interface AlertDeliveryResult {
 
 /** Maximum number of alerts to keep in the ring buffer. */
 const MAX_ALERT_HISTORY = 100;
+
+/**
+ * How recently a CRITICAL alert must have been raised to count as ACTIVE for
+ * readiness. Sources re-raise alerts on every failing evaluation (e.g. each
+ * reconciliation tick), so a healed condition stops producing alerts and
+ * drains out of this window. Without the window, one transient CRITICAL
+ * permanently reported the API as not-ready (verified live 2026-07-14).
+ */
+const ALERT_ACTIVE_WINDOW_MS = 15 * 60 * 1000;
 const ALERT_METADATA_MAX_DEPTH = 5;
 
 function webhookOriginForLogs(value: string): string {
@@ -306,11 +315,18 @@ export class AlertService {
       byType[alert.type]++;
     }
 
+    const activeCutoff = Date.now() - ALERT_ACTIVE_WINDOW_MS;
+    const activeCritical = alerts.filter(
+      (alert) =>
+        alert.severity === AlertSeverity.CRITICAL &&
+        Date.parse(alert.timestamp) >= activeCutoff,
+    ).length;
+
     return {
       total: alerts.length,
       bySeverity,
       byType,
-      activeCritical: bySeverity[AlertSeverity.CRITICAL],
+      activeCritical,
     };
   }
 

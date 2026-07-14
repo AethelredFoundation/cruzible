@@ -45,7 +45,7 @@ describe("logger", () => {
       });
 
       expect(errorSpy).toHaveBeenCalledWith("[cruzible-api] operation failed", {
-        error: { errorName: "Error" },
+        error: expect.objectContaining({ errorName: "Error" }),
       });
       expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(
         "refresh-secret",

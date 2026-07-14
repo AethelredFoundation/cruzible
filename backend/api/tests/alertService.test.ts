@@ -93,6 +93,36 @@ describe("AlertService", () => {
     expect(summary.byType[AlertType.PRIVILEGED_ACCESS_REJECTED]).toBe(0);
   });
 
+  it("ages CRITICAL alerts out of the active count after the activity window", async () => {
+    const { AlertService, AlertSeverity, AlertType } =
+      await import("../src/services/AlertService");
+    const service = new AlertService();
+
+    vi.useFakeTimers();
+    try {
+      await service.sendAlert(
+        AlertSeverity.CRITICAL,
+        AlertType.EXCHANGE_RATE_DRIFT,
+        "Transient drift during indexer catch-up",
+        {},
+      );
+
+      expect(await service.getActiveCriticalCount()).toBe(1);
+
+      // Beyond the 15-minute active window a stale CRITICAL no longer blocks
+      // readiness — sources re-raise on every failing tick, so a healed
+      // condition drains out instead of poisoning /health/ready forever.
+      vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+
+      const summary = await service.getAlertSummary();
+      expect(summary.activeCritical).toBe(0);
+      // The alert itself is still in history — only "active" is windowed.
+      expect(summary.bySeverity[AlertSeverity.CRITICAL]).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rate-limits duplicate alert categories", async () => {
     const { AlertService, AlertSeverity, AlertType } =
       await import("../src/services/AlertService");

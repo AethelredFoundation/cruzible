@@ -10,7 +10,12 @@ describe("error context utilities", () => {
     const redacted = redactFields(context);
     const serialized = JSON.stringify(redacted);
 
-    expect(redacted).toEqual({ error: { errorName: "Error" } });
+    // Generic (library/IO) Error messages stay hidden; only the name and a
+    // locating stack frame survive redaction.
+    expect(redacted).toMatchObject({ error: { errorName: "Error" } });
+    expect(
+      (redacted as { error: { errorMessage?: string } }).error.errorMessage,
+    ).toBeUndefined();
     expect(serialized).not.toContain("super-secret");
     expect(serialized).not.toContain("cache.internal");
   });
