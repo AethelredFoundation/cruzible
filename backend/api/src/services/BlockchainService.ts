@@ -43,6 +43,22 @@ type ExtendedQueryClient = QueryClient & {
   };
 };
 
+/**
+ * CosmJS staking queries return protobuf Timestamps ({ seconds, nanos }) —
+ * NOT Date objects. Calling .getTime() on them throws at runtime (verified
+ * live 2026-07-14 against a devnet validator set). Accept both shapes.
+ */
+function timestampToMillis(value: unknown): number {
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  if (value && typeof value === "object" && "seconds" in value) {
+    const seconds = (value as { seconds: bigint | number }).seconds;
+    return Number(seconds) * 1000;
+  }
+  return 0;
+}
+
 const MAX_VALIDATOR_PAGINATION_PAGES = 100;
 const TENDERMINT_EVENT_ADDRESS_PATTERN = /^[A-Za-z0-9]{1,64}$/;
 
@@ -316,7 +332,7 @@ export class BlockchainService {
         status: v.status,
         jailed: v.jailed,
         unbondingHeight: Number(v.unbondingHeight),
-        unbondingTime: v.unbondingTime?.getTime() || 0,
+        unbondingTime: timestampToMillis(v.unbondingTime),
       }));
 
     const eligibleUniverseHash = bytesToHex(
@@ -364,7 +380,7 @@ export class BlockchainService {
         status: v.status,
         jailed: v.jailed,
         unbondingHeight: Number(v.unbondingHeight),
-        unbondingTime: v.unbondingTime?.getTime() || 0,
+        unbondingTime: timestampToMillis(v.unbondingTime),
       };
     } catch {
       return null;
