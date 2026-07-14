@@ -84,18 +84,21 @@ const WS_READY_TIMEOUT_MS = 15_000;
 const VAULT_STATE_ID = "cruzible-vault-state";
 
 /** Default unbonding period (days) — matches the Cosmos SDK default. */
-const DEFAULT_UNBONDING_PERIOD_DAYS = 21;
 
 /**
  * Cruzible Vault view functions used to materialize VaultState.
  * These must match the canonical ICruzible.sol interface.
  */
+// Getter names must match the DEPLOYED backend/contracts-evm/src/Cruzible.sol:
+// totalPooledAethel/currentEpoch/unbondingPeriod are public variables,
+// totalShares/getExchangeRate are explicit views. There is no validator-count
+// getter on the vault (validator selection lives off-vault on this line).
 const VAULT_VIEW_ABI = [
-  "function getTotalPooledAethel() view returns (uint256)",
-  "function getTotalShares() view returns (uint256)",
+  "function totalPooledAethel() view returns (uint256)",
+  "function totalShares() view returns (uint256)",
   "function getExchangeRate() view returns (uint256)",
-  "function getActiveValidatorCount() view returns (uint256)",
   "function currentEpoch() view returns (uint256)",
+  "function unbondingPeriod() view returns (uint256)",
 ];
 
 /**
@@ -148,20 +151,25 @@ function formatFixedPoint18(value: bigint): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Cruzible Vault contract events — must match the canonical ICruzible.sol
- * interface.  The signatures below determine topic hashes; any drift means
- * the indexer silently misses or misparses on-chain events.
+ * Cruzible Vault contract events — must match the DEPLOYED
+ * backend/contracts-evm/src/Cruzible.sol.  The signatures below determine
+ * topic hashes; any drift means the indexer silently misses or misparses
+ * on-chain events.  (An earlier revision of this file described a different
+ * contract line — UnstakeRequested/RewardsDistributed with extra fields —
+ * and indexed nothing against the shipped vault; verified live 2026-07-14.)
  *
- *   event Staked(address indexed user, uint256 aethelAmount, uint256 sharesIssued, uint256 referralCode)
- *   event UnstakeRequested(address indexed user, uint256 shares, uint256 aethelAmount, uint256 indexed withdrawalId, uint256 completionTime)
- *   event Withdrawn(address indexed user, uint256 indexed withdrawalId, uint256 aethelAmount)
- *   event RewardsDistributed(uint256 indexed epoch, uint256 totalRewards, uint256 protocolFee, bytes32 rewardsMerkleRoot, bytes32 teeAttestationHash)
+ *   event Staked(address indexed user, uint256 amount, uint256 shares)
+ *   event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId)
+ *   event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount)
+ *   event RewardsAdded(uint256 amount, uint256 newTotalPooled)
+ *   event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount)
  */
-const CRUZIBLE_VAULT_ABI = [
-  "event Staked(address indexed user, uint256 aethelAmount, uint256 sharesIssued, uint256 referralCode)",
-  "event UnstakeRequested(address indexed user, uint256 shares, uint256 aethelAmount, uint256 indexed withdrawalId, uint256 completionTime)",
-  "event Withdrawn(address indexed user, uint256 indexed withdrawalId, uint256 aethelAmount)",
-  "event RewardsDistributed(uint256 indexed epoch, uint256 totalRewards, uint256 protocolFee, bytes32 rewardsMerkleRoot, bytes32 teeAttestationHash)",
+export const CRUZIBLE_VAULT_ABI = [
+  "event Staked(address indexed user, uint256 amount, uint256 shares)",
+  "event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId)",
+  "event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount)",
+  "event RewardsAdded(uint256 amount, uint256 newTotalPooled)",
+  "event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount)",
 ];
 
 /**
@@ -193,11 +201,11 @@ const bridgeIface = new Interface(STABLECOIN_BRIDGE_ABI);
 
 // Topic hashes for fast log filtering
 const TOPIC_STAKED = cruzibleIface.getEvent("Staked")!.topicHash;
-const TOPIC_UNSTAKE_REQUESTED =
-  cruzibleIface.getEvent("UnstakeRequested")!.topicHash;
+const TOPIC_UNSTAKED = cruzibleIface.getEvent("Unstaked")!.topicHash;
 const TOPIC_WITHDRAWN = cruzibleIface.getEvent("Withdrawn")!.topicHash;
-const TOPIC_REWARDS_DISTRIBUTED =
-  cruzibleIface.getEvent("RewardsDistributed")!.topicHash;
+const TOPIC_REWARDS_ADDED = cruzibleIface.getEvent("RewardsAdded")!.topicHash;
+const TOPIC_REWARDS_CLAIMED =
+  cruzibleIface.getEvent("RewardsClaimed")!.topicHash;
 const TOPIC_TRANSFER = staethelIface.getEvent("Transfer")!.topicHash;
 
 // Stablecoin bridge event topics
@@ -1236,12 +1244,14 @@ export class IndexerService {
       ) {
         if (topic0 === TOPIC_STAKED) {
           await this.handleStakedEvent(log, blockTime);
-        } else if (topic0 === TOPIC_UNSTAKE_REQUESTED) {
-          await this.handleUnstakeRequestedEvent(log, blockTime);
+        } else if (topic0 === TOPIC_UNSTAKED) {
+          await this.handleUnstakedEvent(log, blockTime);
         } else if (topic0 === TOPIC_WITHDRAWN) {
           await this.handleWithdrawnEvent(log, blockTime);
-        } else if (topic0 === TOPIC_REWARDS_DISTRIBUTED) {
-          await this.handleRewardsDistributedEvent(log);
+        } else if (topic0 === TOPIC_REWARDS_ADDED) {
+          await this.handleRewardsAddedEvent(log);
+        } else if (topic0 === TOPIC_REWARDS_CLAIMED) {
+          await this.handleRewardsClaimedEvent(log, blockTime);
         }
       }
 
@@ -1299,9 +1309,8 @@ export class IndexerService {
     if (!parsed) return;
 
     const staker = parsed.args[0].toLowerCase(); // user (indexed)
-    const amount = parsed.args[1].toString(); // aethelAmount
-    const shares = parsed.args[2].toString(); // sharesIssued
-    // parsed.args[3] = referralCode (not persisted)
+    const amount = parsed.args[1].toString(); // amount (native AETHEL)
+    const shares = parsed.args[2].toString(); // shares
 
     await this.prisma.vaultStake.upsert({
       where: { txHash: log.transactionHash },
@@ -1330,16 +1339,14 @@ export class IndexerService {
   }
 
   /**
-   * Handle: UnstakeRequested(address indexed user, uint256 shares, uint256 aethelAmount, uint256 indexed withdrawalId, uint256 completionTime)
+   * Handle: Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId)
    *
    * The on-chain `withdrawalId` is the unique identity of each withdrawal
-   * request.  A single transaction can emit multiple UnstakeRequested events
-   * (e.g. via `batchUnstake()`), so we key by `withdrawalId`, not `txHash`.
+   * request, so we key by `withdrawalId`, not `txHash`.  The event does not
+   * carry a completion time — it is derived from the block time plus the
+   * vault's live `unbondingPeriod()` (cached, see getUnbondingSeconds).
    */
-  private async handleUnstakeRequestedEvent(
-    log: Log,
-    blockTime: Date,
-  ): Promise<void> {
+  private async handleUnstakedEvent(log: Log, blockTime: Date): Promise<void> {
     const parsed = cruzibleIface.parseLog({
       topics: [...log.topics],
       data: log.data,
@@ -1348,10 +1355,12 @@ export class IndexerService {
 
     const staker = parsed.args[0].toLowerCase(); // user (indexed)
     const shares = parsed.args[1].toString(); // shares
-    const amount = parsed.args[2].toString(); // aethelAmount
-    const withdrawalId = BigInt(parsed.args[3].toString()); // withdrawalId (indexed)
-    const completionTimestamp = parsed.args[4]; // completionTime (uint256 unix seconds)
-    const completionTime = new Date(Number(completionTimestamp) * 1000);
+    const amount = parsed.args[2].toString(); // amount (native AETHEL)
+    const withdrawalId = BigInt(parsed.args[3].toString()); // withdrawalId
+    const unbondingSeconds = await this.getUnbondingSeconds();
+    const completionTime = new Date(
+      blockTime.getTime() + unbondingSeconds * 1000,
+    );
 
     await this.prisma.vaultUnstake.upsert({
       where: { withdrawalId },
@@ -1380,12 +1389,12 @@ export class IndexerService {
     });
 
     logger.info(
-      `UnstakeRequested: ${staker} withdrawalId=${withdrawalId} shares=${shares} amount=${amount} tx=${log.transactionHash}`,
+      `Unstaked: ${staker} withdrawalId=${withdrawalId} shares=${shares} amount=${amount} tx=${log.transactionHash}`,
     );
   }
 
   /**
-   * Handle: Withdrawn(address indexed user, uint256 indexed withdrawalId, uint256 aethelAmount)
+   * Handle: Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount)
    *
    * Each Withdrawn event carries the specific `withdrawalId` that is being
    * claimed.  A single transaction can emit multiple Withdrawn events (via
@@ -1441,28 +1450,74 @@ export class IndexerService {
   }
 
   /**
-   * Handle: RewardsDistributed(uint256 indexed epoch, uint256 totalRewards, uint256 protocolFee, bytes32 rewardsMerkleRoot, bytes32 teeAttestationHash)
+   * Handle: RewardsAdded(uint256 amount, uint256 newTotalPooled)
    *
-   * This is a vault-level event (not per-staker).  The contract's
-   * `claimRewards()` does NOT emit an event, so individual claims are not
-   * observable from events alone.  We log the epoch-level reward distribution;
-   * the generic event persistence in `persistEventLog` stores the full log
-   * for downstream consumers.
+   * Vault-level rebase event (not per-staker): rewards raise totalPooledAethel
+   * and every stAETHEL balance rebases up.  Refresh the materialized
+   * VaultState so exchange rate/TVL reflect the rebase immediately.
    */
-  private async handleRewardsDistributedEvent(log: Log): Promise<void> {
+  private async handleRewardsAddedEvent(log: Log): Promise<void> {
     const parsed = cruzibleIface.parseLog({
       topics: [...log.topics],
       data: log.data,
     });
     if (!parsed) return;
 
-    const epoch = parsed.args[0]; // epoch (indexed)
-    const totalRewards = parsed.args[1].toString(); // totalRewards
-    const protocolFee = parsed.args[2].toString(); // protocolFee
+    const amount = parsed.args[0].toString();
+    const newTotalPooled = parsed.args[1].toString();
 
     logger.info(
-      `RewardsDistributed: epoch=${epoch} totalRewards=${totalRewards} ` +
-        `protocolFee=${protocolFee} tx=${log.transactionHash}`,
+      `RewardsAdded: amount=${amount} newTotalPooled=${newTotalPooled} tx=${log.transactionHash}`,
+    );
+
+    await this.refreshVaultState();
+  }
+
+  /**
+   * Handle: RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount)
+   *
+   * Per-staker Merkle reward claim.  Keyed by (delegator, epoch) — the
+   * contract enforces one claim per user per epoch.
+   */
+  private async handleRewardsClaimedEvent(
+    log: Log,
+    blockTime: Date,
+  ): Promise<void> {
+    const parsed = cruzibleIface.parseLog({
+      topics: [...log.topics],
+      data: log.data,
+    });
+    if (!parsed) return;
+
+    const staker = parsed.args[0].toLowerCase(); // user (indexed)
+    const epoch = BigInt(parsed.args[1].toString()); // epoch (indexed)
+    const amount = parsed.args[2].toString();
+
+    await this.prisma.vaultReward.upsert({
+      where: { delegator_epoch: { delegator: staker, epoch } },
+      update: {
+        amount,
+        claimed: true,
+        claimedAt: blockTime,
+        txHash: log.transactionHash,
+        blockNumber: BigInt(log.blockNumber),
+        logIndex: log.index,
+      },
+      create: {
+        delegator: staker,
+        epoch,
+        amount,
+        claimed: true,
+        claimedAt: blockTime,
+        timestamp: blockTime,
+        txHash: log.transactionHash,
+        blockNumber: BigInt(log.blockNumber),
+        logIndex: log.index,
+      },
+    });
+
+    logger.info(
+      `RewardsClaimed: ${staker} epoch=${epoch} amount=${amount} tx=${log.transactionHash}`,
     );
   }
 
@@ -1827,10 +1882,10 @@ export class IndexerService {
     // Determine a readable event type
     let eventType = "Unknown";
     if (topic0 === TOPIC_STAKED) eventType = "Staked";
-    else if (topic0 === TOPIC_UNSTAKE_REQUESTED) eventType = "UnstakeRequested";
+    else if (topic0 === TOPIC_UNSTAKED) eventType = "Unstaked";
     else if (topic0 === TOPIC_WITHDRAWN) eventType = "Withdrawn";
-    else if (topic0 === TOPIC_REWARDS_DISTRIBUTED)
-      eventType = "RewardsDistributed";
+    else if (topic0 === TOPIC_REWARDS_ADDED) eventType = "RewardsAdded";
+    else if (topic0 === TOPIC_REWARDS_CLAIMED) eventType = "RewardsClaimed";
     else if (topic0 === TOPIC_TRANSFER) eventType = "Transfer";
     else if (topic0 === TOPIC_STABLECOIN_CONFIGURED)
       eventType = "StablecoinConfigured";
@@ -2009,19 +2064,14 @@ export class IndexerService {
         provider,
       );
 
-      const [
-        totalPooled,
-        totalShares,
-        exchangeRate,
-        activeValidators,
-        currentEpoch,
-      ] = await Promise.all([
-        vault.getTotalPooledAethel() as Promise<bigint>,
-        vault.getTotalShares() as Promise<bigint>,
-        vault.getExchangeRate() as Promise<bigint>,
-        vault.getActiveValidatorCount() as Promise<bigint>,
-        vault.currentEpoch() as Promise<bigint>,
-      ]);
+      const [totalPooled, totalShares, exchangeRate, currentEpoch, unbonding] =
+        await Promise.all([
+          vault.totalPooledAethel() as Promise<bigint>,
+          vault.totalShares() as Promise<bigint>,
+          vault.getExchangeRate() as Promise<bigint>,
+          vault.currentEpoch() as Promise<bigint>,
+          vault.unbondingPeriod() as Promise<bigint>,
+        ]);
 
       // Count current stakers from the derived balance table
       const totalStakers = await this.prisma.stAethelBalance.count({
@@ -2044,8 +2094,10 @@ export class IndexerService {
           currentEpoch,
           currentApy: 0, // APY requires multi-epoch tracking — left for a future enhancement
           totalStakers: BigInt(totalStakers),
-          validatorsBacking: Number(activeValidators),
-          unbondingPeriod: DEFAULT_UNBONDING_PERIOD_DAYS,
+          // The vault has no validator-count getter on this contract line;
+          // validator selection is not vault-resident. Reported as 0.
+          validatorsBacking: 0,
+          unbondingPeriod: Math.ceil(Number(unbonding) / 86_400),
         },
         create: {
           id: VAULT_STATE_ID,
@@ -2055,14 +2107,16 @@ export class IndexerService {
           currentEpoch,
           currentApy: 0,
           totalStakers: BigInt(totalStakers),
-          validatorsBacking: Number(activeValidators),
-          unbondingPeriod: DEFAULT_UNBONDING_PERIOD_DAYS,
+          // The vault has no validator-count getter on this contract line;
+          // validator selection is not vault-resident. Reported as 0.
+          validatorsBacking: 0,
+          unbondingPeriod: Math.ceil(Number(unbonding) / 86_400),
         },
       });
 
       logger.info(
         `VaultState refreshed: totalStaked=${totalPooled} totalShares=${totalShares} ` +
-          `exchangeRate=${exchangeRateDecimal} epoch=${currentEpoch} validators=${activeValidators} stakers=${totalStakers}`,
+          `exchangeRate=${exchangeRateDecimal} epoch=${currentEpoch} unbondingSecs=${unbonding} stakers=${totalStakers}`,
       );
     } catch (err) {
       logger.error(
@@ -2077,6 +2131,33 @@ export class IndexerService {
   // -----------------------------------------------------------------------
   // Provider Helper
   // -----------------------------------------------------------------------
+
+  /**
+   * Live vault unbonding period (seconds), cached for a minute — used to
+   * derive withdrawal completion times, since the Unstaked event does not
+   * carry one. Falls back to the last known value if the read fails.
+   */
+  private unbondingCache: { value: number; fetchedAt: number } | null = null;
+
+  private async getUnbondingSeconds(): Promise<number> {
+    const now = Date.now();
+    if (this.unbondingCache && now - this.unbondingCache.fetchedAt < 60_000) {
+      return this.unbondingCache.value;
+    }
+    try {
+      const vault = new Contract(
+        this.cfg.cruzibleVaultAddress!,
+        VAULT_VIEW_ABI,
+        this.getProvider(),
+      );
+      const seconds = Number((await vault.unbondingPeriod()) as bigint);
+      this.unbondingCache = { value: seconds, fetchedAt: now };
+      return seconds;
+    } catch (err) {
+      logger.warn("Failed to read unbondingPeriod()", errorContext(err));
+      return this.unbondingCache?.value ?? 0;
+    }
+  }
 
   private getProvider(): JsonRpcProvider | WebSocketProvider {
     if (this.wsProvider && this._wsConnected) {
