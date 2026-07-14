@@ -17,7 +17,11 @@ import {
   useAccount,
   useConfig,
 } from "wagmi";
-import { readContract, waitForTransactionReceipt } from "wagmi/actions";
+import {
+  getBalance,
+  readContract,
+  waitForTransactionReceipt,
+} from "wagmi/actions";
 import {
   parseEther,
   formatEther,
@@ -275,7 +279,6 @@ export function useStake() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
-  const tokenAddr = getContractAddress("aethelToken");
 
   const stake = useCallback(
     async (
@@ -287,15 +290,6 @@ export function useStake() {
           "error",
           "Configuration Error",
           "Cruzible contract address is not configured or invalid",
-        );
-        return undefined;
-      }
-
-      if (!tokenAddr) {
-        addNotification(
-          "error",
-          "Configuration Error",
-          "AETHEL token address is not configured or invalid",
         );
         return undefined;
       }
@@ -339,99 +333,25 @@ export function useStake() {
           return undefined;
         }
 
-        const liveBalance = (await readContract(config, {
-          address: tokenAddr,
-          abi: ERC20ABI,
-          functionName: "balanceOf",
-          args: [wallet.address as Address],
+        // AETHEL is the NATIVE coin on Aethelred — the deployed vault's
+        // stake() is payable and takes the amount as msg.value. There is no
+        // ERC-20 to balance-check, approve, or transferFrom; the previous
+        // allowance dance here targeted a token model the shipped contract
+        // never had, so staking failed before ever reaching the wallet.
+        const liveBalance = await getBalance(config, {
+          address: wallet.address as Address,
           chainId: activeChain.id,
-        })) as bigint;
+        });
 
-        if (amount > liveBalance) {
+        if (amount > liveBalance.value) {
           addNotification(
             "error",
             "Insufficient Balance",
-            "Your live AETHEL token balance is below this stake amount. Refresh balances and try again.",
+            "Your live AETHEL balance is below this stake amount. Refresh balances and try again.",
           );
           return undefined;
         }
 
-        addNotification(
-          "info",
-          "Checking Allowance",
-          "Verifying the vault can spend the requested AETHEL amount...",
-        );
-
-        const allowance = (await readContract(config, {
-          address: tokenAddr,
-          abi: ERC20ABI,
-          functionName: "allowance",
-          args: [wallet.address as Address, cruzibleAddr],
-          chainId: activeChain.id,
-        })) as bigint;
-
-        if (needsTokenApproval(allowance, amount)) {
-          addNotification(
-            "info",
-            "Approving",
-            "Please approve AETHEL spending in your wallet...",
-          );
-
-          if (
-            !(await assertContractSimulation(
-              config,
-              addNotification,
-              "AETHEL Approval",
-              {
-                address: tokenAddr,
-                abi: ERC20ABI,
-                functionName: "approve",
-                args: [cruzibleAddr, amount],
-                account: wallet.address as Address,
-                chainId: activeChain.id,
-              },
-            ))
-          ) {
-            return undefined;
-          }
-
-          const approveHash = await writeContractAsync({
-            address: tokenAddr,
-            abi: ERC20ABI,
-            functionName: "approve",
-            args: [cruzibleAddr, amount],
-            chainId: activeChain.id,
-          });
-
-          // Wait for approval to be mined before calling stake().
-          // Without this, the stake tx may land before the approval is
-          // confirmed on-chain, causing a revert.
-          addNotification(
-            "info",
-            "Confirming Approval",
-            "Waiting for approval to be confirmed on-chain...",
-          );
-          const approvalReceipt = await waitForTransactionReceipt(config, {
-            hash: approveHash,
-          });
-
-          if (approvalReceipt.status === "reverted") {
-            addNotification(
-              "error",
-              "Approval Reverted",
-              "The AETHEL approval was reverted on-chain.",
-            );
-            return undefined;
-          }
-        } else {
-          addNotification(
-            "info",
-            "Allowance Ready",
-            "Existing AETHEL allowance covers this stake.",
-          );
-        }
-
-        // Step 2: Stake (only after approval receipt is confirmed or allowance is sufficient)
         addNotification(
           "info",
           "Staking",
@@ -442,7 +362,8 @@ export function useStake() {
             address: cruzibleAddr,
             abi: CruzibleABI,
             functionName: "stake",
-            args: [amount],
+            args: [],
+            value: amount,
             account: wallet.address as Address,
             chainId: activeChain.id,
           }))
@@ -454,7 +375,8 @@ export function useStake() {
           address: cruzibleAddr,
           abi: CruzibleABI,
           functionName: "stake",
-          args: [amount],
+          args: [],
+          value: amount,
           chainId: activeChain.id,
         });
 
@@ -504,14 +426,7 @@ export function useStake() {
         setIsSubmitting(false);
       }
     },
-    [
-      writeContractAsync,
-      config,
-      cruzibleAddr,
-      tokenAddr,
-      wallet,
-      addNotification,
-    ],
+    [writeContractAsync, config, cruzibleAddr, wallet, addNotification],
   );
 
   return { stake, isPending: isPending || isSubmitting };

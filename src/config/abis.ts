@@ -74,21 +74,22 @@ export const CruzibleABI = [
   },
 
   // --- Write Functions ---
+  // AETHEL is the NATIVE coin on Aethelred: the deployed vault's stake
+  // functions are payable and take the amount as msg.value. There is no
+  // ERC-20 amount argument — the previous nonpayable stake(uint256) shape
+  // matched a token model the shipped contract never had.
   {
     name: "stake",
     type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "amount", type: "uint256" }],
+    stateMutability: "payable",
+    inputs: [],
     outputs: [{ name: "shares", type: "uint256" }],
   },
   {
     name: "stakeWithReferral",
     type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "amount", type: "uint256" },
-      { name: "referralCode", type: "uint256" },
-    ],
+    stateMutability: "payable",
+    inputs: [{ name: "referralCode", type: "uint256" }],
     outputs: [{ name: "shares", type: "uint256" }],
   },
   {

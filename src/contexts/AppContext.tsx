@@ -168,12 +168,11 @@ const DEFAULT_REALTIME: RealTimeState = {
   reconciliationComplete: null,
 };
 
+// ERC-20 balances only. AETHEL is deliberately NOT here: it is the NATIVE
+// coin on Aethelred, and its balance comes from the native useBalance query —
+// reading it as an ERC-20 (via the optional aethelToken wrapper address,
+// blank on testnet) reported 0 for funded accounts.
 const TRACKED_TOKEN_CONTRACTS = [
-  {
-    symbol: "AETHEL",
-    address: getContractAddress("aethelToken"),
-    decimals: 18,
-  },
   {
     symbol: "stAETHEL",
     address: getContractAddress("stAethel"),
@@ -190,6 +189,13 @@ const TRACKED_TOKEN_CONTRACTS = [
     decimals: 6,
   },
 ] as const;
+
+// Query only the tokens that have configured addresses — an unconfigured
+// periphery token (USDC/USDT stay blank until those contracts exist on
+// testnet) must not disable balance reads for the tokens that DO exist.
+const CONFIGURED_TOKEN_CONTRACTS = TRACKED_TOKEN_CONTRACTS.filter((token) =>
+  Boolean(token.address),
+);
 
 // ---------------------------------------------------------------------------
 // Context
@@ -217,7 +223,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
 
   const { data: tokenBalances } = useReadContracts({
-    contracts: TRACKED_TOKEN_CONTRACTS.map((token) => ({
+    contracts: CONFIGURED_TOKEN_CONTRACTS.map((token) => ({
       address: token.address ?? zeroAddress,
       abi: ERC20ABI,
       functionName: "balanceOf",
@@ -226,9 +232,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })),
     query: {
       enabled:
-        isConnected &&
-        !!address &&
-        TRACKED_TOKEN_CONTRACTS.every((token) => Boolean(token.address)),
+        isConnected && !!address && CONFIGURED_TOKEN_CONTRACTS.length > 0,
       refetchInterval: 15_000,
     },
   });
@@ -248,14 +252,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const stablecoinBalanceUnits: Record<string, bigint> = {};
     const tokenBalanceUnits = new Map<string, bigint>();
 
-    TRACKED_TOKEN_CONTRACTS.forEach((token, index) => {
+    CONFIGURED_TOKEN_CONTRACTS.forEach((token, index) => {
       const balance = tokenBalances?.[index]?.result as bigint | undefined;
       if (balance !== undefined) {
         tokenBalanceUnits.set(token.symbol, balance);
       }
     });
 
-    const aethelBalance = tokenBalanceUnits.get("AETHEL");
     const stAethelBalance = tokenBalanceUnits.get("stAETHEL");
     const usdcBalance = tokenBalanceUnits.get("USDC");
     const usdtBalance = tokenBalanceUnits.get("USDT");
@@ -276,11 +279,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
         : 0,
       balanceWei: nativeBalance?.value ?? 0n,
-      aethelBalance:
-        aethelBalance !== undefined
-          ? parseFloat(formatUnits(aethelBalance, 18))
-          : 0,
-      aethelBalanceWei: aethelBalance ?? 0n,
+      // AETHEL is the native coin — its spendable balance IS the native
+      // account balance, not an ERC-20 read.
+      aethelBalance: nativeBalance
+        ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
+        : 0,
+      aethelBalanceWei: nativeBalance?.value ?? 0n,
       stBalance:
         stAethelBalance !== undefined
           ? parseFloat(formatUnits(stAethelBalance, 18))

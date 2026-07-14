@@ -80,6 +80,8 @@ export async function assertContractSimulation<
     args: args;
     account: Address;
     chainId: number;
+    /** msg.value for payable functions (native-coin staking). */
+    value?: bigint;
   },
 ): Promise<boolean> {
   try {
