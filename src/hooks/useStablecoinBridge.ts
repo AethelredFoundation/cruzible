@@ -15,12 +15,8 @@
  */
 
 import { useCallback } from "react";
-import {
-  useReadContract,
-  useWriteContract,
-  useAccount,
-  useConfig,
-} from "wagmi";
+import { useReadContract, useAccount, useConfig } from "wagmi";
+import { useSafeWriteContract } from "./useSafeWriteContract";
 import { readContract, waitForTransactionReceipt } from "wagmi/actions";
 import { parseUnits, pad, zeroAddress, type Address, type Hash } from "viem";
 import { StablecoinBridgeABI, ERC20ABI } from "@/config/abis";
@@ -166,7 +162,7 @@ export function useBridgeOut() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
   const { address } = useAccount();
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync, isPending } = useSafeWriteContract();
   const bridgeAddr = getContractAddress("stablecoinBridge");
 
   const bridgeOut = useCallback(

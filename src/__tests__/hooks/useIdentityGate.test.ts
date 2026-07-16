@@ -28,6 +28,7 @@ vi.mock("@/contexts/AppContext", () => ({
 }));
 
 vi.mock("wagmi", () => ({
+  usePublicClient: () => undefined,
   useAccount: mocks.useAccount,
   useReadContracts: mocks.useReadContracts,
   useReadContract: vi.fn(() => ({ data: undefined })),

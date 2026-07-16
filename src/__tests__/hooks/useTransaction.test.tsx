@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("wagmi", () => ({
+  useAccount: () => ({ address: undefined }),
+  usePublicClient: () => undefined,
   useWaitForTransactionReceipt: mocks.useWaitForTransactionReceipt,
   useWriteContract: mocks.useWriteContract,
 }));

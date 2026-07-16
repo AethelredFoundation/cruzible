@@ -8,7 +8,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useWaitForTransactionReceipt } from "wagmi";
+import { useSafeWriteContract } from "./useSafeWriteContract";
 import {
   type Abi,
   type Address,
@@ -65,7 +66,7 @@ export function useTransaction(): UseTransactionReturn {
     receipt: null,
   });
 
-  const { writeContractAsync } = useWriteContract();
+  const { writeContractAsync } = useSafeWriteContract();
   const receiptQuery = useWaitForTransactionReceipt({
     hash: state.hash,
     confirmations: 1,

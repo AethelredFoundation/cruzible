@@ -71,6 +71,7 @@ vi.mock("@/lib/transactionPreflight", () => ({
 }));
 
 vi.mock("wagmi", () => ({
+  usePublicClient: () => undefined,
   useAccount: vi.fn(),
   useConfig: mocks.useConfig,
   useReadContract: vi.fn(),

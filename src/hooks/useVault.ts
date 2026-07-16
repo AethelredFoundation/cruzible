@@ -13,10 +13,10 @@ import { useCallback, useRef, useState } from "react";
 import {
   useReadContract,
   useReadContracts,
-  useWriteContract,
   useAccount,
   useConfig,
 } from "wagmi";
+import { useSafeWriteContract } from "./useSafeWriteContract";
 import {
   getBalance,
   readContract,
@@ -342,7 +342,7 @@ export function useIdentityGate(): IdentityGateState {
 export function useStake() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync, isPending } = useSafeWriteContract();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
@@ -506,7 +506,7 @@ export function useStake() {
 export function useUnstake() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync, isPending } = useSafeWriteContract();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
@@ -750,7 +750,7 @@ export function useUnstake() {
 export function useWithdraw() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync, isPending } = useSafeWriteContract();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
@@ -873,7 +873,7 @@ export function useWithdraw() {
 export function useClaimRewards() {
   const { addNotification, wallet } = useApp();
   const config = useConfig();
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync, isPending } = useSafeWriteContract();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const cruzibleAddr = getContractAddress("cruzible");
