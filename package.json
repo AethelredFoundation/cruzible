@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint src --max-warnings=0",
     "lint:fix": "eslint src --fix",
+    "check:boundary": "node scripts/check-conformance-boundary.mjs",
     "type-check": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\" \"docs/**/*.json\" \"e2e/**/*.ts\" \"scripts/**/*.{js,mjs}\" \"playwright.config.ts\" \"*.{js,mjs,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\" \"docs/**/*.json\" \"e2e/**/*.ts\" \"scripts/**/*.{js,mjs}\" \"playwright.config.ts\" \"*.{js,mjs,json}\"",
