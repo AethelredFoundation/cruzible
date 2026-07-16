@@ -97,4 +97,48 @@ describe("WalletButton", () => {
 
     expect(mocks.connectWallet).toHaveBeenCalledWith(metaMaskConnector);
   });
+
+  it("orders EIP-6963 wallets Aethelred-first with the Recommended tag and hides the generic fallback", () => {
+    const genericInjected = {
+      id: "injected",
+      name: "Injected",
+      uid: "injected-raw",
+    } as unknown as Connector;
+    const aethelredConnector = {
+      id: "org.aethelred.wallet",
+      name: "Aethelred Wallet",
+      icon: "data:image/svg+xml,cube",
+      uid: "aethelred-1",
+    } as unknown as Connector;
+    const discoveredMetaMask = {
+      id: "io.metamask",
+      name: "MetaMask",
+      icon: "data:image/svg+xml,fox",
+      uid: "metamask-6963",
+    } as unknown as Connector;
+    mocks.useConnect.mockReturnValue({
+      connectors: [genericInjected, discoveredMetaMask, aethelredConnector],
+    });
+
+    const { container } = render(<WalletButton />);
+    const walletControls = within(container);
+
+    fireEvent.click(
+      walletControls.getByRole("button", { name: /connect wallet/i }),
+    );
+
+    const options = walletControls
+      .getAllByRole("button")
+      .filter((b) => !/connect wallet/i.test(b.textContent ?? ""));
+    expect(options.map((b) => b.textContent)).toEqual([
+      "Aethelred WalletRecommended",
+      "MetaMask",
+    ]);
+    expect(walletControls.queryByText("Injected")).toBeNull();
+
+    fireEvent.click(
+      walletControls.getByRole("button", { name: /aethelred wallet/i }),
+    );
+    expect(mocks.connectWallet).toHaveBeenCalledWith(aethelredConnector);
+  });
 });

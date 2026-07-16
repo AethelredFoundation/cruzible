@@ -14,10 +14,15 @@ import { useConnect } from "wagmi";
 import { useApp } from "@/contexts/AppContext";
 import { truncateAddress, formatNumber } from "@/lib/utils";
 import { activeChain } from "@/config/wagmi";
+import {
+  isAethelredWallet,
+  orderWalletConnectors,
+} from "@/config/wallet-picker";
 
 export function WalletButton() {
   const { wallet, connectWallet, disconnectWallet, switchNetwork } = useApp();
   const { connectors } = useConnect();
+  const walletOptions = orderWalletConnectors(connectors);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showConnectorModal, setShowConnectorModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -153,8 +158,8 @@ export function WalletButton() {
       <button
         onClick={() => {
           // If only one connector available, connect directly
-          if (connectors.length <= 1) {
-            connectWallet(connectors[0]);
+          if (walletOptions.length <= 1) {
+            connectWallet(walletOptions[0]);
           } else {
             setShowConnectorModal(!showConnectorModal);
           }
@@ -181,7 +186,7 @@ export function WalletButton() {
             Choose Wallet
           </p>
           <div className="space-y-1.5">
-            {connectors.map((connector) => (
+            {walletOptions.map((connector) => (
               <button
                 key={connector.uid}
                 onClick={() => {
@@ -190,10 +195,27 @@ export function WalletButton() {
                 }}
                 className="w-full flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-800/50 px-3 py-2.5 text-sm text-gray-200 hover:bg-gray-700/50 hover:border-gray-600 transition-colors"
               >
-                <span className="h-6 w-6 rounded-full bg-gray-700 flex items-center justify-center text-xs">
-                  {connector.name.charAt(0)}
-                </span>
+                {connector.icon ? (
+                  // EIP-6963 wallet icons are data: URIs announced by the
+                  // wallet itself.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={connector.icon}
+                    alt=""
+                    aria-hidden
+                    className="h-6 w-6 rounded-full"
+                  />
+                ) : (
+                  <span className="h-6 w-6 rounded-full bg-gray-700 flex items-center justify-center text-xs">
+                    {connector.name.charAt(0)}
+                  </span>
+                )}
                 {connector.name}
+                {isAethelredWallet(connector) && (
+                  <span className="ml-auto text-[10px] uppercase tracking-widest text-red-400">
+                    Recommended
+                  </span>
+                )}
               </button>
             ))}
           </div>
