@@ -32,6 +32,7 @@ contract WstAETHEL {
     error InsufficientAllowance();
     error PermitExpired();
     error InvalidSignature();
+    error TransferFailed();
 
     // ── metadata ─────────────────────────────────────────────────────────
     string public constant name = "Wrapped stAETHEL";
@@ -69,8 +70,11 @@ contract WstAETHEL {
         if (stAethelAmount == 0) revert ZeroAmount();
 
         uint256 sharesBefore = stAethel.sharesOf(address(this));
-        // Reverts inside stAETHEL on missing balance/allowance.
-        stAethel.transferFrom(msg.sender, address(this), stAethelAmount);
+        // Reverts inside stAETHEL on missing balance/allowance; the return is
+        // also checked so a non-reverting false can never slip through.
+        if (!stAethel.transferFrom(msg.sender, address(this), stAethelAmount)) {
+            revert TransferFailed();
+        }
         wstAmount = stAethel.sharesOf(address(this)) - sharesBefore;
         if (wstAmount == 0) revert ZeroAmount();
 
@@ -95,7 +99,9 @@ contract WstAETHEL {
         totalSupply -= wstAmount;
         emit Transfer(msg.sender, address(0), wstAmount);
 
-        stAethel.transfer(msg.sender, stAethelAmount);
+        // CRZ-01: check the return — unwrap has already burned the wst, so a
+        // silent-false transfer would otherwise leave the user with neither.
+        if (!stAethel.transfer(msg.sender, stAethelAmount)) revert TransferFailed();
         emit Unwrapped(msg.sender, wstAmount, stAethelAmount);
     }
 
