@@ -80,7 +80,8 @@ export async function assertContractSimulation<
     args: args;
     account: Address;
     chainId: number;
-    /** msg.value for payable functions (native-coin staking). */
+    // Native value for payable calls (e.g. Cruzible's payable stake()).
+    // Threaded into simulateContract so the preview matches the real send.
     value?: bigint;
   },
 ): Promise<boolean> {

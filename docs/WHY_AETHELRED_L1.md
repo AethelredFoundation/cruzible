@@ -8,7 +8,7 @@ it: a plain-language version of the chain-level argument in the Aethelred repo's
 
 Cruzible's institutional differentiator — **staking entry gated by an on-chain,
 consensus-issued compliance attestation, with no oracle in the trust path** — is
-a property of Aethelred's *consensus*, and an Ethereum L2 has no consensus of its
+a property of Aethelred's _consensus_, and an Ethereum L2 has no consensus of its
 own to put it in.
 
 ## What Cruzible does that a "liquid staking dApp on an L2" cannot
@@ -17,18 +17,18 @@ When compliance mode is on, a stake is admitted only if the chain's own
 validators have minted a **Digital Seal** attesting that a compliance check was
 run for that exact staker under a policy the institution set (jurisdiction,
 confidentiality backend, production-silicon root). Cruzible reads that seal
-through a **precompile** and re-runs the *same consensus logic* that minted it.
+through a **precompile** and re-runs the _same consensus logic_ that minted it.
 
 On an Ethereum rollup this is impossible without reintroducing a trusted third
 party:
 
-| Requirement | Aethelred L1 | Ethereum L2 |
-|---|---|---|
-| Compliance attestation is issued by the chain's validators | Yes — PoUW quorum in consensus | No — L2 has no validator quorum; it rents Ethereum's |
-| dApp reads that attestation with no bridge/oracle | Yes — `ISeal` precompile reads consensus-native state | No — state lives on the L1; needs a bridge/oracle |
-| Ordering, data, validators stay in the client's jurisdiction | Yes — sovereign deployment | No — data + ordering go to Ethereum mainnet |
-| Finality of the sealed result is post-quantum | Yes — ML-DSA at consensus | No — inherits Ethereum's classical finality |
-| Staking yield = the chain's own attested useful work | Yes — PoUW rewards rebase stAETHEL | No — rewards accrue to Ethereum + the sequencer |
+| Requirement                                                  | Aethelred L1                                          | Ethereum L2                                          |
+| ------------------------------------------------------------ | ----------------------------------------------------- | ---------------------------------------------------- |
+| Compliance attestation is issued by the chain's validators   | Yes — PoUW quorum in consensus                        | No — L2 has no validator quorum; it rents Ethereum's |
+| dApp reads that attestation with no bridge/oracle            | Yes — `ISeal` precompile reads consensus-native state | No — state lives on the L1; needs a bridge/oracle    |
+| Ordering, data, validators stay in the client's jurisdiction | Yes — sovereign deployment                            | No — data + ordering go to Ethereum mainnet          |
+| Finality of the sealed result is post-quantum                | Yes — ML-DSA at consensus                             | No — inherits Ethereum's classical finality          |
+| Staking yield = the chain's own attested useful work         | Yes — PoUW rewards rebase stAETHEL                    | No — rewards accrue to Ethereum + the sequencer      |
 
 Remove the L1 and every row degrades to "trust an off-chain service" — which is
 the status quo Cruzible exists to replace.
@@ -55,7 +55,7 @@ modules are one state machine, not a dApp bridged to another chain.
 
 ## Not "just another L1"
 
-Aethelred's value is the *combination* — attested-compute-as-consensus +
+Aethelred's value is the _combination_ — attested-compute-as-consensus +
 post-quantum finality + confidential-execution attestation + sovereign
 deployment + an EVM surface that reads all of it without a bridge — in one state
 machine. Cruzible is the first application to make that combination usable:

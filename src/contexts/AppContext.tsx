@@ -190,9 +190,12 @@ const TRACKED_TOKEN_CONTRACTS = [
   },
 ] as const;
 
-// Query only the tokens that have configured addresses — an unconfigured
-// periphery token (USDC/USDT stay blank until those contracts exist on
-// testnet) must not disable balance reads for the tokens that DO exist.
+/**
+ * Only tokens with a configured contract address can be read. Filtering here
+ * (instead of gating the whole batch on `every(address)`) means one unset
+ * env var — e.g. no bridged-AETHEL ERC-20 on a chain where AETHEL is native —
+ * no longer silently disables every other token read (stAETHEL included).
+ */
 const CONFIGURED_TOKEN_CONTRACTS = TRACKED_TOKEN_CONTRACTS.filter((token) =>
   Boolean(token.address),
 );
@@ -259,6 +262,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+    // AETHEL is the NATIVE coin on Aethelred (x/precisebank bridges the
+    // 6-decimal bank denom to the 18-decimal EVM face) — there is no ERC-20
+    // to read, so the stakeable balance comes from the native query. A
+    // configured bridged-AETHEL ERC-20 (other chains) still takes priority.
+    const aethelBalance =
+      tokenBalanceUnits.get("AETHEL") ?? nativeBalance?.value;
     const stAethelBalance = tokenBalanceUnits.get("stAETHEL");
     const usdcBalance = tokenBalanceUnits.get("USDC");
     const usdtBalance = tokenBalanceUnits.get("USDT");
@@ -279,12 +288,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
         : 0,
       balanceWei: nativeBalance?.value ?? 0n,
-      // AETHEL is the native coin — its spendable balance IS the native
-      // account balance, not an ERC-20 read.
-      aethelBalance: nativeBalance
-        ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
-        : 0,
-      aethelBalanceWei: nativeBalance?.value ?? 0n,
+      aethelBalance:
+        aethelBalance !== undefined
+          ? parseFloat(formatUnits(aethelBalance, 18))
+          : 0,
+      aethelBalanceWei: aethelBalance ?? 0n,
       stBalance:
         stAethelBalance !== undefined
           ? parseFloat(formatUnits(stAethelBalance, 18))

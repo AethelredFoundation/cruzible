@@ -35,10 +35,13 @@ Withdrawals are **never** pausable — a client can always exit
 
 ## Invariants (enforced + tested)
 
-1. **Solvency:** `address(this).balance == totalPooledAethel + totalReserved +
-   merkleReserve`. Every native inflow increments exactly one accumulator and
-   every outflow decrements the matching one
-   (`test_solvency_invariant_holds_across_lifecycle`).
+1. **Solvency:** with native staking active (Phase 2), assets under management
+   cover every liability: `totalManaged()` (= balance + `totalDelegated` +
+   `totalUnbonding`) `>= totalPooledAethel + totalReserved + merkleReserve`,
+   with equality until rewards accrue between claims. When nothing is
+   delegated this reduces to the original balance identity
+   (`test_solvency_invariant_holds_across_lifecycle`,
+   `test_total_managed_covers_all_promises_across_delegation`).
 2. **Reward segregation:** Merkle reward claims draw only from `merkleReserve`;
    staked principal and the withdrawal queue are unreachable by a rewards claim.
 3. **Queue integrity:** an unstake fixes and *reserves* the AETHEL value at
@@ -46,6 +49,24 @@ Withdrawals are **never** pausable — a client can always exit
    exit and a queued exit cannot dilute remaining stakers.
 4. **Share/AETHEL rounding always favours the pool:** shares-on-stake and
    AETHEL-on-unstake both round down, so the protocol never over-issues.
+5. **Queue coverage (Phase 2.5):** whenever queued withdrawals exceed the
+   native buffer plus in-flight undelegations, the PERMISSIONLESS
+   `undelegateForQueue` opens — sized by computation to exactly the deficit
+   (rounded up to a whole uaethel), capped by the validator's delegation. It
+   cannot over-undelegate and needs no governance action, so exit liquidity
+   does not depend on the operator
+   (`test_undelegate_for_queue_is_permissionless_and_deficit_bounded`,
+   `test_matured_undelegations_release_coverage_and_fund_withdrawals`).
+6. **Slashing is socialized, never hidden (Phase 2.5):** the PERMISSIONLESS
+   `reconcileValidator` compares recorded bonded + unbonding amounts with the
+   staking precompile's own state and marks any shortfall down into
+   `totalPooledAethel` — every holder rebases down pro-rata (the incumbent
+   model) instead of the last exiters absorbing the loss. It reads consensus
+   truth and can only correct the rate DOWN, so permissionless is safe
+   (`test_reconcile_realizes_bonded_slash_and_socializes`,
+   `test_reconcile_realizes_unbonding_slash`). Amounts already reserved for
+   queued exits are carved out at request time and are not re-touched by a
+   later slash — consistent with invariant 3 in both directions.
 
 ## Attack surface & mitigations
 

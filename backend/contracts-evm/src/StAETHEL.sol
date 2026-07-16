@@ -12,6 +12,11 @@ pragma solidity 0.8.20;
 ///         computation — one accounting source, no drift.
 interface ICruziblePool {
     function totalPooledAethel() external view returns (uint256);
+
+    function governance() external view returns (address);
+
+    /// @dev The vault's admission check (true when its identity gate is off).
+    function isIdentityVerified(address staker) external view returns (bool);
 }
 
 contract StAETHEL {
@@ -26,18 +31,47 @@ contract StAETHEL {
     mapping(address => uint256) private _shares;
     mapping(address => mapping(address => uint256)) private _allowances;
 
+    // ── identity-control boundary (docs/IDENTITY_POLICY.md) ─────────────────
+
+    /// @notice Model B (opt-in): when true, RECIPIENTS of transfers must pass
+    ///         the vault's identity check, so unverified parties cannot
+    ///         ACQUIRE stAETHEL on the secondary market. Default false =
+    ///         Model A (identity gates primary issuance only; the token is
+    ///         freely transferable). SENDERS are deliberately never checked
+    ///         and mint/burn never route through transfers, so a suspended
+    ///         holder can always exit — the gate restricts acquisition, never
+    ///         departure.
+    bool public transferGateEnabled;
+    /// @notice Protocol contracts exempt as transfer RECIPIENTS under Model B
+    ///         (e.g. the wstAETHEL wrapper). Allowlisting the wrapper permits
+    ///         wrapping; unwrap transfers to end users stay recipient-checked,
+    ///         so the wrapper cannot launder stAETHEL to unverified parties.
+    mapping(address => bool) public transferAllowlist;
+
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     /// @notice Emitted alongside Transfer for share-level accounting.
     event TransferShares(address indexed from, address indexed to, uint256 sharesValue);
+    event TransferGateSet(bool enabled);
+    event TransferAllowlistSet(address indexed account, bool allowed);
 
     error OnlyVault();
     error ZeroAddress();
     error InsufficientShares();
     error InsufficientAllowance();
+    error NotGovernance();
+    error RecipientNotVerified(address recipient);
 
     modifier onlyVault() {
         if (msg.sender != vault) revert OnlyVault();
+        _;
+    }
+
+    /// @dev The token has no admin of its own: Model B controls belong to the
+    ///      VAULT's governance (queried live, so a governance handover on the
+    ///      vault carries over here with no separate rotation).
+    modifier onlyVaultGovernance() {
+        if (msg.sender != ICruziblePool(vault).governance()) revert NotGovernance();
         _;
     }
 
@@ -143,8 +177,32 @@ contract StAETHEL {
         return _allowances[owner][spender];
     }
 
+    // ── Model B controls (vault-governance only) ─────────────────────────────
+
+    /// @notice Turn the recipient-verification transfer gate on or off.
+    function setTransferGate(bool enabled) external onlyVaultGovernance {
+        transferGateEnabled = enabled;
+        emit TransferGateSet(enabled);
+    }
+
+    /// @notice Exempt (or un-exempt) a protocol contract as a transfer
+    ///         recipient under Model B.
+    function setTransferAllowlist(address account, bool allowed) external onlyVaultGovernance {
+        if (account == address(0)) revert ZeroAddress();
+        transferAllowlist[account] = allowed;
+        emit TransferAllowlistSet(account, allowed);
+    }
+
     function _transfer(address from, address to, uint256 amount) internal {
         if (to == address(0)) revert ZeroAddress();
+        // Model B: unverified parties cannot ACQUIRE the token. Recipient-only
+        // by design — checking senders would let an identity suspension trap
+        // value, and exits (vault burns) never pass through here anyway.
+        if (transferGateEnabled && !transferAllowlist[to]) {
+            if (!ICruziblePool(vault).isIdentityVerified(to)) {
+                revert RecipientNotVerified(to);
+            }
+        }
         uint256 sharesToMove = getSharesByAethel(amount);
         uint256 held = _shares[from];
         if (held < sharesToMove) revert InsufficientShares();

@@ -29,8 +29,8 @@ mkdir -p artifacts
   --overwrite \
   --base-path . \
   -o artifacts \
-  src/Cruzible.sol src/StAETHEL.sol
+  src/Cruzible.sol src/StAETHEL.sol src/WstAETHEL.sol
 
 echo "artifacts:"
-ls -la artifacts/Cruzible.* artifacts/StAETHEL.*
+ls -la artifacts/Cruzible.* artifacts/StAETHEL.* artifacts/WstAETHEL.*
 shasum -a 256 artifacts/Cruzible.bin artifacts/StAETHEL.bin

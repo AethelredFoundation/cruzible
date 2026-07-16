@@ -40,6 +40,7 @@ import {
   Activity,
   Layers,
   Award,
+  ShieldAlert,
   ShieldCheck,
   RefreshCw,
   Wallet,
@@ -87,6 +88,7 @@ import {
   useClaimRewards,
   useUserWithdrawals,
   type VaultState,
+  useIdentityGate,
 } from "@/hooks/useVault";
 import { formatEther, parseEther } from "viem";
 import {
@@ -1319,6 +1321,7 @@ function StakeTab() {
   const { wallet, connectWallet, addNotification } = useApp();
   const { stake, isPending: stakeIsPending } = useStake();
   const vaultState = useVaultState();
+  const identityGate = useIdentityGate();
   const [amount, setAmount] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -1340,14 +1343,15 @@ function StakeTab() {
   });
   const receiveSt = stakeQuote.expectedOutput;
   const projected30d = liveApy != null ? (numAmt * liveApy) / 100 / 12 : null;
-  const isValid = canSubmitStakeForm({
-    walletConnected: wallet.connected,
-    isWrongNetwork: wallet.isWrongNetwork,
-    amountWei: parsedAmount,
-    balanceWei: maxBalanceWei,
-    quoteCanSubmit: stakeQuote.canSubmit,
-    minStakeWei: MIN_STAKE_AMOUNT_WEI,
-  });
+  const isValid =
+    canSubmitStakeForm({
+      walletConnected: wallet.connected,
+      isWrongNetwork: wallet.isWrongNetwork,
+      amountWei: parsedAmount,
+      balanceWei: maxBalanceWei,
+      quoteCanSubmit: stakeQuote.canSubmit,
+      minStakeWei: MIN_STAKE_AMOUNT_WEI,
+    }) && !identityGate.blocksStaking;
   const processing = stakeIsPending;
 
   const handleQuick = (pct: number) => {
@@ -1404,6 +1408,45 @@ function StakeTab() {
             </h3>
           </div>
           <div className="p-8">
+            {/* ZeroID identity gate (three-way integration). Rendered ONLY
+                when the vault actually enforces it — no compliance theater
+                on ungated deployments. */}
+            {identityGate.identityRequired &&
+              wallet.connected &&
+              (identityGate.isVerified ? (
+                <div className="mb-6 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <p className="text-sm text-emerald-200">
+                    ZeroID verified — this wallet holds an active identity, so
+                    the vault&apos;s identity gate is satisfied.
+                  </p>
+                </div>
+              ) : (
+                <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                    <p className="text-sm font-medium text-amber-200">
+                      This vault requires a ZeroID identity
+                    </p>
+                  </div>
+                  <p className="mt-1 text-xs text-amber-200/80">
+                    Staking is identity-gated on this deployment: register a
+                    ZeroID identity with this wallet, then return here — the
+                    check is live on-chain, no re-connect needed.
+                  </p>
+                  {process.env.NEXT_PUBLIC_ZEROID_APP_URL && (
+                    <a
+                      href={process.env.NEXT_PUBLIC_ZEROID_APP_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-300 hover:text-amber-200"
+                    >
+                      Open ZeroID to register
+                      <ArrowRight className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              ))}
             <div className="mb-6">
               <div className="flex justify-between items-center mb-2">
                 <label
@@ -1537,7 +1580,9 @@ function StakeTab() {
                           ? "Waiting for Live Exchange Rate"
                           : !stakeQuote.isFresh
                             ? "Waiting for Fresh Quote"
-                            : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
+                            : identityGate.blocksStaking
+                              ? "ZeroID Identity Required"
+                              : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
               </button>
             ) : success ? (
               <div className="text-center py-4">

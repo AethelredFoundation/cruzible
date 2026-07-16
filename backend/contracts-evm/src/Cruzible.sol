@@ -9,6 +9,7 @@ interface IStAETHEL {
     function getSharesByAethel(uint256 aethelAmount) external view returns (uint256);
     function getAethelByShares(uint256 sharesAmount) external view returns (uint256);
     function getTotalShares() external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 /// @title Cruzible — compliance-native liquid staking for Aethelred
@@ -37,6 +38,75 @@ interface IStAETHEL {
 /// @dev    Native-token design: no wrapped/ERC-20 AETHEL in the trust path
 ///         (one less depeg/approval surface). Checks-effects-interactions
 ///         throughout; explicit reentrancy guard on native transfers.
+/// @dev cosmos/evm staking precompile surface (0x0800). Amounts in the bond
+///      denom's base units (uaethel, 6 decimals).
+interface IStakingPrecompile {
+    struct Coin {
+        string denom;
+        uint256 amount;
+    }
+
+    struct UnbondingDelegationEntry {
+        int64 creationHeight;
+        int64 completionTime;
+        uint256 initialBalance;
+        uint256 balance;
+        uint64 unbondingId;
+        int64 unbondingOnHoldRefCount;
+    }
+
+    struct UnbondingDelegationOutput {
+        string delegatorAddress;
+        string validatorAddress;
+        UnbondingDelegationEntry[] entries;
+    }
+
+    function delegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
+        external
+        returns (bool success);
+
+    function undelegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
+        external
+        returns (int64 completionTime);
+
+    /// @dev Returns zero values (not a revert) when no delegation exists.
+    function delegation(address delegatorAddress, string calldata validatorAddress)
+        external
+        view
+        returns (uint256 shares, Coin memory balance);
+
+    /// @dev Returns an empty entries array when nothing is unbonding. Matured
+    ///      entries are removed by the chain at end-of-block; `balance`
+    ///      reflects any slashing applied while unbonding.
+    function unbondingDelegation(address delegatorAddress, string calldata validatorAddress)
+        external
+        view
+        returns (UnbondingDelegationOutput memory unbondingDelegation);
+}
+
+/// @dev ZeroID identity registry surface (the zeroid repo's ZeroID.sol):
+///      Aethelred's default identity layer. resolveByController returns the
+///      DID hash bound to a wallet (zero if none); isActiveIdentity reflects
+///      live status — suspension/revocation in ZeroID immediately closes the
+///      gate here, with no cache to go stale.
+interface IZeroIDRegistry {
+    function resolveByController(address controller) external view returns (bytes32 didHash);
+
+    function isActiveIdentity(bytes32 didHash) external view returns (bool);
+}
+
+/// @dev cosmos/evm distribution precompile surface (0x0801).
+interface IDistributionPrecompile {
+    struct Coin {
+        string denom;
+        uint256 amount;
+    }
+
+    function withdrawDelegatorRewards(address delegatorAddress, string calldata validatorAddress)
+        external
+        returns (Coin[] memory amount);
+}
+
 contract Cruzible {
     // ── roles ────────────────────────────────────────────────────────────────
 
@@ -96,6 +166,50 @@ contract Cruzible {
     ///         queue are never reachable by a rewards claim.
     uint256 public merkleReserve;
 
+    // ── native staking surface (Phase-2 real yield) ──────────────────────────
+
+    /// @dev cosmos/evm staking precompile: delegate/undelegate pooled AETHEL.
+    ///      AMOUNTS ARE IN THE BOND DENOM'S BASE UNITS (uaethel, 6 decimals) —
+    ///      the vault converts from its 18-decimal accounting via
+    ///      DECIMAL_BRIDGE before every call.
+    IStakingPrecompile internal constant STAKING =
+        IStakingPrecompile(0x0000000000000000000000000000000000000800);
+    /// @dev cosmos/evm distribution precompile: withdraw EARNED staking
+    ///      rewards; the chain credits them to the vault's native balance.
+    IDistributionPrecompile internal constant DISTRIBUTION =
+        IDistributionPrecompile(0x0000000000000000000000000000000000000801);
+    /// @dev x/precisebank bridges 6-decimal uaethel ↔ 18-decimal EVM units.
+    uint256 internal constant DECIMAL_BRIDGE = 1e12;
+
+    /// @notice Pooled AETHEL currently delegated to validators, in the same
+    ///         18-decimal units as totalPooledAethel. Delegated funds remain
+    ///         stakers' claim (inside totalPooledAethel) but leave the native
+    ///         balance — the free buffer shrinks accordingly.
+    uint256 public totalDelegated;
+    /// @notice Bonded principal per validator (18-decimal). Reconciled against
+    ///         the chain's own delegation record by {reconcileValidator}.
+    mapping(string => uint256) public delegatedTo;
+
+    /// @notice Pooled AETHEL in flight back to the vault: undelegated but not
+    ///         yet paid out by the chain's unbonding queue (18-decimal).
+    ///         Counts as coverage for the withdrawal queue — see queueDeficit.
+    uint256 public totalUnbonding;
+    /// @notice In-flight unbonding per validator (18-decimal).
+    mapping(string => uint256) public unbondingFrom;
+
+    /// @dev The vault's own record of each undelegation, FIFO per validator.
+    ///      completionTime comes from the chain (the precompile's return
+    ///      value); {syncUndelegations} pops matured entries. Slashing while
+    ///      unbonding is reconciled against the chain's entries — aggregates,
+    ///      not per-entry, because the chain merges same-height entries.
+    struct PendingUndelegation {
+        uint256 amountWei;
+        uint256 completionTime;
+    }
+
+    mapping(string => PendingUndelegation[]) internal pendingUndelegations;
+    mapping(string => uint256) internal pendingHead;
+
     // ── compliance gate (the Aethelred moat) ─────────────────────────────────
 
     ISeal internal constant SEAL = ISeal(0x0000000000000000000000000000000000000900);
@@ -113,6 +227,56 @@ contract Cruzible {
     /// @notice Stakers admitted through the compliance gate.
     mapping(address => bool) public complianceAdmitted;
 
+    // ── identity gate (ZeroID — the Aethelred identity layer) ────────────────
+
+    /// @notice When set and required, every stake entry additionally demands a
+    ///         registered, ACTIVE ZeroID identity for the staker. Checked live
+    ///         on every stake (never cached), so a suspension or revocation in
+    ///         ZeroID blocks new stakes immediately. Exits are NEVER
+    ///         identity-gated — a revoked identity can always leave.
+    IZeroIDRegistry public identityRegistry;
+    /// @notice Whether the identity gate is enforced.
+    bool public identityRequired;
+
+    // ── rate guard + instant exit (Phase-1 economic security) ────────────────
+
+    /// @notice Max exchange-rate rebase a single addRewards report may cause,
+    ///         in basis points of the current pool. Bounds the rewarder key:
+    ///         even a compromised key cannot move the rate arbitrarily in one
+    ///         transaction (Lido-style oracle sanity check). Hard cap 20%.
+    uint256 public maxRebaseBps = 500;
+    /// @notice Minimum seconds between reward reports. Floor 10 minutes.
+    uint256 public minRewardInterval = 1 hours;
+    /// @notice Timestamp of the last accepted reward report.
+    uint256 public lastRewardsAt;
+
+    /// @notice Fee on instant exits, in basis points. The fee REMAINS in the
+    ///         pool, rebasing every remaining holder upward. Hard cap 2%;
+    ///         raises are additionally step-bounded (max +50 bps per action)
+    ///         so a governance action cannot jump the fee on in-flight users.
+    uint256 public instantExitFeeBps = 50;
+    /// @dev Maximum fee increase a single governance action may apply.
+    uint256 internal constant MAX_FEE_RAISE_STEP_BPS = 50;
+
+    // ── in-contract economic limits (0 = disabled) ───────────────────────────
+
+    /// @notice TVL cap: staking that would push totalPooledAethel above this
+    ///         reverts. For staged rollouts (canary limits). Never gates exits.
+    uint256 public maxTotalPooled;
+    /// @notice Per-account cap on the resulting stAETHEL balance after a stake.
+    uint256 public maxStakePerAccount;
+    /// @notice Per-validator delegation cap, in bps of totalPooledAethel.
+    uint256 public maxValidatorBps;
+    /// @notice Minimum share of the pool that must remain liquid (native
+    ///         balance) after any delegation, in bps of totalPooledAethel.
+    uint256 public minBufferBps;
+    /// @dev Bound on batchWithdraw fan-out per call (keeper-work bound).
+    uint256 public constant MAX_BATCH_WITHDRAW = 100;
+    /// @dev Bound on matured-FIFO entries processed per sync call: progress is
+    ///      monotonic and the function is callable repeatedly, so no queue
+    ///      length can make it permanently uncallable.
+    uint256 internal constant MAX_SYNC_PER_CALL = 64;
+
     // ── misc ─────────────────────────────────────────────────────────────────
 
     bool public depositsPaused;
@@ -128,6 +292,21 @@ contract Cruzible {
 
     event Staked(address indexed user, uint256 amount, uint256 shares);
     event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId);
+    event InstantUnstaked(address indexed user, uint256 shares, uint256 amountPaid, uint256 fee);
+    event Delegated(string validator, uint256 amountWei);
+    event Undelegated(string validator, uint256 amountWei, int64 completionTime);
+    event QueueUndelegated(string validator, uint256 amountWei, address indexed caller);
+    event UndelegationsMatured(string validator, uint256 amountWei);
+    event SlashingRealized(string validator, uint256 lossWei, uint256 newTotalPooled);
+    event RealYieldClaimed(string validator, uint256 amountWei, uint256 newTotalPooled);
+    event RateGuardSet(uint256 maxRebaseBps, uint256 minRewardInterval);
+    event InstantExitFeeSet(uint256 feeBps);
+    event EconomicLimitsSet(
+        uint256 maxTotalPooled,
+        uint256 maxStakePerAccount,
+        uint256 maxValidatorBps,
+        uint256 minBufferBps
+    );
     event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount);
     event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount);
     event RewardsAdded(uint256 amount, uint256 newTotalPooled);
@@ -142,6 +321,7 @@ contract Cruzible {
         string[] dataResidency
     );
     event ComplianceAdmitted(address indexed staker, string sealId, string jobId);
+    event IdentityGateSet(address registry, bool required);
     event DepositsPausedSet(bool paused);
     event RoleSet(bytes32 indexed role, address account);
     event GovernanceTransferStarted(address indexed from, address indexed to);
@@ -164,7 +344,20 @@ contract Cruzible {
     error AlreadyClaimed();
     error NotYetClaimable();
     error Reentrancy();
+    error RebaseTooLarge();
+    error RewardsTooFrequent();
+    error InsufficientBuffer();
+    error SlippageExceeded();
+    error BadParam();
+    error DelegationFailed();
+    error NoQueueDeficit();
+    error TvlCapExceeded();
+    error AccountCapExceeded();
+    error ValidatorConcentrationExceeded();
+    error BufferPolicyViolated();
+    error BatchTooLarge();
     error ComplianceGateClosed(string reason);
+    error IdentityGateClosed(string reason);
     error SealAlreadyUsed(string sealId);
     error SealNotActive(string sealId);
     error SealNotBoundToStaker(string expectedPurpose);
@@ -237,8 +430,25 @@ contract Cruzible {
         if (address(stAethel) == address(0)) revert TokenNotSet();
         if (amount == 0) revert ZeroAmount();
         if (depositsPaused) revert DepositsArePaused();
+        if (identityRequired) {
+            bytes32 did = identityRegistry.resolveByController(staker);
+            if (did == bytes32(0)) {
+                revert IdentityGateClosed("no ZeroID identity registered for staker");
+            }
+            if (!identityRegistry.isActiveIdentity(did)) {
+                revert IdentityGateClosed("ZeroID identity is not active");
+            }
+        }
         if (complianceRequired && !complianceAdmitted[staker]) {
             revert ComplianceGateClosed("staker not admitted: present a Digital Seal via stakeWithSeal");
+        }
+        // In-contract economic limits (0 = disabled). Enforced on ENTRY only —
+        // exits are never gated by any limit.
+        if (maxTotalPooled != 0 && totalPooledAethel + amount > maxTotalPooled) {
+            revert TvlCapExceeded();
+        }
+        if (maxStakePerAccount != 0 && stAethel.balanceOf(staker) + amount > maxStakePerAccount) {
+            revert AccountCapExceeded();
         }
 
         // Shares at the CURRENT rate (before adding the new deposit).
@@ -308,6 +518,27 @@ contract Cruzible {
         emit ComplianceModeSet(required);
     }
 
+    /// @notice Governance wires the ZeroID identity registry and turns the
+    ///         identity gate on or off. The two admission layers compose:
+    ///         ZeroID answers "WHO is staking" (persistent, revocable
+    ///         identity), the Digital Seal answers "was THIS entry cleared"
+    ///         (per-job compliance attestation) — either or both can be on.
+    function setIdentityGate(address registry, bool required) external onlyGovernance {
+        if (required && registry == address(0)) revert BadParam();
+        identityRegistry = IZeroIDRegistry(registry);
+        identityRequired = required;
+        emit IdentityGateSet(registry, required);
+    }
+
+    /// @notice Whether `staker` currently passes the identity gate — the
+    ///         single call the frontend needs for its verification chip.
+    ///         True when the gate is off (nothing to verify against).
+    function isIdentityVerified(address staker) external view returns (bool) {
+        if (!identityRequired) return true;
+        bytes32 did = identityRegistry.resolveByController(staker);
+        return did != bytes32(0) && identityRegistry.isActiveIdentity(did);
+    }
+
     /// @notice Governance sets the CEAP policy staker seals must satisfy.
     function setCompliancePolicy(
         string[] calldata allowedBackends,
@@ -361,6 +592,293 @@ contract Cruzible {
         emit Unstaked(msg.sender, shares, aethelAmount, withdrawalId);
     }
 
+    /// @notice Exit immediately from the vault's free buffer, paying the
+    ///         instant-exit fee instead of waiting out the unbonding queue.
+    ///
+    ///         The free buffer is the vault's native balance minus every
+    ///         queued-withdrawal reservation and the segregated Merkle
+    ///         reserve — instant exits can never touch funds already promised
+    ///         to the queue or to reward programs. The fee stays in the pool,
+    ///         so every remaining holder rebases upward.
+    /// @param shares  stAETHEL shares to burn.
+    /// @param minOut  Slippage guard on the paid amount (post-fee).
+    function instantUnstake(uint256 shares, uint256 minOut)
+        external
+        nonReentrant
+        returns (uint256 amountPaid)
+    {
+        if (address(stAethel) == address(0)) revert TokenNotSet();
+        if (shares == 0) revert ZeroAmount();
+
+        uint256 aethelAmount = stAethel.getAethelByShares(shares);
+        if (aethelAmount == 0) revert ZeroAmount();
+        if (aethelAmount > totalPooledAethel) revert InsufficientPool();
+
+        uint256 fee = (aethelAmount * instantExitFeeBps) / 10_000;
+        amountPaid = aethelAmount - fee;
+        if (amountPaid < minOut) revert SlippageExceeded();
+        if (amountPaid > freeBuffer()) revert InsufficientBuffer();
+
+        stAethel.burnShares(msg.sender, shares);
+        // Only the PAID amount leaves the pool: the fee remains inside
+        // totalPooledAethel with fewer shares outstanding — a pro-rata
+        // rebase to everyone still staked.
+        totalPooledAethel -= amountPaid;
+
+        emit InstantUnstaked(msg.sender, shares, amountPaid, fee);
+
+        (bool sent, ) = payable(msg.sender).call{value: amountPaid}("");
+        require(sent, "transfer failed");
+    }
+
+    /// @notice Native balance not promised to the withdrawal queue or the
+    ///         Merkle reward reserve — the only funds instant exits (and new
+    ///         delegations) may use.
+    function freeBuffer() public view returns (uint256) {
+        uint256 promised = totalReserved + merkleReserve;
+        uint256 balance = address(this).balance;
+        return balance > promised ? balance - promised : 0;
+    }
+
+    // ── Phase-2 real yield: delegate pooled AETHEL, claim EARNED rewards ─────
+
+    /// @notice Delegate pooled AETHEL to a validator through the chain's
+    ///         staking precompile. The delegated amount remains the stakers'
+    ///         claim (totalPooledAethel is unchanged) but leaves the native
+    ///         balance — x/staking now holds it and it earns REAL rewards.
+    ///         Governance-operated during the rollout; queue and Merkle
+    ///         reservations are never delegatable.
+    /// @param validator  Bech32 valoper address.
+    /// @param amountWei  18-decimal amount; must be a whole uaethel multiple
+    ///                   (the 1e12 bridge would silently drop dust otherwise).
+    function delegateToValidator(string calldata validator, uint256 amountWei)
+        external
+        onlyGovernance
+        nonReentrant
+    {
+        if (amountWei == 0 || amountWei % DECIMAL_BRIDGE != 0) revert BadParam();
+        if (amountWei > freeBuffer()) revert InsufficientBuffer();
+        // In-contract delegation limits (0 = disabled): per-validator
+        // concentration cap and a minimum-liquid-buffer policy, both in bps
+        // of the pool.
+        if (
+            maxValidatorBps != 0 &&
+            (delegatedTo[validator] + amountWei) * 10_000 > totalPooledAethel * maxValidatorBps
+        ) {
+            revert ValidatorConcentrationExceeded();
+        }
+        if (
+            minBufferBps != 0 &&
+            (freeBuffer() - amountWei) * 10_000 < totalPooledAethel * minBufferBps
+        ) {
+            revert BufferPolicyViolated();
+        }
+
+        totalDelegated += amountWei;
+        delegatedTo[validator] += amountWei;
+        bool ok = STAKING.delegate(address(this), validator, amountWei / DECIMAL_BRIDGE);
+        if (!ok) revert DelegationFailed();
+        emit Delegated(validator, amountWei);
+    }
+
+    /// @notice Begin undelegating from a validator. The funds return to the
+    ///         vault's native balance automatically once the chain's
+    ///         unbonding period completes (x/staking pays out — no claim tx).
+    function undelegateFromValidator(string calldata validator, uint256 amountWei)
+        external
+        onlyGovernance
+        nonReentrant
+        returns (int64 completionTime)
+    {
+        if (amountWei == 0 || amountWei % DECIMAL_BRIDGE != 0) revert BadParam();
+        if (amountWei > delegatedTo[validator]) revert BadParam();
+
+        completionTime = _undelegate(validator, amountWei);
+    }
+
+    /// @notice Cover the withdrawal queue from delegated funds: undelegates
+    ///         exactly the queue's uncovered deficit (rounded up to a whole
+    ///         uaethel), capped by what is delegated to `validator`.
+    ///         PERMISSIONLESS — the amount is COMPUTED from the deficit, not
+    ///         caller-chosen, and it can only move funds from a validator back
+    ///         toward stakers who are already owed them; a keeper or a queued
+    ///         withdrawer can call it. This closes the operational gap between
+    ///         queued exits and real chain undelegations.
+    function undelegateForQueue(string calldata validator)
+        external
+        nonReentrant
+        returns (uint256 amountWei)
+    {
+        _syncUndelegations(validator);
+
+        uint256 deficit = queueDeficit();
+        if (deficit == 0) revert NoQueueDeficit();
+
+        // Round UP to a whole uaethel so a dusty deficit is fully coverable.
+        amountWei = ((deficit + DECIMAL_BRIDGE - 1) / DECIMAL_BRIDGE) * DECIMAL_BRIDGE;
+        uint256 available = delegatedTo[validator];
+        if (available == 0) revert BadParam();
+        if (amountWei > available) amountWei = available; // partial cover
+
+        _undelegate(validator, amountWei);
+        emit QueueUndelegated(validator, amountWei, msg.sender);
+    }
+
+    /// @notice Pop this validator's matured undelegations from the vault's
+    ///         FIFO: the chain has paid those funds into the vault's balance,
+    ///         so they stop counting as in-flight coverage. Permissionless.
+    function syncUndelegations(string calldata validator) external returns (uint256 maturedWei) {
+        return _syncUndelegations(validator);
+    }
+
+    /// @notice Realize slashing losses against consensus truth. Compares the
+    ///         vault's recorded bonded and in-flight-unbonding amounts with
+    ///         the staking precompile's own state and socializes any shortfall
+    ///         across the pool — every holder rebases down pro-rata (the
+    ///         incumbent model) instead of the last exiters absorbing the
+    ///         whole loss. PERMISSIONLESS: it reads chain state and can only
+    ///         mark the rate DOWN to reality, never up.
+    function reconcileValidator(string calldata validator)
+        external
+        nonReentrant
+        returns (uint256 lossWei)
+    {
+        _syncUndelegations(validator);
+
+        // Bonded principal vs the chain's delegation record.
+        uint256 recordedBonded = delegatedTo[validator];
+        if (recordedBonded > 0) {
+            (, IStakingPrecompile.Coin memory bal) = STAKING.delegation(address(this), validator);
+            uint256 actualWei = bal.amount * DECIMAL_BRIDGE;
+            if (actualWei < recordedBonded) {
+                uint256 loss = recordedBonded - actualWei;
+                delegatedTo[validator] = actualWei;
+                totalDelegated -= loss;
+                lossWei += loss;
+            }
+        }
+
+        // In-flight unbonding vs the chain's (unmatured) entries. Entries can
+        // be slashed while unbonding. Compare AGGREGATES — the chain merges
+        // same-height entries, so per-entry alignment is not guaranteed — and
+        // apply any shortfall to the vault's recorded FIFO from the tail so
+        // maturity accounting stays exact.
+        uint256 recordedUnbonding = unbondingFrom[validator];
+        if (recordedUnbonding > 0) {
+            IStakingPrecompile.UnbondingDelegationOutput memory u =
+                STAKING.unbondingDelegation(address(this), validator);
+            uint256 actualWei;
+            for (uint256 i = 0; i < u.entries.length; i++) {
+                actualWei += u.entries[i].balance * DECIMAL_BRIDGE;
+            }
+            if (actualWei < recordedUnbonding) {
+                uint256 loss = recordedUnbonding - actualWei;
+                _applyUnbondingLoss(validator, loss);
+                unbondingFrom[validator] = actualWei;
+                totalUnbonding -= loss;
+                lossWei += loss;
+            }
+        }
+
+        if (lossWei > 0) {
+            // Socialize. The pool can never go below zero even in a
+            // catastrophic (100%) slash of everything delegated.
+            uint256 applied = lossWei > totalPooledAethel ? totalPooledAethel : lossWei;
+            totalPooledAethel -= applied;
+            emit SlashingRealized(validator, lossWei, totalPooledAethel);
+        }
+    }
+
+    /// @notice Native AETHEL the withdrawal queue (and Merkle reserve) is owed
+    ///         beyond what the balance plus in-flight undelegations cover.
+    ///         A positive deficit opens the permissionless {undelegateForQueue}.
+    function queueDeficit() public view returns (uint256) {
+        uint256 promised = totalReserved + merkleReserve;
+        uint256 covered = address(this).balance + totalUnbonding;
+        return promised > covered ? promised - covered : 0;
+    }
+
+    /// @notice Total assets under management: native balance + bonded
+    ///         delegations + in-flight undelegations. The Phase-2 solvency
+    ///         invariant is totalManaged() >= totalPooledAethel +
+    ///         totalReserved + merkleReserve (strictly greater once rewards
+    ///         accrue between claims).
+    function totalManaged() public view returns (uint256) {
+        return address(this).balance + totalDelegated + totalUnbonding;
+    }
+
+    function _undelegate(string calldata validator, uint256 amountWei)
+        internal
+        returns (int64 completionTime)
+    {
+        totalDelegated -= amountWei;
+        delegatedTo[validator] -= amountWei;
+        totalUnbonding += amountWei;
+        unbondingFrom[validator] += amountWei;
+
+        completionTime = STAKING.undelegate(address(this), validator, amountWei / DECIMAL_BRIDGE);
+        pendingUndelegations[validator].push(
+            PendingUndelegation({amountWei: amountWei, completionTime: uint256(uint64(completionTime))})
+        );
+        emit Undelegated(validator, amountWei, completionTime);
+    }
+
+    function _syncUndelegations(string calldata validator) internal returns (uint256 maturedWei) {
+        PendingUndelegation[] storage q = pendingUndelegations[validator];
+        uint256 head = pendingHead[validator];
+        uint256 len = q.length;
+        // Bounded work per call: progress is monotonic and the function is
+        // permissionless + repeatable, so no FIFO length can make it
+        // permanently uncallable.
+        uint256 limit = head + MAX_SYNC_PER_CALL;
+        while (head < len && head < limit && q[head].completionTime <= block.timestamp) {
+            maturedWei += q[head].amountWei;
+            delete q[head];
+            head++;
+        }
+        if (maturedWei > 0) {
+            pendingHead[validator] = head;
+            totalUnbonding -= maturedWei;
+            unbondingFrom[validator] -= maturedWei;
+            emit UndelegationsMatured(validator, maturedWei);
+        }
+    }
+
+    /// @dev Absorb an unbonding-slash into the recorded FIFO, newest entries
+    ///      first, so a later {_syncUndelegations} releases exactly what the
+    ///      chain will actually pay.
+    function _applyUnbondingLoss(string calldata validator, uint256 loss) internal {
+        PendingUndelegation[] storage q = pendingUndelegations[validator];
+        uint256 head = pendingHead[validator];
+        uint256 i = q.length;
+        while (loss > 0 && i > head) {
+            i--;
+            uint256 cut = q[i].amountWei < loss ? q[i].amountWei : loss;
+            q[i].amountWei -= cut;
+            loss -= cut;
+        }
+    }
+
+    /// @notice Withdraw the vault's EARNED x/staking rewards from a validator
+    ///         and fold them into the pool: the exchange rate rises from real,
+    ///         consensus-verified yield — not an operator's report. The
+    ///         addRewards rate guard does not apply here; these amounts are
+    ///         chain truth. PERMISSIONLESS: anyone may trigger a claim, since
+    ///         it can only ever benefit every staker.
+    function claimStakingRewards(string calldata validator)
+        external
+        nonReentrant
+        returns (uint256 claimedWei)
+    {
+        uint256 before = address(this).balance;
+        DISTRIBUTION.withdrawDelegatorRewards(address(this), validator);
+        claimedWei = address(this).balance - before;
+        if (claimedWei > 0) {
+            totalPooledAethel += claimedWei;
+            emit RealYieldClaimed(validator, claimedWei, totalPooledAethel);
+        }
+    }
+
     /// @notice Claim a matured withdrawal: native AETHEL is paid out.
     function withdraw(uint256 withdrawalId) public nonReentrant {
         Withdrawal storage w = _ownedWithdrawal(withdrawalId);
@@ -375,8 +893,12 @@ contract Cruzible {
         require(sent, "transfer failed");
     }
 
-    /// @notice Claim several matured withdrawals in one transaction.
+    /// @notice Claim several matured withdrawals in one transaction. Bounded
+    ///         to MAX_BATCH_WITHDRAW entries per call so a caller cannot
+    ///         construct an unbounded-gas loop; larger sets are claimed over
+    ///         multiple calls.
     function batchWithdraw(uint256[] calldata withdrawalIds) external {
+        if (withdrawalIds.length > MAX_BATCH_WITHDRAW) revert BatchTooLarge();
         for (uint256 i = 0; i < withdrawalIds.length; i++) {
             withdraw(withdrawalIds[i]);
         }
@@ -396,8 +918,63 @@ contract Cruzible {
     ///         treasury routing).
     function addRewards() external payable onlyRewarder {
         if (msg.value == 0) revert ZeroAmount();
+        // Rate guard: a single report may not rebase the pool by more than
+        // maxRebaseBps, and reports may not arrive faster than
+        // minRewardInterval. This bounds the rewarder key itself — a
+        // compromised or fat-fingered key cannot swing the exchange rate in
+        // one transaction (the incumbent-standard oracle sanity check).
+        // No previous report → nothing to rate-limit against.
+        if (lastRewardsAt != 0 && block.timestamp < lastRewardsAt + minRewardInterval) {
+            revert RewardsTooFrequent();
+        }
+        if (totalPooledAethel > 0 && msg.value * 10_000 > totalPooledAethel * maxRebaseBps) {
+            revert RebaseTooLarge();
+        }
+        lastRewardsAt = block.timestamp;
         totalPooledAethel += msg.value;
         emit RewardsAdded(msg.value, totalPooledAethel);
+    }
+
+    /// @notice Tune the reward-report guard, within hard bounds the guard
+    ///         itself enforces: the cap can never exceed 20% per report and
+    ///         the interval can never drop below 10 minutes — governance is
+    ///         bounded too.
+    function setRateGuard(uint256 maxRebaseBps_, uint256 minRewardInterval_) external onlyGovernance {
+        if (maxRebaseBps_ == 0 || maxRebaseBps_ > 2000 || minRewardInterval_ < 10 minutes) revert BadParam();
+        maxRebaseBps = maxRebaseBps_;
+        minRewardInterval = minRewardInterval_;
+        emit RateGuardSet(maxRebaseBps_, minRewardInterval_);
+    }
+
+    /// @notice Tune the instant-exit fee: hard-capped at 2%, and raises are
+    ///         step-bounded to +50 bps per action so no single governance
+    ///         action can jump the fee on users with transactions in flight.
+    ///         Lowering is always unrestricted.
+    function setInstantExitFee(uint256 feeBps) external onlyGovernance {
+        if (feeBps > 200) revert BadParam();
+        if (feeBps > instantExitFeeBps && feeBps - instantExitFeeBps > MAX_FEE_RAISE_STEP_BPS) {
+            revert BadParam();
+        }
+        instantExitFeeBps = feeBps;
+        emit InstantExitFeeSet(feeBps);
+    }
+
+    /// @notice Set the in-contract economic limits (0 disables a limit):
+    ///         TVL cap and per-account cap bind on ENTRY only; the validator
+    ///         concentration cap and minimum-buffer policy bind on DELEGATION.
+    ///         Exits are never limited. For staged/canary rollouts.
+    function setEconomicLimits(
+        uint256 maxTotalPooled_,
+        uint256 maxStakePerAccount_,
+        uint256 maxValidatorBps_,
+        uint256 minBufferBps_
+    ) external onlyGovernance {
+        if (maxValidatorBps_ > 10_000 || minBufferBps_ > 10_000) revert BadParam();
+        maxTotalPooled = maxTotalPooled_;
+        maxStakePerAccount = maxStakePerAccount_;
+        maxValidatorBps = maxValidatorBps_;
+        minBufferBps = minBufferBps_;
+        emit EconomicLimitsSet(maxTotalPooled_, maxStakePerAccount_, maxValidatorBps_, minBufferBps_);
     }
 
     /// @notice Advance the epoch, checkpointing the exchange rate so APY is

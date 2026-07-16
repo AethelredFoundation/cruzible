@@ -32,6 +32,14 @@ const DEVNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL;
 /**
  * Resolve an RPC endpoint with an optional env override, so an operator can
  * point Cruzible at their own aethelredd node without editing source.
+ *
+ * IMPORTANT: the override MUST be passed in as a literal
+ * `process.env.NEXT_PUBLIC_*` expression at the CALL SITE. Next.js inlines
+ * client env vars only for literal property reads — a dynamic
+ * `process.env[name]` lookup compiles to `undefined` in the browser bundle,
+ * which silently disabled every RPC override here no matter what the
+ * operator set, leaving the never-deployed fallback domains. Same root
+ * cause as the ZeroID chains.ts fix.
  */
 function rpcEndpoint(override: string | undefined, fallback: string): string {
   const trimmed = override?.trim();

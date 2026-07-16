@@ -29,6 +29,24 @@ export const CruzibleABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
   {
+    // ZeroID identity gate (three-way integration): when true, every stake
+    // entry requires a registered, ACTIVE ZeroID identity for the staker.
+    name: "identityRequired",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    // Single-call verification surface for the UI chip. True when the gate
+    // is off (nothing to verify against).
+    name: "isIdentityVerified",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "staker", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
     name: "currentEpoch",
     type: "function",
     stateMutability: "view",
@@ -79,10 +97,21 @@ export const CruzibleABI = [
   // ERC-20 amount argument — the previous nonpayable stake(uint256) shape
   // matched a token model the shipped contract never had.
   {
+    // Native staking: the deployed vault takes AETHEL as msg.value —
+    // matches backend/contracts-evm/artifacts/Cruzible.abi.
     name: "stake",
     type: "function",
     stateMutability: "payable",
     inputs: [],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+  {
+    // Compliance-gated entry: verifies the Digital Seal for the given PoUW
+    // job via the ISeal precompile before admitting the stake.
+    name: "stakeWithSeal",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [{ name: "jobId", type: "string" }],
     outputs: [{ name: "shares", type: "uint256" }],
   },
   {
