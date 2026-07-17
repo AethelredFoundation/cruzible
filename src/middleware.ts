@@ -271,17 +271,21 @@ export function buildContentSecurityPolicy({
       "'strict-dynamic'",
       ...(isProduction ? [] : ["'unsafe-eval'", "'unsafe-inline'"]),
     ],
+    // Dev note: when a nonce is present, browsers IGNORE 'unsafe-inline' in
+    // the same directive (CSP2 backwards-compat rule). Next.js dev injects
+    // nonce-less <style> tags for the global/Tailwind CSS, so emitting the
+    // nonce here in development blocks every stylesheet and the app renders
+    // unstyled. Development therefore gets 'unsafe-inline' WITHOUT the
+    // nonce; production keeps the strict nonce-only policy.
     [
       "style-src",
       "'self'",
-      nonceSource,
-      ...(isProduction ? [] : ["'unsafe-inline'"]),
+      ...(isProduction ? [nonceSource] : ["'unsafe-inline'"]),
     ],
     [
       "style-src-elem",
       "'self'",
-      nonceSource,
-      ...(isProduction ? [] : ["'unsafe-inline'"]),
+      ...(isProduction ? [nonceSource] : ["'unsafe-inline'"]),
     ],
     [
       "style-src-attr",
