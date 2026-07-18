@@ -6,7 +6,6 @@ const dockerfiles = [
   "Dockerfile",
   "backend/api/Dockerfile",
   "backend/contracts/Dockerfile",
-  "backend/node/Dockerfile",
 ];
 
 describe("Dockerfile base image pinning", () => {

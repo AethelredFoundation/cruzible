@@ -5,14 +5,14 @@
     "repository": "aethelred-foundation/cruzible",
     "state": "open_on_default_branch",
     "captured_at": "2026-06-27",
-    "alert_count": 105,
+    "alert_count": 100,
     "severity_counts": {
       "critical": 1,
       "high": 39,
-      "medium": 58,
+      "medium": 53,
       "low": 7
     },
-    "note": "Grouped remediation register for the 105 Dependabot alerts visible on the default branch before this hardening pass. The current branch is validated offline against these vulnerable ranges."
+    "note": "Grouped remediation register for the 100 Dependabot alerts in the retained Cruzible release scope before this hardening pass. Five alerts belonged to the deleted, noncanonical backend/node scaffold; the current branch is validated offline against the remaining vulnerable ranges."
   },
   "groups": [
     {
@@ -182,22 +182,6 @@
         "GHSA-p88m-4jfj-68fv",
         "GHSA-pr7r-676h-xcf6",
         "GHSA-vmh5-mc38-953g"
-      ]
-    },
-    {
-      "manifest_path": "backend/node/Cargo.toml",
-      "ecosystem": "rust",
-      "package_name": "wasmtime",
-      "alert_count": 5,
-      "max_severity": "medium",
-      "vulnerable_ranges": ["< 24.0.7"],
-      "first_patched_versions": ["24.0.7"],
-      "advisory_ids": [
-        "GHSA-394w-hwhg-8vgm",
-        "GHSA-hx6p-xpx3-jvvv",
-        "GHSA-jxhv-7h78-9775",
-        "GHSA-m758-wjhj-p3jq",
-        "GHSA-qqfj-4vcm-26hv"
       ]
     },
     {

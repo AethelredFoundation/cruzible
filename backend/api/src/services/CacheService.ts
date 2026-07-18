@@ -10,6 +10,11 @@ type CacheEntry = {
   value: unknown;
 };
 
+type MemoryLease = {
+  expiresAt: number;
+  owner: string;
+};
+
 type CacheEnvelope = {
   value: unknown;
 };
@@ -31,6 +36,8 @@ export function buildCacheKey(...parts: readonly CacheKeyPart[]): string {
 @singleton()
 export class CacheService {
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly leases = new Map<string, MemoryLease>();
+  private readonly actionClaims = new Map<string, number>();
   private redis: Redis | null = null;
 
   async connect(): Promise<void> {
@@ -71,6 +78,8 @@ export class CacheService {
 
   async disconnect(): Promise<void> {
     this.cache.clear();
+    this.leases.clear();
+    this.actionClaims.clear();
 
     if (!this.redis) {
       return;
@@ -163,6 +172,290 @@ export class CacheService {
     this.setMemoryEntry(key, value, expiresAt);
   }
 
+  /**
+   * Acquire a process-fencing lease. Unlike ordinary cache writes, lease
+   * operations never fall back to process-local memory after a connected
+   * Redis client errors: doing so could create two leaders during a network
+   * partition. Memory leases are used only when Redis was never configured,
+   * which is forbidden by production configuration validation.
+   */
+  async tryAcquireLease(
+    key: string,
+    owner: string,
+    ttlMs: number,
+  ): Promise<boolean> {
+    this.assertValidLeaseInput(key, owner, ttlMs);
+    const redisKey = this.formatKey(`lease:${key}`);
+
+    if (this.redis) {
+      try {
+        const result = await this.redis.set(
+          redisKey,
+          owner,
+          "PX",
+          Math.floor(ttlMs),
+          "NX",
+        );
+        return result === "OK";
+      } catch (error) {
+        logger.error("Redis lease acquisition failed closed", {
+          key,
+          ...errorContext(error),
+        });
+        return false;
+      }
+    }
+
+    if (config.isProduction) {
+      logger.error("Redis lease backend is unavailable in production", {
+        key,
+      });
+      return false;
+    }
+
+    const now = Date.now();
+    const current = this.leases.get(key);
+    if (current && current.expiresAt > now) {
+      return false;
+    }
+
+    this.leases.set(key, {
+      owner,
+      expiresAt: now + Math.floor(ttlMs),
+    });
+    return true;
+  }
+
+  async renewLease(
+    key: string,
+    owner: string,
+    ttlMs: number,
+  ): Promise<boolean> {
+    this.assertValidLeaseInput(key, owner, ttlMs);
+    const redisKey = this.formatKey(`lease:${key}`);
+
+    if (this.redis) {
+      try {
+        const result = await this.redis.eval(
+          `if redis.call("GET", KEYS[1]) == ARGV[1] then
+             return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+           end
+           return 0`,
+          1,
+          redisKey,
+          owner,
+          String(Math.floor(ttlMs)),
+        );
+        return Number(result) === 1;
+      } catch (error) {
+        logger.error("Redis lease renewal failed closed", {
+          key,
+          ...errorContext(error),
+        });
+        return false;
+      }
+    }
+
+    if (config.isProduction) {
+      return false;
+    }
+
+    const now = Date.now();
+    const current = this.leases.get(key);
+    if (!current) {
+      return false;
+    }
+    if (current.expiresAt <= now) {
+      this.leases.delete(key);
+      return false;
+    }
+    if (current.owner !== owner) {
+      return false;
+    }
+
+    current.expiresAt = now + Math.floor(ttlMs);
+    return true;
+  }
+
+  async releaseLease(key: string, owner: string): Promise<boolean> {
+    if (!key || !owner) {
+      throw new Error("Lease key and owner must be non-empty");
+    }
+    const redisKey = this.formatKey(`lease:${key}`);
+
+    if (this.redis) {
+      try {
+        const result = await this.redis.eval(
+          `if redis.call("GET", KEYS[1]) == ARGV[1] then
+             return redis.call("DEL", KEYS[1])
+           end
+           return 0`,
+          1,
+          redisKey,
+          owner,
+        );
+        return Number(result) === 1;
+      } catch (error) {
+        logger.error("Redis lease release failed closed", {
+          key,
+          ...errorContext(error),
+        });
+        return false;
+      }
+    }
+
+    if (config.isProduction) {
+      return false;
+    }
+
+    const current = this.leases.get(key);
+    if (!current || current.owner !== owner) {
+      return false;
+    }
+
+    this.leases.delete(key);
+    return true;
+  }
+
+  async isLeaseOwner(key: string, owner: string): Promise<boolean> {
+    if (!key || !owner) {
+      throw new Error("Lease key and owner must be non-empty");
+    }
+    const redisKey = this.formatKey(`lease:${key}`);
+
+    if (this.redis) {
+      try {
+        return (await this.redis.get(redisKey)) === owner;
+      } catch (error) {
+        logger.error("Redis lease ownership check failed closed", {
+          key,
+          ...errorContext(error),
+        });
+        return false;
+      }
+    }
+
+    if (config.isProduction) {
+      return false;
+    }
+
+    const current = this.leases.get(key);
+    if (!current) return false;
+    if (current.expiresAt <= Date.now()) {
+      this.leases.delete(key);
+      return false;
+    }
+    return current.owner === owner;
+  }
+
+  /** Atomically publish shared state only while `owner` still holds `leaseKey`. */
+  async publishWhileLeaseOwner(
+    leaseKey: string,
+    owner: string,
+    key: string,
+    value: unknown,
+    ttlSeconds: number,
+  ): Promise<boolean> {
+    const ttl = Math.floor(ttlSeconds);
+    if (!leaseKey || !owner || !key || ttl <= 0) {
+      throw new Error(
+        "Lease key, owner, publication key, and a positive TTL are required",
+      );
+    }
+
+    const formattedLeaseKey = this.formatKey(`lease:${leaseKey}`);
+    const formattedValueKey = this.formatKey(key);
+    const serialized = this.serialize(value);
+
+    if (this.redis) {
+      try {
+        const result = await this.redis.eval(
+          `if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+             return 0
+           end
+           redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
+           return 1`,
+          2,
+          formattedLeaseKey,
+          formattedValueKey,
+          owner,
+          serialized,
+          String(ttl),
+        );
+        return Number(result) === 1;
+      } catch (error) {
+        logger.error("Redis fenced publication failed closed", {
+          key,
+          ...errorContext(error),
+        });
+        return false;
+      }
+    }
+
+    if (config.isProduction || !(await this.isLeaseOwner(leaseKey, owner))) {
+      return false;
+    }
+
+    this.setMemoryEntry(key, value, Date.now() + ttl * 1000);
+    return true;
+  }
+
+  /**
+   * Atomically claim an idempotent side effect while a lease is still held.
+   * A successful claim may be delivered after lease expiry, but no replacement
+   * leader can claim the same generation/action a second time.
+   */
+  async claimLeaseAction(
+    leaseKey: string,
+    owner: string,
+    actionKey: string,
+    ttlSeconds: number,
+  ): Promise<boolean> {
+    const ttl = Math.floor(ttlSeconds);
+    if (!leaseKey || !owner || !actionKey || ttl <= 0) {
+      throw new Error(
+        "Lease key, owner, action key, and a positive TTL are required",
+      );
+    }
+
+    const formattedLeaseKey = this.formatKey(`lease:${leaseKey}`);
+    const formattedActionKey = this.formatKey(`action:${actionKey}`);
+    if (this.redis) {
+      try {
+        const result = await this.redis.eval(
+          `if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+             return 0
+           end
+           local claimed = redis.call("SET", KEYS[2], ARGV[1], "EX", ARGV[2], "NX")
+           if claimed then return 1 end
+           return 0`,
+          2,
+          formattedLeaseKey,
+          formattedActionKey,
+          owner,
+          String(ttl),
+        );
+        return Number(result) === 1;
+      } catch (error) {
+        logger.error("Redis fenced action claim failed closed", {
+          actionKey,
+          ...errorContext(error),
+        });
+        return false;
+      }
+    }
+
+    if (config.isProduction || !(await this.isLeaseOwner(leaseKey, owner))) {
+      return false;
+    }
+
+    const now = Date.now();
+    const existingExpiry = this.actionClaims.get(actionKey);
+    if (existingExpiry && existingExpiry > now) return false;
+    this.actionClaims.set(actionKey, now + ttl * 1000);
+    return true;
+  }
+
   private setMemoryEntry(key: string, value: unknown, expiresAt: number): void {
     this.cache.delete(key);
     this.cache.set(key, {
@@ -186,6 +479,18 @@ export class CacheService {
         return;
       }
       this.cache.delete(oldestKey);
+    }
+  }
+
+  private assertValidLeaseInput(
+    key: string,
+    owner: string,
+    ttlMs: number,
+  ): void {
+    if (!key || !owner || !Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+      throw new Error(
+        "Lease key and owner must be non-empty and ttlMs must be a positive safe integer",
+      );
     }
   }
 

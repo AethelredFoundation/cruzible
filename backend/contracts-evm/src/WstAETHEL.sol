@@ -4,6 +4,7 @@ pragma solidity 0.8.20;
 interface IStAETHEL {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transferShares(address to, uint256 sharesAmount) external returns (uint256 aethelAmount);
     function sharesOf(address account) external view returns (uint256);
     function getSharesByAethel(uint256 aethelAmount) external view returns (uint256);
     function getAethelByShares(uint256 sharesAmount) external view returns (uint256);
@@ -33,6 +34,7 @@ contract WstAETHEL {
     error PermitExpired();
     error InvalidSignature();
     error TransferFailed();
+    error Reentrancy();
 
     // ── metadata ─────────────────────────────────────────────────────────
     string public constant name = "Wrapped stAETHEL";
@@ -45,6 +47,7 @@ contract WstAETHEL {
     uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
+    uint256 private locked = 1;
 
     // ── EIP-2612 state ───────────────────────────────────────────────────
     mapping(address => uint256) public nonces;
@@ -61,12 +64,19 @@ contract WstAETHEL {
         stAethel = IStAETHEL(stAethel_);
     }
 
+    modifier nonReentrant() {
+        if (locked != 1) revert Reentrancy();
+        locked = 2;
+        _;
+        locked = 1;
+    }
+
     // ── wrap / unwrap ────────────────────────────────────────────────────
 
     /// @notice Lock `stAethelAmount` of rebasing stAETHEL, mint fixed wstAETHEL.
     /// @return wstAmount the wst minted — the wrapper's ACTUAL share delta, so
     ///         floor-rounding in the rebasing token can never mint unbacked wst.
-    function wrap(uint256 stAethelAmount) external returns (uint256 wstAmount) {
+    function wrap(uint256 stAethelAmount) external nonReentrant returns (uint256 wstAmount) {
         if (stAethelAmount == 0) revert ZeroAmount();
 
         uint256 sharesBefore = stAethel.sharesOf(address(this));
@@ -85,7 +95,7 @@ contract WstAETHEL {
     }
 
     /// @notice Burn `wstAmount`, receive its CURRENT stAETHEL value.
-    function unwrap(uint256 wstAmount) external returns (uint256 stAethelAmount) {
+    function unwrap(uint256 wstAmount) external nonReentrant returns (uint256 stAethelAmount) {
         if (wstAmount == 0) revert ZeroAmount();
         uint256 held = balanceOf[msg.sender];
         if (held < wstAmount) revert InsufficientBalance();
@@ -101,7 +111,8 @@ contract WstAETHEL {
 
         // CRZ-01: check the return — unwrap has already burned the wst, so a
         // silent-false transfer would otherwise leave the user with neither.
-        if (!stAethel.transfer(msg.sender, stAethelAmount)) revert TransferFailed();
+        uint256 transferredAmount = stAethel.transferShares(msg.sender, wstAmount);
+        if (transferredAmount != stAethelAmount) revert TransferFailed();
         emit Unwrapped(msg.sender, wstAmount, stAethelAmount);
     }
 
@@ -174,15 +185,9 @@ contract WstAETHEL {
         );
     }
 
-    function permit(
-        address owner,
-        address spender,
-        uint256 value,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external {
+    function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+    {
         if (block.timestamp > deadline) revert PermitExpired();
 
         bytes32 digest = keccak256(

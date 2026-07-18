@@ -1,27 +1,29 @@
 # Cruzible Backend
 
-This directory contains the backend-side pieces of the Cruzible workspace: the API gateway, CosmWasm contracts, node scaffold, and infrastructure scaffolding. This README is intentionally scoped to what is actually present in the repository today.
+This directory contains the backend-side pieces of the Cruzible workspace: the API gateway, canonical EVM contracts, the earlier Cosmos-native contract track, and infrastructure scaffolding. This README is intentionally scoped to what is actually present in the repository today.
 
 ## Directory Map
 
-| Path                   | Purpose                                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `backend/api`          | Express/TypeScript API gateway with health, docs, blocks, jobs, reconciliation, alerts, and stablecoin routes |
-| `backend/contracts`    | CosmWasm contracts plus audit/test documentation                                                              |
-| `backend/node`         | Incomplete node scaffold; not part of the production Compose or audit-candidate release scope                 |
-| `backend/infra`        | Docker Compose scaffold for a fuller deployment footprint                                                     |
-| `backend/.env.example` | Backend env template and operator reference input                                                             |
+| Path                    | Purpose                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `backend/api`           | Express/TypeScript API gateway with health, docs, blocks, jobs, reconciliation, alerts, and stablecoin routes |
+| `backend/contracts-evm` | Canonical Solidity vault, receipt token, wrapper, and Foundry tests                                            |
+| `backend/contracts`     | Earlier Cosmos-native contract track plus audit/test documentation                                            |
+| `backend/infra`         | Docker Compose scaffold for a fuller deployment footprint                                                     |
+| `backend/.env.example`  | Backend env template and operator reference input                                                             |
 
 ## API Gateway Surface
 
-## Node Scaffold Scope
+## Canonical Chain Runtime
 
-`backend/node` is intentionally de-scoped from the production Docker Compose
-stack until it has a complete Cargo workspace, binary target, committed
-`Cargo.lock`, passing build/test evidence, and cargo-audit coverage. Production
-API and indexer deployments must point `RPC_URL`, `GRPC_URL`,
-`INDEXER_RPC_URL`, and `INDEXER_WS_URL` at an externally managed, reviewed node
-endpoint.
+Cruzible does not vendor or build the Aethelred node. The canonical chain is
+maintained in
+[`aethelred-foundation/aethelred`](https://github.com/aethelred-foundation/aethelred).
+Production API and indexer deployments must point `RPC_URL`, `GRPC_URL`,
+`INDEXER_RPC_URL`, and `INDEXER_WS_URL` at operator-managed endpoints backed by
+an explicitly pinned and reviewed chain release. The dependency-policy gate
+rejects reintroduction of an in-repository `backend/node` scaffold so a partial
+node cannot be mistaken for a release artifact.
 
 ### Public endpoints
 
@@ -102,9 +104,12 @@ npm run test:coverage
 npm run db:migrate:status
 npm run db:migrate:deploy
 
-# Contract tests
-cd ../contracts
-cargo test --all
+# Canonical EVM contract compile, artifact-integrity check, and tests
+cd ../..
+npm run contracts:evm:check
+
+# Earlier Cosmos-native track
+cd backend/contracts && cargo test --all
 ```
 
 ## Environment and Ops Docs

@@ -1,21 +1,13 @@
 import { Prisma, PrismaClient } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { singleton } from "tsyringe";
 import { BlockchainService } from "./BlockchainService";
-import {
-  bytesToHex,
-  computeCanonicalDelegationPayload,
-  computeDelegationRegistryRoot,
-  computeEligibleUniverseHash,
-  computeStakeSnapshotHash,
-  computeStakerRegistryRoot,
-} from "../lib/protocolSdk";
+import { bytesToHex, computeEligibleUniverseHash } from "../lib/protocolSdk";
 import { resolveProtocolEpoch } from "../lib/protocolEpoch";
-
-type ProtocolStaker = {
-  address: string;
-  shares: string;
-  delegated_to: string;
-};
+import {
+  getConfiguredIndexerCursorKey,
+  getConfiguredIndexerNetworkKeys,
+} from "../lib/indexerNetworkIdentity";
 
 type LiveReconciliationOptions = {
   validatorLimit: number;
@@ -114,9 +106,28 @@ export type LiveReconciliationDocument = {
       total_eligible_validators: number;
     };
   };
+  stake_supply?: {
+    observed: {
+      holder_total_shares: string;
+      vault_total_shares?: string;
+    };
+    meta: {
+      holder_count: number;
+      matches_vault_total: boolean | null;
+    };
+  };
+  /**
+   * Historical documents may contain this legacy shape. New live captures do
+   * not produce it until the protocol exposes canonical allocation evidence;
+   * transferable stAETHEL holders cannot be assigned to a validator target.
+   */
   stake_snapshot?: {
     input: {
-      stakers: ProtocolStaker[];
+      stakers: {
+        address: string;
+        shares: string;
+        delegated_to: string;
+      }[];
     };
     observed: {
       stake_snapshot_hash: string;
@@ -136,7 +147,8 @@ export type LiveReconciliationDocument = {
   };
 };
 
-type LiveStakeSnapshotBuildResult = {
+type LiveStakeSupplyBuildResult = {
+  stake_supply?: LiveReconciliationDocument["stake_supply"];
   stake_snapshot?: LiveReconciliationDocument["stake_snapshot"];
 };
 
@@ -229,8 +241,7 @@ export class ReconciliationService {
       });
     }
 
-    const { stake_snapshot } = await this.buildStakeSnapshot(
-      epoch,
+    const { stake_supply, stake_snapshot } = await this.buildStakeSupply(
       warnings,
       discrepancies,
     );
@@ -243,7 +254,7 @@ export class ReconciliationService {
       source: {
         epoch_source: epochSource,
         validator_source: "rpc/staking.validators",
-        stake_source: "indexer.stAethelBalance+delegation",
+        stake_source: "indexer.stAethelBalance.shares+vaultState.totalShares",
         validator_limit: options.validatorLimit,
         validator_count: presentedAddresses.length,
         total_eligible_validators: allEligibleAddresses.length,
@@ -263,6 +274,7 @@ export class ReconciliationService {
           total_eligible_validators: allEligibleAddresses.length,
         },
       },
+      ...(stake_supply ? { stake_supply } : {}),
       ...(stake_snapshot ? { stake_snapshot } : {}),
     };
 
@@ -414,254 +426,224 @@ export class ReconciliationService {
     };
   }
 
-  private async buildStakeSnapshot(
-    epoch: number,
+  private async buildStakeSupply(
     warnings: string[],
     discrepancies: ReconciliationDiscrepancy[],
-  ): Promise<LiveStakeSnapshotBuildResult> {
-    const [vaultState, stAethelBalances, delegations] = await Promise.all([
-      this.prisma.vaultState.findFirst({
-        orderBy: {
-          updatedAt: "desc",
-        },
-      }),
-      this.prisma.stAethelBalance.findMany({
-        select: {
-          holder: true,
-          balance: true,
-        },
-      }),
-      this.prisma.delegation.findMany({
-        include: {
-          delegator: {
-            select: {
-              address: true,
-            },
+  ): Promise<LiveStakeSupplyBuildResult> {
+    const cursorKey = getConfiguredIndexerCursorKey();
+    const expectedNetwork = getConfiguredIndexerNetworkKeys();
+    // The cursor marker and both stake projections must come from one MVCC
+    // snapshot. Otherwise reconciliation can observe a newly committed share
+    // transfer and an older VaultState while the indexer is between writes,
+    // producing a false supply mismatch that survives a process crash.
+    const generation = await this.prisma.$transaction(
+      async (tx) => {
+        const cursor = await tx.indexerCursor.findUnique({
+          where: { cursorKey },
+          select: {
+            blockNumber: true,
+            pendingBlockNumber: true,
+            requiresRebuild: true,
+            networkChainId: true,
+            networkAnchorHash: true,
+            networkVaultAddress: true,
+            networkStaethelAddress: true,
+            networkStablecoinBridgeAddress: true,
           },
-          validator: {
-            select: {
-              operatorAddress: true,
-            },
-          },
-        },
-      }),
-    ]);
+        });
 
-    const sharesByDelegator = new Map<string, bigint>();
+        const networkIdentityValid =
+          !cursor ||
+          expectedNetwork === null ||
+          (cursor.networkChainId === expectedNetwork.identity.chainId &&
+            cursor.networkAnchorHash?.toLowerCase() ===
+              expectedNetwork.identity.anchorHash &&
+            cursor.networkVaultAddress?.toLowerCase() ===
+              expectedNetwork.identity.vaultAddress &&
+            cursor.networkStaethelAddress?.toLowerCase() ===
+              expectedNetwork.identity.staethelAddress &&
+            cursor.networkStablecoinBridgeAddress?.toLowerCase() ===
+              expectedNetwork.identity.stablecoinBridgeAddress);
+
+        if (
+          !cursor ||
+          cursor.pendingBlockNumber !== null ||
+          cursor.requiresRebuild ||
+          !networkIdentityValid
+        ) {
+          return {
+            cursor,
+            networkIdentityValid,
+            vaultState: null,
+            stAethelBalances: [],
+            legacyUnstakeCount: 0,
+            legacyWithdrawalCount: 0,
+            legacyRewardCount: 0,
+          };
+        }
+
+        const [
+          vaultState,
+          stAethelBalances,
+          legacyUnstakeCount,
+          legacyWithdrawalCount,
+          legacyRewardCount,
+        ] = await Promise.all([
+          tx.vaultState.findFirst({
+            orderBy: {
+              updatedAt: "desc",
+            },
+          }),
+          tx.stAethelBalance.findMany({
+            select: {
+              holder: true,
+              shares: true,
+            },
+          }),
+          tx.vaultUnstake.count({
+            where: { sourceProvenance: "LEGACY_UNVERIFIED" },
+          }),
+          tx.vaultWithdrawal.count({
+            where: { sourceProvenance: "LEGACY_UNVERIFIED" },
+          }),
+          tx.vaultReward.count({
+            where: { sourceProvenance: "LEGACY_UNVERIFIED" },
+          }),
+        ]);
+
+        return {
+          cursor,
+          networkIdentityValid,
+          vaultState,
+          stAethelBalances,
+          legacyUnstakeCount,
+          legacyWithdrawalCount,
+          legacyRewardCount,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+
+    if (!generation.cursor) {
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "INDEXER_GENERATION_UNAVAILABLE",
+        severity: "CRITICAL",
+        title: "Committed indexer generation is unavailable",
+        message:
+          "The EVM indexer cursor is missing, so vault share projections cannot be reconciled safely.",
+        affected_accounts: 0,
+        remediation:
+          "Restore the durable evm-indexer cursor and complete canonical replay before capturing reconciliation evidence.",
+      });
+      return {};
+    }
+
+    if (!generation.networkIdentityValid) {
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "INDEXER_GENERATION_IDENTITY_MISMATCH",
+        severity: "CRITICAL",
+        title: "Indexer generation source identity does not match",
+        message:
+          "The durable cursor is bound to a different network or indexed contract source, so its projections are withheld from reconciliation.",
+        affected_accounts: 0,
+        evidence: {
+          committed_block: generation.cursor.blockNumber.toString(),
+        },
+        remediation:
+          "Select the cursor namespace for the configured chain, anchor, vault, stAETHEL token, and stablecoin bridge, then replay canonically before capturing evidence.",
+      });
+      return {};
+    }
+
+    if (
+      generation.cursor.pendingBlockNumber !== null ||
+      generation.cursor.requiresRebuild
+    ) {
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "INDEXER_GENERATION_UNCOMMITTED",
+        severity: "CRITICAL",
+        title: "Indexer projection generation is incomplete",
+        message:
+          "The indexer is processing or rebuilding a projection generation, so holder shares and VaultState are intentionally withheld from reconciliation.",
+        affected_accounts: 0,
+        evidence: {
+          committed_block: generation.cursor.blockNumber.toString(),
+          pending_block:
+            generation.cursor.pendingBlockNumber?.toString() ?? null,
+          requires_rebuild: generation.cursor.requiresRebuild,
+        },
+        remediation:
+          "Wait for the indexer to commit the pending block and clear its durable recovery marker before capturing reconciliation evidence.",
+      });
+      return {};
+    }
+
+    const {
+      vaultState,
+      stAethelBalances,
+      legacyUnstakeCount,
+      legacyWithdrawalCount,
+      legacyRewardCount,
+    } = generation;
+
+    const legacyProjectionCount =
+      legacyUnstakeCount + legacyWithdrawalCount + legacyRewardCount;
+    if (legacyProjectionCount > 0) {
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "LEGACY_VAULT_PROJECTION_UNVERIFIED",
+        severity: "WARNING",
+        title: "Legacy vault projections are not replay-verified",
+        message:
+          "Pre-upgrade unstake, withdrawal, or reward rows are retained for audit continuity but are explicitly excluded from replay-verification claims; exact legacy unstake deadlines are unavailable.",
+        affected_accounts: 0,
+        evidence: {
+          legacy_unstake_rows: legacyUnstakeCount,
+          legacy_withdrawal_rows: legacyWithdrawalCount,
+          legacy_reward_rows: legacyRewardCount,
+          exact_legacy_deadlines_available: false,
+        },
+        remediation:
+          "Use canonical-event rows for exact deadline decisions and retain the legacy rows only as unverified historical evidence.",
+      });
+    }
+
+    const activeHolderShares = new Map<string, bigint>();
     for (const entry of stAethelBalances) {
-      const balance = BigInt(entry.balance);
-      if (balance > 0n) {
-        sharesByDelegator.set(entry.holder, balance);
+      const shares = BigInt(entry.shares);
+      if (shares > 0n) {
+        activeHolderShares.set(entry.holder, shares);
       }
     }
 
-    const activeStakers = [...sharesByDelegator.entries()]
-      .filter(([, shares]) => shares > 0n)
-      .sort(([left], [right]) => left.localeCompare(right));
-
-    if (activeStakers.length === 0) {
-      this.pushDiscrepancy(discrepancies, warnings, {
-        code: "NO_ACTIVE_STAKERS",
-        severity: "CRITICAL",
-        title: "No active vault stakers were found",
-        message:
-          "No active vault stakers were found in the indexed state, so a live stake snapshot could not be built.",
-        remediation:
-          "Repair the balance indexer before using reconciliation artifacts for public verification.",
-      });
-      return {};
-    }
-
-    const totalCandidateShares = activeStakers.reduce(
-      (total, [, shares]) => total + shares,
+    const holderTotalShares = [...activeHolderShares.values()].reduce(
+      (total, shares) => total + shares,
       0n,
     );
-
-    const activeDelegationsByDelegator = new Map<string, string[]>();
-    for (const delegation of delegations) {
-      if (BigInt(delegation.shares) <= 0n) {
-        continue;
-      }
-
-      const delegatorAddress = delegation.delegator.address;
-      const validatorAddress = delegation.validator.operatorAddress;
-      const validatorList =
-        activeDelegationsByDelegator.get(delegatorAddress) ?? [];
-      validatorList.push(validatorAddress);
-      activeDelegationsByDelegator.set(delegatorAddress, validatorList);
-    }
-
-    const skippedMissingDelegation: string[] = [];
-    const skippedAmbiguousDelegation: string[] = [];
-    let skippedMissingShares = 0n;
-    let skippedAmbiguousShares = 0n;
-    const stakers: ProtocolStaker[] = [];
-
-    for (const [delegator, shares] of activeStakers) {
-      const validatorsForDelegator = [
-        ...new Set(activeDelegationsByDelegator.get(delegator) ?? []),
-      ];
-
-      if (validatorsForDelegator.length === 0) {
-        skippedMissingDelegation.push(delegator);
-        skippedMissingShares += shares;
-        continue;
-      }
-
-      if (validatorsForDelegator.length > 1) {
-        skippedAmbiguousDelegation.push(delegator);
-        skippedAmbiguousShares += shares;
-        continue;
-      }
-
-      stakers.push({
-        address: delegator,
-        shares: shares.toString(),
-        delegated_to: validatorsForDelegator[0],
-      });
-    }
-
-    if (skippedMissingDelegation.length > 0) {
-      this.pushDiscrepancy(discrepancies, warnings, {
-        code: "MISSING_ACTIVE_DELEGATION",
-        severity: "WARNING",
-        title: "Stakers without an active delegation were excluded",
-        message: `${skippedMissingDelegation.length} stakers were excluded because they do not currently map to any active delegation.`,
-        affected_accounts: skippedMissingDelegation.length,
-        affected_shares: skippedMissingShares.toString(),
-        impact_bps: this.calculateImpactBps(
-          skippedMissingShares,
-          totalCandidateShares,
-        ),
-        sample_addresses: this.getAddressSample(skippedMissingDelegation),
-        evidence: {
-          total_candidate_stakers: activeStakers.length,
-        },
-        remediation:
-          "Investigate whether delegation rows are missing from the indexer or whether these holders moved stAETHEL without a current delegation record.",
-      });
-    }
-
-    if (skippedAmbiguousDelegation.length > 0) {
-      this.pushDiscrepancy(discrepancies, warnings, {
-        code: "AMBIGUOUS_ACTIVE_DELEGATION",
-        severity: "WARNING",
-        title: "Multi-target delegators were excluded",
-        message: `${skippedAmbiguousDelegation.length} stakers were excluded because they map to more than one active delegation target.`,
-        affected_accounts: skippedAmbiguousDelegation.length,
-        affected_shares: skippedAmbiguousShares.toString(),
-        impact_bps: this.calculateImpactBps(
-          skippedAmbiguousShares,
-          totalCandidateShares,
-        ),
-        sample_addresses: this.getAddressSample(skippedAmbiguousDelegation),
-        evidence: {
-          total_candidate_stakers: activeStakers.length,
-        },
-        remediation:
-          "Expose per-validator stake attribution before treating this snapshot as complete.",
-      });
-    }
-
-    if (stakers.length === 0) {
-      this.pushDiscrepancy(discrepancies, warnings, {
-        code: "NO_SINGLE_TARGET_STAKERS",
-        severity: "CRITICAL",
-        title: "No canonical staker snapshot could be produced",
-        message:
-          "A live stake snapshot could not be built because no active stakers had exactly one delegation target.",
-        affected_accounts: activeStakers.length,
-        affected_shares: totalCandidateShares.toString(),
-        impact_bps: 10_000,
-        remediation:
-          "Repair stake attribution before publishing public reconciliation artifacts.",
-      });
-      return {};
-    }
-
-    const stakeSnapshotHash = bytesToHex(
-      computeStakeSnapshotHash(epoch, stakers),
-    );
-    const includedTotalShares = stakers.reduce(
-      (total, staker) => total + BigInt(staker.shares),
-      0n,
-    );
-
-    let stakerRegistryRoot: string | undefined;
-    let delegationRegistryRoot: string | undefined;
-    let delegationPayloadHex: string | undefined;
-    const registryRootsAvailable = stakers.every(
-      (staker) =>
-        this.isHexAddress20(staker.address) &&
-        this.isHexAddress20(staker.delegated_to),
-    );
-
-    if (registryRootsAvailable) {
-      stakerRegistryRoot = bytesToHex(computeStakerRegistryRoot(stakers));
-      delegationRegistryRoot = bytesToHex(
-        computeDelegationRegistryRoot(stakers),
-      );
-      delegationPayloadHex = bytesToHex(
-        computeCanonicalDelegationPayload({
-          epoch,
-          delegation_root: delegationRegistryRoot,
-          staker_registry_root: stakerRegistryRoot,
-        }),
-      );
-    } else {
-      this.pushDiscrepancy(discrepancies, warnings, {
-        code: "NON_CANONICAL_LIVE_ADDRESSES",
-        severity: "WARNING",
-        title: "Registry roots were omitted",
-        message:
-          "Delegation and staker registry roots were omitted because one or more live addresses are not canonical 20-byte EVM hex values.",
-        affected_accounts: stakers.filter(
-          (staker) =>
-            !this.isHexAddress20(staker.address) ||
-            !this.isHexAddress20(staker.delegated_to),
-        ).length,
-        sample_addresses: this.getAddressSample(
-          stakers
-            .filter(
-              (staker) =>
-                !this.isHexAddress20(staker.address) ||
-                !this.isHexAddress20(staker.delegated_to),
-            )
-            .map((staker) => staker.address),
-        ),
-        remediation:
-          "Normalize public addresses into canonical 20-byte EVM hex form before treating registry roots as complete.",
-      });
-    }
-
     const vaultTotalShares = vaultState?.totalShares;
-    const complete =
-      skippedMissingDelegation.length === 0 &&
-      skippedAmbiguousDelegation.length === 0 &&
-      (vaultTotalShares === undefined ||
-        includedTotalShares === BigInt(vaultTotalShares));
+    const matchesVaultTotal =
+      vaultTotalShares === undefined
+        ? null
+        : holderTotalShares === BigInt(vaultTotalShares);
 
     if (
       vaultTotalShares !== undefined &&
-      includedTotalShares !== BigInt(vaultTotalShares)
+      holderTotalShares !== BigInt(vaultTotalShares)
     ) {
+      const vaultShares = BigInt(vaultTotalShares);
+      const supplyDifference =
+        holderTotalShares > vaultShares
+          ? holderTotalShares - vaultShares
+          : vaultShares - holderTotalShares;
       this.pushDiscrepancy(discrepancies, warnings, {
         code: "STAKE_SUPPLY_MISMATCH",
         severity: "CRITICAL",
-        title: "Included share supply does not match vault state",
-        message: `Included live stake snapshot shares (${includedTotalShares.toString()}) do not match indexed vault total shares (${vaultTotalShares}).`,
-        affected_accounts: stakers.length,
-        affected_shares: (
-          BigInt(vaultTotalShares) - includedTotalShares
-        ).toString(),
-        impact_bps: this.calculateImpactBps(
-          includedTotalShares > BigInt(vaultTotalShares)
-            ? includedTotalShares - BigInt(vaultTotalShares)
-            : BigInt(vaultTotalShares) - includedTotalShares,
-          BigInt(vaultTotalShares),
-        ),
+        title: "Holder share supply does not match vault state",
+        message: `Indexed holder shares (${holderTotalShares.toString()}) do not match indexed vault total shares (${vaultTotalShares}).`,
+        affected_accounts: activeHolderShares.size,
+        affected_shares: supplyDifference.toString(),
+        impact_bps: this.calculateImpactBps(supplyDifference, vaultShares),
         evidence: {
-          included_total_shares: includedTotalShares.toString(),
+          holder_total_shares: holderTotalShares.toString(),
           vault_total_shares: vaultTotalShares,
         },
         remediation:
@@ -669,34 +651,48 @@ export class ReconciliationService {
       });
     }
 
+    if (vaultTotalShares === undefined) {
+      this.pushDiscrepancy(discrepancies, warnings, {
+        code: "VAULT_SHARE_SUPPLY_UNAVAILABLE",
+        severity: "WARNING",
+        title: "Vault share-supply comparison is unavailable",
+        message:
+          "The indexed VaultState totalShares value is unavailable, so holder share supply cannot be reconciled.",
+        affected_accounts: activeHolderShares.size,
+        affected_shares: holderTotalShares.toString(),
+        remediation:
+          "Restore the VaultState materialization before treating share-supply reconciliation as complete.",
+      });
+    }
+
+    this.pushDiscrepancy(discrepancies, warnings, {
+      code: "PER_HOLDER_VALIDATOR_ATTRIBUTION_UNAVAILABLE",
+      severity: "WARNING",
+      title: "Per-holder validator attribution is intentionally unavailable",
+      message:
+        "stAETHEL is transferable and validator allocation belongs to the pooled vault, so holders are not assigned a fabricated single validator target and no per-holder stake snapshot hash is published.",
+      affected_accounts: activeHolderShares.size,
+      affected_shares: holderTotalShares.toString(),
+      evidence: {
+        holder_total_shares: holderTotalShares.toString(),
+        vault_total_shares: vaultTotalShares ?? null,
+        attribution_model: "pooled-vault",
+      },
+      remediation:
+        "Publish a protocol-defined vault allocation proof before enabling per-holder validator registry roots.",
+    });
+
     return {
-      stake_snapshot: {
-        input: {
-          stakers,
-        },
+      stake_supply: {
         observed: {
-          stake_snapshot_hash: stakeSnapshotHash,
-          ...(stakerRegistryRoot
-            ? { staker_registry_root: stakerRegistryRoot }
-            : {}),
-          ...(delegationRegistryRoot
-            ? { delegation_registry_root: delegationRegistryRoot }
-            : {}),
-          ...(delegationPayloadHex
-            ? { delegation_payload_hex: delegationPayloadHex }
-            : {}),
-        },
-        meta: {
-          total_candidate_stakers: activeStakers.length,
-          included_stakers: stakers.length,
-          skipped_stakers:
-            skippedMissingDelegation.length + skippedAmbiguousDelegation.length,
-          included_total_shares: includedTotalShares.toString(),
+          holder_total_shares: holderTotalShares.toString(),
           ...(vaultTotalShares !== undefined
             ? { vault_total_shares: vaultTotalShares }
             : {}),
-          registry_roots_available: registryRootsAvailable,
-          complete,
+        },
+        meta: {
+          holder_count: activeHolderShares.size,
+          matches_vault_total: matchesVaultTotal,
         },
       },
     };
@@ -767,14 +763,25 @@ export class ReconciliationService {
   }
 
   private buildSnapshotKey(document: LiveReconciliationDocument): string {
-    return [
-      document.epoch,
-      document.validator_selection.observed.universe_hash,
-      document.stake_snapshot?.observed?.stake_snapshot_hash ??
-        "no-stake-snapshot",
-      document.warnings.length,
-      document.discrepancies.length,
-    ].join(":");
+    const identity = JSON.stringify({
+      epoch: document.epoch,
+      chain_height: document.source.chain_height,
+      validator_universe_hash:
+        document.validator_selection.observed.universe_hash,
+      stake_supply: document.stake_supply ?? null,
+      legacy_stake_snapshot_hash:
+        document.stake_snapshot?.observed?.stake_snapshot_hash ?? null,
+      discrepancies: document.discrepancies.map((discrepancy) => ({
+        code: discrepancy.code,
+        severity: discrepancy.severity,
+        affected_accounts: discrepancy.affected_accounts,
+        affected_shares: discrepancy.affected_shares ?? null,
+        impact_bps: discrepancy.impact_bps ?? null,
+        evidence: discrepancy.evidence ?? null,
+      })),
+    });
+    const digest = createHash("sha256").update(identity).digest("hex");
+    return `v2:${document.epoch}:${digest}`;
   }
 
   private deriveSnapshotStatus(
@@ -856,13 +863,5 @@ export class ReconciliationService {
     }
 
     return Number((affectedShares * 10_000n) / totalShares);
-  }
-
-  private getAddressSample(addresses: string[]): string[] {
-    return addresses.slice(0, 5);
-  }
-
-  private isHexAddress20(value: string): boolean {
-    return /^0x[a-fA-F0-9]{40}$/.test(value);
   }
 }

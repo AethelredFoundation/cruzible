@@ -52,8 +52,8 @@ describe("dependency advisory remediation validation", () => {
     const register = loadDependencyAdvisoryRegister();
     const result = validateResolution({ register });
 
-    expect(result.alertCount).toBe(105);
-    expect(result.groupCount).toBe(24);
+    expect(result.alertCount).toBe(100);
+    expect(result.groupCount).toBe(23);
     expect(result.checkedVersions).toBeGreaterThan(20);
     expect(result.errors).toEqual([]);
   });

@@ -205,6 +205,10 @@ describe("auth routes", () => {
     process.env = {
       ...originalEnv,
       NODE_ENV: "test",
+      CRUZIBLE_NETWORK: "testnet",
+      INDEXER_EXPECTED_CHAIN_ID: "7332",
+      INDEXER_EXPECTED_GENESIS_HASH:
+        "0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7",
       ALLOW_MOCK_SIGNATURES: "true",
       AUTH_OPERATOR_ADDRESSES: "aeth1operator",
       AUTH_RATE_LIMIT_MAX: "100",
@@ -272,6 +276,11 @@ describe("auth routes", () => {
 
       expect(challengeResponse.status).toBe(200);
       expect(challengeResponse.headers.get("cache-control")).toBe("no-store");
+      expect(challenge.message).toContain("Network: testnet");
+      expect(challenge.message).toContain("EVM Chain ID: 7332");
+      expect(challenge.message).toContain(
+        "Network Anchor: 0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7",
+      );
       expect(loginResponse.headers.get("cache-control")).toBe("no-store");
       expect(loginResponse.status).toBe(200);
       expectRefreshCookieHardening(loginResponse);
@@ -290,6 +299,37 @@ describe("auth routes", () => {
       });
 
       expect(replayResponse.status).toBe(401);
+    });
+  });
+
+  it("rejects a signed challenge replayed under a different network binding", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1operator" }),
+        })
+      ).json();
+      const { config: routeConfig } = await import("../src/config");
+      const originalNetwork = routeConfig.network;
+
+      try {
+        (routeConfig as any).network = "devnet";
+        const replayResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        });
+
+        expect(replayResponse.status).toBe(401);
+      } finally {
+        (routeConfig as any).network = originalNetwork;
+      }
     });
   });
 

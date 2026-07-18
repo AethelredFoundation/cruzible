@@ -188,7 +188,6 @@ function assertComposeSecretPolicy(compose) {
   const requiredSecrets = [
     "cruzible_database_url",
     "cruzible_redis_url",
-    "cruzible_redis_password",
     "cruzible_db_password",
     "cruzible_jwt_secret",
     "cruzible_jwt_refresh_secret",
@@ -266,6 +265,33 @@ function assertComposeSecretPolicy(compose) {
   }
 }
 
+function assertComposeExternalRedisPolicy(compose) {
+  const services = compose.services ?? {};
+  const volumes = compose.volumes ?? {};
+  const secrets = compose.secrets ?? {};
+
+  assert(
+    !services.redis,
+    "compose must use the external TLS Redis URL and must not bundle a plaintext Redis service",
+  );
+  assert(
+    !volumes["redis-data"],
+    "compose must not declare a bundled Redis volume",
+  );
+  assert(
+    !secrets.cruzible_redis_password,
+    "compose must not declare a bundled Redis server password secret",
+  );
+
+  for (const serviceName of ["api-gateway", "indexer"]) {
+    const dependencies = services[serviceName]?.depends_on ?? {};
+    assert(
+      !Object.prototype.hasOwnProperty.call(dependencies, "redis"),
+      `compose ${serviceName} must not depend on a bundled Redis service`,
+    );
+  }
+}
+
 function assertKustomization(resources) {
   const kustomization = resources.find(
     (resource) => resource?.kind === "Kustomization",
@@ -303,7 +329,10 @@ function assertKubernetesDeployment(deployment) {
   const spec = deployment?.spec ?? {};
   const podSpec = spec.template?.spec ?? {};
   const podSecurity = podSpec.securityContext ?? {};
-  const containers = asArray(podSpec.containers);
+  const containers = [
+    ...asArray(podSpec.initContainers),
+    ...asArray(podSpec.containers),
+  ];
   const volumes = asArray(podSpec.volumes);
   const tmpVolume = volumes.find((volume) => volume.name === "tmp");
 
@@ -437,6 +466,86 @@ function assertKubernetesSecretFilePolicy(deployment, secretFileEnvEntries) {
         `${name}/${container.name} must not expose ${secretName} directly`,
       );
     }
+  }
+}
+
+function assertFrontendRuntimePolicy(resources) {
+  const config = getNamed(
+    resources,
+    "ConfigMap",
+    "cruzible-frontend-runtime-config",
+  );
+  const deployment = getNamed(resources, "Deployment", "cruzible-frontend");
+
+  assert(config, "frontend runtime policy ConfigMap must be present");
+  assert(
+    config?.metadata?.namespace === "cruzible",
+    "frontend runtime policy ConfigMap must live in the cruzible namespace",
+  );
+  assert(
+    config?.data?.CRUZIBLE_EXTRA_API_ORIGINS === "",
+    "frontend runtime policy must default to no additional API origins",
+  );
+  assert(
+    config?.data?.CRUZIBLE_ALLOW_PLAINTEXT_HTTP === "false",
+    "frontend runtime policy must reject plaintext HTTP by default",
+  );
+
+  const frontend = asArray(deployment?.spec?.template?.spec?.containers).find(
+    (container) => container?.name === "frontend",
+  );
+  const environment = new Map(
+    asArray(frontend?.env).map((entry) => [entry?.name, entry]),
+  );
+
+  for (const key of [
+    "CRUZIBLE_EXTRA_API_ORIGINS",
+    "CRUZIBLE_ALLOW_PLAINTEXT_HTTP",
+  ]) {
+    const reference = environment.get(key)?.valueFrom?.configMapKeyRef;
+    assert(
+      reference?.name === "cruzible-frontend-runtime-config" &&
+        reference?.key === key,
+      `frontend must source ${key} from cruzible-frontend-runtime-config`,
+    );
+  }
+}
+
+function assertIndexerWorkerProbes(deployment) {
+  const container = asArray(deployment?.spec?.template?.spec?.containers).find(
+    (candidate) => candidate?.name === "indexer",
+  );
+  assert(container, "Kubernetes indexer container must be present");
+  const environment = new Map(
+    asArray(container?.env).map((entry) => [entry?.name, entry?.value]),
+  );
+  assert(
+    environment.get("INDEXER_HEARTBEAT_FILE") ===
+      "/tmp/cruzible-indexer-heartbeat.json",
+    "Kubernetes indexer must write its heartbeat to bounded /tmp storage",
+  );
+  assert(
+    environment.get("INDEXER_HEARTBEAT_MAX_AGE_MS") === "45000",
+    "Kubernetes indexer must use the approved heartbeat maximum age",
+  );
+
+  for (const [probeName, periodSeconds, failureThreshold] of [
+    ["startupProbe", 5, 36],
+    ["readinessProbe", 10, 3],
+    ["livenessProbe", 15, 4],
+  ]) {
+    const probe = container?.[probeName];
+    assert(
+      JSON.stringify(probe?.exec?.command) ===
+        JSON.stringify(["node", "dist/indexer-healthcheck.js"]),
+      `Kubernetes indexer ${probeName} must run the heartbeat watchdog`,
+    );
+    assert(
+      probe?.periodSeconds === periodSeconds &&
+        probe?.timeoutSeconds === 3 &&
+        probe?.failureThreshold === failureThreshold,
+      `Kubernetes indexer ${probeName} timing is not fail-safe`,
+    );
   }
 }
 
@@ -598,6 +707,7 @@ function assertImageVerificationPolicy(resources) {
   for (const imageReference of [
     "ghcr.io/aethelred/cruzible/api@sha256:*",
     "ghcr.io/aethelred/cruzible/api-indexer@sha256:*",
+    "ghcr.io/aethelred/cruzible/api-migration@sha256:*",
     "ghcr.io/aethelred/cruzible/frontend@sha256:*",
   ]) {
     assert(
@@ -645,6 +755,78 @@ function validateCompose() {
   assertComposeImagePolicy(compose);
   assertComposePortPolicy(compose);
   assertComposeSecretPolicy(compose);
+  assertComposeExternalRedisPolicy(compose);
+
+  const migrationEnv = getEnvMap(compose?.services?.migrate?.environment);
+  for (const envName of [
+    "CRUZIBLE_MIGRATION_QUIESCED",
+    "CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED",
+  ]) {
+    assert(
+      migrationEnv.get(envName)?.includes(":?set true only after"),
+      `compose migration must require ${envName}`,
+    );
+  }
+  const indexer = compose?.services?.indexer;
+  const indexerEnv = getEnvMap(indexer?.environment);
+  assert(
+    indexerEnv.get("INDEXER_HEARTBEAT_FILE") ===
+      "/tmp/cruzible-indexer-heartbeat.json",
+    "compose indexer must write its heartbeat to /tmp",
+  );
+  assert(
+    indexerEnv.get("INDEXER_HEARTBEAT_MAX_AGE_MS") === "45000",
+    "compose indexer must use the approved heartbeat maximum age",
+  );
+  assert(
+    JSON.stringify(indexer?.healthcheck?.test) ===
+      JSON.stringify(["CMD", "node", "dist/indexer-healthcheck.js"]),
+    "compose indexer healthcheck must run the heartbeat watchdog",
+  );
+  assert(
+    indexer?.healthcheck?.interval === "15s" &&
+      indexer?.healthcheck?.timeout === "3s" &&
+      indexer?.healthcheck?.start_period === "90s" &&
+      indexer?.healthcheck?.retries === 4,
+    "compose indexer heartbeat healthcheck timing is not fail-safe",
+  );
+
+  const composeIndexerIdentity = new Map([
+    [
+      "INDEXER_EXPECTED_CHAIN_ID",
+      "${INDEXER_EXPECTED_CHAIN_ID:?set INDEXER_EXPECTED_CHAIN_ID}",
+    ],
+    [
+      "INDEXER_EXPECTED_GENESIS_HASH",
+      "${INDEXER_EXPECTED_GENESIS_HASH:?set INDEXER_EXPECTED_GENESIS_HASH}",
+    ],
+    [
+      "CRUZIBLE_VAULT_ADDRESS",
+      "${CRUZIBLE_VAULT_ADDRESS:?set CRUZIBLE_VAULT_ADDRESS}",
+    ],
+    ["STAETHEL_ADDRESS", "${STAETHEL_ADDRESS:?set STAETHEL_ADDRESS}"],
+    ["STABLECOIN_BRIDGE_ADDRESS", "${STABLECOIN_BRIDGE_ADDRESS:-}"],
+  ]);
+  const composeIdentityEnvironments = new Map();
+
+  for (const serviceName of ["api-gateway", "indexer"]) {
+    const env = getEnvMap(compose?.services?.[serviceName]?.environment);
+    composeIdentityEnvironments.set(serviceName, env);
+    for (const [envName, expectedValue] of composeIndexerIdentity) {
+      assert(
+        env.get(envName) === expectedValue,
+        `compose ${serviceName} must source ${envName} from the canonical release input`,
+      );
+    }
+  }
+
+  for (const envName of composeIndexerIdentity.keys()) {
+    assert(
+      composeIdentityEnvironments.get("api-gateway")?.get(envName) ===
+        composeIdentityEnvironments.get("indexer")?.get(envName),
+      `compose API and indexer must use the same ${envName}`,
+    );
+  }
 }
 
 function validateKubernetes() {
@@ -661,19 +843,130 @@ function validateKubernetes() {
     "cruzible-indexer",
     "cruzible-frontend",
   ];
+  const indexerIdentityConfigKeys = new Map([
+    ["INDEXER_EXPECTED_CHAIN_ID", "indexer.expected.chain.id"],
+    ["INDEXER_EXPECTED_GENESIS_HASH", "indexer.expected.genesis.hash"],
+    ["CRUZIBLE_VAULT_ADDRESS", "cruzible.vault.address"],
+    ["STAETHEL_ADDRESS", "staethel.address"],
+    ["STABLECOIN_BRIDGE_ADDRESS", "stablecoin.bridge.address"],
+  ]);
 
   assertKustomization(resources);
   assertNamespacePolicy(resources);
   assertNetworkPolicies(resources);
   assertImageVerificationPolicy(resources);
+  assertFrontendRuntimePolicy(resources);
 
+  const apiConfig = getNamed(resources, "ConfigMap", "cruzible-api-config");
+  assert(
+    apiConfig?.data?.["indexer.expected.chain.id"] ===
+      "REPLACE_WITH_EXPECTED_CHAIN_ID",
+    "Kubernetes API config must pin indexer.expected.chain.id",
+  );
+  assert(
+    apiConfig?.data?.["indexer.expected.genesis.hash"] ===
+      "REPLACE_WITH_EXPECTED_GENESIS_HASH",
+    "Kubernetes API config must pin indexer.expected.genesis.hash",
+  );
+  assert(
+    apiConfig?.data?.["migration.indexer.quiesced"] === "false",
+    "Kubernetes migration must default indexer quiescence to false",
+  );
+  assert(
+    apiConfig?.data?.["migration.legacy.schedulers.quiesced"] === "false",
+    "Kubernetes migration must default legacy scheduler quiescence to false",
+  );
+
+  const migrationJob = getNamed(resources, "Job", "cruzible-db-migrate");
+  assert(migrationJob, "Kubernetes manifests must include cruzible-db-migrate");
+  if (migrationJob) {
+    assertKubernetesDeployment(migrationJob);
+    assert(
+      migrationJob.metadata?.annotations?.[
+        "cruzible.io/recreate-before-apply"
+      ] === "required",
+      "Kubernetes migration Job must be recreated for each release",
+    );
+    assert(
+      migrationJob.metadata?.annotations?.[
+        "cruzible.io/requires-indexer-quiescence"
+      ] === "true",
+      "Kubernetes migration Job must require indexer quiescence",
+    );
+    assert(
+      migrationJob.metadata?.annotations?.[
+        "cruzible.io/requires-legacy-scheduler-quiescence"
+      ] === "true",
+      "Kubernetes migration Job must require legacy scheduler quiescence",
+    );
+    const migrationEnv = new Map(
+      asArray(migrationJob.spec?.template?.spec?.containers?.[0]?.env).map(
+        (entry) => [entry?.name, entry?.valueFrom?.configMapKeyRef],
+      ),
+    );
+    for (const [envName, key] of [
+      ["CRUZIBLE_MIGRATION_QUIESCED", "migration.indexer.quiesced"],
+      [
+        "CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED",
+        "migration.legacy.schedulers.quiesced",
+      ],
+    ]) {
+      const reference = migrationEnv.get(envName);
+      assert(
+        reference?.name === "cruzible-api-config" && reference?.key === key,
+        `Kubernetes migration Job must source ${envName} from ${key}`,
+      );
+    }
+    assertKubernetesSecretFilePolicy(migrationJob, [
+      ["DATABASE_URL_FILE", "database-url"],
+    ]);
+  }
+
+  const kubernetesIdentityEnvironments = new Map();
   for (const deploymentName of expectedDeployments) {
     const deployment = getNamed(resources, "Deployment", deploymentName);
     assert(deployment, `Kubernetes manifests must include ${deploymentName}`);
     if (deployment) {
       assertKubernetesDeployment(deployment);
+      if (
+        deploymentName === "cruzible-api" ||
+        deploymentName === "cruzible-indexer"
+      ) {
+        const environment = new Map(
+          asArray(deployment?.spec?.template?.spec?.containers?.[0]?.env).map(
+            (entry) => [entry?.name, entry],
+          ),
+        );
+        kubernetesIdentityEnvironments.set(deploymentName, environment);
+        for (const [envName, expectedKey] of indexerIdentityConfigKeys) {
+          const reference =
+            environment.get(envName)?.valueFrom?.configMapKeyRef;
+          assert(
+            reference?.name === "cruzible-api-config" &&
+              reference?.key === expectedKey,
+            `Kubernetes ${deploymentName} must source ${envName} from ${expectedKey}`,
+          );
+        }
+      }
     }
   }
+
+  for (const envName of indexerIdentityConfigKeys.keys()) {
+    const apiReference = kubernetesIdentityEnvironments
+      .get("cruzible-api")
+      ?.get(envName)?.valueFrom?.configMapKeyRef;
+    const indexerReference = kubernetesIdentityEnvironments
+      .get("cruzible-indexer")
+      ?.get(envName)?.valueFrom?.configMapKeyRef;
+    assert(
+      JSON.stringify(apiReference) === JSON.stringify(indexerReference),
+      `Kubernetes API and indexer must use the same ${envName} ConfigMap reference`,
+    );
+  }
+
+  assertIndexerWorkerProbes(
+    getNamed(resources, "Deployment", "cruzible-indexer"),
+  );
 
   assertKubernetesSecretFilePolicy(
     getNamed(resources, "Deployment", "cruzible-api"),

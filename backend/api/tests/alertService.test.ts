@@ -9,7 +9,9 @@ vi.mock("@prisma/client", () => ({
     return {
       alertEvent: {
         count: vi.fn().mockResolvedValue(0),
+        findUnique: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
+        update: vi.fn().mockResolvedValue({}),
         upsert: vi.fn().mockResolvedValue({}),
       },
     };
@@ -27,7 +29,14 @@ function productionWebhookEnv(): NodeJS.ProcessEnv {
   return {
     ...originalEnv,
     NODE_ENV: "production",
+    CRUZIBLE_NETWORK: "testnet",
+    INDEXER_EXPECTED_CHAIN_ID: "7332",
+    INDEXER_EXPECTED_GENESIS_HASH:
+      "0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7",
+    CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
+    STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222",
     RPC_URL: "https://rpc.cruzible.org",
+    INDEXER_RPC_URL: "https://evm-rpc.cruzible.org",
     DATABASE_URL: "postgresql://cruzible:secret@db.cruzible.org:5432/cruzible",
     REDIS_URL: "rediss://cache.cruzible.org:6379",
     CORS_ORIGINS: "https://vault.cruzible.org",
@@ -123,6 +132,27 @@ describe("AlertService", () => {
     }
   });
 
+  it("counts active critical alerts directly instead of sampling recent history", async () => {
+    process.env.DATABASE_URL =
+      "postgresql://cruzible:secret@db.cruzible.test:5432/cruzible";
+    const { AlertService } = await import("../src/services/AlertService");
+    const service = new AlertService();
+    const count = vi.fn().mockResolvedValue(1);
+    (
+      service as unknown as {
+        prisma: { alertEvent: { count: typeof count } };
+      }
+    ).prisma = { alertEvent: { count } };
+
+    await expect(service.getActiveCriticalCount()).resolves.toBe(1);
+    expect(count).toHaveBeenCalledWith({
+      where: {
+        severity: "CRITICAL",
+        createdAt: { gte: expect.any(Date) },
+      },
+    });
+  });
+
   it("rate-limits duplicate alert categories", async () => {
     const { AlertService, AlertSeverity, AlertType } =
       await import("../src/services/AlertService");
@@ -144,6 +174,177 @@ describe("AlertService", () => {
     expect(first).not.toBeNull();
     expect(second).toBeNull();
     expect(history.total).toBe(1);
+  });
+
+  it("persists a deterministic outbox record before durable delivery", async () => {
+    process.env.DATABASE_URL =
+      "postgresql://cruzible:secret@db.cruzible.test:5432/cruzible";
+    process.env.ALERT_WEBHOOK_URL = "https://alerts.cruzible.test/hook";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const { AlertService, AlertSeverity, AlertType } =
+      await import("../src/services/AlertService");
+    const service = new AlertService();
+    const upsert = vi.fn();
+    const update = vi.fn().mockResolvedValue({});
+    upsert.mockImplementation(async ({ create }) => ({ ...create }));
+    (
+      service as unknown as {
+        prisma: {
+          alertEvent: { upsert: typeof upsert; update: typeof update };
+        };
+      }
+    ).prisma = { alertEvent: { upsert, update } };
+
+    try {
+      const alert = await service.sendDurableAlert(
+        "network:CRITICAL:TVL_ANOMALY:42",
+        AlertSeverity.CRITICAL,
+        AlertType.TVL_ANOMALY,
+        "TVL drift",
+        { drift: 0.2 },
+      );
+
+      expect(alert?.id).toMatch(/^alert_[0-9a-f]{64}$/);
+      expect(upsert).toHaveBeenCalledOnce();
+      expect(update).toHaveBeenCalledWith({
+        where: { id: alert?.id },
+        data: expect.objectContaining({
+          delivered: true,
+          metadata: { drift: 0.2 },
+          attemptCount: 1,
+          lastAttemptAt: expect.any(Date),
+          nextAttemptAt: null,
+          deadLetteredAt: null,
+        }),
+      });
+      expect(upsert.mock.invocationCallOrder[0]).toBeLessThan(
+        fetchSpy.mock.invocationCallOrder[0],
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("does not redeliver an already-delivered durable alert", async () => {
+    process.env.DATABASE_URL =
+      "postgresql://cruzible:secret@db.cruzible.test:5432/cruzible";
+    process.env.ALERT_WEBHOOK_URL = "https://alerts.cruzible.test/hook";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const { AlertService, AlertSeverity, AlertType } =
+      await import("../src/services/AlertService");
+    const service = new AlertService();
+    const stored = {
+      id: `alert_${"a".repeat(64)}`,
+      severity: AlertSeverity.WARNING,
+      type: AlertType.EPOCH_STALE,
+      message: "Epoch stale",
+      metadata: {},
+      delivered: true,
+      createdAt: new Date("2026-07-18T00:00:00.000Z"),
+    };
+    const upsert = vi.fn().mockResolvedValue(stored);
+    const update = vi.fn();
+    (
+      service as unknown as {
+        prisma: {
+          alertEvent: { upsert: typeof upsert; update: typeof update };
+        };
+      }
+    ).prisma = { alertEvent: { upsert, update } };
+
+    try {
+      await service.sendDurableAlert(
+        "network:WARNING:EPOCH_STALE:42",
+        AlertSeverity.WARNING,
+        AlertType.EPOCH_STALE,
+        "Epoch stale",
+      );
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("retries a due durable alert even when the original condition is no longer emitted", async () => {
+    process.env.DATABASE_URL =
+      "postgresql://cruzible:secret@db.cruzible.test:5432/cruzible";
+    process.env.ALERT_WEBHOOK_URL = "https://alerts.cruzible.test/hook";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const { AlertService, AlertSeverity, AlertType } =
+      await import("../src/services/AlertService");
+    const service = new AlertService();
+    const stored = {
+      id: `alert_${"b".repeat(64)}`,
+      severity: AlertSeverity.CRITICAL,
+      type: AlertType.RECONCILIATION_MISMATCH,
+      message: "Transient reconciliation failure",
+      metadata: { generation: 9 },
+      delivered: false,
+      attemptCount: 1,
+      lastAttemptAt: new Date("2026-07-18T00:00:00.000Z"),
+      nextAttemptAt: new Date("2026-07-18T00:01:00.000Z"),
+      deadLetteredAt: null,
+      createdAt: new Date("2026-07-18T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-18T00:00:00.000Z"),
+    };
+    const findMany = vi.fn().mockResolvedValue([stored]);
+    const update = vi.fn().mockResolvedValue({});
+    (
+      service as unknown as {
+        prisma: {
+          alertEvent: { findMany: typeof findMany; update: typeof update };
+        };
+      }
+    ).prisma = { alertEvent: { findMany, update } };
+    const claim = vi.fn().mockResolvedValue(true);
+
+    try {
+      await expect(service.retryUndeliveredAlerts({ claim })).resolves.toEqual({
+        attempted: 1,
+        delivered: 1,
+        deadLettered: 0,
+      });
+      expect(claim).toHaveBeenCalledWith(stored.id);
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(update).toHaveBeenCalledWith({
+        where: { id: stored.id },
+        data: expect.objectContaining({
+          delivered: true,
+          attemptCount: 2,
+          nextAttemptAt: null,
+          deadLetteredAt: null,
+        }),
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("contains a transient durable-outbox scan failure", async () => {
+    process.env.DATABASE_URL =
+      "postgresql://cruzible:secret@db.cruzible.test:5432/cruzible";
+    const { AlertService } = await import("../src/services/AlertService");
+    const service = new AlertService();
+    const findMany = vi.fn().mockRejectedValue(new Error("database offline"));
+    (
+      service as unknown as {
+        prisma: { alertEvent: { findMany: typeof findMany } };
+      }
+    ).prisma = { alertEvent: { findMany } };
+
+    await expect(service.retryUndeliveredAlerts()).resolves.toEqual({
+      attempted: 0,
+      delivered: 0,
+      deadLettered: 0,
+    });
   });
 
   it("uses a shared container instance for fallback alert history", async () => {

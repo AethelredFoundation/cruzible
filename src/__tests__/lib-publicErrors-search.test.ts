@@ -178,8 +178,13 @@ describe("search buildSearchResults", () => {
     expect(buildSearchResults("zzzzzznotfound", [])).toEqual([]);
   });
 
-  it("exposes eight fixed navigation targets", () => {
-    expect(SEARCH_NAVIGATION_TARGETS).toHaveLength(8);
+  it("withholds the unreleased stablecoin bridge from navigation", () => {
+    expect(SEARCH_NAVIGATION_TARGETS).toHaveLength(7);
+    expect(
+      SEARCH_NAVIGATION_TARGETS.some(
+        (target) => target.href === "/stablecoins",
+      ),
+    ).toBe(false);
     expect(SEARCH_NAVIGATION_TARGETS.every((t) => t.href.startsWith("/"))).toBe(
       true,
     );

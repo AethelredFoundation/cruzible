@@ -6,6 +6,7 @@ import { isPrivateOrLocalHostname } from "../utils/networkSafety";
 const DEFAULT_INDEXER_WS_URL = "ws://127.0.0.1:8546";
 const DEFAULT_INDEXER_RPC_URL = "http://127.0.0.1:8545";
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
+const EVM_BLOCK_HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const ZERO_EVM_ADDRESS = "0x0000000000000000000000000000000000000000";
 const AUTH_ROLE_ADDRESS_PATTERN = /^aeth1[0-9a-z]{5,}$/;
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
@@ -118,6 +119,15 @@ const optionalPositiveIntegerStringSchema = z.preprocess(
     .optional(),
 );
 
+const optionalEvmBlockHashSchema = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z
+    .string()
+    .regex(EVM_BLOCK_HASH_PATTERN, "must be a 0x-prefixed 32-byte hash")
+    .transform((value) => value.toLowerCase())
+    .optional(),
+);
+
 const evmAddressSchema = z
   .string()
   .default("")
@@ -133,6 +143,11 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
+  CRUZIBLE_NETWORK: z.enum(["mainnet", "testnet", "devnet"]).optional(),
+  CRUZIBLE_ALLOW_PLAINTEXT_HTTP: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   PORT: integerEnvSchema({ min: 1, max: 65535, defaultValue: 3001 }),
   RPC_URL: z.string().url().default("http://127.0.0.1:26657"),
   DATABASE_URL: optionalUrlSchema,
@@ -172,6 +187,7 @@ const envSchema = z.object({
     .transform((value) => value === "true"),
   AUTH_ADMIN_ADDRESSES: z.string().default(""),
   AUTH_OPERATOR_ADDRESSES: z.string().default(""),
+  CRUZIBLE_RUNTIME_ROLE: z.enum(["api", "indexer"]).default("api"),
   AUTH_NONCE_TTL_MS: integerEnvSchema({
     min: 30_000,
     defaultValue: 300_000,
@@ -206,8 +222,13 @@ const envSchema = z.object({
   CRUZIBLE_VAULT_ADDRESS: evmAddressSchema,
   STAETHEL_ADDRESS: evmAddressSchema,
   STABLECOIN_BRIDGE_ADDRESS: evmAddressSchema,
+  INDEXER_REQUIRE_STABLECOIN_BRIDGE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   INDEXER_START_BLOCK: integerEnvSchema({ min: 0, defaultValue: 0 }),
   INDEXER_EXPECTED_CHAIN_ID: optionalPositiveIntegerStringSchema,
+  INDEXER_EXPECTED_GENESIS_HASH: optionalEvmBlockHashSchema,
   INDEXER_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -363,6 +384,32 @@ function requireUrlProtocol(
   }
 }
 
+function requireProductionNetworkTransport(
+  value: string | undefined,
+  envName: string,
+  secureProtocol: "https:" | "wss:",
+  plaintextProtocol: "http:" | "ws:",
+  network: "mainnet" | "testnet" | "devnet" | undefined,
+  allowPlaintext: boolean,
+): void {
+  if (!value) return;
+
+  const protocol = new URL(value).protocol;
+  if (protocol === secureProtocol) return;
+  if (protocol !== plaintextProtocol) return;
+
+  if (network === "mainnet") {
+    throw new Error(
+      `${envName} must use ${secureProtocol}// on production mainnet`,
+    );
+  }
+  if (!allowPlaintext) {
+    throw new Error(
+      `${envName} plaintext transport requires CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true and is limited to testnet/devnet`,
+    );
+  }
+}
+
 function requireProductionConfig(value: unknown, message: string): void {
   if (value === undefined || value === null || value === "") {
     throw new Error(message);
@@ -458,7 +505,12 @@ function parseAddressList(value: string, envName: string): string[] {
   return [...new Set(addresses)];
 }
 
-function parseCorsOrigins(value: string, production: boolean): string[] {
+function parseCorsOrigins(
+  value: string,
+  production: boolean,
+  allowPlaintextHttp: boolean,
+  network: "mainnet" | "testnet" | "devnet" | undefined,
+): string[] {
   const rawOrigins = value
     .split(",")
     .map((origin) => origin.trim())
@@ -501,9 +553,15 @@ function parseCorsOrigins(value: string, production: boolean): string[] {
       );
     }
 
-    if (production && parsed.protocol !== "https:") {
+    if (
+      production &&
+      parsed.protocol !== "https:" &&
+      (!allowPlaintextHttp || network === "mainnet")
+    ) {
       throw new Error(
-        "Refusing to start with non-HTTPS CORS origins in production",
+        network === "mainnet" && allowPlaintextHttp
+          ? "Refusing to allow plaintext HTTP CORS origins on mainnet"
+          : "Refusing to start with non-HTTPS CORS origins in production unless CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true",
       );
     }
 
@@ -599,6 +657,10 @@ function parseAlertWebhookUrl(
 
 if (isProduction) {
   requireProductionConfig(
+    parsedEnv.CRUZIBLE_NETWORK,
+    "Refusing to start any production runtime without CRUZIBLE_NETWORK",
+  );
+  requireProductionConfig(
     process.env.RPC_URL,
     "Refusing to start without RPC_URL in production",
   );
@@ -613,6 +675,30 @@ if (isProduction) {
   requireProductionConfig(
     process.env.CORS_ORIGINS,
     "Refusing to start without explicit CORS_ORIGINS in production",
+  );
+  requireProductionNetworkTransport(
+    parsedEnv.RPC_URL,
+    "RPC_URL",
+    "https:",
+    "http:",
+    parsedEnv.CRUZIBLE_NETWORK,
+    parsedEnv.CRUZIBLE_ALLOW_PLAINTEXT_HTTP,
+  );
+  requireProductionNetworkTransport(
+    parsedEnv.INDEXER_RPC_URL,
+    "INDEXER_RPC_URL",
+    "https:",
+    "http:",
+    parsedEnv.CRUZIBLE_NETWORK,
+    parsedEnv.CRUZIBLE_ALLOW_PLAINTEXT_HTTP,
+  );
+  requireProductionNetworkTransport(
+    parsedEnv.INDEXER_WS_URL ?? parsedEnv.WS_URL,
+    parsedEnv.INDEXER_WS_URL ? "INDEXER_WS_URL" : "WS_URL",
+    "wss:",
+    "ws:",
+    parsedEnv.CRUZIBLE_NETWORK,
+    parsedEnv.CRUZIBLE_ALLOW_PLAINTEXT_HTTP,
   );
 
   if (
@@ -665,9 +751,48 @@ if (isProduction) {
     );
   }
 
-  if (authAdminAddresses.length === 0 && authOperatorAddresses.length === 0) {
+  if (
+    parsedEnv.CRUZIBLE_RUNTIME_ROLE === "api" &&
+    authAdminAddresses.length === 0 &&
+    authOperatorAddresses.length === 0
+  ) {
     throw new Error(
       "Refusing to start production API without AUTH_OPERATOR_ADDRESSES or AUTH_ADMIN_ADDRESSES",
+    );
+  }
+
+  if (parsedEnv.CRUZIBLE_RUNTIME_ROLE === "api") {
+    requireProductionConfig(
+      parsedEnv.INDEXER_EXPECTED_CHAIN_ID,
+      "Refusing to start production API without INDEXER_EXPECTED_CHAIN_ID for wallet-login domain separation",
+    );
+    requireProductionConfig(
+      parsedEnv.INDEXER_EXPECTED_GENESIS_HASH,
+      "Refusing to start production API without INDEXER_EXPECTED_GENESIS_HASH for wallet-login domain separation",
+    );
+    requireProductionConfig(
+      parsedEnv.CRUZIBLE_VAULT_ADDRESS,
+      "Refusing to start production API without CRUZIBLE_VAULT_ADDRESS for indexer identity",
+    );
+    requireProductionConfig(
+      parsedEnv.STAETHEL_ADDRESS,
+      "Refusing to start production API without STAETHEL_ADDRESS for indexer identity",
+    );
+    if (parsedEnv.CRUZIBLE_NETWORK === "mainnet") {
+      requireProductionConfig(
+        parsedEnv.STABLECOIN_BRIDGE_ADDRESS,
+        "Refusing to start production API without STABLECOIN_BRIDGE_ADDRESS for the mainnet indexer identity",
+      );
+    }
+  }
+
+  if (
+    parsedEnv.CRUZIBLE_RUNTIME_ROLE === "api" &&
+    parsedEnv.CRUZIBLE_VAULT_ADDRESS
+  ) {
+    requireProductionConfig(
+      process.env.INDEXER_RPC_URL,
+      "Refusing to start production API vault reconciliation without explicit INDEXER_RPC_URL",
     );
   }
 
@@ -685,6 +810,10 @@ if (isProduction) {
       "Refusing to start production indexer without INDEXER_EXPECTED_CHAIN_ID",
     );
     requireProductionConfig(
+      parsedEnv.INDEXER_EXPECTED_GENESIS_HASH,
+      "Refusing to start production indexer without INDEXER_EXPECTED_GENESIS_HASH",
+    );
+    requireProductionConfig(
       parsedEnv.CRUZIBLE_VAULT_ADDRESS,
       "Refusing to start production indexer without CRUZIBLE_VAULT_ADDRESS",
     );
@@ -692,10 +821,15 @@ if (isProduction) {
       parsedEnv.STAETHEL_ADDRESS,
       "Refusing to start production indexer without STAETHEL_ADDRESS",
     );
-    requireProductionConfig(
-      parsedEnv.STABLECOIN_BRIDGE_ADDRESS,
-      "Refusing to start production indexer without STABLECOIN_BRIDGE_ADDRESS",
-    );
+    if (
+      parsedEnv.INDEXER_REQUIRE_STABLECOIN_BRIDGE ||
+      parsedEnv.CRUZIBLE_NETWORK === "mainnet"
+    ) {
+      requireProductionConfig(
+        parsedEnv.STABLECOIN_BRIDGE_ADDRESS,
+        "Refusing to start production indexer without STABLECOIN_BRIDGE_ADDRESS for the all-periphery/mainnet profile",
+      );
+    }
   }
 }
 
@@ -741,7 +875,12 @@ if (isProduction && allowUnauthenticatedOperationalEndpoints) {
   );
 }
 
-const corsOrigins = parseCorsOrigins(parsedEnv.CORS_ORIGINS, isProduction);
+const corsOrigins = parseCorsOrigins(
+  parsedEnv.CORS_ORIGINS,
+  isProduction,
+  parsedEnv.CRUZIBLE_ALLOW_PLAINTEXT_HTTP,
+  parsedEnv.CRUZIBLE_NETWORK,
+);
 const databaseUrl = parseDatabaseUrl(parsedEnv.DATABASE_URL);
 const redisUrl = parseRedisUrl(parsedEnv.REDIS_URL, isProduction);
 const alertWebhookUrl = parseAlertWebhookUrl(
@@ -783,6 +922,8 @@ requireDistinctSecrets(
 export const config = {
   env: parsedEnv.NODE_ENV,
   isProduction,
+  network: parsedEnv.CRUZIBLE_NETWORK,
+  allowPlaintextHttp: parsedEnv.CRUZIBLE_ALLOW_PLAINTEXT_HTTP,
   port: parsedEnv.PORT,
   version: process.env.npm_package_version || "1.0.0",
   rpcUrl: parsedEnv.RPC_URL,
@@ -805,6 +946,7 @@ export const config = {
   allowMockSignatures: parsedEnv.ALLOW_MOCK_SIGNATURES,
   authAdminAddresses,
   authOperatorAddresses,
+  runtimeRole: parsedEnv.CRUZIBLE_RUNTIME_ROLE,
   authNonceTtlMs: parsedEnv.AUTH_NONCE_TTL_MS,
   authExposeRefreshTokenInBody,
   authRateLimitWindowMs: parsedEnv.AUTH_RATE_LIMIT_WINDOW_MS,
@@ -825,8 +967,10 @@ export const config = {
   cruzibleVaultAddress: parsedEnv.CRUZIBLE_VAULT_ADDRESS,
   staethelAddress: parsedEnv.STAETHEL_ADDRESS,
   stablecoinBridgeAddress: parsedEnv.STABLECOIN_BRIDGE_ADDRESS,
+  indexerRequireStablecoinBridge: parsedEnv.INDEXER_REQUIRE_STABLECOIN_BRIDGE,
   indexerStartBlock: parsedEnv.INDEXER_START_BLOCK,
   indexerExpectedChainId: parsedEnv.INDEXER_EXPECTED_CHAIN_ID,
+  indexerExpectedGenesisHash: parsedEnv.INDEXER_EXPECTED_GENESIS_HASH,
   indexerEnabled: parsedEnv.INDEXER_ENABLED,
 
   // Alerting

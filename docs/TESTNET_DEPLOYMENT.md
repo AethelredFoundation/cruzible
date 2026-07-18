@@ -45,14 +45,22 @@ for steps 3 and 4 ready to paste.
 
 Optional env:
 
-| Variable                   | Default  | Purpose                                                                                                                                                                                                                                                                     |
-| -------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GOVERNANCE`               | deployer | Nominates a separate governance address (two-step: it must call `acceptGovernance()`; deployer keeps control until then)                                                                                                                                                    |
-| `REWARDER`, `PAUSER`       | deployer | Role separation at deploy time                                                                                                                                                                                                                                              |
-| `UNBONDING_PERIOD_SECONDS` | `3600`   | Withdrawal-queue delay. 1h is right for testing; set `1814400` (21d) once delegation to validators is live so the vault queue mirrors the chain's unbonding period                                                                                                          |
-| `SKIP_WSTAETHEL=1`         | unset    | Skip the wrapper                                                                                                                                                                                                                                                            |
-| `ZEROID_REGISTRY=0x...`    | unset    | Turn the **ZeroID identity gate** on: staking then requires a registered, ACTIVE ZeroID identity for the staker (checked live — revocation in ZeroID blocks new stakes instantly; exits are never gated). Point at the ZeroID registry already deployed on the same network |
-| `OUT=<path>`               | unset    | Also write a JSON deployment manifest                                                                                                                                                                                                                                       |
+| Variable                   | Default   | Purpose                                                                                                                                                                                                                                                                     |
+| -------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GOVERNANCE`               | deployer  | Nominates a separate governance address (two-step: it must call `acceptGovernance()`; deployer keeps control until then)                                                                                                                                                    |
+| `REWARDER`, `PAUSER`       | deployer  | Role separation at deploy time                                                                                                                                                                                                                                              |
+| `UNBONDING_PERIOD_SECONDS` | `3600`    | Withdrawal-queue delay. 1h is right for testing; set `1814400` (21d) once delegation to validators is live so the vault queue mirrors the chain's unbonding period                                                                                                          |
+| `SKIP_WSTAETHEL=1`         | unset     | Skip the wrapper                                                                                                                                                                                                                                                            |
+| `ZEROID_REGISTRY=0x...`    | unset     | Turn the **ZeroID identity gate** on: staking then requires a registered, ACTIVE ZeroID identity for the staker (checked live — revocation in ZeroID blocks new stakes instantly; exits are never gated). Point at the ZeroID registry already deployed on the same network |
+| `OUT=<path>`               | unset     | Write the validated EVM deployment evidence manifest (required with `RELEASE_DEPLOYMENT=1`)                                                                                                                                                                                 |
+| `DEPLOYMENT_ENV`           | `testnet` | Evidence label; only `devnet` and `testnet` are accepted because this repository has no confirmed mainnet defaults                                                                                                                                                          |
+| `RELEASE_DEPLOYMENT=1`     | unset     | Require `OUT` and a clean tracked worktree before broadcasting                                                                                                                                                                                                              |
+
+With `RELEASE_DEPLOYMENT=1`, the deployer also runs the pinned Forge build and
+rejects any Solidity/source artifact drift before it broadcasts. If
+`ZEROID_REGISTRY` is set, preflight requires deployed bytecode and successful
+`resolveByController(address)` and `isActiveIdentity(bytes32)` probes; a random
+contract address cannot silently enable the identity gate.
 
 Notes vs the ZeroID forge flags: gas is estimated per-tx and sent with **2×
 headroom** (the `--gas-estimate-multiplier 200` equivalent — harmless on nodes
@@ -63,6 +71,15 @@ negotiates the fee format.
 Rebuilding artifacts is only needed if you **change contract sources**:
 `backend/contracts-evm/build.sh` (pinned solc 0.8.20; the committed artifacts
 in `backend/contracts-evm/artifacts/` are reproducible and deploy-ready).
+`npm run contracts:evm:check` rejects source/artifact drift before release.
+
+The `OUT` manifest records the exact source commit and clean/dirty state,
+redacted RPC origin, chain ID, canonical EVM genesis anchor block 1 and
+evidence-head hashes, every deploy
+transaction/block/gas value, ABI and creation/runtime bytecode SHA-256 hashes,
+wiring transactions, and the on-chain current/pending governance state. Validate
+an archived file with `npm run deployment:evm:validate -- <manifest.json>`.
+RPC credentials, query tokens, and provider paths are deliberately omitted.
 
 ## 3. Frontend
 
@@ -75,18 +92,33 @@ Set in `.env.local` (all `NEXT_PUBLIC_*` values are inlined at **build time**
 
 ```bash
 NEXT_PUBLIC_CHAIN_ENV=testnet
-NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://54.165.44.130:8545
+NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=<operator-approved EVM JSON-RPC URL>
+NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7
+NEXT_PUBLIC_API_URL=<deployed Cruzible API URL>
 # from the deploy script output:
 NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x...
 NEXT_PUBLIC_STAETHEL_ADDRESS=0x...
 ```
 
+The current public-testnet Cruzible deployment must be replaced before this
+release is presented for retest. The bounded stake/unstake selectors, withdrawal
+event deadline, and share-accounting behavior are part of the new bytecode; a
+frontend built from this source must not point at the previous vault. Archive
+the clean `OUT` manifest from the replacement deployment, then set its JSON as
+`RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON` when building/releasing. Run
+`npm run deployment:evm:release-validate` with the same frontend network and
+contract environment variables. It checks live canonical EVM anchor block 1,
+deploy transaction
+initcode and receipts, runtime bytecode, vault/token wiring, and current
+source/artifact hashes, and fails closed for a stale deployment.
+
 Do **not** set `NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS` — AETHEL is the native coin
 on Aethelred; that variable exists only for chains with a bridged ERC-20.
-`NEXT_PUBLIC_API_URL` is optional (see step 4): the vault UI (stake, unstake,
-instant exit, withdrawals, live rate/TVL/APY) is fully functional without the
-backend; the reconciliation/validator-intelligence panels show "not yet
-available" until an API is configured.
+`NEXT_PUBLIC_API_URL` may be omitted only for `npm run dev` during local,
+contract-only vault work; reconciliation and validator-intelligence then show
+"not yet available." It is required by the fail-closed `npm run build` contract
+and every complete testnet/production image. Configure the API in step 4 before
+building the image the US team will retest.
 
 ```bash
 npm ci
@@ -121,6 +153,7 @@ export STAETHEL_ADDRESS=0x...
 export INDEXER_RPC_URL=http://54.165.44.130:8545
 export INDEXER_WS_URL=ws://54.165.44.130:8546
 export INDEXER_EXPECTED_CHAIN_ID=7332
+export INDEXER_EXPECTED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7
 
 cd backend/api
 npm ci
@@ -128,8 +161,10 @@ npm run db:migrate:deploy
 npm run dev            # or: npm run build && npm run start
 ```
 
-Then set `NEXT_PUBLIC_API_URL=http://localhost:3001` in the frontend env and
-rebuild. Production hardening (secrets via `*_FILE`, operational-endpoint
+Then set `NEXT_PUBLIC_API_URL=<browser-reachable API URL>` in the frontend env
+and rebuild. `localhost` is valid only for a `devnet` build; testnet API origins
+must match the approved or explicitly operator-allowlisted build origin.
+Production hardening (secrets via `*_FILE`, operational-endpoint
 token, operator/admin wallet allowlists, compose/K8s) is covered in
 [docs/ops/runbook.md](ops/runbook.md).
 

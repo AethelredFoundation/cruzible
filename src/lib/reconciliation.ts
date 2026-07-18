@@ -46,6 +46,16 @@ export type LiveReconciliationDocument = {
       total_eligible_validators?: number;
     };
   };
+  stake_supply?: {
+    observed?: {
+      holder_total_shares?: string;
+      vault_total_shares?: string;
+    };
+    meta?: {
+      holder_count?: number;
+      matches_vault_total?: boolean | null;
+    };
+  };
   stake_snapshot?: {
     observed?: {
       stake_snapshot_hash?: string;
@@ -196,6 +206,8 @@ export function renderLiveReconciliationMarkdown(
   const totalEligibleValidators =
     document.validator_selection?.meta?.total_eligible_validators ?? "n/a";
   const stakeMeta = document.stake_snapshot?.meta;
+  const supplyObserved = document.stake_supply?.observed;
+  const supplyMeta = document.stake_supply?.meta;
   const sourceLines = Object.entries(document.source ?? {}).map(
     ([key, value]) => `- \`${key}\`: \`${String(value)}\``,
   );
@@ -209,7 +221,11 @@ export function renderLiveReconciliationMarkdown(
     `- Captured At: \`${document.captured_at}\``,
     `- Displayed Validators: \`${validatorCount}\``,
     `- Hashed Validator Universe: \`${totalEligibleValidators}\``,
-    `- Included Stakers: \`${stakeMeta?.included_stakers ?? "n/a"}\``,
+    `- Indexed Share Holders: \`${supplyMeta?.holder_count ?? stakeMeta?.included_stakers ?? "n/a"}\``,
+    `- Holder Total Shares: \`${supplyObserved?.holder_total_shares ?? "n/a"}\``,
+    `- Vault Total Shares: \`${supplyObserved?.vault_total_shares ?? "n/a"}\``,
+    `- Share Supply Matches: \`${supplyMeta?.matches_vault_total == null ? "n/a" : supplyMeta.matches_vault_total ? "yes" : "no"}\``,
+    `- Per-holder Validator Attribution: \`${document.stake_snapshot ? "published" : "unavailable — pooled vault allocation is not holder-owned"}\``,
     `- Warning Count: \`${warningCount}\``,
     `- Discrepancy Count: \`${document.discrepancies?.length ?? 0}\``,
     "",

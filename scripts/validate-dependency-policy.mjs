@@ -33,10 +33,10 @@ const DISALLOWED_SPECIFIER_PATTERNS = [
   /^(?:git(?:\+ssh|\+https|\+http|\+file)?:|github:|gitlab:|bitbucket:)/i,
   /^(?:https?:|file:|link:|workspace:)/i,
 ];
-const DESCOPED_CARGO_MANIFESTS = new Map([
+const EXTERNAL_RUNTIME_PATHS = new Map([
   [
-    "backend/node/Cargo.toml",
-    "intentionally de-scoped from the production Docker Compose",
+    "backend/node",
+    "the canonical Aethelred node belongs in https://github.com/aethelred-foundation/aethelred, not in the Cruzible release",
   ],
 ]);
 
@@ -265,32 +265,12 @@ function validateCargoPolicy({ errors, manifestPath, root }) {
   const relativeManifestPath = normalizePath(path.relative(root, manifestPath));
   const cargoLockPath = nearestCargoLock(root, manifestPath);
   const manifestSource = readFileSync(manifestPath, "utf8");
-  const isDescoped = DESCOPED_CARGO_MANIFESTS.has(relativeManifestPath);
-
-  if (!cargoLockPath && !isDescoped) {
+  if (!cargoLockPath) {
     pushError(
       errors,
       relativeManifestPath,
       "Cargo manifest must be covered by a committed Cargo.lock",
     );
-  }
-
-  if (isDescoped) {
-    const readmePath = path.join(root, "backend/README.md");
-    const readmeSource = existsSync(readmePath)
-      ? readFileSync(readmePath, "utf8")
-      : "";
-    const requiredText = DESCOPED_CARGO_MANIFESTS.get(relativeManifestPath);
-
-    if (!readmeSource.includes(requiredText)) {
-      pushError(
-        errors,
-        relativeManifestPath,
-        "de-scoped Cargo manifest must be documented in backend/README.md",
-      );
-    }
-
-    return;
   }
 
   if (/\bgit\s*=/u.test(manifestSource)) {
@@ -310,6 +290,13 @@ export function validateDependencyPolicy(rootDirectory = process.cwd()) {
   }
 
   const errors = [];
+
+  for (const [relativePath, policy] of EXTERNAL_RUNTIME_PATHS) {
+    if (existsSync(path.join(root, relativePath))) {
+      pushError(errors, relativePath, policy);
+    }
+  }
+
   const manifests = discoverPackageManifests(root);
   const cargoManifests = discoverCargoManifests(root);
 
@@ -375,7 +362,6 @@ export function validateDependencyPolicy(rootDirectory = process.cwd()) {
     cargoManifests: cargoManifests.map((manifestPath) =>
       normalizePath(path.relative(root, manifestPath)),
     ),
-    descopedCargoManifests: [...DESCOPED_CARGO_MANIFESTS.keys()],
     errors,
     packageManager: EXPECTED_PACKAGE_MANAGER,
     projects: manifests.map(

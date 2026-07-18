@@ -117,7 +117,8 @@ describe("vaultRisk buildVaultRiskSignals", () => {
     expect(gated.find((s) => s.id === "withdrawal-liquidity")!.tone).toBe(
       "warning",
     );
-    expect(gated.find((s) => s.id === "reward-proof")!.tone).toBe("healthy");
+    expect(gated.find((s) => s.id === "reward-proof")!.tone).toBe("blocked");
+    expect(gated.find((s) => s.id === "reward-proof")!.status).toBe("Gated");
   });
 });
 

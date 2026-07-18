@@ -53,6 +53,25 @@ RUN npm run build
 # Remove dev dependencies without running dependency lifecycle hooks.
 RUN npm prune --omit=dev --ignore-scripts
 
+# ============ DATABASE MIGRATION ============
+# Dedicated immutable image that retains the Prisma CLI and checked-in
+# migrations. It does not contain or start the HTTP/indexer application.
+FROM dependencies AS migration
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /app/backend/api
+
+COPY backend/api/scripts/run-prisma-migrate.mjs ./scripts/run-prisma-migrate.mjs
+
+ENV NODE_ENV=production
+
+USER nodejs
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "scripts/run-prisma-migrate.mjs", "deploy"]
+
 # ============ PRODUCTION ============
 FROM base AS production
 
@@ -99,5 +118,8 @@ CMD ["node", "dist/index.js"]
 
 # ============ INDEXER ============
 FROM production AS indexer
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=90s --retries=4 \
+    CMD node dist/indexer-healthcheck.js || exit 1
 
 CMD ["node", "dist/indexer.js"]

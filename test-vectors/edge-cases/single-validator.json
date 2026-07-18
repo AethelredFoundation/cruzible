@@ -20,21 +20,18 @@
       "performance_weight": 0.4,
       "decentralization_weight": 0.3,
       "reputation_weight": 0.3,
-      "min_uptime_pct": 95.0,
+      "min_uptime_pct": 95,
       "max_commission_bps": 1000,
       "max_per_region": 0,
       "max_per_operator": 3,
       "min_stake": "32000000000000000000"
     },
-    "eligible_addresses": [
-      "0x1111111111111111111111111111111111111111"
-    ]
+    "eligible_addresses": ["0x1111111111111111111111111111111111111111"]
   },
   "expected": {
-    "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes",
-    "validator_set_hash": null,
-    "policy_hash": null,
-    "universe_hash": null,
-    "payload_hex": null
+    "validator_set_hash": "0x6d2e4df082bfa46044d4bb36296237e6270b5c788498a47ee20ca7f515f704ed",
+    "policy_hash": "0x6f9bf0a4758a80c32322ea56dafd048c1232b59493854f7c993489b686f8814a",
+    "universe_hash": "0x643516e6827951a8e6d7b6dd32ded0fe39964e493a45c7868265a4fb2b73185d",
+    "payload_hex": "0x6d2e4df082bfa46044d4bb36296237e6270b5c788498a47ee20ca7f515f704ed6f9bf0a4758a80c32322ea56dafd048c1232b59493854f7c993489b686f8814a643516e6827951a8e6d7b6dd32ded0fe39964e493a45c7868265a4fb2b73185d"
   }
 }

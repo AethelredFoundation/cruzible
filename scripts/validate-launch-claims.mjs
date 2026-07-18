@@ -87,8 +87,8 @@ export const LAUNCH_CLAIM_RULES = [
     pattern:
       /\b(?:proof[-\s]+backed|TEE[-\s]+verified|hardware[-\s]+verified|TEE\s+attestation\s+verification)\b/i,
     message:
-      "Contract documentation must not imply proof-backed, TEE-verified, or hardware-verified assurance without explicit evidence scope.",
-    paths: [/^backend\/contracts\//],
+      "Public UI and contract documentation must not imply proof-backed, TEE-verified, or hardware-verified assurance without explicit evidence scope.",
+    paths: [/^backend\/contracts\//, /^src\/components\//, /^src\/pages\//],
     allow: [
       /\bnot\s+(?:yet\s+)?(?:proof[-\s]+backed|TEE[-\s]+verified|hardware[-\s]+verified)\b/i,
       /\bnot\s+(?:a\s+)?(?:proof|TEE|hardware)[-\s]+(?:assurance|verification)\s+claim\b/i,

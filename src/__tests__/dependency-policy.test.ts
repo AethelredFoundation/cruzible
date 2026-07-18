@@ -88,8 +88,7 @@ describe("dependency policy validation", () => {
       new Set(["backend/api", "sdk/typescript", "."]),
     );
     expect(result.cargoManifests).toContain("backend/contracts/Cargo.toml");
-    expect(result.cargoManifests).toContain("backend/node/Cargo.toml");
-    expect(result.descopedCargoManifests).toEqual(["backend/node/Cargo.toml"]);
+    expect(result.cargoManifests).not.toContain("backend/node/Cargo.toml");
   });
 
   it("rejects mutable package sources and missing package manager metadata", () => {
@@ -190,7 +189,7 @@ describe("dependency policy validation", () => {
     );
   });
 
-  it("allows the documented de-scoped backend node Cargo scaffold", () => {
+  it("rejects reintroducing a node scaffold across the external chain boundary", () => {
     const result = withFixture(
       {
         "package.json": manifest(),
@@ -199,20 +198,16 @@ describe("dependency policy validation", () => {
       (root) => {
         writeText(
           root,
-          "backend/README.md",
-          "backend/node is intentionally de-scoped from the production Docker Compose stack\n",
-        );
-        writeText(
-          root,
           "backend/node/Cargo.toml",
-          '[package]\nname = "node-scaffold"\nversion = "0.1.0"\n[dependencies]\nmodel = { git = "https://example.invalid/model" }\n',
+          '[package]\nname = "node-scaffold"\nversion = "0.1.0"\n',
         );
 
         return validateDependencyPolicy(root);
       },
     );
 
-    expect(result.errors).toEqual([]);
-    expect(result.descopedCargoManifests).toEqual(["backend/node/Cargo.toml"]);
+    expect(result.errors.join("\n")).toContain(
+      "backend/node: the canonical Aethelred node belongs in https://github.com/aethelred-foundation/aethelred, not in the Cruzible release",
+    );
   });
 });

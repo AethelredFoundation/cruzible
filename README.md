@@ -148,17 +148,20 @@ npm test
 npm run test:coverage
 
 # Contracts
-cd backend/contracts
-cargo test --all
+npm run contracts:evm:check
+
+# Earlier Cosmos-native contract track (not deployed by Cruzible)
+cd backend/contracts && cargo test --all
 ```
 
 ## Known Repo-Reality Gaps
 
-- `backend/infra/docker-compose.yml` now includes checked-in nginx, Redis, Prometheus, Grafana, and PostgreSQL init baselines, but it still requires operator-provisioned secrets, TLS material, immutable image digests, and staging validation before production use.
+- `backend/infra/docker-compose.yml` includes checked-in nginx, Prometheus, Grafana, and PostgreSQL baselines and requires an operator-managed external `rediss://` endpoint; operator secrets, TLS material, immutable image digests, and staging validation are still required before production use.
 - `k8s/base/` includes frontend, API gateway, and indexer manifests with read-only roots, bounded `/tmp` write surfaces, DNS-only backend egress by default, scoped ingress NetworkPolicies, ephemeral-storage budgets, rollout/disruption safeguards, and `0440` backend secret-file projections for non-root `fsGroup` access. The `k8s/overlays/production-egress/` allowlist must be replaced with environment-specific PostgreSQL, Redis, RPC, and alert webhook CIDRs before rollout.
 - Frontend public-data requests require `NEXT_PUBLIC_API_URL` at build time because Next.js public env is compiled into browser bundles; Docker images must pass `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` as build args, and production mainnet/testnet builds accept only the approved chain-specific API origin.
 - `backend/api/src/services/CacheService.ts` uses Redis when `REDIS_URL` is configured and requires TLS Redis URLs in production; local/test runs keep an in-memory fallback.
 - `backend/api/src/services/AlertService.ts` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.
+- The canonical Aethelred node is maintained in [`aethelred-foundation/aethelred`](https://github.com/aethelred-foundation/aethelred). This repository intentionally does not vendor a node binary; Cruzible deployments consume operator-reviewed RPC, WebSocket, and gRPC endpoints from a pinned chain release.
 - Some frontend surfaces remain preview-oriented. Runtime pages fail closed, stay empty, or show readiness gates instead of presenting seeded/mock data as live protocol state.
 
 ## Repository Guide
@@ -168,8 +171,8 @@ cruzible/
 ├── src/                      # Next.js frontend
 ├── backend/
 │   ├── api/                  # Express / TypeScript API gateway
-│   ├── contracts/            # CosmWasm contracts and audit docs
-│   ├── node/                 # Aethelred node workspace
+│   ├── contracts-evm/        # Canonical Cruzible Solidity contracts
+│   ├── contracts/            # Earlier Cosmos-native contract track
 │   └── infra/                # Infrastructure scaffolding
 ├── docs/                     # Ops, readiness, and architecture notes
 ├── k8s/                      # Checked-in Kubernetes base manifests

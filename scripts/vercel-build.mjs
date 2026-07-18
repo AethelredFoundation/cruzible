@@ -5,6 +5,12 @@ const env = { ...process.env };
 if (env.VERCEL_ENV === "preview" && !env.NEXT_PUBLIC_API_URL?.trim()) {
   env.NEXT_PUBLIC_API_URL = "https://api.testnet.aethelred.org";
   env.NEXT_PUBLIC_CHAIN_ENV = env.NEXT_PUBLIC_CHAIN_ENV?.trim() || "testnet";
+  if (!env.NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL?.trim()) {
+    console.error(
+      "Vercel previews require NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL; no undeployed RPC fallback is compiled into previews.",
+    );
+    process.exit(1);
+  }
   env.NEXT_PUBLIC_CRUZIBLE_ADDRESS =
     env.NEXT_PUBLIC_CRUZIBLE_ADDRESS?.trim() ||
     "0x1111111111111111111111111111111111111111";

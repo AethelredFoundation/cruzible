@@ -48,8 +48,8 @@ This document only covers measurement paths that are backed by code or scripts p
 | --------------------- | ----------------------------- | ----------------------------------- | ----------------------------------------------------- |
 | Indexer lag           | `>100` blocks degrades health | `>500` blocks makes service unready | `backend/api/src/routes/health.ts`                    |
 | Reconciliation status | `WARNING` degrades health     | `CRITICAL` makes service unready    | `backend/api/src/routes/health.ts`                    |
-| Exchange rate drift   | `1%` warning by default       | `5%` critical by default            | `backend/api/src/services/ReconciliationScheduler.ts` |
-| TVL drift             | n/a                           | `2%` threshold by default           | `backend/api/src/services/ReconciliationScheduler.ts` |
+| Same-block exchange-rate mismatch | `1%` warning by default | `5%` critical by default | `backend/api/src/services/ReconciliationScheduler.ts` |
+| Same-block vault TVL mismatch | n/a | `2%` threshold by default | `backend/api/src/services/ReconciliationScheduler.ts` |
 
 ## 4. Recommended Measurement Commands
 

@@ -11,6 +11,11 @@ async function importChainsConfig() {
 function resetChainEnv() {
   process.env = { ...originalEnv };
   delete process.env.NEXT_PUBLIC_CHAIN_ENV;
+  delete process.env.NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID;
+  delete process.env.NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL;
+  delete process.env.NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL;
+  delete process.env.NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL;
+  delete process.env.NEXT_PUBLIC_AETHELRED_GENESIS_HASH;
 }
 
 describe("chain config", () => {
@@ -54,11 +59,37 @@ describe("chain config", () => {
   it("selects the configured production chain explicitly", async () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.NEXT_PUBLIC_CHAIN_ENV = "mainnet";
+    process.env.NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID = "7333";
+    process.env.NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL =
+      "https://rpc.mainnet.example.org";
+    process.env.NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL =
+      "https://explorer.mainnet.example.org";
+    process.env.NEXT_PUBLIC_AETHELRED_GENESIS_HASH = `0x${"a".repeat(64)}`;
 
     const { activeChain, AETHELRED_MAINNET_ID, CHAIN_ENV } =
       await importChainsConfig();
 
     expect(CHAIN_ENV).toBe("mainnet");
     expect(activeChain.id).toBe(AETHELRED_MAINNET_ID);
+  });
+
+  it("refuses the undeployed repository mainnet placeholders", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "mainnet";
+    process.env.NEXT_PUBLIC_AETHELRED_GENESIS_HASH = `0x${"a".repeat(64)}`;
+
+    await expect(importChainsConfig()).rejects.toThrow(
+      "mainnet is not a repository default",
+    );
+  });
+
+  it("requires an explicit RPC for production testnet bundles", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
+    process.env.NEXT_PUBLIC_AETHELRED_GENESIS_HASH = `0x${"a".repeat(64)}`;
+
+    await expect(importChainsConfig()).rejects.toThrow(
+      "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL is required for production testnet builds",
+    );
   });
 });

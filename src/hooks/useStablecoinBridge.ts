@@ -430,9 +430,9 @@ export function useBridgeOut() {
         }
 
         addNotification(
-          "success",
-          "Bridge Confirmed",
-          `${amountHuman} ${symbol} has been bridged out via CCTP. Funds will arrive on the destination chain shortly.`,
+          "info",
+          "Burn Initiated — Destination Pending",
+          `${amountHuman} ${symbol} was burned on the source chain. This receipt does not prove destination minting; verify the CCTP attestation and destination transaction before treating the transfer as complete.`,
         );
 
         return hash;

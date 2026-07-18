@@ -5,6 +5,7 @@ import "./interfaces/ISeal.sol";
 
 interface IStAETHEL {
     function mintShares(address to, uint256 sharesAmount) external;
+    function mintBootstrapShares(address lockAddress, address to, uint256 lockedShares, uint256 userShares) external;
     function burnShares(address from, uint256 sharesAmount) external;
     function getSharesByAethel(uint256 aethelAmount) external view returns (uint256);
     function getAethelByShares(uint256 sharesAmount) external view returns (uint256);
@@ -126,6 +127,10 @@ contract Cruzible {
     /// @notice Total AETHEL under management (staked principal + accrued rewards
     ///         − amounts reserved for the withdrawal queue).
     uint256 public totalPooledAethel;
+    /// @notice Catastrophic asset shortfall that could not be socialized
+    ///         against active stAETHEL holders. New stakes and queued claims
+    ///         fail closed until an explicit recapitalization clears it.
+    uint256 public uncoveredDeficit;
     /// @notice AETHEL reserved for requested-but-unclaimed withdrawals.
     uint256 public totalReserved;
 
@@ -172,8 +177,7 @@ contract Cruzible {
     ///      AMOUNTS ARE IN THE BOND DENOM'S BASE UNITS (uaethel, 6 decimals) —
     ///      the vault converts from its 18-decimal accounting via
     ///      DECIMAL_BRIDGE before every call.
-    IStakingPrecompile internal constant STAKING =
-        IStakingPrecompile(0x0000000000000000000000000000000000000800);
+    IStakingPrecompile internal constant STAKING = IStakingPrecompile(0x0000000000000000000000000000000000000800);
     /// @dev cosmos/evm distribution precompile: withdraw EARNED staking
     ///      rewards; the chain credits them to the vault's native balance.
     IDistributionPrecompile internal constant DISTRIBUTION =
@@ -291,21 +295,20 @@ contract Cruzible {
     // ── events ───────────────────────────────────────────────────────────────
 
     event Staked(address indexed user, uint256 amount, uint256 shares);
-    event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId);
+    event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId, uint256 completionTime);
     event InstantUnstaked(address indexed user, uint256 shares, uint256 amountPaid, uint256 fee);
     event Delegated(string validator, uint256 amountWei);
     event Undelegated(string validator, uint256 amountWei, int64 completionTime);
     event QueueUndelegated(string validator, uint256 amountWei, address indexed caller);
     event UndelegationsMatured(string validator, uint256 amountWei);
     event SlashingRealized(string validator, uint256 lossWei, uint256 newTotalPooled);
+    event CatastrophicInsolvency(string validator, uint256 uncoveredDeficit);
+    event Recapitalized(address indexed contributor, uint256 amount, uint256 remainingDeficit);
     event RealYieldClaimed(string validator, uint256 amountWei, uint256 newTotalPooled);
     event RateGuardSet(uint256 maxRebaseBps, uint256 minRewardInterval);
     event InstantExitFeeSet(uint256 feeBps);
     event EconomicLimitsSet(
-        uint256 maxTotalPooled,
-        uint256 maxStakePerAccount,
-        uint256 maxValidatorBps,
-        uint256 minBufferBps
+        uint256 maxTotalPooled, uint256 maxStakePerAccount, uint256 maxValidatorBps, uint256 minBufferBps
     );
     event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount);
     event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount);
@@ -348,6 +351,8 @@ contract Cruzible {
     error RewardsTooFrequent();
     error InsufficientBuffer();
     error SlippageExceeded();
+    error MinimumSharesNotMet(uint256 minimumShares, uint256 actualShares);
+    error MinimumAethelNotMet(uint256 minimumAethel, uint256 actualAethel);
     error BadParam();
     error DelegationFailed();
     error NoQueueDeficit();
@@ -363,6 +368,7 @@ contract Cruzible {
     error SealNotBoundToStaker(string expectedPurpose);
     error RewardsProofInvalid();
     error RootNotSet(uint256 epoch);
+    error ProtocolInsolvent(uint256 uncoveredDeficit);
 
     modifier onlyGovernance() {
         if (msg.sender != governance) revert NotGovernance();
@@ -405,13 +411,20 @@ contract Cruzible {
     ///         compliance mode is on, the caller must have been admitted via
     ///         {stakeWithSeal} (or governance policy change).
     function stake() public payable returns (uint256 shares) {
-        return _stake(msg.sender, msg.value);
+        return _stake(msg.sender, msg.value, 0);
+    }
+
+    /// @notice Stake native AETHEL while requiring at least `minShares` to be
+    ///         minted. The bound is checked atomically against the execution
+    ///         rate, preventing a quote from becoming stale before inclusion.
+    function stakeWithMinShares(uint256 minShares) external payable returns (uint256 shares) {
+        return _stake(msg.sender, msg.value, minShares);
     }
 
     /// @notice Stake with a referral code (tracked off-protocol via the event
     ///         log; the code has no effect on share accounting).
     function stakeWithReferral(uint256 referralCode) external payable returns (uint256 shares) {
-        shares = _stake(msg.sender, msg.value);
+        shares = _stake(msg.sender, msg.value, 0);
         emit ReferralRecorded(msg.sender, referralCode, msg.value);
     }
 
@@ -423,12 +436,25 @@ contract Cruzible {
     /// @param jobId The PoUW job whose seal authorizes this staker.
     function stakeWithSeal(string calldata jobId) external payable returns (uint256 shares) {
         _admitWithSeal(msg.sender, jobId);
-        return _stake(msg.sender, msg.value);
+        return _stake(msg.sender, msg.value, 0);
     }
 
-    function _stake(address staker, uint256 amount) internal nonReentrant returns (uint256 shares) {
+    /// @notice Compliance entry with the same atomic minimum-share bound as
+    ///         {stakeWithMinShares}. Seal admission and staking either both
+    ///         succeed or both revert.
+    function stakeWithSealAndMinShares(string calldata jobId, uint256 minShares)
+        external
+        payable
+        returns (uint256 shares)
+    {
+        _admitWithSeal(msg.sender, jobId);
+        return _stake(msg.sender, msg.value, minShares);
+    }
+
+    function _stake(address staker, uint256 amount, uint256 minShares) internal nonReentrant returns (uint256 shares) {
         if (address(stAethel) == address(0)) revert TokenNotSet();
         if (amount == 0) revert ZeroAmount();
+        if (uncoveredDeficit != 0) revert ProtocolInsolvent(uncoveredDeficit);
         if (depositsPaused) revert DepositsArePaused();
         if (identityRequired) {
             bytes32 did = identityRegistry.resolveByController(staker);
@@ -465,14 +491,19 @@ contract Cruzible {
         //     return to the pathological 1-wei regime;
         //   - every stake: reject deposits that would mint 0 shares.
         totalPooledAethel += amount;
-        if (stAethel.getTotalShares() == 0) {
+        bool isBootstrap = stAethel.getTotalShares() == 0;
+        if (isBootstrap) {
             if (shares <= MINIMUM_LIQUIDITY) revert StakeTooSmall();
-            stAethel.mintShares(DEAD, MINIMUM_LIQUIDITY);
             shares -= MINIMUM_LIQUIDITY;
         } else if (shares == 0) {
             revert StakeTooSmall();
         }
-        stAethel.mintShares(staker, shares);
+        if (shares < minShares) revert MinimumSharesNotMet(minShares, shares);
+        if (isBootstrap) {
+            stAethel.mintBootstrapShares(DEAD, staker, MINIMUM_LIQUIDITY, shares);
+        } else {
+            stAethel.mintShares(staker, shares);
+        }
 
         emit Staked(staker, amount, shares);
     }
@@ -490,7 +521,7 @@ contract Cruzible {
         // The seal must have been minted FOR this staker: the PoUW job's
         // purpose binds the staker address (set at submit-job time), so a
         // compliance attestation cannot be replayed for someone else.
-        (, , , , , , string memory purpose, , ) = SEAL.getSeal(sealId);
+        (,,,,,, string memory purpose,,) = SEAL.getSeal(sealId);
         string memory expected = string.concat("cruzible-stake:", _toHexString(staker));
         if (keccak256(bytes(purpose)) != keccak256(bytes(expected))) {
             revert SealNotBoundToStaker(expected);
@@ -552,9 +583,7 @@ contract Cruzible {
         policyAllowedPlatforms = allowedPlatforms;
         policyRequireVendorRoot = requireVendorRoot;
         policyDataResidency = dataResidency;
-        emit CompliancePolicySet(
-            allowedBackends, minVerification, allowedPlatforms, requireVendorRoot, dataResidency
-        );
+        emit CompliancePolicySet(allowedBackends, minVerification, allowedPlatforms, requireVendorRoot, dataResidency);
     }
 
     // ── unstaking / withdrawal queue ─────────────────────────────────────────
@@ -563,20 +592,39 @@ contract Cruzible {
     ///         value is fixed at request time and RESERVED — later rate moves
     ///         cannot dilute a queued exit, and queued exits cannot dilute
     ///         remaining stakers.
-    function unstake(uint256 shares) external nonReentrant returns (uint256 withdrawalId, uint256 aethelAmount) {
+    function unstake(uint256 shares) external returns (uint256 withdrawalId, uint256 aethelAmount) {
+        return _unstake(msg.sender, shares, 0);
+    }
+
+    /// @notice Burn shares and queue an exit only if the execution-time value
+    ///         is at least `minAethel`. This protects delayed exits from quote
+    ///         movement between UI preflight and transaction inclusion.
+    function unstakeWithMinAethel(uint256 shares, uint256 minAethel)
+        external
+        returns (uint256 withdrawalId, uint256 aethelAmount)
+    {
+        return _unstake(msg.sender, shares, minAethel);
+    }
+
+    function _unstake(address staker, uint256 shares, uint256 minAethel)
+        internal
+        nonReentrant
+        returns (uint256 withdrawalId, uint256 aethelAmount)
+    {
         if (address(stAethel) == address(0)) revert TokenNotSet();
         if (shares == 0) revert ZeroAmount();
 
         aethelAmount = stAethel.getAethelByShares(shares);
         if (aethelAmount == 0) revert ZeroAmount();
         if (aethelAmount > totalPooledAethel) revert InsufficientPool();
+        if (aethelAmount < minAethel) revert MinimumAethelNotMet(minAethel, aethelAmount);
 
-        stAethel.burnShares(msg.sender, shares);
+        stAethel.burnShares(staker, shares);
         totalPooledAethel -= aethelAmount;
         totalReserved += aethelAmount;
 
         withdrawalId = ++nextWithdrawalId;
-        userWithdrawals[msg.sender].push(
+        userWithdrawals[staker].push(
             Withdrawal({
                 id: withdrawalId,
                 shares: shares,
@@ -586,10 +634,10 @@ contract Cruzible {
                 claimed: false
             })
         );
-        withdrawalOwner[withdrawalId] = msg.sender;
-        withdrawalIndexPlus1[withdrawalId] = userWithdrawals[msg.sender].length;
+        withdrawalOwner[withdrawalId] = staker;
+        withdrawalIndexPlus1[withdrawalId] = userWithdrawals[staker].length;
 
-        emit Unstaked(msg.sender, shares, aethelAmount, withdrawalId);
+        emit Unstaked(staker, shares, aethelAmount, withdrawalId, block.timestamp + unbondingPeriod);
     }
 
     /// @notice Exit immediately from the vault's free buffer, paying the
@@ -602,11 +650,7 @@ contract Cruzible {
     ///         so every remaining holder rebases upward.
     /// @param shares  stAETHEL shares to burn.
     /// @param minOut  Slippage guard on the paid amount (post-fee).
-    function instantUnstake(uint256 shares, uint256 minOut)
-        external
-        nonReentrant
-        returns (uint256 amountPaid)
-    {
+    function instantUnstake(uint256 shares, uint256 minOut) external nonReentrant returns (uint256 amountPaid) {
         if (address(stAethel) == address(0)) revert TokenNotSet();
         if (shares == 0) revert ZeroAmount();
 
@@ -627,7 +671,7 @@ contract Cruzible {
 
         emit InstantUnstaked(msg.sender, shares, amountPaid, fee);
 
-        (bool sent, ) = payable(msg.sender).call{value: amountPaid}("");
+        (bool sent,) = payable(msg.sender).call{value: amountPaid}("");
         require(sent, "transfer failed");
     }
 
@@ -651,26 +695,17 @@ contract Cruzible {
     /// @param validator  Bech32 valoper address.
     /// @param amountWei  18-decimal amount; must be a whole uaethel multiple
     ///                   (the 1e12 bridge would silently drop dust otherwise).
-    function delegateToValidator(string calldata validator, uint256 amountWei)
-        external
-        onlyGovernance
-        nonReentrant
-    {
+    function delegateToValidator(string calldata validator, uint256 amountWei) external onlyGovernance nonReentrant {
         if (amountWei == 0 || amountWei % DECIMAL_BRIDGE != 0) revert BadParam();
         if (amountWei > freeBuffer()) revert InsufficientBuffer();
         // In-contract delegation limits (0 = disabled): per-validator
         // concentration cap and a minimum-liquid-buffer policy, both in bps
         // of the pool.
-        if (
-            maxValidatorBps != 0 &&
-            (delegatedTo[validator] + amountWei) * 10_000 > totalPooledAethel * maxValidatorBps
-        ) {
+        if (maxValidatorBps != 0 && (delegatedTo[validator] + amountWei) * 10_000 > totalPooledAethel * maxValidatorBps)
+        {
             revert ValidatorConcentrationExceeded();
         }
-        if (
-            minBufferBps != 0 &&
-            (freeBuffer() - amountWei) * 10_000 < totalPooledAethel * minBufferBps
-        ) {
+        if (minBufferBps != 0 && (freeBuffer() - amountWei) * 10_000 < totalPooledAethel * minBufferBps) {
             revert BufferPolicyViolated();
         }
 
@@ -704,11 +739,7 @@ contract Cruzible {
     ///         toward stakers who are already owed them; a keeper or a queued
     ///         withdrawer can call it. This closes the operational gap between
     ///         queued exits and real chain undelegations.
-    function undelegateForQueue(string calldata validator)
-        external
-        nonReentrant
-        returns (uint256 amountWei)
-    {
+    function undelegateForQueue(string calldata validator) external nonReentrant returns (uint256 amountWei) {
         _syncUndelegations(validator);
 
         uint256 deficit = queueDeficit();
@@ -738,11 +769,7 @@ contract Cruzible {
     ///         incumbent model) instead of the last exiters absorbing the
     ///         whole loss. PERMISSIONLESS: it reads chain state and can only
     ///         mark the rate DOWN to reality, never up.
-    function reconcileValidator(string calldata validator)
-        external
-        nonReentrant
-        returns (uint256 lossWei)
-    {
+    function reconcileValidator(string calldata validator) external nonReentrant returns (uint256 lossWei) {
         _syncUndelegations(validator);
 
         // Bonded principal vs the chain's delegation record.
@@ -764,7 +791,13 @@ contract Cruzible {
         // apply any shortfall to the vault's recorded FIFO from the tail so
         // maturity accounting stays exact.
         uint256 recordedUnbonding = unbondingFrom[validator];
-        if (recordedUnbonding > 0) {
+        // If the locally oldest entry has reached its completion time but is
+        // still visible in consensus state, the chain has not settled it yet.
+        // If more than MAX_SYNC_PER_CALL entries matured together, repeated
+        // syncs drain them before aggregate reconciliation.  In both cases an
+        // aggregate comparison here would misclassify a matured entry as a
+        // slash, so fail closed until the local maturity backlog is clear.
+        if (recordedUnbonding > 0 && !_hasLocallyMaturedUndelegation(validator)) {
             IStakingPrecompile.UnbondingDelegationOutput memory u =
                 STAKING.unbondingDelegation(address(this), validator);
             uint256 actualWei;
@@ -780,13 +813,7 @@ contract Cruzible {
             }
         }
 
-        if (lossWei > 0) {
-            // Socialize. The pool can never go below zero even in a
-            // catastrophic (100%) slash of everything delegated.
-            uint256 applied = lossWei > totalPooledAethel ? totalPooledAethel : lossWei;
-            totalPooledAethel -= applied;
-            emit SlashingRealized(validator, lossWei, totalPooledAethel);
-        }
+        if (lossWei > 0) _realizeSlashingLoss(validator, lossWei);
     }
 
     /// @notice Native AETHEL the withdrawal queue (and Merkle reserve) is owed
@@ -807,10 +834,7 @@ contract Cruzible {
         return address(this).balance + totalDelegated + totalUnbonding;
     }
 
-    function _undelegate(string calldata validator, uint256 amountWei)
-        internal
-        returns (int64 completionTime)
-    {
+    function _undelegate(string calldata validator, uint256 amountWei) internal returns (int64 completionTime) {
         totalDelegated -= amountWei;
         delegatedTo[validator] -= amountWei;
         totalUnbonding += amountWei;
@@ -833,15 +857,78 @@ contract Cruzible {
         uint256 limit = head + MAX_SYNC_PER_CALL;
         while (head < len && head < limit && q[head].completionTime <= block.timestamp) {
             maturedWei += q[head].amountWei;
-            delete q[head];
             head++;
         }
         if (maturedWei > 0) {
+            // completionTime is only a local hint.  Consensus removes an
+            // entry and credits the vault atomically at settlement; do not
+            // release in-flight coverage while the amount is still reported
+            // by the staking precompile.  This closes the window where a
+            // keeper could sync before EndBlock settlement.
+            IStakingPrecompile.UnbondingDelegationOutput memory u =
+                STAKING.unbondingDelegation(address(this), validator);
+            uint256 actualUnbondingWei;
+            for (uint256 i = 0; i < u.entries.length; i++) {
+                actualUnbondingWei += u.entries[i].balance * DECIMAL_BRIDGE;
+            }
+            uint256 recordedAfterMaturity = unbondingFrom[validator] - maturedWei;
+            if (actualUnbondingWei > recordedAfterMaturity) return 0;
+
+            uint256 oldHead = pendingHead[validator];
+            for (uint256 i = oldHead; i < head; i++) {
+                delete q[i];
+            }
             pendingHead[validator] = head;
             totalUnbonding -= maturedWei;
             unbondingFrom[validator] -= maturedWei;
             emit UndelegationsMatured(validator, maturedWei);
+
+            // A matured entry may have been slashed immediately before the
+            // chain removed it, at which point it is no longer queryable via
+            // unbondingDelegation.  Use the native balance actually credited
+            // by consensus as the final truth: after releasing the recorded
+            // in-flight asset, any solvency deficit is realized immediately
+            // instead of being permanently hidden from reconciliation.
+            uint256 liabilities = totalPooledAethel + totalReserved + merkleReserve;
+            uint256 managed = totalManaged();
+            if (managed < liabilities) {
+                uint256 deficit = liabilities - managed;
+                // An already-recorded catastrophic deficit is part of this
+                // same balance-sheet gap; only realize newly discovered loss.
+                if (deficit > uncoveredDeficit) {
+                    _realizeSlashingLoss(validator, deficit - uncoveredDeficit);
+                }
+            }
         }
+    }
+
+    function _hasLocallyMaturedUndelegation(string calldata validator) internal view returns (bool) {
+        uint256 head = pendingHead[validator];
+        PendingUndelegation[] storage q = pendingUndelegations[validator];
+        return head < q.length && q[head].completionTime <= block.timestamp;
+    }
+
+    function _realizeSlashingLoss(string calldata validator, uint256 lossWei) internal {
+        uint256 applied = lossWei > totalPooledAethel ? totalPooledAethel : lossWei;
+        totalPooledAethel -= applied;
+        uint256 catastrophic = lossWei - applied;
+        if (catastrophic > 0) {
+            uncoveredDeficit += catastrophic;
+            depositsPaused = true;
+            emit CatastrophicInsolvency(validator, uncoveredDeficit);
+        }
+        emit SlashingRealized(validator, lossWei, totalPooledAethel);
+    }
+
+    /// @notice Restore assets after a catastrophic slash. This deliberately
+    ///         mints no shares and creates no new liability; overpayment is
+    ///         rejected so recapitalization intent and accounting stay exact.
+    ///         Deposits remain paused until governance completes its incident
+    ///         checks and explicitly reopens them.
+    function recapitalize() external payable nonReentrant {
+        if (msg.value == 0 || msg.value > uncoveredDeficit) revert BadParam();
+        uncoveredDeficit -= msg.value;
+        emit Recapitalized(msg.sender, msg.value, uncoveredDeficit);
     }
 
     /// @dev Absorb an unbonding-slash into the recorded FIFO, newest entries
@@ -865,22 +952,22 @@ contract Cruzible {
     ///         addRewards rate guard does not apply here; these amounts are
     ///         chain truth. PERMISSIONLESS: anyone may trigger a claim, since
     ///         it can only ever benefit every staker.
-    function claimStakingRewards(string calldata validator)
-        external
-        nonReentrant
-        returns (uint256 claimedWei)
-    {
+    function claimStakingRewards(string calldata validator) external nonReentrant returns (uint256 claimedWei) {
         uint256 before = address(this).balance;
         DISTRIBUTION.withdrawDelegatorRewards(address(this), validator);
         claimedWei = address(this).balance - before;
         if (claimedWei > 0) {
-            totalPooledAethel += claimedWei;
+            uint256 healed = claimedWei > uncoveredDeficit ? uncoveredDeficit : claimedWei;
+            uncoveredDeficit -= healed;
+            totalPooledAethel += claimedWei - healed;
+            if (healed > 0) emit Recapitalized(address(DISTRIBUTION), healed, uncoveredDeficit);
             emit RealYieldClaimed(validator, claimedWei, totalPooledAethel);
         }
     }
 
     /// @notice Claim a matured withdrawal: native AETHEL is paid out.
     function withdraw(uint256 withdrawalId) public nonReentrant {
+        if (uncoveredDeficit != 0) revert ProtocolInsolvent(uncoveredDeficit);
         Withdrawal storage w = _ownedWithdrawal(withdrawalId);
         if (w.claimed) revert AlreadyClaimed();
         if (block.timestamp < w.completionTime) revert NotYetClaimable();
@@ -889,7 +976,7 @@ contract Cruzible {
         totalReserved -= w.aethelAmount;
         emit Withdrawn(msg.sender, withdrawalId, w.aethelAmount);
 
-        (bool sent, ) = payable(msg.sender).call{value: w.aethelAmount}("");
+        (bool sent,) = payable(msg.sender).call{value: w.aethelAmount}("");
         require(sent, "transfer failed");
     }
 
@@ -1014,7 +1101,7 @@ contract Cruzible {
         merkleReserve -= amount;
         emit RewardsClaimed(msg.sender, epoch, amount);
 
-        (bool sent, ) = payable(msg.sender).call{value: amount}("");
+        (bool sent,) = payable(msg.sender).call{value: amount}("");
         require(sent, "transfer failed");
     }
 

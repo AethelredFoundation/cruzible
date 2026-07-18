@@ -127,6 +127,12 @@ describe("GitHub Actions workflow hardening", () => {
           continue;
         }
 
+        if (file === "ci-cd.yml" && job.name === "release-image-promotion") {
+          expect(job.block).toContain("contents: read");
+          expect(jobPermissionWrites(job.block)).toEqual(["packages"]);
+          continue;
+        }
+
         if (file === "ci-cd.yml" && job.name === "contract-release-artifacts") {
           expect(job.block).toContain("contents: read");
           expect(jobPermissionWrites(job.block)).toEqual([
@@ -347,6 +353,16 @@ describe("GitHub Actions workflow hardening", () => {
     expect(releaseJob?.block).toContain(
       "node scripts/validate-frontend-public-env.mjs",
     );
+    expect(releaseJob?.block).toContain("- evm-contracts");
+    expect(releaseJob?.block).toContain(
+      "Bind frontend release to the live current EVM deployment",
+    );
+    expect(releaseJob?.block).toContain(
+      "RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON: ${{ vars.RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON }}",
+    );
+    expect(releaseJob?.block).toContain(
+      "node scripts/validate-release-evm-deployment.mjs",
+    );
     expect(releaseJob?.block).toContain("provenance: mode=max");
     expect(releaseJob?.block).toContain("sbom: true");
   });
@@ -416,11 +432,27 @@ describe("GitHub Actions workflow hardening", () => {
     expect(releaseJob?.block).toContain(
       "if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
     );
-    expect(releaseJob?.block).toContain("needs: contracts");
+    expect(releaseJob?.block).toContain("needs:");
+    expect(releaseJob?.block).toContain("- contracts");
+    expect(releaseJob?.block).toContain("- evm-contracts");
     expect(releaseJob?.block).toContain("id-token: write");
     expect(releaseJob?.block).toContain("attestations: write");
     expect(releaseJob?.block).toContain("artifact-metadata: write");
     expect(releaseJob?.block).toContain("uses: sigstore/cosign-installer@");
+    expect(releaseJob?.block).toContain(
+      "Build and validate canonical EVM deployment artifacts",
+    );
+    expect(releaseJob?.block).toContain(
+      "node scripts/validate-evm-contract-artifacts.mjs",
+    );
+    expect(releaseJob?.block).toContain(
+      "node scripts/prepare-evm-release-artifacts.mjs",
+    );
+    expect(releaseJob?.block).toContain("Sign canonical EVM release checksums");
+    expect(releaseJob?.block).toContain("Attest canonical EVM release bundle");
+    expect(releaseJob?.block).toContain(
+      "name: canonical-evm-contracts-${{ github.sha }}",
+    );
     expect(releaseJob?.block).toContain(
       "bash scripts/build-optimized-artifacts.sh",
     );
@@ -436,7 +468,7 @@ describe("GitHub Actions workflow hardening", () => {
       "bash scripts/verify-audit-artifact-signatures.sh",
     );
     expect(releaseJob?.block).toContain(
-      "Attest signed contract audit artifacts",
+      "Attest signed legacy CosmWasm audit artifacts",
     );
     expect(releaseJob?.block).toContain(
       "uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26",
@@ -470,12 +502,18 @@ describe("GitHub Actions workflow hardening", () => {
     );
   });
 
-  it("publishes signed and provenanced release images only from manual main runs", () => {
+  it("gates immutable release candidates before approved mutable-tag promotion", () => {
     const workflow = readWorkflow("ci-cd.yml");
     const releaseJob = workflowJobBlocks(workflow).find(
       (job) => job.name === "release-images",
     );
+    const promotionJob = workflowJobBlocks(workflow).find(
+      (job) => job.name === "release-image-promotion",
+    );
 
+    expect(workflow).toContain(
+      "cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}",
+    );
     expect(releaseJob?.block).toContain(
       "if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
     );
@@ -491,10 +529,19 @@ describe("GitHub Actions workflow hardening", () => {
     expect(releaseJob?.block).toContain(
       "image: ghcr.io/aethelred/cruzible/api-indexer",
     );
+    expect(releaseJob?.block).toContain(
+      "image: ghcr.io/aethelred/cruzible/api-migration",
+    );
+    expect(releaseJob?.block).toContain("target: migration");
     expect(releaseJob?.block).toContain("uses: docker/build-push-action@");
     expect(releaseJob?.block).toContain("push: true");
     expect(releaseJob?.block).toContain("sbom: true");
     expect(releaseJob?.block).toContain("provenance: mode=max");
+    expect(releaseJob?.block).toContain(
+      "tags: ${{ matrix.image }}:${{ github.sha }}",
+    );
+    expect(releaseJob?.block).not.toContain("${{ matrix.image }}:main");
+    expect(releaseJob?.block).not.toContain("RELEASE_CHANNEL_TAG: main");
     expect(releaseJob?.block).toContain(
       "Scan ${{ matrix.name }} release image",
     );
@@ -510,14 +557,15 @@ describe("GitHub Actions workflow hardening", () => {
     expect(releaseJob?.block).toContain("severity: CRITICAL,HIGH");
     expect(releaseJob?.block).toContain("uses: sigstore/cosign-installer@");
     expect(releaseJob?.block).toContain("cosign sign --yes");
+    expect(releaseJob?.block).toContain("Verify keyless image signature");
     expect(releaseJob?.block).toContain(
       "uses: actions/attest-build-provenance@",
     );
     expect(releaseJob?.block).toContain(
-      "Create release image digest inventory",
+      "Create verified release candidate inventory",
     );
     expect(releaseJob?.block).toContain(
-      'schema: "cruzible.release_image_digest.v1"',
+      "node scripts/create-release-image-candidate.mjs",
     );
     expect(releaseJob?.block).toContain(
       "IMAGE_DIGEST: ${{ steps.build.outputs.digest }}",
@@ -528,18 +576,105 @@ describe("GitHub Actions workflow hardening", () => {
     expect(releaseJob?.block).toContain("IMAGE_TARGET: ${{ matrix.target }}");
     expect(releaseJob?.block).toContain("SOURCE_SHA: ${{ github.sha }}");
     expect(releaseJob?.block).toContain(
-      "release-image-${process.env.IMAGE_KEY}.json",
+      "NEXT_PUBLIC_AETHELRED_GENESIS_HASH: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_GENESIS_HASH }}",
     );
     expect(releaseJob?.block).toContain(
-      "Upload release image digest inventory",
+      "Upload verified release candidate inventory",
     );
     expect(releaseJob?.block).toContain(
-      "name: release-image-${{ matrix.name }}-${{ github.sha }}",
+      "name: release-image-candidate-${{ matrix.name }}-${{ github.sha }}",
     );
     expect(releaseJob?.block).toContain(
-      "path: release-image-${{ matrix.name }}.json",
+      "path: release-image-candidate-${{ matrix.name }}.json",
     );
     expect(releaseJob?.block).toContain("retention-days: 90");
+
+    const scanIndex = indexOfRequired(
+      releaseJob?.block ?? "",
+      "Scan ${{ matrix.name }} release image",
+    );
+    const signIndex = indexOfRequired(
+      releaseJob?.block ?? "",
+      "name: Sign image digest",
+    );
+    const verifyIndex = indexOfRequired(
+      releaseJob?.block ?? "",
+      "name: Verify keyless image signature",
+    );
+    const attestIndex = indexOfRequired(
+      releaseJob?.block ?? "",
+      "name: Attest image provenance",
+    );
+    const inventoryIndex = indexOfRequired(
+      releaseJob?.block ?? "",
+      "name: Create verified release candidate inventory",
+    );
+    expect(scanIndex).toBeLessThan(signIndex);
+    expect(signIndex).toBeLessThan(verifyIndex);
+    expect(verifyIndex).toBeLessThan(attestIndex);
+    expect(attestIndex).toBeLessThan(inventoryIndex);
+
+    expect(promotionJob?.block).toContain("- release-images");
+    expect(promotionJob?.block).toContain("- release-quality-gate");
+    expect(promotionJob?.block).not.toContain("if: always()");
+    expect(promotionJob?.block).toContain(
+      "environment:\n      name: production",
+    );
+    expect(promotionJob?.block).toContain("packages: write");
+    expect(promotionJob?.block).toContain(
+      "uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+    );
+    expect(promotionJob?.block).toContain(
+      "pattern: release-image-candidate-*-${{ github.sha }}",
+    );
+    expect(promotionJob?.block).toContain(
+      "node scripts/prepare-release-image-promotion.mjs",
+    );
+    expect(promotionJob?.block).toContain(
+      "Verify every candidate signature before promotion",
+    );
+    expect(promotionJob?.block).toContain("RELEASE_CHANNEL_TAG: main");
+    expect(promotionJob?.block).toContain(
+      '["buildx", "imagetools", "create", "--tag", tag, immutableRef]',
+    );
+    expect(promotionJob?.block).toContain(
+      "Promote all verified digests to the main channel",
+    );
+    expect(promotionJob?.block).toContain("previous_channel_ref");
+    expect(promotionJob?.block).toContain("rollbackFailures");
+    expect(promotionJob?.block).toContain(
+      'const { readFileSync, writeFileSync } = require("node:fs")',
+    );
+    expect(promotionJob?.block).toContain(
+      'deployment_authority = "completed immutable digest inventory"',
+    );
+    expect(promotionJob?.block).toContain(
+      "channel_tags_are_deployment_authority = false",
+    );
+    expect(promotionJob?.block).toContain(
+      "Upload promoted release digest inventory",
+    );
+
+    const promotionValidationIndex = indexOfRequired(
+      promotionJob?.block ?? "",
+      "Require the complete verified candidate set",
+    );
+    const promotionSignatureIndex = indexOfRequired(
+      promotionJob?.block ?? "",
+      "Verify every candidate signature before promotion",
+    );
+    const promoteIndex = indexOfRequired(
+      promotionJob?.block ?? "",
+      "Promote all verified digests to the main channel",
+    );
+    const promotedInventoryIndex = indexOfRequired(
+      promotionJob?.block ?? "",
+      "Upload promoted release digest inventory",
+    );
+    expect(promotionValidationIndex).toBeLessThan(promotionSignatureIndex);
+    expect(promotionSignatureIndex).toBeLessThan(promoteIndex);
+    expect(promoteIndex).toBeLessThan(promotedInventoryIndex);
+
     expect(releaseJob?.block).toContain(
       "RELEASE_NEXT_PUBLIC_API_URL repository variable is required",
     );
@@ -576,6 +711,26 @@ describe("GitHub Actions workflow hardening", () => {
         `${buildArg}=\${{ vars.RELEASE_${buildArg} }}`,
       );
     }
+  });
+
+  it("requires every quality, deployment, image, SDK, and contract lane before promotion", () => {
+    const workflow = readWorkflow("ci-cd.yml");
+    const releaseGate = workflowJobBlocks(workflow).find(
+      (job) => job.name === "release-quality-gate",
+    );
+
+    expect(releaseGate?.block).toContain("name: All Required Release Checks");
+    for (const dependency of [
+      "frontend-e2e",
+      "deployment-manifests",
+      "release-sbom",
+      "python-sdk",
+      "release-images",
+      "contract-release-artifacts",
+    ]) {
+      expect(releaseGate?.block).toContain(`- ${dependency}`);
+    }
+    expect(releaseGate?.block).not.toContain("if: always()");
   });
 
   it("publishes deterministic repository SBOM evidence from CI", () => {

@@ -78,35 +78,32 @@ test.beforeEach(async ({ page }) => {
       body: JSON.stringify({ error: "stubbed by performance budget test" }),
     });
   });
-  await page.route(
-    "https://evm-rpc-testnet.aethelred.network/**",
-    async (route) => {
-      let payload: unknown;
+  await page.route("https://rpc.testnet.e2e.example.org/**", async (route) => {
+    let payload: unknown;
 
-      try {
-        payload = JSON.parse(route.request().postData() ?? "{}");
-      } catch {
-        payload = {};
-      }
+    try {
+      payload = JSON.parse(route.request().postData() ?? "{}");
+    } catch {
+      payload = {};
+    }
 
-      const buildResponse = (request: { id?: unknown; method?: string }) => ({
-        jsonrpc: "2.0",
-        id: request.id ?? 1,
-        result: request.method === "eth_chainId" ? "0x1ca4" : "0x1234",
-      });
-      const responsePayload = Array.isArray(payload)
-        ? payload.map((request) =>
-            buildResponse(request as { id?: unknown; method?: string }),
-          )
-        : buildResponse(payload as { id?: unknown; method?: string });
+    const buildResponse = (request: { id?: unknown; method?: string }) => ({
+      jsonrpc: "2.0",
+      id: request.id ?? 1,
+      result: request.method === "eth_chainId" ? "0x1ca4" : "0x1234",
+    });
+    const responsePayload = Array.isArray(payload)
+      ? payload.map((request) =>
+          buildResponse(request as { id?: unknown; method?: string }),
+        )
+      : buildResponse(payload as { id?: unknown; method?: string });
 
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(responsePayload),
-      });
-    },
-  );
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(responsePayload),
+    });
+  });
   await page.route("https://api.web3modal.org/**", async (route) => {
     await route.fulfill({
       status: 200,

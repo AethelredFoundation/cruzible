@@ -85,9 +85,10 @@ import {
   useStake,
   useUnstake,
   useWithdraw,
-  useClaimRewards,
   useUserWithdrawals,
-  type VaultState,
+  useUnbondingPeriod,
+  useComplianceGate,
+  normalizeComplianceJobId,
   useIdentityGate,
 } from "@/hooks/useVault";
 import { formatEther, parseEther } from "viem";
@@ -95,10 +96,11 @@ import {
   fetchReconciliationControlPlane,
   type ReconciliationControlPlaneSummary,
 } from "@/lib/reconciliation";
-import { apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 import { buildVaultQuoteSafety, formatVaultQuoteAge } from "@/lib/vaultQuotes";
 import { getTransactionFailureMessage } from "@/lib/transactionPreflight";
 import {
+  calculateUnbondingCompletionTimeMs,
+  formatUnbondingPeriod,
   toDisplayWithdrawalRequests,
   type DisplayWithdrawalRequest,
 } from "@/lib/withdrawalRequests";
@@ -113,6 +115,10 @@ import {
   canSubmitStakeForm,
   canSubmitUnstakeForm,
 } from "@/lib/vaultFormGuards";
+import {
+  buildLiveVaultSnapshot,
+  type LiveVaultSnapshot,
+} from "@/lib/vaultSnapshot";
 
 // ============================================================================
 // TYPES
@@ -160,32 +166,6 @@ function formatDateTime(value?: string | null): string {
   if (!value) return "Unavailable";
   return new Date(value).toLocaleString();
 }
-
-function getLiveVaultSnapshot(vaultState: VaultState) {
-  const tvl =
-    vaultState.totalPooledAethel > 0n
-      ? parseFloat(formatEther(vaultState.totalPooledAethel))
-      : null;
-  const exchangeRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : null;
-  const apy =
-    vaultState.effectiveAPY > 0n ? Number(vaultState.effectiveAPY) / 100 : null;
-  const epoch =
-    vaultState.currentEpoch > 0n ? Number(vaultState.currentEpoch) : null;
-
-  return {
-    tvl,
-    exchangeRate,
-    apy,
-    epoch,
-    hasAuthoritativeState:
-      tvl !== null && exchangeRate !== null && apy !== null && epoch !== null,
-  };
-}
-
-type LiveVaultSnapshot = ReturnType<typeof getLiveVaultSnapshot>;
 
 function VaultTruthNotice({
   title,
@@ -464,7 +444,7 @@ function HeroSection({
 }) {
   const { wallet } = useApp();
   const vaultState = useVaultState();
-  const snapshot = getLiveVaultSnapshot(vaultState);
+  const snapshot = buildLiveVaultSnapshot(vaultState);
   const epoch = snapshot.epoch ?? controlPlane?.epoch ?? null;
 
   const tvlDisplay =
@@ -493,8 +473,8 @@ function HeroSection({
           <div>
             <div className="flex items-center gap-2 mb-4">
               <Badge variant="brand">
-                <ShieldCheck className="w-3 h-3 mr-1" />
-                TEE-Verified
+                <ShieldAlert className="w-3 h-3 mr-1" />
+                Public testnet
               </Badge>
               <Badge variant="success">
                 <LiveDot />
@@ -566,7 +546,7 @@ function HeroSection({
                   <AnimatedNumber value={snapshot.exchangeRate} decimals={4} />
                 )}
               </p>
-              <p className="text-xs text-slate-500">AETHEL per stAETHEL</p>
+              <p className="text-xs text-slate-500">AETHEL per raw share</p>
             </div>
           </div>
         </div>
@@ -597,78 +577,36 @@ function OverviewTab({
   switchTab: (t: VaultTab) => void;
   controlPlane: ReconciliationControlPlaneSummary | null;
 }) {
-  const { wallet, connectWallet, addNotification } = useApp();
+  const { wallet, connectWallet } = useApp();
   const vaultState = useVaultState();
-  const { claimRewards } = useClaimRewards();
+  const unbondingPeriod = useUnbondingPeriod();
   const [showCalcModal, setShowCalcModal] = useState(false);
-  const [showClaimModal, setShowClaimModal] = useState(false);
-  const [claimConfirm, setClaimConfirm] = useState(false);
-  const [claiming, setClaiming] = useState(false);
-  const snapshot = getLiveVaultSnapshot(vaultState);
+  const snapshot = buildLiveVaultSnapshot(vaultState);
   const liveRate = snapshot.exchangeRate;
   const liveApy = snapshot.apy;
   const protocolEpoch = snapshot.epoch ?? controlPlane?.epoch ?? null;
+  // balanceOf is already the rebasing AETHEL-denominated token amount; the
+  // exchange rate applies only when converting invariant raw shares.
+  const aethelBalanceAvailable =
+    wallet.balanceSnapshots?.aethel.status === "available";
+  const stBalanceAvailable =
+    wallet.balanceSnapshots?.stAethel.status === "available";
   const positionValue =
-    wallet.connected && liveRate != null ? wallet.stBalance * liveRate : null;
+    wallet.connected && stBalanceAvailable ? wallet.stBalance : null;
   const annualizedRewards =
     positionValue != null && liveApy != null
       ? (positionValue * liveApy) / 100
       : null;
-
-  const handleClaim = useCallback(async () => {
-    if (!wallet.connected || !wallet.address) {
-      addNotification(
-        "warning",
-        "Wallet Required",
-        "Please connect your wallet to claim rewards.",
-      );
-      return;
-    }
-
-    setClaiming(true);
-    addNotification(
-      "info",
-      "Claiming Rewards",
-      "Fetching reward proof from API...",
-    );
-
-    try {
-      const params = new URLSearchParams({ address: wallet.address });
-      const res = await apiRequest(`/vault/reward-proof?${params.toString()}`);
-      if (!res.ok) {
-        const body = await parseApiJsonResponse<{ message?: string }>(
-          res,
-        ).catch(() => ({ message: "Reward proof endpoint not available" }));
-        throw new Error(body.message || `API returned ${res.status}`);
-      }
-
-      const { epoch, amount, proof } = await parseApiJsonResponse<{
-        epoch: string;
-        amount: string;
-        proof: `0x${string}`[];
-      }>(res);
-
-      await claimRewards({
-        epoch: BigInt(epoch),
-        amount: BigInt(amount),
-        proof,
-      });
-
-      setClaimConfirm(false);
-      setShowClaimModal(false);
-    } catch (err) {
-      addNotification(
-        "error",
-        "Claim Failed",
-        getTransactionFailureMessage(
-          err,
-          "Could not fetch reward proof. The reward proof endpoint may not be deployed yet.",
-        ),
-      );
-    } finally {
-      setClaiming(false);
-    }
-  }, [wallet.connected, wallet.address, addNotification, claimRewards]);
+  const unbondingLabel = unbondingPeriod.isLoading
+    ? "Loading live cooldown"
+    : formatUnbondingPeriod(unbondingPeriod.seconds);
+  const unbondingActionLabel = unbondingPeriod.isLoading
+    ? "Loading live cooldown"
+    : unbondingPeriod.seconds == null
+      ? "Live cooldown unavailable"
+      : unbondingPeriod.seconds === 0n
+        ? "No cooldown"
+        : `${unbondingLabel} cooldown`;
 
   return (
     <div className="space-y-8">
@@ -683,7 +621,7 @@ function OverviewTab({
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 rounded-full border border-emerald-500/20">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-xs text-emerald-400 font-medium">
-                Healthy
+                Connected
               </span>
             </div>
           )}
@@ -695,14 +633,18 @@ function OverviewTab({
                 AETHEL Token Balance
               </p>
               <p className="text-xl font-bold text-white tabular-nums">
-                {fmtNum(wallet.aethelBalance, 2)}
+                {aethelBalanceAvailable
+                  ? fmtNum(wallet.aethelBalance, 2)
+                  : "Unavailable"}
               </p>
               <p className="text-xs text-slate-500">Available to stake</p>
             </div>
             <div>
               <p className="text-xs text-slate-500 mb-1">stAETHEL Balance</p>
               <p className="text-xl font-bold text-white tabular-nums">
-                {fmtNum(wallet.stBalance, 2)}
+                {stBalanceAvailable
+                  ? fmtNum(wallet.stBalance, 2)
+                  : "Unavailable"}
               </p>
               <p className="text-xs text-slate-500">stAETHEL</p>
             </div>
@@ -782,22 +724,29 @@ function OverviewTab({
           </div>
           <div className="text-left">
             <p className="text-sm font-semibold text-white">Unstake</p>
-            <p className="text-xs text-slate-400">21-day cooldown</p>
+            <p className="text-xs text-slate-400">{unbondingActionLabel}</p>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-500 ml-auto group-hover:text-white transition-colors" />
         </button>
         <button
-          onClick={() => setShowClaimModal(true)}
-          className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl hover:bg-emerald-500/20 transition-colors group"
+          type="button"
+          disabled
+          aria-describedby="reward-claim-unavailable-overview"
+          className="flex cursor-not-allowed items-center gap-3 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-4 opacity-75"
         >
-          <div className="p-2 bg-emerald-500/20 rounded-xl">
-            <Gift className="w-5 h-5 text-emerald-400" />
+          <div className="rounded-xl bg-slate-700/40 p-2">
+            <Gift className="h-5 w-5 text-slate-400" />
           </div>
           <div className="text-left">
             <p className="text-sm font-semibold text-white">Claim Rewards</p>
-            <p className="text-xs text-slate-400">Fetch a live Merkle proof</p>
+            <p
+              id="reward-claim-unavailable-overview"
+              className="text-xs text-amber-300"
+            >
+              Proof pipeline not deployed
+            </p>
           </div>
-          <ArrowRight className="w-4 h-4 text-slate-500 ml-auto group-hover:text-emerald-400 transition-colors" />
+          <Lock className="ml-auto h-4 w-4 text-slate-500" />
         </button>
         <button
           onClick={() => setShowCalcModal(true)}
@@ -831,7 +780,7 @@ function OverviewTab({
         <StatCard
           label="Exchange Rate"
           value={liveRate == null ? "Unavailable" : liveRate.toFixed(6)}
-          sub="AETHEL per stAETHEL"
+          sub="AETHEL per raw share"
           icon={<Activity className="w-5 h-5" />}
         />
         <StatCard
@@ -864,7 +813,9 @@ function OverviewTab({
         </GlassCard>
         <StatCard
           label="Control-Plane Warnings"
-          value={String(controlPlane?.warning_count ?? 0)}
+          value={
+            controlPlane ? String(controlPlane.warning_count) : "Unavailable"
+          }
           sub="Warnings in the latest capture"
           icon={<AlertCircle className="w-5 h-5" />}
         />
@@ -1006,11 +957,11 @@ function OverviewTab({
             <div className="mt-5 space-y-3">
               <VaultTruthNotice
                 title="What is live right now"
-                body="TVL, effective APY, exchange rate, epoch, staking, unstaking, and live proof fetches."
+                body="TVL, effective APY, exchange rate, epoch, staking, unstaking, and withdrawal claims."
               />
               <VaultTruthNotice
                 title="What remains gated"
-                body="Historical portfolio curves, recent protocol activity, reward-history ledgers, and leaderboard-style analytics."
+                body="Reward-proof claims, historical portfolio curves, recent protocol activity, reward-history ledgers, and leaderboard-style analytics."
                 tone="warning"
               />
             </div>
@@ -1047,65 +998,6 @@ function OverviewTab({
         </div>
       </div>
 
-      {/* Claim Modal */}
-      {showClaimModal && (
-        <Modal
-          isOpen={showClaimModal}
-          title="Claim Rewards"
-          onClose={() => {
-            setShowClaimModal(false);
-            setClaimConfirm(false);
-          }}
-        >
-          <div className="p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">
-              Claim Rewards
-            </h3>
-            <div className="bg-slate-700/50 rounded-xl p-4 mb-4 space-y-2">
-              <p className="text-sm leading-6 text-slate-300">
-                Rewards are claimed only after Cruzible fetches a live Merkle
-                proof from the backend. This modal does not pre-render a reward
-                amount because the amount must come from the proof pipeline.
-              </p>
-            </div>
-            {!claimConfirm ? (
-              <button
-                onClick={() => setClaimConfirm(true)}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors"
-              >
-                Fetch Live Reward Proof
-              </button>
-            ) : claiming ? (
-              <div className="flex items-center justify-center py-3 gap-2 text-white">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Processing...
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-slate-300">
-                  Confirm fetching the latest live reward proof and claiming the
-                  amount returned by the backend?
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setClaimConfirm(false)}
-                    className="flex-1 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleClaim}
-                    className="flex-1 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
-                  >
-                    Confirm Claim
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </Modal>
-      )}
-
       {/* Calculator Modal */}
       {showCalcModal && (
         <CalculatorModal onClose={() => setShowCalcModal(false)} />
@@ -1126,7 +1018,7 @@ function CalculatorModal({
   isOpen?: boolean;
 }) {
   const vaultState = useVaultState();
-  const snapshot = getLiveVaultSnapshot(vaultState);
+  const snapshot = buildLiveVaultSnapshot(vaultState);
   const effectiveApy = snapshot.apy ?? 0;
   const [calcAmount, setCalcAmount] = useState(10000);
   const [calcMonths, setCalcMonths] = useState(12);
@@ -1319,19 +1211,25 @@ function CalculatorModal({
 
 function StakeTab() {
   const { wallet, connectWallet, addNotification } = useApp();
-  const { stake, isPending: stakeIsPending } = useStake();
+  const { stake, getMaxStakeAmount, isPending: stakeIsPending } = useStake();
   const vaultState = useVaultState();
   const identityGate = useIdentityGate();
+  const complianceGate = useComplianceGate();
+  const unbondingPeriod = useUnbondingPeriod();
   const [amount, setAmount] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [success, setSuccess] = useState(false);
   const [showCalc, setShowCalc] = useState(false);
-  const snapshot = getLiveVaultSnapshot(vaultState);
+  const [isCalculatingMax, setIsCalculatingMax] = useState(false);
+  const [complianceJobId, setComplianceJobId] = useState("");
+  const snapshot = buildLiveVaultSnapshot(vaultState);
 
   const parsedAmount = useMemo(() => parsePositiveEtherInput(amount), [amount]);
   const numAmt = parsedAmount ? parseFloat(formatEther(parsedAmount)) : 0;
-  const maxBalance = wallet.connected ? wallet.aethelBalance : 0;
-  const maxBalanceWei = wallet.connected ? wallet.aethelBalanceWei : 0n;
+  const balanceAvailable =
+    wallet.connected && wallet.balanceSnapshots?.aethel.status === "available";
+  const maxBalance = balanceAvailable ? wallet.aethelBalance : 0;
+  const maxBalanceWei = balanceAvailable ? wallet.aethelBalanceWei : 0n;
 
   const liveRate = snapshot.exchangeRate;
   const liveApy = snapshot.apy;
@@ -1343,6 +1241,10 @@ function StakeTab() {
   });
   const receiveSt = stakeQuote.expectedOutput;
   const projected30d = liveApy != null ? (numAmt * liveApy) / 100 / 12 : null;
+  const unbondingLabel = unbondingPeriod.isLoading
+    ? "Loading..."
+    : formatUnbondingPeriod(unbondingPeriod.seconds);
+  const normalizedComplianceJobId = normalizeComplianceJobId(complianceJobId);
   const isValid =
     canSubmitStakeForm({
       walletConnected: wallet.connected,
@@ -1351,12 +1253,60 @@ function StakeTab() {
       balanceWei: maxBalanceWei,
       quoteCanSubmit: stakeQuote.canSubmit,
       minStakeWei: MIN_STAKE_AMOUNT_WEI,
-    }) && !identityGate.blocksStaking;
+    }) &&
+    balanceAvailable &&
+    unbondingPeriod.seconds != null &&
+    identityGate.isAvailable &&
+    complianceGate.isAvailable &&
+    (!complianceGate.requiresSeal || normalizedComplianceJobId != null) &&
+    !identityGate.blocksStaking;
   const processing = stakeIsPending;
 
-  const handleQuick = (pct: number) => {
-    setAmount(formatEtherInputAmount(percentOfBaseUnits(maxBalanceWei, pct)));
-  };
+  const handleQuick = useCallback(
+    async (pct: number) => {
+      if (!balanceAvailable) return;
+      if (pct !== 100) {
+        setAmount(
+          formatEtherInputAmount(percentOfBaseUnits(maxBalanceWei, pct)),
+        );
+        return;
+      }
+
+      if (!wallet.connected) {
+        setAmount("");
+        return;
+      }
+
+      setIsCalculatingMax(true);
+      try {
+        const safeMaximum = await getMaxStakeAmount({
+          requiresSeal: complianceGate.requiresSeal,
+          complianceJobId: normalizedComplianceJobId ?? undefined,
+        });
+        setAmount(formatEtherInputAmount(safeMaximum));
+      } catch (error) {
+        addNotification(
+          "error",
+          "MAX Calculation Failed",
+          getTransactionFailureMessage(
+            error,
+            "Could not read the live balance and gas price. Try again before staking.",
+          ),
+        );
+      } finally {
+        setIsCalculatingMax(false);
+      }
+    },
+    [
+      addNotification,
+      complianceGate.requiresSeal,
+      getMaxStakeAmount,
+      maxBalanceWei,
+      normalizedComplianceJobId,
+      balanceAvailable,
+      wallet.connected,
+    ],
+  );
 
   const handleStake = useCallback(async () => {
     if (processing) return;
@@ -1374,6 +1324,10 @@ function StakeTab() {
 
     const hash = await stake(amount, {
       expectedExchangeRate: vaultState.exchangeRate,
+      expectedUnbondingPeriod: unbondingPeriod.seconds ?? undefined,
+      expectedComplianceRequired: complianceGate.complianceRequired,
+      expectedComplianceAdmitted: complianceGate.isAdmitted,
+      complianceJobId,
     });
     if (hash) {
       setSuccess(true);
@@ -1381,6 +1335,7 @@ function StakeTab() {
         setSuccess(false);
         setShowConfirm(false);
         setAmount("");
+        setComplianceJobId("");
       }, 2500);
     } else {
       // Error or rejection — stake() already fires notification via useStake
@@ -1389,9 +1344,13 @@ function StakeTab() {
   }, [
     addNotification,
     amount,
+    complianceGate.complianceRequired,
+    complianceGate.isAdmitted,
+    complianceJobId,
     processing,
     stake,
     stakeQuote,
+    unbondingPeriod.seconds,
     vaultState.exchangeRate,
   ]);
 
@@ -1447,6 +1406,85 @@ function StakeTab() {
                   )}
                 </div>
               ))}
+            {wallet.connected &&
+              !identityGate.isLoading &&
+              !identityGate.isAvailable && (
+                <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <p className="text-sm text-amber-200">
+                    The live ZeroID admission state is unavailable. Staking is
+                    blocked until both on-chain identity checks succeed.
+                  </p>
+                </div>
+              )}
+            {wallet.connected &&
+              !complianceGate.isLoading &&
+              !complianceGate.isAvailable && (
+                <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <p className="text-sm text-amber-200">
+                    The live Digital Seal admission state is unavailable.
+                    Staking is blocked until both compliance reads succeed.
+                  </p>
+                </div>
+              )}
+            {wallet.connected && complianceGate.requiresSeal && (
+              <div className="mb-6 rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-4">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+                  <div>
+                    <p className="text-sm font-medium text-cyan-100">
+                      Digital Seal admission required
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-cyan-100/75">
+                      Enter the completed PoUW compliance job whose active seal
+                      was issued for this wallet. Cruzible verifies and consumes
+                      that seal atomically with the first stake.
+                    </p>
+                  </div>
+                </div>
+                <label
+                  htmlFor="stake-compliance-job-id"
+                  className="mt-3 block text-xs font-medium text-cyan-100"
+                >
+                  Compliance job ID
+                </label>
+                <input
+                  id="stake-compliance-job-id"
+                  type="text"
+                  value={complianceJobId}
+                  maxLength={64}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => setComplianceJobId(event.target.value)}
+                  placeholder="Example: job-1234"
+                  className="mt-2 w-full rounded-lg border border-cyan-400/25 bg-slate-950/50 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/60"
+                />
+                {complianceJobId && !normalizedComplianceJobId && (
+                  <p className="mt-2 text-xs text-amber-200">
+                    Use 1-64 letters, numbers, underscores, or hyphens.
+                  </p>
+                )}
+                <div className="mt-3 flex gap-4 text-xs font-medium text-cyan-200">
+                  <Link href="/jobs" className="hover:text-white">
+                    Find compliance job
+                  </Link>
+                  <Link href="/seals" className="hover:text-white">
+                    Inspect Digital Seals
+                  </Link>
+                </div>
+              </div>
+            )}
+            {wallet.connected && !balanceAvailable && (
+              <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                <p className="text-sm text-amber-200">
+                  The live AETHEL balance is unavailable or stale. Amount
+                  shortcuts and staking stay blocked until a fresh wallet RPC
+                  read succeeds.
+                </p>
+              </div>
+            )}
             <div className="mb-6">
               <div className="flex justify-between items-center mb-2">
                 <label
@@ -1458,7 +1496,11 @@ function StakeTab() {
                 <span className="text-xs text-slate-500">
                   Available:{" "}
                   <span className="font-medium text-slate-300 tabular-nums">
-                    {wallet.connected ? fmtNum(maxBalance, 2) : "---"}
+                    {wallet.connected
+                      ? balanceAvailable
+                        ? fmtNum(maxBalance, 2)
+                        : "Unavailable"
+                      : "---"}
                   </span>{" "}
                   AETHEL
                 </span>
@@ -1474,10 +1516,17 @@ function StakeTab() {
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                   <button
-                    onClick={() => handleQuick(100)}
+                    type="button"
+                    onClick={() => void handleQuick(100)}
+                    disabled={
+                      isCalculatingMax ||
+                      !balanceAvailable ||
+                      (complianceGate.requiresSeal &&
+                        !normalizedComplianceJobId)
+                    }
                     className="px-3 py-1.5 text-xs font-semibold text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors"
                   >
-                    MAX
+                    {isCalculatingMax ? "..." : "MAX"}
                   </button>
                   <span className="text-sm font-medium text-slate-500">
                     AETHEL
@@ -1488,19 +1537,31 @@ function StakeTab() {
                 {[25, 50, 75].map((pct) => (
                   <button
                     key={pct}
-                    onClick={() => handleQuick(pct)}
+                    type="button"
+                    onClick={() => void handleQuick(pct)}
+                    disabled={!balanceAvailable}
                     className="flex-1 py-2 text-xs font-medium text-slate-400 bg-slate-700/30 hover:bg-slate-700/50 rounded-lg border border-slate-600/30 transition-colors"
                   >
                     {pct}%
                   </button>
                 ))}
                 <button
-                  onClick={() => handleQuick(100)}
+                  type="button"
+                  onClick={() => void handleQuick(100)}
+                  disabled={
+                    isCalculatingMax ||
+                    !balanceAvailable ||
+                    (complianceGate.requiresSeal && !normalizedComplianceJobId)
+                  }
                   className="flex-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-lg border border-red-500/20 transition-colors"
                 >
-                  MAX
+                  {isCalculatingMax ? "Calculating..." : "MAX"}
                 </button>
               </div>
+              <p className="mt-2 text-xs text-slate-500">
+                MAX reads the live balance and reserves a buffered amount for
+                network gas.
+              </p>
             </div>
 
             {/* Preview Panel */}
@@ -1514,11 +1575,11 @@ function StakeTab() {
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">Exchange rate</span>
+                <span className="text-slate-400">Raw-share rate</span>
                 <span className="text-slate-300 tabular-nums">
                   {liveRate == null
                     ? "Unavailable"
-                    : `1 AETHEL = ${(1 / liveRate).toFixed(4)} stAETHEL`}
+                    : `${(1 / liveRate).toFixed(4)} raw shares per AETHEL`}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
@@ -1578,11 +1639,24 @@ function StakeTab() {
                         ? "Insufficient Balance"
                         : !stakeQuote.hasLiveRate
                           ? "Waiting for Live Exchange Rate"
-                          : !stakeQuote.isFresh
-                            ? "Waiting for Fresh Quote"
-                            : identityGate.blocksStaking
-                              ? "ZeroID Identity Required"
-                              : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
+                          : unbondingPeriod.seconds == null
+                            ? "Waiting for Live Exit Terms"
+                            : complianceGate.isLoading
+                              ? "Checking Digital Seal Gate"
+                              : !complianceGate.isAvailable
+                                ? "Compliance Gate Unavailable"
+                                : complianceGate.requiresSeal &&
+                                    !normalizedComplianceJobId
+                                  ? "Enter Digital Seal Job ID"
+                                  : !stakeQuote.isFresh
+                                    ? "Waiting for Fresh Quote"
+                                    : identityGate.isLoading
+                                      ? "Checking ZeroID Gate"
+                                      : !identityGate.isAvailable
+                                        ? "ZeroID Gate Unavailable"
+                                        : identityGate.blocksStaking
+                                          ? "ZeroID Identity Required"
+                                          : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
               </button>
             ) : success ? (
               <div className="text-center py-4">
@@ -1619,6 +1693,20 @@ function StakeTab() {
                     {receiveSt == null
                       ? "Live exchange rate is unavailable, so the receive preview is withheld."
                       : `You will receive ${receiveSt.toFixed(4)} stAETHEL`}
+                  </p>
+                  <p className="text-xs text-amber-300/70 mt-1">
+                    Vault exit timing: {unbondingLabel}. This value and your
+                    live ZeroID admission state will be checked again before the
+                    wallet transaction is requested.
+                  </p>
+                  <p className="text-xs text-amber-300/70 mt-1">
+                    Entry method:{" "}
+                    {complianceGate.requiresSeal
+                      ? `Digital Seal job ${normalizedComplianceJobId ?? "required"}`
+                      : complianceGate.complianceRequired
+                        ? "existing Digital Seal admission"
+                        : "standard vault stake"}
+                    .
                   </p>
                   <p className="text-xs text-amber-300/70 mt-1">
                     Quote freshness:{" "}
@@ -1660,8 +1748,9 @@ function StakeTab() {
             <div className="mt-4 flex items-start gap-2 p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/10">
               <ShieldCheck className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
               <p className="text-xs text-emerald-300/70 leading-relaxed">
-                Protected by TEE-verified validator selection. Rewards are
-                cryptographically proven via Merkle trees.
+                Validator and reward evidence is shown only when public
+                reconciliation or claim-proof data is available. This public
+                testnet UI does not assert live TEE hardware verification.
               </p>
             </div>
           </div>
@@ -1697,13 +1786,13 @@ function StakeTab() {
           <div className="space-y-3">
             {[
               { l: "Minimum stake", v: "1 AETHEL" },
-              { l: "Unbonding period", v: "21 days" },
+              { l: "Unbonding period", v: unbondingLabel },
               {
                 l: "Validator source",
                 v: "Published in reconciliation and validator intelligence",
               },
-              { l: "TEE Protection", v: "Hardware-verified" },
-              { l: "Commission", v: "5% on rewards" },
+              { l: "TEE assurance", v: "Not asserted on public testnet" },
+              { l: "Reward deductions", v: "Reflected in live effective APY" },
             ].map((r, i) => (
               <div key={i} className="flex justify-between items-center">
                 <span className="text-sm text-slate-400">{r.l}</span>
@@ -1730,7 +1819,7 @@ function StakeTab() {
                 step: 2,
                 icon: <Server className="w-4 h-4" />,
                 title: "Delegate",
-                desc: "TEE-verified validator selection",
+                desc: "Use the published validator and reconciliation data",
               },
               {
                 step: 3,
@@ -1777,21 +1866,30 @@ function UnstakeTab() {
   const { unstake, isPending: unstakeIsPending } = useUnstake();
   const { withdraw: claimWithdrawal, isPending: claimIsPending } =
     useWithdraw();
-  const { withdrawals: onChainWithdrawals, refetch: refetchWithdrawals } =
-    useUserWithdrawals();
+  const {
+    withdrawals: onChainWithdrawals,
+    isLoading: withdrawalsLoading,
+    isError: withdrawalsError,
+    isFetched: withdrawalsFetched,
+    refetch: refetchWithdrawals,
+  } = useUserWithdrawals();
+  const unbondingPeriod = useUnbondingPeriod();
   const vaultState = useVaultState();
   const [amount, setAmount] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [success, setSuccess] = useState(false);
-  const snapshot = getLiveVaultSnapshot(vaultState);
+  const snapshot = buildLiveVaultSnapshot(vaultState);
   const [withdrawalClock, setWithdrawalClock] = useState(
     () => Date.now() / 1000,
   );
 
   const parsedAmount = useMemo(() => parsePositiveEtherInput(amount), [amount]);
   const numAmt = parsedAmount ? parseFloat(formatEther(parsedAmount)) : 0;
-  const maxBal = wallet.connected ? wallet.stBalance : 0;
-  const maxBalWei = wallet.connected ? wallet.stBalanceWei : 0n;
+  const balanceAvailable =
+    wallet.connected &&
+    wallet.balanceSnapshots?.stAethel.status === "available";
+  const maxBal = balanceAvailable ? wallet.stBalance : 0;
+  const maxBalWei = balanceAvailable ? wallet.stBalanceWei : 0n;
   const liveRate = snapshot.exchangeRate;
 
   const unstakeQuote = buildVaultQuoteSafety({
@@ -1801,27 +1899,52 @@ function UnstakeTab() {
     quoteUpdatedAt: vaultState.quoteUpdatedAt,
   });
   const receiveAethel = unstakeQuote.expectedOutput;
-  const isValid = canSubmitUnstakeForm({
-    walletConnected: wallet.connected,
-    isWrongNetwork: wallet.isWrongNetwork,
-    amountWei: parsedAmount,
-    balanceWei: maxBalWei,
-    quoteCanSubmit: unstakeQuote.canSubmit,
-  });
+  const isValid =
+    canSubmitUnstakeForm({
+      walletConnected: wallet.connected,
+      isWrongNetwork: wallet.isWrongNetwork,
+      amountWei: parsedAmount,
+      balanceWei: maxBalWei,
+      quoteCanSubmit: unstakeQuote.canSubmit,
+    }) &&
+    balanceAvailable &&
+    unbondingPeriod.seconds != null;
   const processing = unstakeIsPending;
+  const unbondingLabel = unbondingPeriod.isLoading
+    ? "Loading..."
+    : formatUnbondingPeriod(unbondingPeriod.seconds);
+  const unbondingTimingText =
+    unbondingPeriod.seconds === 0n
+      ? "without a configured cooldown"
+      : `after the live ${unbondingLabel} cooldown`;
 
   const completionDate = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 21);
+    const completionTime = calculateUnbondingCompletionTimeMs(
+      unbondingPeriod.seconds,
+      Date.now(),
+    );
+    if (completionTime == null) return "Unavailable";
+
+    const d = new Date(completionTime);
     return d.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     });
-  }, []);
+  }, [unbondingPeriod.seconds]);
 
   useEffect(() => {
     setWithdrawalClock(Date.now() / 1000);
+  }, [onChainWithdrawals]);
+
+  useEffect(() => {
+    if (!onChainWithdrawals.some((withdrawal) => !withdrawal.claimed)) return;
+
+    const timer = window.setInterval(
+      () => setWithdrawalClock(Date.now() / 1000),
+      30_000,
+    );
+    return () => window.clearInterval(timer);
   }, [onChainWithdrawals]);
 
   // Render only live withdrawal requests returned by the contract hook.
@@ -1841,8 +1964,10 @@ function UnstakeTab() {
     });
   }, [liveRate, requests]);
 
-  const handleQuick = (pct: number) =>
+  const handleQuick = (pct: number) => {
+    if (!balanceAvailable) return;
     setAmount(formatEtherInputAmount(percentOfBaseUnits(maxBalWei, pct)));
+  };
 
   const handleUnstake = useCallback(async () => {
     if (processing) return;
@@ -1860,6 +1985,7 @@ function UnstakeTab() {
 
     const hash = await unstake(amount, {
       expectedExchangeRate: vaultState.exchangeRate,
+      expectedUnbondingPeriod: unbondingPeriod.seconds ?? undefined,
     });
     if (hash) {
       setSuccess(true);
@@ -1879,6 +2005,7 @@ function UnstakeTab() {
     refetchWithdrawals,
     unstake,
     unstakeQuote,
+    unbondingPeriod.seconds,
     vaultState.exchangeRate,
   ]);
 
@@ -1919,7 +2046,11 @@ function UnstakeTab() {
                   <span className="text-xs text-slate-500">
                     Balance:{" "}
                     <span className="font-medium text-slate-300 tabular-nums">
-                      {wallet.connected ? fmtNum(maxBal, 2) : "---"}
+                      {wallet.connected
+                        ? balanceAvailable
+                          ? fmtNum(maxBal, 2)
+                          : "Unavailable"
+                        : "---"}
                     </span>{" "}
                     stAETHEL
                   </span>
@@ -1936,6 +2067,7 @@ function UnstakeTab() {
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                     <button
                       onClick={() => handleQuick(100)}
+                      disabled={!balanceAvailable}
                       className="px-3 py-1.5 text-xs font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors"
                     >
                       MAX
@@ -1950,6 +2082,7 @@ function UnstakeTab() {
                     <button
                       key={pct}
                       onClick={() => handleQuick(pct)}
+                      disabled={!balanceAvailable}
                       className="flex-1 py-2 text-xs font-medium text-slate-400 bg-slate-700/30 hover:bg-slate-700/50 rounded-lg border border-slate-600/30 transition-colors"
                     >
                       {pct === 100 ? "MAX" : `${pct}%`}
@@ -1970,16 +2103,18 @@ function UnstakeTab() {
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">Exchange rate</span>
+                  <span className="text-slate-400">Raw-share rate</span>
                   <span className="text-slate-300 tabular-nums">
                     {liveRate == null
                       ? "Unavailable"
-                      : `1 stAETHEL = ${liveRate.toFixed(4)} AETHEL`}
+                      : `1 raw share = ${liveRate.toFixed(4)} AETHEL`}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Cooldown period</span>
-                  <span className="text-amber-400 font-medium">21 days</span>
+                  <span className="text-amber-400 font-medium">
+                    {unbondingLabel}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Expected completion</span>
@@ -2020,15 +2155,19 @@ function UnstakeTab() {
                     ? "Connect Wallet"
                     : wallet.isWrongNetwork
                       ? "Switch Network to Unstake"
-                      : numAmt <= 0
-                        ? "Enter amount"
-                        : numAmt > maxBal
-                          ? "Insufficient Balance"
-                          : !unstakeQuote.hasLiveRate
-                            ? "Waiting for Live Exchange Rate"
-                            : !unstakeQuote.isFresh
-                              ? "Waiting for Fresh Quote"
-                              : `Unstake ${fmtNum(numAmt, 2)} stAETHEL`}
+                      : !balanceAvailable
+                        ? "Waiting for Live stAETHEL Balance"
+                        : numAmt <= 0
+                          ? "Enter amount"
+                          : numAmt > maxBal
+                            ? "Insufficient Balance"
+                            : !unstakeQuote.hasLiveRate
+                              ? "Waiting for Live Exchange Rate"
+                              : unbondingPeriod.seconds == null
+                                ? "Waiting for Live Unbonding Period"
+                                : !unstakeQuote.isFresh
+                                  ? "Waiting for Fresh Quote"
+                                  : `Unstake ${fmtNum(numAmt, 2)} stAETHEL`}
                 </button>
               ) : success ? (
                 <div className="text-center py-4">
@@ -2037,7 +2176,9 @@ function UnstakeTab() {
                     Unstake initiated!
                   </p>
                   <p className="text-sm text-slate-400 mt-1">
-                    Your AETHEL will be available in 21 days
+                    {unbondingPeriod.seconds === 0n
+                      ? "No cooldown is configured; the request can become claimable immediately."
+                      : `Your AETHEL will be available after ${unbondingLabel}.`}
                   </p>
                 </div>
               ) : processing ? (
@@ -2058,7 +2199,7 @@ function UnstakeTab() {
                     <p className="text-xs text-amber-300/70 mt-1">
                       {receiveAethel == null
                         ? "Live exchange rate is unavailable, so the receive preview is withheld."
-                        : `You will receive ${receiveAethel.toFixed(2)} AETHEL after 21-day cooldown`}
+                        : `You will receive ${receiveAethel.toFixed(2)} AETHEL ${unbondingTimingText}`}
                     </p>
                     <p className="text-xs text-amber-300/70 mt-1">
                       Quote freshness:{" "}
@@ -2101,7 +2242,11 @@ function UnstakeTab() {
             <div className="space-y-4">
               <div className="bg-amber-500/5 border border-amber-500/10 rounded-xl p-4">
                 <p className="text-sm text-amber-300 font-medium mb-1">
-                  21-Day Cooldown
+                  {unbondingPeriod.seconds == null
+                    ? "Live Cooldown Unavailable"
+                    : unbondingPeriod.seconds === 0n
+                      ? "No Cooldown Configured"
+                      : `${unbondingLabel} Cooldown`}
                 </p>
                 <p className="text-xs text-slate-400 leading-relaxed">
                   The cooldown ensures network security by allowing validators
@@ -2132,7 +2277,23 @@ function UnstakeTab() {
             </div>
           </GlassCard>
 
-          <WithdrawalLiquidityPanel signals={liquiditySignals} />
+          {wallet.connected &&
+          withdrawalsFetched &&
+          !withdrawalsLoading &&
+          !withdrawalsError ? (
+            <WithdrawalLiquidityPanel signals={liquiditySignals} />
+          ) : (
+            <GlassCard className="p-6">
+              <h3 className="font-semibold text-white mb-2 flex items-center gap-2">
+                <Coins className="h-4 w-4 text-cyan-400" />
+                Liquidity Reality Check
+              </h3>
+              <p className="text-sm leading-6 text-slate-400">
+                Live queue liquidity signals remain unavailable until the
+                connected wallet&apos;s withdrawal request read succeeds.
+              </p>
+            </GlassCard>
+          )}
         </div>
       </div>
 
@@ -2142,7 +2303,36 @@ function UnstakeTab() {
           <h3 className="font-semibold text-white">Active Unstaking Queue</h3>
         </div>
         <div className="overflow-x-auto">
-          {requests.length === 0 ? (
+          {!wallet.connected ? (
+            <div className="px-6 py-8 text-sm text-slate-400">
+              Connect a wallet to load its live withdrawal requests.
+            </div>
+          ) : withdrawalsLoading ? (
+            <div className="flex items-center gap-2 px-6 py-8 text-sm text-slate-400">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Loading live withdrawal requests...
+            </div>
+          ) : withdrawalsError ? (
+            <div className="px-6 py-8 text-sm text-amber-200">
+              <p>
+                Withdrawal requests are unavailable because the contract read
+                failed. No empty queue is being inferred.
+              </p>
+              <button
+                type="button"
+                onClick={() => void refetchWithdrawals()}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 font-medium text-amber-100 hover:bg-amber-500/20"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Retry live read
+              </button>
+            </div>
+          ) : !withdrawalsFetched ? (
+            <div className="px-6 py-8 text-sm text-amber-200">
+              The live withdrawal queue has not been fetched yet. Verify the
+              connected network and contract configuration.
+            </div>
+          ) : requests.length === 0 ? (
             <div className="px-6 py-8 text-sm text-slate-400">
               No live withdrawal requests were found for the connected wallet.
               Cruzible no longer seeds placeholder unstake rows.
@@ -2276,16 +2466,16 @@ function RewardsTab({
 }: {
   controlPlane: ReconciliationControlPlaneSummary | null;
 }) {
-  const { wallet, connectWallet, addNotification } = useApp();
+  const { wallet, connectWallet } = useApp();
   const vaultState = useVaultState();
-  const { claimRewards } = useClaimRewards();
   const [autoCompound, setAutoCompound] = useState(true);
-  const [claimProcessing, setClaimProcessing] = useState(false);
-  const snapshot = getLiveVaultSnapshot(vaultState);
+  const snapshot = buildLiveVaultSnapshot(vaultState);
   const liveRate = snapshot.exchangeRate;
   const liveApy = snapshot.apy;
   const stakeValue =
-    wallet.connected && liveRate != null ? wallet.stBalance * liveRate : null;
+    wallet.connected && wallet.balanceSnapshots?.stAethel.status === "available"
+      ? wallet.stBalance
+      : null;
 
   const projectionRows = useMemo(() => {
     const principal = stakeValue ?? 0;
@@ -2316,58 +2506,6 @@ function RewardsTab({
       };
     });
   }, [liveApy, stakeValue]);
-
-  const handleClaimAll = useCallback(async () => {
-    if (!wallet.connected || !wallet.address) {
-      addNotification(
-        "warning",
-        "Wallet Required",
-        "Please connect your wallet to claim rewards.",
-      );
-      return;
-    }
-
-    setClaimProcessing(true);
-    addNotification(
-      "info",
-      "Claiming Rewards",
-      "Fetching reward proof from API...",
-    );
-
-    try {
-      const params = new URLSearchParams({ address: wallet.address });
-      const res = await apiRequest(`/vault/reward-proof?${params.toString()}`);
-      if (!res.ok) {
-        const body = await parseApiJsonResponse<{ message?: string }>(
-          res,
-        ).catch(() => ({ message: "Reward proof endpoint not available" }));
-        throw new Error(body.message || `API returned ${res.status}`);
-      }
-
-      const { epoch, amount, proof } = await parseApiJsonResponse<{
-        epoch: string;
-        amount: string;
-        proof: `0x${string}`[];
-      }>(res);
-
-      await claimRewards({
-        epoch: BigInt(epoch),
-        amount: BigInt(amount),
-        proof,
-      });
-    } catch (err) {
-      addNotification(
-        "error",
-        "Claim Failed",
-        getTransactionFailureMessage(
-          err,
-          "Could not fetch reward proof. The reward proof endpoint may not be deployed yet.",
-        ),
-      );
-    } finally {
-      setClaimProcessing(false);
-    }
-  }, [wallet.connected, wallet.address, addNotification, claimRewards]);
 
   return (
     <div className="space-y-8">
@@ -2408,22 +2546,21 @@ function RewardsTab({
             Live Claim
           </p>
           <button
-            onClick={handleClaimAll}
-            disabled={claimProcessing}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+            type="button"
+            disabled
+            aria-describedby="reward-claim-unavailable-rewards"
+            className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-700 py-3 font-medium text-slate-400"
           >
-            {claimProcessing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Claiming...
-              </>
-            ) : (
-              <>
-                <Gift className="w-4 h-4" />
-                Fetch & Claim Proof
-              </>
-            )}
+            <Lock className="h-4 w-4" />
+            Claims unavailable
           </button>
+          <p
+            id="reward-claim-unavailable-rewards"
+            className="mt-2 text-xs leading-5 text-amber-300"
+          >
+            The authoritative reward-allocation and Merkle-proof service is not
+            deployed.
+          </p>
         </GlassCard>
       </div>
 
@@ -2539,7 +2676,8 @@ function RewardsTab({
           <div className="space-y-3">
             <VaultTruthNotice
               title="Claim pipeline"
-              body="Claims fetch a live reward proof from the backend right before submission. Cruzible no longer pre-renders a synthetic claimable balance."
+              body="Reward claims are disabled until an authoritative allocation source, Merkle-tree publisher, and proof API are deployed and monitored."
+              tone="warning"
             />
             <VaultTruthNotice
               title="Historical reward ledger"
@@ -2579,14 +2717,14 @@ function AnalyticsTab({
   controlPlane: ReconciliationControlPlaneSummary | null;
 }) {
   const vaultState = useVaultState();
-  const snapshot = getLiveVaultSnapshot(vaultState);
-  const statusLabel =
-    !controlPlane && !snapshot.hasAuthoritativeState
-      ? "Unavailable"
-      : controlPlane?.warning_count ||
-          controlPlane?.epoch_source?.includes("fallback")
-        ? "Attention"
-        : "Healthy";
+  const snapshot = buildLiveVaultSnapshot(vaultState);
+  const statusLabel = !controlPlane
+    ? "Unavailable"
+    : !snapshot.hasAuthoritativeState ||
+        controlPlane.warning_count > 0 ||
+        controlPlane.epoch_source.includes("fallback")
+      ? "Attention"
+      : "Healthy";
 
   return (
     <div className="space-y-8">
@@ -2612,7 +2750,7 @@ function AnalyticsTab({
               ? "Unavailable"
               : snapshot.exchangeRate.toFixed(6)
           }
-          sub="AETHEL / stAETHEL"
+          sub="AETHEL / raw share"
           icon={<Activity className="w-5 h-5" />}
         />
         <StatCard

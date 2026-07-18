@@ -2,6 +2,22 @@
 # Production-grade Docker Compose configuration
 
 services:
+  # ============ DATABASE MIGRATIONS ============
+  migrate:
+    image: ghcr.io/aethelred/cruzible/api-migration@sha256:${CRUZIBLE_MIGRATION_IMAGE_DIGEST:?set CRUZIBLE_MIGRATION_IMAGE_DIGEST}
+    restart: "no"
+    environment:
+      - DATABASE_URL_FILE=/run/secrets/cruzible_database_url
+      - CRUZIBLE_MIGRATION_QUIESCED=${CRUZIBLE_MIGRATION_QUIESCED:?set true only after the indexer is stopped and drained}
+      - CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED=${CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED:?set true only after every old API scheduler is stopped and drained}
+    secrets:
+      - cruzible_database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aethelred-network
+
   # ============ API GATEWAY ============
   api-gateway:
     image: ghcr.io/aethelred/cruzible/api@sha256:${CRUZIBLE_API_IMAGE_DIGEST:?set CRUZIBLE_API_IMAGE_DIGEST}
@@ -10,6 +26,9 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
+      - CRUZIBLE_RUNTIME_ROLE=api
+      - CRUZIBLE_NETWORK=${CRUZIBLE_NETWORK:-testnet}
+      - CRUZIBLE_ALLOW_PLAINTEXT_HTTP=${CRUZIBLE_ALLOW_PLAINTEXT_HTTP:-false}
       - PORT=3000
       - RPC_URL=${RPC_URL:?set RPC_URL}
       - GRPC_URL=${GRPC_URL:?set GRPC_URL}
@@ -19,11 +38,19 @@ services:
       - JWT_REFRESH_SECRET_FILE=/run/secrets/cruzible_jwt_refresh_secret
       - LOG_HASH_SECRET_FILE=/run/secrets/cruzible_log_hash_secret
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS}
+      - AUTH_OPERATOR_ADDRESSES=${AUTH_OPERATOR_ADDRESSES:?set AUTH_OPERATOR_ADDRESSES}
+      - AUTH_ADMIN_ADDRESSES=${AUTH_ADMIN_ADDRESSES:-}
       - TRUST_PROXY=1
       - METRICS_ENABLED=${METRICS_ENABLED:-true}
       - API_DOCS_ENABLED=${API_DOCS_ENABLED:-false}
       - OPERATIONAL_ENDPOINTS_TOKEN_FILE=/run/secrets/cruzible_operational_token
       - INDEXER_ENABLED=false
+      - INDEXER_RPC_URL=${INDEXER_RPC_URL:?set INDEXER_RPC_URL}
+      - INDEXER_EXPECTED_CHAIN_ID=${INDEXER_EXPECTED_CHAIN_ID:?set INDEXER_EXPECTED_CHAIN_ID}
+      - INDEXER_EXPECTED_GENESIS_HASH=${INDEXER_EXPECTED_GENESIS_HASH:?set INDEXER_EXPECTED_GENESIS_HASH}
+      - CRUZIBLE_VAULT_ADDRESS=${CRUZIBLE_VAULT_ADDRESS:?set CRUZIBLE_VAULT_ADDRESS}
+      - STAETHEL_ADDRESS=${STAETHEL_ADDRESS:?set STAETHEL_ADDRESS}
+      - STABLECOIN_BRIDGE_ADDRESS=${STABLECOIN_BRIDGE_ADDRESS:-}
     secrets:
       - cruzible_database_url
       - cruzible_redis_url
@@ -34,8 +61,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - aethelred-network
     healthcheck:
@@ -62,6 +89,9 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
+      - CRUZIBLE_RUNTIME_ROLE=indexer
+      - CRUZIBLE_NETWORK=${CRUZIBLE_NETWORK:-testnet}
+      - CRUZIBLE_ALLOW_PLAINTEXT_HTTP=${CRUZIBLE_ALLOW_PLAINTEXT_HTTP:-false}
       - RPC_URL=${RPC_URL:?set RPC_URL}
       - DATABASE_URL_FILE=/run/secrets/cruzible_database_url
       - REDIS_URL_FILE=/run/secrets/cruzible_redis_url
@@ -76,9 +106,13 @@ services:
       - INDEXER_WS_URL=${INDEXER_WS_URL:?set INDEXER_WS_URL}
       - INDEXER_START_BLOCK=${INDEXER_START_HEIGHT:-0}
       - INDEXER_EXPECTED_CHAIN_ID=${INDEXER_EXPECTED_CHAIN_ID:?set INDEXER_EXPECTED_CHAIN_ID}
+      - INDEXER_EXPECTED_GENESIS_HASH=${INDEXER_EXPECTED_GENESIS_HASH:?set INDEXER_EXPECTED_GENESIS_HASH}
+      - INDEXER_HEARTBEAT_FILE=/tmp/cruzible-indexer-heartbeat.json
+      - INDEXER_HEARTBEAT_MAX_AGE_MS=45000
       - CRUZIBLE_VAULT_ADDRESS=${CRUZIBLE_VAULT_ADDRESS:?set CRUZIBLE_VAULT_ADDRESS}
       - STAETHEL_ADDRESS=${STAETHEL_ADDRESS:?set STAETHEL_ADDRESS}
-      - STABLECOIN_BRIDGE_ADDRESS=${STABLECOIN_BRIDGE_ADDRESS:?set STABLECOIN_BRIDGE_ADDRESS}
+      - STABLECOIN_BRIDGE_ADDRESS=${STABLECOIN_BRIDGE_ADDRESS:-}
+      - INDEXER_REQUIRE_STABLECOIN_BRIDGE=${INDEXER_REQUIRE_STABLECOIN_BRIDGE:-false}
     secrets:
       - cruzible_database_url
       - cruzible_redis_url
@@ -88,10 +122,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - aethelred-network
+    healthcheck:
+      test: ["CMD", "node", "dist/indexer-healthcheck.js"]
+      interval: 15s
+      timeout: 3s
+      start_period: 90s
+      retries: 4
     deploy:
       resources:
         limits:
@@ -171,42 +211,6 @@ services:
         reservations:
           cpus: "1.0"
           memory: 4G
-
-  # ============ REDIS ============
-  redis:
-    image: redis@sha256:${REDIS_IMAGE_DIGEST:?set REDIS_IMAGE_DIGEST}
-    container_name: aethelred-redis
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - redis-data:/data
-      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    command:
-      - "sh"
-      - "-c"
-      - 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$$(cat /run/secrets/cruzible_redis_password)"'
-    secrets:
-      - cruzible_redis_password
-    networks:
-      - aethelred-network
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'redis-cli -a "$$(cat /run/secrets/cruzible_redis_password)" ping | grep PONG',
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 1G
 
   # ============ NGINX REVERSE PROXY ============
   nginx:
@@ -309,8 +313,6 @@ networks:
 volumes:
   postgres-data:
     driver: local
-  redis-data:
-    driver: local
   nginx-cache:
     driver: local
   prometheus-data:
@@ -323,8 +325,6 @@ secrets:
     file: ${DATABASE_URL_FILE:?set DATABASE_URL_FILE}
   cruzible_redis_url:
     file: ${REDIS_URL_FILE:?set REDIS_URL_FILE}
-  cruzible_redis_password:
-    file: ${REDIS_PASSWORD_FILE:?set REDIS_PASSWORD_FILE}
   cruzible_db_password:
     file: ${DB_PASSWORD_FILE:?set DB_PASSWORD_FILE}
   cruzible_jwt_secret:

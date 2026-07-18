@@ -7,6 +7,7 @@ type RedisMock = {
   connect: ReturnType<typeof vi.fn>;
   del: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
+  eval: ReturnType<typeof vi.fn>;
   get: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
   ping: ReturnType<typeof vi.fn>;
@@ -19,6 +20,7 @@ function installRedisMock(overrides: Partial<RedisMock> = {}) {
     connect: vi.fn().mockResolvedValue(undefined),
     del: vi.fn().mockResolvedValue(1),
     disconnect: vi.fn(),
+    eval: vi.fn().mockResolvedValue(1),
     get: vi.fn().mockResolvedValue(null),
     on: vi.fn(),
     ping: vi.fn().mockResolvedValue("PONG"),
@@ -144,6 +146,88 @@ describe("CacheService", () => {
     expect(redisClient.quit).toHaveBeenCalled();
   });
 
+  it("uses owner-checked Redis leases for scheduler leadership", async () => {
+    const { redisClient } = installRedisMock();
+    process.env.REDIS_URL = "redis://127.0.0.1:6379";
+
+    const { CacheService } = await import("../src/services/CacheService");
+    const service = new CacheService();
+    await service.connect();
+
+    await expect(
+      service.tryAcquireLease("reconciliation", "replica-a", 30_000),
+    ).resolves.toBe(true);
+    expect(redisClient.set).toHaveBeenCalledWith(
+      "cruzible:api:lease:reconciliation",
+      "replica-a",
+      "PX",
+      30_000,
+      "NX",
+    );
+
+    await expect(
+      service.renewLease("reconciliation", "replica-a", 30_000),
+    ).resolves.toBe(true);
+    redisClient.get.mockResolvedValue("replica-a");
+    await expect(
+      service.isLeaseOwner("reconciliation", "replica-a"),
+    ).resolves.toBe(true);
+    await expect(
+      service.releaseLease("reconciliation", "replica-a"),
+    ).resolves.toBe(true);
+    expect(redisClient.eval).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes and claims side effects through atomic lease-fenced Redis scripts", async () => {
+    const { redisClient } = installRedisMock();
+    process.env.REDIS_URL = "redis://127.0.0.1:6379";
+    const { CacheService } = await import("../src/services/CacheService");
+    const service = new CacheService();
+    await service.connect();
+
+    await expect(
+      service.publishWhileLeaseOwner(
+        "leader",
+        "replica-a",
+        "result",
+        { status: "OK" },
+        600,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      service.claimLeaseAction("leader", "replica-a", "tick-1:alert-0", 600),
+    ).resolves.toBe(true);
+
+    expect(redisClient.eval).toHaveBeenCalledTimes(2);
+    expect(redisClient.set).not.toHaveBeenCalled();
+  });
+
+  it("allows only one owner of an in-memory development lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-27T00:00:00.000Z"));
+    const { CacheService } = await import("../src/services/CacheService");
+    const service = new CacheService();
+
+    await expect(
+      service.tryAcquireLease("reconciliation", "replica-a", 30_000),
+    ).resolves.toBe(true);
+    await expect(
+      service.tryAcquireLease("reconciliation", "replica-b", 30_000),
+    ).resolves.toBe(false);
+    await expect(
+      service.renewLease("reconciliation", "replica-b", 30_000),
+    ).resolves.toBe(false);
+    await expect(
+      service.isLeaseOwner("reconciliation", "replica-a"),
+    ).resolves.toBe(true);
+    await expect(
+      service.releaseLease("reconciliation", "replica-b"),
+    ).resolves.toBe(false);
+    await expect(
+      service.releaseLease("reconciliation", "replica-a"),
+    ).resolves.toBe(true);
+  });
+
   it("bounds high-cardinality in-memory fallback entries", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-27T00:00:00.000Z"));
@@ -239,7 +323,8 @@ describe("CacheService", () => {
     process.env = {
       ...originalEnv,
       NODE_ENV: "production",
-      RPC_URL: "http://127.0.0.1:26657",
+      RPC_URL: "https://rpc.cruzible.org",
+      INDEXER_RPC_URL: "https://evm-rpc.cruzible.org",
       DATABASE_URL: "postgresql://cruzible:cruzible@127.0.0.1:5432/cruzible",
       REDIS_URL: "rediss://cache.cruzible.org:6379",
       CORS_ORIGINS: "https://app.cruzible.org",
@@ -248,6 +333,12 @@ describe("CacheService", () => {
       LOG_HASH_SECRET: "production-log-hash-secret-0123456789",
       ALLOW_MOCK_SIGNATURES: "false",
       AUTH_OPERATOR_ADDRESSES: "aeth1operator",
+      CRUZIBLE_NETWORK: "testnet",
+      INDEXER_EXPECTED_CHAIN_ID: "7332",
+      INDEXER_EXPECTED_GENESIS_HASH:
+        "0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7",
+      CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
+      STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222",
       INDEXER_ENABLED: "false",
     };
 

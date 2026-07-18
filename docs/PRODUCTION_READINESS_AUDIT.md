@@ -1,5 +1,10 @@
 # Production-Readiness Audit — Aethelred Wallet ⇄ Cruzible ⇄ ZeroID
 
+> Historical point-in-time assessment. The results below apply only to the
+> commits pinned in `AUDIT_EVIDENCE_INDEX.md`, not to later branches or the
+> current release candidate. They are not a substitute for the still-open
+> independent assurance and live public-testnet gates.
+
 **Date:** 2026-07-11 (rev. 2, incorporating external consultant review of
 rev. 1) · **Scope:** the three-way integration (identity-gated liquid
 staking) across contract, wallet, and frontend layers

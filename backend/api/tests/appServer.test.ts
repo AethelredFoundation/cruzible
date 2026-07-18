@@ -12,6 +12,13 @@ vi.mock("@prisma/client", () => {
     return {
       $queryRaw: vi.fn().mockResolvedValue([1]),
       $disconnect: vi.fn().mockResolvedValue(undefined),
+      indexerCursor: {
+        findUnique: vi.fn().mockResolvedValue({
+          blockNumber: 98n,
+          requiresRebuild: false,
+          updatedAt: new Date(),
+        }),
+      },
       vaultState: { findFirst: vi.fn().mockResolvedValue(null) },
     };
   });
@@ -83,13 +90,18 @@ describe("ApiGateway lifecycle (server.ts)", () => {
       start: vi.fn(),
       stop: vi.fn(),
       shutdown: vi.fn().mockResolvedValue(undefined),
-      getLatestResult: vi.fn().mockReturnValue(null),
+      getLatestResult: vi.fn().mockReturnValue({
+        epoch: 1,
+        epochSource: "block-height",
+        status: "OK",
+        timestamp: new Date().toISOString(),
+      }),
     } as any);
 
     container.registerInstance(IndexerService, {
       initialize: vi.fn().mockResolvedValue(undefined),
       shutdown: vi.fn().mockResolvedValue(undefined),
-      getMetrics: vi.fn().mockReturnValue({ lag: 0 }),
+      getMetrics: vi.fn().mockReturnValue({ lag: 0, requiresRebuild: false }),
     } as any);
 
     container.registerInstance(JobsService, {

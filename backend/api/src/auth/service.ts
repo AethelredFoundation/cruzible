@@ -631,9 +631,13 @@ function buildLoginMessage(
   issuedAt: Date,
   expiresAt: Date,
 ): string {
+  const networkBinding = getLoginNetworkBinding();
   return [
     `${LOGIN_DOMAIN} login`,
     `Address: ${address}`,
+    `Network: ${networkBinding.network}`,
+    `EVM Chain ID: ${networkBinding.evmChainId}`,
+    `Network Anchor: ${networkBinding.networkAnchor}`,
     `Nonce: ${nonce}`,
     `Issued At: ${issuedAt.toISOString()}`,
     `Expires At: ${expiresAt.toISOString()}`,
@@ -642,19 +646,26 @@ function buildLoginMessage(
 
 function parseLoginMessage(message: string): {
   address: string;
+  network: string;
+  evmChainId: string;
+  networkAnchor: string;
   nonce: string;
   issuedAt: Date;
   expiresAt: Date;
 } {
   const lines = message.split("\n");
-  if (lines.length !== 5 || lines[0] !== `${LOGIN_DOMAIN} login`) {
+  if (lines.length !== 8 || lines[0] !== `${LOGIN_DOMAIN} login`) {
     throw new Error("Invalid login challenge format");
   }
 
   const address = parseMessageField(lines[1], "Address");
-  const nonce = parseMessageField(lines[2], "Nonce");
-  const issuedAt = new Date(parseMessageField(lines[3], "Issued At"));
-  const expiresAt = new Date(parseMessageField(lines[4], "Expires At"));
+  const network = parseMessageField(lines[2], "Network");
+  const evmChainId = parseMessageField(lines[3], "EVM Chain ID");
+  const networkAnchor = parseMessageField(lines[4], "Network Anchor");
+  const nonce = parseMessageField(lines[5], "Nonce");
+  const issuedAt = new Date(parseMessageField(lines[6], "Issued At"));
+  const expiresAt = new Date(parseMessageField(lines[7], "Expires At"));
+  const expectedBinding = getLoginNetworkBinding();
 
   if (
     !nonce ||
@@ -664,15 +675,41 @@ function parseLoginMessage(message: string): {
     throw new Error("Invalid login challenge fields");
   }
 
+  if (
+    network !== expectedBinding.network ||
+    evmChainId !== expectedBinding.evmChainId ||
+    networkAnchor !== expectedBinding.networkAnchor
+  ) {
+    throw new Error("Login challenge network binding mismatch");
+  }
+
   if (Date.now() > expiresAt.getTime()) {
     throw new Error("Login challenge expired");
   }
 
   return {
     address: normalizeAddress(address),
+    network,
+    evmChainId,
+    networkAnchor,
     nonce,
     issuedAt,
     expiresAt,
+  };
+}
+
+function getLoginNetworkBinding(): {
+  network: string;
+  evmChainId: string;
+  networkAnchor: string;
+} {
+  return {
+    // Production configuration requires both values. Explicit non-production
+    // sentinels keep local challenges deterministic without pretending they
+    // belong to a deployable Aethelred network.
+    network: config.network ?? "local-unconfigured",
+    evmChainId: config.indexerExpectedChainId ?? "local-unconfigured",
+    networkAnchor: config.indexerExpectedGenesisHash ?? "local-unconfigured",
   };
 }
 

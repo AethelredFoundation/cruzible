@@ -5,6 +5,11 @@ const mainnetBaseEnv = {
   NODE_ENV: "production" as const,
   NEXT_PUBLIC_API_URL: "https://api.mainnet.aethelred.org",
   NEXT_PUBLIC_CHAIN_ENV: "mainnet",
+  NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID: "7333",
+  NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL: "https://rpc.mainnet.example.org",
+  NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL:
+    "https://explorer.mainnet.example.org",
+  NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"a".repeat(64)}`,
   NEXT_PUBLIC_CRUZIBLE_ADDRESS: "0x1111111111111111111111111111111111111111",
   NEXT_PUBLIC_STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222",
   NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS:
@@ -20,6 +25,7 @@ const testnetBaseEnv = {
   ...mainnetBaseEnv,
   NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
   NEXT_PUBLIC_CHAIN_ENV: "testnet",
+  NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: "https://rpc.testnet.example.org",
 };
 
 describe("frontend public build environment validation", () => {
@@ -98,6 +104,43 @@ describe("frontend public build environment validation", () => {
     });
   });
 
+  it("requires a non-zero genesis hash to isolate same-chain-id networks", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: "",
+      }),
+    ).toThrow("NEXT_PUBLIC_AETHELRED_GENESIS_HASH is required");
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"0".repeat(64)}`,
+      }),
+    ).toThrow("must be a non-zero 32-byte hex block hash");
+  });
+
+  it("blocks mainnet builds without confirmed network inputs", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...mainnetBaseEnv,
+        NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID: "",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID is required when NEXT_PUBLIC_CHAIN_ENV=mainnet; the repository has no mainnet defaults.",
+    );
+  });
+
+  it("rejects a mainnet chain id that aliases confirmed testnet", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...mainnetBaseEnv,
+        NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID: "7332",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID must be a positive integer distinct from confirmed testnet chain ID 7332.",
+    );
+  });
+
   it("requires an explicit chain env for production builds", () => {
     expect(() =>
       validateFrontendPublicEnv({
@@ -113,6 +156,8 @@ describe("frontend public build environment validation", () => {
         NODE_ENV: "production" as const,
         NEXT_PUBLIC_API_URL: "https://user:pass@api.testnet.aethelred.org",
         NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL:
+          "https://rpc.testnet.example.org",
       }),
     ).toThrow("NEXT_PUBLIC_API_URL must not include credentials.");
   });
@@ -123,6 +168,8 @@ describe("frontend public build environment validation", () => {
         NODE_ENV: "production" as const,
         NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org/v1#token",
         NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: "http://93.127.132.52:8545",
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"a".repeat(64)}`,
       }),
     ).toThrow(
       "NEXT_PUBLIC_API_URL must not include query strings or fragments.",
@@ -156,6 +203,52 @@ describe("frontend public build environment validation", () => {
       apiOrigin: "https://api.testnet.aethelred.org",
       chainEnv: "testnet",
     });
+  });
+
+  it("rejects testnet builds without an explicit RPC endpoint", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: "",
+      }),
+    ).toThrow(
+      "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL is required when NEXT_PUBLIC_CHAIN_ENV=testnet.",
+    );
+  });
+
+  it("allows a plaintext testnet RPC only under the pre-TLS profile", () => {
+    expect(
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: "http://203.0.113.10:8545",
+        CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "true",
+      }),
+    ).toEqual({
+      apiOrigin: "https://api.testnet.aethelred.org",
+      chainEnv: "testnet",
+    });
+
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: "http://203.0.113.10:8545",
+      }),
+    ).toThrow("NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL must use https");
+  });
+
+  it("validates optional ZeroID and app-version browser config", () => {
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_ZEROID_APP_URL: "javascript:alert(1)",
+      }),
+    ).toThrow("NEXT_PUBLIC_ZEROID_APP_URL must use http or https.");
+    expect(() =>
+      validateFrontendPublicEnv({
+        ...testnetBaseEnv,
+        NEXT_PUBLIC_APP_VERSION: "release with spaces",
+      }),
+    ).toThrow("NEXT_PUBLIC_APP_VERSION must be 1-128 safe version characters.");
   });
 
   it("rejects malformed optional public contract addresses", () => {
@@ -198,6 +291,7 @@ describe("frontend public build environment validation", () => {
         NODE_ENV: "production" as const,
         NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "devnet",
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"d".repeat(64)}`,
       }),
     ).toEqual({
       apiOrigin: "http://localhost:3001",
@@ -222,6 +316,7 @@ describe("frontend public build environment validation", () => {
         NODE_ENV: "production" as const,
         NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "devnet",
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"d".repeat(64)}`,
         NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
         NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL: "https://verifier.example.com",
       }),
@@ -236,6 +331,7 @@ describe("frontend public build environment validation", () => {
         NODE_ENV: "production" as const,
         NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "devnet",
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"d".repeat(64)}`,
         NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
         NEXT_PUBLIC_DEVTOOLS_FASTAPI_URL: "http://127.0.0.1:8000",
         NEXT_PUBLIC_DEVTOOLS_NEXTJS_URL: "http://localhost:3000",
@@ -286,6 +382,9 @@ describe("frontend public build environment validation", () => {
         NODE_ENV: "production" as const,
         NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
         NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"a".repeat(64)}`,
+        NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL:
+          "https://rpc.testnet.example.org",
         NEXT_PUBLIC_CRUZIBLE_ADDRESS:
           "0x1111111111111111111111111111111111111111",
         NEXT_PUBLIC_STAETHEL_ADDRESS:
@@ -305,6 +404,7 @@ describe("frontend public build environment validation", () => {
         NODE_ENV: "production" as const,
         NEXT_PUBLIC_API_URL: "https://api.testnet.aethelred.org",
         NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"a".repeat(64)}`,
         NEXT_PUBLIC_STAETHEL_ADDRESS:
           "0x2222222222222222222222222222222222222222",
         NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:
@@ -321,8 +421,10 @@ describe("frontend public build environment validation", () => {
         NODE_ENV: "production" as const,
         NEXT_PUBLIC_API_URL: "http://93.127.132.52:3001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "testnet",
+        NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: "http://93.127.132.52:8545",
         CRUZIBLE_EXTRA_API_ORIGINS: "http://93.127.132.52:3001",
         CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "true",
+        NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"a".repeat(64)}`,
         NEXT_PUBLIC_CRUZIBLE_ADDRESS:
           "0x1111111111111111111111111111111111111111",
         NEXT_PUBLIC_STAETHEL_ADDRESS:

@@ -44,6 +44,23 @@ vi.mock("@/contexts/AppContext", () => ({
   useApp: mocks.useApp,
 }));
 
+// Exercise the guarded transaction implementation independently of the
+// release registry, which intentionally keeps every asset READ_ONLY until the
+// destination-settlement system has production evidence.
+vi.mock("@/lib/constants", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/constants")>();
+  return {
+    ...actual,
+    STABLECOIN_ASSETS: {
+      ...actual.STABLECOIN_ASSETS,
+      USDC: {
+        ...actual.STABLECOIN_ASSETS.USDC,
+        phase: actual.StablecoinPhase.ACTIVE,
+      },
+    },
+  };
+});
+
 vi.mock("@/lib/transactionPreflight", () => ({
   assertContractSimulation: mocks.assertContractSimulation,
   getTransactionFailureMessage: (error: unknown, fallback = "Unknown error") =>
@@ -204,5 +221,10 @@ describe("useBridgeOut", () => {
     expect(mocks.waitForTransactionReceipt).toHaveBeenCalledWith(mockConfig, {
       hash: BRIDGE_HASH,
     });
+    expect(mocks.addNotification).toHaveBeenCalledWith(
+      "info",
+      "Burn Initiated — Destination Pending",
+      expect.stringContaining("does not prove destination minting"),
+    );
   });
 });

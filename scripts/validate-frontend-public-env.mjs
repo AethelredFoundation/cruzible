@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+export { FRONTEND_PUBLIC_BUILD_KEYS } from "./lib/frontend-public-env-keys.mjs";
 
 const allowedChainEnvs = new Set(["mainnet", "testnet", "devnet"]);
 const productionApiOriginsByChain = {
@@ -47,6 +48,13 @@ const DEVTOOLS_URL_KEYS = [
   "NEXT_PUBLIC_DEVTOOLS_NEXTJS_URL",
   "NEXT_PUBLIC_DEVTOOLS_RPC_URL",
 ];
+const MAINNET_CONFIG_KEYS = [
+  "NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID",
+  "NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL",
+  "NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL",
+];
+const PUBLIC_APP_VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,127}$/;
+const GENESIS_HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 
 export class FrontendPublicEnvError extends Error {
   constructor(message) {
@@ -159,15 +167,108 @@ function assertValidWalletConnectProjectId(
   }
 }
 
+function assertPublicServiceUrl(
+  env,
+  key,
+  { required = false, allowPath = false, chainEnv } = {},
+) {
+  const value = env[key]?.trim();
+  if (!value) {
+    if (required) {
+      throw new FrontendPublicEnvError(
+        `${key} is required when NEXT_PUBLIC_CHAIN_ENV=${chainEnv}.`,
+      );
+    }
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new FrontendPublicEnvError(`${key} must be an absolute URL.`);
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new FrontendPublicEnvError(`${key} must use http or https.`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new FrontendPublicEnvError(`${key} must not include credentials.`);
+  }
+  if (parsed.search || parsed.hash) {
+    throw new FrontendPublicEnvError(
+      `${key} must not include query strings or fragments.`,
+    );
+  }
+  if (!allowPath && parsed.pathname.replace(/\/+$/, "")) {
+    throw new FrontendPublicEnvError(`${key} must be a service origin.`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const isLocalHost = isLocalApiHost(hostname);
+  if (chainEnv !== "devnet" && isLocalHost) {
+    throw new FrontendPublicEnvError(
+      `${key} must not point at localhost unless NEXT_PUBLIC_CHAIN_ENV=devnet.`,
+    );
+  }
+  if (
+    parsed.protocol !== "https:" &&
+    !(chainEnv === "devnet" && isLocalHost) &&
+    !allowsPlaintextHttp(env)
+  ) {
+    throw new FrontendPublicEnvError(
+      `${key} must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost, or CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true (pre-TLS testing profile).`,
+    );
+  }
+}
+
+function assertMainnetNetworkConfig(env) {
+  for (const key of MAINNET_CONFIG_KEYS) {
+    if (!env[key]?.trim()) {
+      throw new FrontendPublicEnvError(
+        `${key} is required when NEXT_PUBLIC_CHAIN_ENV=mainnet; the repository has no mainnet defaults.`,
+      );
+    }
+  }
+
+  const chainId = Number(env.NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID);
+  if (!Number.isSafeInteger(chainId) || chainId <= 0 || chainId === 7332) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID must be a positive integer distinct from confirmed testnet chain ID 7332.",
+    );
+  }
+
+  assertPublicServiceUrl(env, "NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL", {
+    required: true,
+    allowPath: true,
+    chainEnv: "mainnet",
+  });
+  assertPublicServiceUrl(env, "NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL", {
+    required: true,
+    chainEnv: "mainnet",
+  });
+}
+
+function assertOptionalPublicAppConfig(env, chainEnv) {
+  assertPublicServiceUrl(env, "NEXT_PUBLIC_ZEROID_APP_URL", { chainEnv });
+
+  const appVersion = env.NEXT_PUBLIC_APP_VERSION?.trim();
+  if (appVersion && !PUBLIC_APP_VERSION_PATTERN.test(appVersion)) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_APP_VERSION must be 1-128 safe version characters.",
+    );
+  }
+}
+
 const EXTRA_API_ORIGINS_KEY = "CRUZIBLE_EXTRA_API_ORIGINS";
 
 // Build-time escape hatch for self-hosted staging/testnet API deployments
 // (e.g. a validator team fronting the API on its own host before canonical
 // DNS exists). Comma-separated https origins, validated as strictly as the
-// primary allowlist. Deliberately NOT a NEXT_PUBLIC_ variable: the operator
-// sets it in the build environment and it is never compiled into the bundle —
-// the anti-phishing property (a testnet-labeled build only talks to origins
-// the build operator explicitly named) is preserved.
+// primary allowlist. The operator-facing inputs are not named NEXT_PUBLIC,
+// but next.config.js deliberately compiles their validated, non-secret policy
+// values into browser code so client validation and runtime CSP enforce the
+// same allowlist. Never place credentials in these values.
 //
 // http entries are admitted ONLY under the pre-TLS testing profile
 // (CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true) — the compose backend serves plain
@@ -346,6 +447,41 @@ export function validateFrontendPublicEnv(env = process.env) {
     chainEnv,
     required: chainEnv !== "devnet",
   });
+
+  if (chainEnv === "mainnet") {
+    assertMainnetNetworkConfig(env);
+  } else if (chainEnv === "testnet") {
+    assertPublicServiceUrl(env, "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL", {
+      required: true,
+      allowPath: true,
+      chainEnv,
+    });
+    assertPublicServiceUrl(env, "NEXT_PUBLIC_AETHELRED_TESTNET_EXPLORER_URL", {
+      chainEnv,
+    });
+  } else {
+    assertPublicServiceUrl(env, "NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL", {
+      allowPath: true,
+      chainEnv,
+    });
+  }
+
+  const genesisHash = env.NEXT_PUBLIC_AETHELRED_GENESIS_HASH?.trim();
+  if (env.NODE_ENV === "production" && !genesisHash) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_AETHELRED_GENESIS_HASH is required for production builds so same-chain-id networks cannot be confused.",
+    );
+  }
+  if (
+    genesisHash &&
+    (!GENESIS_HASH_PATTERN.test(genesisHash) || /^0x0{64}$/iu.test(genesisHash))
+  ) {
+    throw new FrontendPublicEnvError(
+      "NEXT_PUBLIC_AETHELRED_GENESIS_HASH must be a non-zero 32-byte hex block hash.",
+    );
+  }
+
+  assertOptionalPublicAppConfig(env, chainEnv);
 
   return {
     apiOrigin: parsedApiUrl.origin,

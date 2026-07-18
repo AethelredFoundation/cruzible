@@ -7,6 +7,8 @@ function resetPublicApiEnv() {
   process.env = { ...originalEnv };
   delete process.env.NEXT_PUBLIC_API_URL;
   delete process.env.NEXT_PUBLIC_CHAIN_ENV;
+  delete process.env.NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS;
+  delete process.env.NEXT_PUBLIC_CRUZIBLE_ALLOW_PLAINTEXT_HTTP;
 }
 
 describe("frontend API config", () => {
@@ -89,7 +91,7 @@ describe("frontend API config", () => {
     process.env.NEXT_PUBLIC_API_URL = "http://api.testnet.aethelred.org";
 
     expect(() => getApiV1BaseUrl()).toThrow(
-      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost",
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost, or the explicit pre-TLS profile is enabled",
     );
   });
 
@@ -140,5 +142,34 @@ describe("frontend API config", () => {
     process.env.NEXT_PUBLIC_API_URL = "http://localhost:3001";
 
     expect(getApiV1BaseUrl()).toBe("http://localhost:3001/v1");
+  });
+
+  it("allows an explicitly compiled self-hosted HTTPS testnet API", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_CHAIN_ENV", "testnet");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://cruzible-api.example.org");
+    vi.stubEnv(
+      "NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS",
+      "https://cruzible-api.example.org",
+    );
+    vi.resetModules();
+    const { getApiV1BaseUrl: getFreshApiBase } = await import("@/config/api");
+
+    expect(getFreshApiBase()).toBe("https://cruzible-api.example.org/v1");
+  });
+
+  it("allows only an explicitly allowlisted HTTP origin in the pre-TLS profile", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_CHAIN_ENV", "testnet");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://93.127.132.52:3001");
+    vi.stubEnv(
+      "NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS",
+      "http://93.127.132.52:3001",
+    );
+    vi.stubEnv("NEXT_PUBLIC_CRUZIBLE_ALLOW_PLAINTEXT_HTTP", "true");
+    vi.resetModules();
+    const { getApiV1BaseUrl: getFreshApiBase } = await import("@/config/api");
+
+    expect(getFreshApiBase()).toBe("http://93.127.132.52:3001/v1");
   });
 });

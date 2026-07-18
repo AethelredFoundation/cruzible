@@ -165,8 +165,18 @@ const nextConfig = {
   },
 
   env: {
-    NEXT_PUBLIC_APP_VERSION: process.env.npm_package_version,
+    NEXT_PUBLIC_APP_VERSION:
+      process.env.NEXT_PUBLIC_APP_VERSION ||
+      process.env.npm_package_version ||
+      "local-dev",
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    // These are non-secret build policies. Expose the already-validated
+    // values to browser code so client-side origin checks match the build and
+    // runtime CSP contract for self-hosted/pre-TLS testnet deployments.
+    NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS:
+      process.env.CRUZIBLE_EXTRA_API_ORIGINS,
+    NEXT_PUBLIC_CRUZIBLE_ALLOW_PLAINTEXT_HTTP:
+      process.env.CRUZIBLE_ALLOW_PLAINTEXT_HTTP,
   },
 
   trailingSlash: false,

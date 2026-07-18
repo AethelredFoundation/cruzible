@@ -39,6 +39,7 @@ import {
   type SearchResultKind,
   type SearchableValidator,
 } from "@/lib/search";
+import { isStablecoinBridgeAvailable } from "@/lib/stablecoinAvailability";
 
 // ============================================================================
 // Utility
@@ -877,20 +878,28 @@ export interface TopNavProps {
     | "reconciliation";
 }
 
-const NAV_LINKS: {
-  id: TopNavProps["activePage"];
-  label: string;
-  href: string;
-}[] = [
-  { id: "explorer", label: "EXPLORER", href: "/" },
-  { id: "vault", label: "VAULT", href: "/vault" },
-  { id: "stablecoins", label: "STABLECOINS", href: "/stablecoins" },
-  { id: "validators", label: "VALIDATORS", href: "/validators" },
-  { id: "reconciliation", label: "RECONCILIATION", href: "/reconciliation" },
-];
+const NAV_LINKS = (
+  [
+    { id: "explorer", label: "EXPLORER", href: "/" },
+    { id: "vault", label: "VAULT", href: "/vault" },
+    { id: "stablecoins", label: "STABLECOINS", href: "/stablecoins" },
+    { id: "validators", label: "VALIDATORS", href: "/validators" },
+    { id: "reconciliation", label: "RECONCILIATION", href: "/reconciliation" },
+  ] satisfies {
+    id: TopNavProps["activePage"];
+    label: string;
+    href: string;
+  }[]
+).filter((link) => link.id !== "stablecoins" || isStablecoinBridgeAvailable());
 
 export function TopNav({ activePage }: TopNavProps) {
   const { realTime, setSearchOpen } = useApp();
+  const blockStatusLabel =
+    realTime.blockStatus === "live" && realTime.blockHeight > 0
+      ? `Block #${formatNumber(realTime.blockHeight)}`
+      : realTime.blockStatus === "stale" && realTime.blockHeight > 0
+        ? `Stale #${formatNumber(realTime.blockHeight)}`
+        : "Network unavailable";
 
   return (
     <nav
@@ -941,9 +950,18 @@ export function TopNav({ activePage }: TopNavProps) {
         <div className="flex items-center gap-3">
           {/* Block height */}
           <div className="hidden items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-1.5 lg:flex">
-            <LiveDot color="green" size="sm" />
+            <LiveDot
+              color={
+                realTime.blockStatus === "live"
+                  ? "green"
+                  : realTime.blockStatus === "stale"
+                    ? "yellow"
+                    : "red"
+              }
+              size="sm"
+            />
             <span className="text-xs font-medium tabular-nums text-slate-300">
-              Block #{formatNumber(realTime.blockHeight)}
+              {blockStatusLabel}
             </span>
           </div>
 
@@ -1002,7 +1020,9 @@ const FOOTER_LINKS: Record<string, FooterLink[]> = {
     { label: "Stablecoins", href: "/stablecoins" },
     { label: "Validators", href: "/validators" },
     { label: "Reconciliation", href: "/reconciliation" },
-  ],
+  ].filter(
+    (link) => link.href !== "/stablecoins" || isStablecoinBridgeAvailable(),
+  ),
   Developers: [
     { label: "API Health", href: "/api/health" },
     { label: "Jobs", href: "/jobs" },

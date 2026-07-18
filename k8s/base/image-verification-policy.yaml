@@ -22,6 +22,7 @@ spec:
         - imageReferences:
             - ghcr.io/aethelred/cruzible/api@sha256:*
             - ghcr.io/aethelred/cruzible/api-indexer@sha256:*
+            - ghcr.io/aethelred/cruzible/api-migration@sha256:*
             - ghcr.io/aethelred/cruzible/frontend@sha256:*
           mutateDigest: false
           required: true

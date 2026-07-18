@@ -34,6 +34,20 @@ describe("backend API Dockerfile hardening", () => {
     expect(apiDockerfile).toContain('ENTRYPOINT ["dumb-init", "--"]');
   });
 
+  it("overrides the HTTP API healthcheck with the indexer watchdog", () => {
+    const indexerStage = apiDockerfile
+      .split("FROM production AS indexer")
+      .at(1);
+
+    expect(indexerStage).toBeDefined();
+    expect(indexerStage).toContain(
+      "HEALTHCHECK --interval=15s --timeout=3s --start-period=90s --retries=4",
+    );
+    expect(indexerStage).toContain(
+      "CMD node dist/indexer-healthcheck.js || exit 1",
+    );
+  });
+
   it("installs dependencies without package lifecycle scripts", () => {
     expect(apiDockerfile).toContain("RUN npm ci --ignore-scripts");
     expect(apiDockerfile).toContain(

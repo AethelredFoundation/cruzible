@@ -1,3 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cruzible-frontend-runtime-config
+  namespace: cruzible
+data:
+  # Server-side CSP/HSTS policy. Keep false/empty for TLS deployments. A
+  # pre-TLS testnet overlay must set both values to exactly the origins used
+  # during frontend image validation.
+  CRUZIBLE_EXTRA_API_ORIGINS: ""
+  CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "false"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -59,6 +71,16 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
+            - name: CRUZIBLE_EXTRA_API_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-frontend-runtime-config
+                  key: CRUZIBLE_EXTRA_API_ORIGINS
+            - name: CRUZIBLE_ALLOW_PLAINTEXT_HTTP
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-frontend-runtime-config
+                  key: CRUZIBLE_ALLOW_PLAINTEXT_HTTP
           resources:
             requests:
               memory: "256Mi"

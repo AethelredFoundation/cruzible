@@ -458,8 +458,10 @@ export default function ReconciliationPage() {
                           2. Copy lineage hashes
                         </p>
                         <p className="mt-2 text-sm leading-6 text-slate-300">
-                          Cross-check the universe hash, stake snapshot hash,
-                          and registry roots against your own recomputation.
+                          Cross-check the validator-universe hash and aggregate
+                          share supply. Per-holder validator roots remain
+                          unavailable until the protocol publishes canonical
+                          pooled-allocation evidence.
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
@@ -495,12 +497,33 @@ export default function ReconciliationPage() {
                         value={scorecard.evidence.validator_universe_hash}
                       />
                       <EvidenceRow
+                        label="Indexed holder shares"
+                        value={
+                          liveDocument?.stake_supply?.observed
+                            ?.holder_total_shares
+                        }
+                      />
+                      <EvidenceRow
+                        label="Vault total shares"
+                        value={
+                          liveDocument?.stake_supply?.observed
+                            ?.vault_total_shares
+                        }
+                      />
+                      <EvidenceRow
                         label="Stake snapshot hash"
                         value={
                           liveDocument?.stake_snapshot?.observed
                             ?.stake_snapshot_hash
                         }
                       />
+                      {!liveDocument?.stake_snapshot ? (
+                        <p className="rounded-2xl border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs leading-5 text-amber-100">
+                          Per-holder validator attribution is intentionally not
+                          published: stAETHEL is transferable and validator
+                          allocation belongs to the pooled vault.
+                        </p>
+                      ) : null}
                       <EvidenceRow
                         label="Staker registry root"
                         value={

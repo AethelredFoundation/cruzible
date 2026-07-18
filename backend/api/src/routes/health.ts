@@ -22,6 +22,10 @@ import { logger } from "../utils/logger";
 import { errorContext } from "../utils/errorContext";
 import { requireOperationalAccess } from "../middleware/operationalAccess";
 import { noStore } from "../middleware/noStore";
+import {
+  getConfiguredIndexerCursorKey,
+  getConfiguredIndexerNetworkKeys,
+} from "../lib/indexerNetworkIdentity";
 
 const router = Router();
 
@@ -60,24 +64,64 @@ interface ProbeResult {
   status: "ok" | "degraded" | "error";
   latencyMs?: number;
   message?: string;
+  height?: number;
+}
+
+interface IndexerCursorState {
+  blockNumber: number;
+  pendingBlockNumber: number | null;
+  requiresRebuild: boolean;
+  networkChainId: string | null;
+  networkAnchorHash: string | null;
+  networkVaultAddress: string | null;
+  networkStaethelAddress: string | null;
+  networkStablecoinBridgeAddress: string | null;
+  networkIdentityValid: boolean;
+  updatedAt: Date;
+}
+
+interface IndexerCursorHealth {
+  lag: number | null;
+  pendingBlockNumber: number | null;
+  requiresRebuild: boolean | null;
+  networkIdentityValid: boolean | null;
+  cursorAheadOfRpc: boolean;
+  stale: boolean;
+  ready: boolean;
 }
 
 interface ReadinessChecks {
   database: ProbeResult;
   blockchainRpc: ProbeResult;
-  indexer?: { lag: number | null; ready: boolean };
+  indexer?: {
+    lag: number | null;
+    pendingBlockNumber: number | null;
+    requiresRebuild: boolean | null;
+    networkIdentityValid: boolean | null;
+    cursorAheadOfRpc: boolean;
+    stale: boolean;
+    ready: boolean;
+  };
   reconciliation: {
     epoch: number | null;
     epochSource: string | null;
     status: string;
     lastRun: string | null;
     activeCriticalAlerts: number;
+    leadership: string;
     ready: boolean;
   };
 }
 
+type ProtocolStatus = "healthy" | "degraded" | "unavailable";
+
 const PRODUCTION_PROBE_FAILURE_MESSAGE =
   "Probe failed; see server logs for details.";
+const INDEXER_CRITICAL_LAG_BLOCKS = 500;
+const INDEXER_DEGRADED_LAG_BLOCKS = 100;
+const INDEXER_CONFIRMATION_DEPTH = 2;
+const INDEXER_CURSOR_STALE_AFTER_MS = 60_000;
+const RECONCILIATION_RESULT_MIN_FRESH_MS = 60_000;
 
 function toClientProbeResult(result: ProbeResult): ProbeResult {
   if (!config.isProduction || result.status !== "error") {
@@ -113,6 +157,7 @@ async function checkBlockchainRpc(): Promise<ProbeResult> {
       status: "ok",
       latencyMs: Date.now() - start,
       message: `Latest block height: ${height}`,
+      height,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown RPC error";
@@ -122,6 +167,109 @@ async function checkBlockchainRpc(): Promise<ProbeResult> {
     );
     return { status: "error", latencyMs: Date.now() - start, message };
   }
+}
+
+async function checkIndexerCursorState(): Promise<IndexerCursorState | null> {
+  const expectedNetwork = getConfiguredIndexerNetworkKeys();
+  const cursor = await getPrisma().indexerCursor.findUnique({
+    where: { cursorKey: getConfiguredIndexerCursorKey() },
+    select: {
+      blockNumber: true,
+      pendingBlockNumber: true,
+      requiresRebuild: true,
+      networkChainId: true,
+      networkAnchorHash: true,
+      networkVaultAddress: true,
+      networkStaethelAddress: true,
+      networkStablecoinBridgeAddress: true,
+      updatedAt: true,
+    },
+  });
+  return cursor
+    ? {
+        blockNumber: Number(cursor.blockNumber),
+        pendingBlockNumber:
+          cursor.pendingBlockNumber == null
+            ? null
+            : Number(cursor.pendingBlockNumber),
+        requiresRebuild: cursor.requiresRebuild,
+        networkChainId: cursor.networkChainId,
+        networkAnchorHash: cursor.networkAnchorHash,
+        networkVaultAddress: cursor.networkVaultAddress,
+        networkStaethelAddress: cursor.networkStaethelAddress,
+        networkStablecoinBridgeAddress: cursor.networkStablecoinBridgeAddress,
+        networkIdentityValid:
+          expectedNetwork === null ||
+          (cursor.networkChainId === expectedNetwork.identity.chainId &&
+            cursor.networkAnchorHash?.toLowerCase() ===
+              expectedNetwork.identity.anchorHash &&
+            cursor.networkVaultAddress?.toLowerCase() ===
+              expectedNetwork.identity.vaultAddress &&
+            cursor.networkStaethelAddress?.toLowerCase() ===
+              expectedNetwork.identity.staethelAddress &&
+            cursor.networkStablecoinBridgeAddress?.toLowerCase() ===
+              expectedNetwork.identity.stablecoinBridgeAddress),
+        updatedAt: cursor.updatedAt,
+      }
+    : null;
+}
+
+function assessIndexerCursor(
+  rpc: ProbeResult,
+  cursor: IndexerCursorState | null,
+  cursorProbeSucceeded: boolean,
+): IndexerCursorHealth {
+  if (
+    !cursorProbeSucceeded ||
+    cursor === null ||
+    rpc.status !== "ok" ||
+    typeof rpc.height !== "number"
+  ) {
+    return {
+      lag: null,
+      pendingBlockNumber: cursor?.pendingBlockNumber ?? null,
+      requiresRebuild: cursor?.requiresRebuild ?? null,
+      networkIdentityValid: cursor?.networkIdentityValid ?? null,
+      cursorAheadOfRpc: false,
+      stale: false,
+      ready: false,
+    };
+  }
+
+  const cursorAheadOfRpc = cursor.blockNumber > rpc.height;
+  const lag = Math.max(0, rpc.height - cursor.blockNumber);
+  const stale =
+    lag > INDEXER_CONFIRMATION_DEPTH &&
+    Date.now() - cursor.updatedAt.getTime() > INDEXER_CURSOR_STALE_AFTER_MS;
+  return {
+    lag,
+    pendingBlockNumber: cursor.pendingBlockNumber,
+    requiresRebuild: cursor.requiresRebuild,
+    networkIdentityValid: cursor.networkIdentityValid,
+    cursorAheadOfRpc,
+    stale,
+    ready:
+      cursor.pendingBlockNumber === null &&
+      !cursor.requiresRebuild &&
+      cursor.networkIdentityValid &&
+      !cursorAheadOfRpc &&
+      lag <= INDEXER_CRITICAL_LAG_BLOCKS &&
+      !stale,
+  };
+}
+
+function isReconciliationResultFresh(timestamp: string | undefined): boolean {
+  if (!timestamp) return false;
+  const parsed = Date.parse(timestamp);
+  const maxAgeMs = Math.max(
+    RECONCILIATION_RESULT_MIN_FRESH_MS,
+    config.reconciliationIntervalMs * 2,
+  );
+  return (
+    Number.isFinite(parsed) &&
+    parsed <= Date.now() + 5_000 &&
+    Date.now() - parsed <= maxAgeMs
+  );
 }
 
 function getMemoryUsage(): Record<string, string> {
@@ -154,9 +302,21 @@ function readinessResponseBody(
   ready: boolean,
   checks: ReadinessChecks,
 ): Record<string, unknown> {
+  const protocolStatus: ProtocolStatus =
+    !ready ||
+    checks.reconciliation.status === "UNKNOWN" ||
+    checks.reconciliation.status === "UNAVAILABLE" ||
+    checks.reconciliation.status === "STALE"
+      ? "unavailable"
+      : checks.reconciliation.status === "CRITICAL" ||
+          checks.reconciliation.status === "WARNING" ||
+          checks.reconciliation.activeCriticalAlerts > 0
+        ? "degraded"
+        : "healthy";
   const body = {
     ready,
     status: ready ? "ready" : "not_ready",
+    protocolStatus,
     timestamp: new Date().toISOString(),
   };
 
@@ -186,9 +346,10 @@ router.get(
   noStore,
   async (_req: Request, res: Response) => {
     // Run probes in parallel
-    const [dbResult, rpcResult] = await Promise.allSettled([
+    const [dbResult, rpcResult, recoveryResult] = await Promise.allSettled([
       checkDatabase(),
       checkBlockchainRpc(),
+      checkIndexerCursorState(),
     ]);
 
     const db =
@@ -202,20 +363,59 @@ router.get(
     const clientDb = toClientProbeResult(db);
     const clientRpc = toClientProbeResult(rpc);
 
-    // Indexer metrics (enabled deployments must fail closed if unavailable)
-    let indexer: Record<string, unknown> | null = null;
-    let indexerDegraded = false;
-    let indexerCritical = false;
+    // The API and indexer run as separate processes in production. Read the
+    // durable recovery marker directly so API readiness cannot report healthy
+    // while the indexer is repairing partially rebuilt projections.
+    const cursorState =
+      recoveryResult.status === "fulfilled" ? recoveryResult.value : null;
+    const durableIndexer = assessIndexerCursor(
+      rpc,
+      cursorState,
+      recoveryResult.status === "fulfilled",
+    );
+    let indexer: Record<string, unknown> | null = {
+      ...durableIndexer,
+    };
+    let indexerDegraded =
+      durableIndexer.lag !== null &&
+      durableIndexer.lag > INDEXER_DEGRADED_LAG_BLOCKS;
+    let indexerCritical = !durableIndexer.ready;
     if (config.indexerEnabled) {
       try {
         const indexerService = container.resolve(IndexerService);
         const metrics = indexerService.getMetrics();
-        indexer = metrics;
-        const lag = typeof metrics.lag === "number" ? metrics.lag : 0;
+        indexer = {
+          ...metrics,
+          lag: Math.max(
+            durableIndexer.lag ?? 0,
+            typeof metrics.lag === "number" ? metrics.lag : 0,
+          ),
+          requiresRebuild:
+            durableIndexer.requiresRebuild === true ||
+            metrics.requiresRebuild === true,
+          networkIdentityValid: durableIndexer.networkIdentityValid,
+          cursorAheadOfRpc: durableIndexer.cursorAheadOfRpc,
+          stale: durableIndexer.stale,
+        };
+        const lag = indexer.lag as number;
+        const requiresRebuild =
+          durableIndexer.requiresRebuild === true ||
+          metrics.requiresRebuild === true;
+        const pendingBlockNumber =
+          typeof metrics.pendingBlockNumber === "number"
+            ? metrics.pendingBlockNumber
+            : durableIndexer.pendingBlockNumber;
         // >100 blocks behind → degraded; >500 blocks behind → critical
-        if (lag > 500) {
+        if (
+          pendingBlockNumber !== null ||
+          requiresRebuild ||
+          durableIndexer.networkIdentityValid !== true ||
+          durableIndexer.cursorAheadOfRpc ||
+          durableIndexer.stale ||
+          lag > INDEXER_CRITICAL_LAG_BLOCKS
+        ) {
           indexerCritical = true;
-        } else if (lag > 100) {
+        } else if (lag > INDEXER_DEGRADED_LAG_BLOCKS) {
           indexerDegraded = true;
         }
       } catch (err) {
@@ -224,7 +424,16 @@ router.get(
           errorContext(err),
         );
         indexerCritical = true;
-        indexer = { ready: false, status: "UNAVAILABLE", lag: null };
+        indexer = {
+          ready: false,
+          status: "UNAVAILABLE",
+          lag: durableIndexer.lag,
+          pendingBlockNumber: durableIndexer.pendingBlockNumber,
+          requiresRebuild: durableIndexer.requiresRebuild,
+          networkIdentityValid: durableIndexer.networkIdentityValid,
+          cursorAheadOfRpc: durableIndexer.cursorAheadOfRpc,
+          stale: durableIndexer.stale,
+        };
       }
     }
 
@@ -237,11 +446,14 @@ router.get(
     try {
       const scheduler = container.resolve(ReconciliationScheduler);
       const latestResult = scheduler.getLatestResult();
+      const resultFresh = isReconciliationResultFresh(latestResult?.timestamp);
       const alertServiceInstance = container.resolve(AlertService);
       const activeCritical =
         await alertServiceInstance.getActiveCriticalCount();
 
-      if (latestResult?.status === "CRITICAL" || activeCritical > 0) {
+      if (!latestResult || !resultFresh) {
+        reconciliationCritical = true;
+      } else if (latestResult.status === "CRITICAL" || activeCritical > 0) {
         reconciliationCritical = true;
       } else if (latestResult?.status === "WARNING") {
         reconciliationDegraded = true;
@@ -251,9 +463,17 @@ router.get(
         lastRun: latestResult?.timestamp ?? null,
         epoch: latestResult?.epoch ?? null,
         epochSource: latestResult?.epochSource ?? null,
-        status: latestResult?.status ?? "UNKNOWN",
+        status: latestResult
+          ? resultFresh
+            ? latestResult.status
+            : "STALE"
+          : "UNKNOWN",
         lastDurationMs: latestResult?.durationMs ?? null,
         activeCriticalAlerts: activeCritical,
+        leadership:
+          typeof scheduler.getLeadershipStatus === "function"
+            ? scheduler.getLeadershipStatus()
+            : "unknown",
       };
     } catch (err) {
       logger.error(
@@ -268,6 +488,7 @@ router.get(
         status: "UNAVAILABLE",
         lastDurationMs: null,
         activeCriticalAlerts: null,
+        leadership: "unavailable",
         ready: false,
       };
     }
@@ -321,13 +542,15 @@ router.get("/live", noStore, (_req: Request, res: Response) => {
 /**
  * GET /health/ready
  * Kubernetes-style readiness probe. Checks that all critical dependencies are
- * up: database, RPC, indexer lag (if enabled), and reconciliation status.
- * Returns 503 when any critical signal fails.
+ * up: database, RPC, and indexer projection freshness. Protocol safety is
+ * reported independently as `protocolStatus`; a slashing/accounting alert must
+ * not evict every API replica and make the diagnostic/control plane unreachable.
  */
 router.get("/ready", noStore, async (_req: Request, res: Response) => {
-  const [dbResult, rpcResult] = await Promise.allSettled([
+  const [dbResult, rpcResult, recoveryResult] = await Promise.allSettled([
     checkDatabase(),
     checkBlockchainRpc(),
+    checkIndexerCursorState(),
   ]);
 
   const db =
@@ -344,14 +567,39 @@ router.get("/ready", noStore, async (_req: Request, res: Response) => {
   const coreReady = db.status === "ok" && rpc.status === "ok";
 
   // Indexer readiness (critical lag = not ready)
-  let indexerReady = true;
-  let indexerLag: number | null = null;
+  const cursorState =
+    recoveryResult.status === "fulfilled" ? recoveryResult.value : null;
+  const durableIndexer = assessIndexerCursor(
+    rpc,
+    cursorState,
+    recoveryResult.status === "fulfilled",
+  );
+  let indexerReady = durableIndexer.ready;
+  let indexerLag = durableIndexer.lag;
+  let indexerPendingBlockNumber = durableIndexer.pendingBlockNumber;
+  let indexerRequiresRebuild = durableIndexer.requiresRebuild;
   if (config.indexerEnabled) {
     try {
       const indexerService = container.resolve(IndexerService);
       const metrics = indexerService.getMetrics();
-      indexerLag = typeof metrics.lag === "number" ? metrics.lag : 0;
-      if (indexerLag > 500) {
+      indexerLag = Math.max(
+        indexerLag ?? 0,
+        typeof metrics.lag === "number" ? metrics.lag : 0,
+      );
+      indexerRequiresRebuild =
+        indexerRequiresRebuild === true || metrics.requiresRebuild === true;
+      indexerPendingBlockNumber =
+        typeof metrics.pendingBlockNumber === "number"
+          ? metrics.pendingBlockNumber
+          : indexerPendingBlockNumber;
+      if (
+        indexerPendingBlockNumber !== null ||
+        indexerRequiresRebuild ||
+        durableIndexer.networkIdentityValid !== true ||
+        durableIndexer.cursorAheadOfRpc ||
+        durableIndexer.stale ||
+        indexerLag > INDEXER_CRITICAL_LAG_BLOCKS
+      ) {
         indexerReady = false;
       }
     } catch (err) {
@@ -361,13 +609,18 @@ router.get("/ready", noStore, async (_req: Request, res: Response) => {
       );
       indexerReady = false;
       indexerLag = null;
+      indexerPendingBlockNumber = null;
     }
   }
 
-  // Reconciliation readiness (CRITICAL status = not ready)
-  let reconciliationReady = true;
+  // Protocol reconciliation posture is deliberately separate from pod
+  // readiness. It remains visible to clients/operators without causing
+  // Kubernetes to remove the API that exposes the diagnostic signal.
+  let reconciliationReady: boolean;
   let reconciliationStatus: string | null;
   let activeCriticalAlerts = 0;
+  let reconciliationLeadership = "unknown";
+  let reconciliationLastRun: string | null = null;
   let latestResult: {
     epoch?: number;
     epochSource?: string;
@@ -376,15 +629,30 @@ router.get("/ready", noStore, async (_req: Request, res: Response) => {
   } | null = null;
   try {
     const scheduler = container.resolve(ReconciliationScheduler);
-    latestResult = scheduler.getLatestResult();
-    reconciliationStatus = latestResult?.status ?? null;
+    const candidate = scheduler.getLatestResult();
+    reconciliationLastRun = candidate?.timestamp ?? null;
+    const candidateFresh = isReconciliationResultFresh(candidate?.timestamp);
+    latestResult = candidateFresh ? candidate : null;
+    reconciliationStatus = candidate
+      ? candidateFresh
+        ? (candidate.status ?? null)
+        : "STALE"
+      : null;
+    reconciliationLeadership =
+      typeof scheduler.getLeadershipStatus === "function"
+        ? scheduler.getLeadershipStatus()
+        : "unknown";
 
     const alertServiceInstance = container.resolve(AlertService);
     activeCriticalAlerts = await alertServiceInstance.getActiveCriticalCount();
 
-    if (latestResult?.status === "CRITICAL" || activeCriticalAlerts > 0) {
-      reconciliationReady = false;
-    }
+    // Fail closed until the scheduler has completed its first tick. start()
+    // launches that tick asynchronously, so a null result means operational
+    // safety has not yet been evaluated.
+    reconciliationReady =
+      latestResult !== null &&
+      latestResult.status !== "CRITICAL" &&
+      activeCriticalAlerts === 0;
   } catch (err) {
     logger.error(
       "Health check: reconciliation readiness unavailable",
@@ -394,19 +662,26 @@ router.get("/ready", noStore, async (_req: Request, res: Response) => {
     reconciliationStatus = "UNAVAILABLE";
   }
 
-  const ready = coreReady && indexerReady && reconciliationReady;
+  const ready = coreReady && indexerReady;
   const checks: ReadinessChecks = {
     database: clientDb,
     blockchainRpc: clientRpc,
-    ...(config.indexerEnabled
-      ? { indexer: { lag: indexerLag, ready: indexerReady } }
-      : {}),
+    indexer: {
+      lag: indexerLag,
+      requiresRebuild: indexerRequiresRebuild,
+      pendingBlockNumber: indexerPendingBlockNumber,
+      networkIdentityValid: durableIndexer.networkIdentityValid,
+      cursorAheadOfRpc: durableIndexer.cursorAheadOfRpc,
+      stale: durableIndexer.stale,
+      ready: indexerReady,
+    },
     reconciliation: {
       epoch: latestResult?.epoch ?? null,
       epochSource: latestResult?.epochSource ?? null,
       status: reconciliationStatus ?? "UNKNOWN",
-      lastRun: latestResult?.timestamp ?? null,
+      lastRun: reconciliationLastRun,
       activeCriticalAlerts,
+      leadership: reconciliationLeadership,
       ready: reconciliationReady,
     },
   };

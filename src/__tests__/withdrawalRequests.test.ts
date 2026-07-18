@@ -1,6 +1,10 @@
 import { parseEther } from "viem";
 import { describe, expect, it } from "vitest";
-import { toDisplayWithdrawalRequests } from "@/lib/withdrawalRequests";
+import {
+  calculateUnbondingCompletionTimeMs,
+  formatUnbondingPeriod,
+  toDisplayWithdrawalRequests,
+} from "@/lib/withdrawalRequests";
 import type { WithdrawalRequest } from "@/hooks/useVault";
 
 function withdrawal(overrides: Partial<WithdrawalRequest>): WithdrawalRequest {
@@ -68,5 +72,50 @@ describe("toDisplayWithdrawalRequests", () => {
       status: "claimed",
       daysRemaining: 0,
     });
+  });
+
+  it("displays the rebasing stAETHEL amount rather than raw shares above a 1:1 rate", () => {
+    const [request] = toDisplayWithdrawalRequests(
+      [
+        withdrawal({
+          shares: parseEther("0.8"),
+          aethelAmount: parseEther("1"),
+        }),
+      ],
+      1_700_000_001,
+    );
+
+    expect(request.stAethelAmount).toBe(1);
+    expect(request.amount).toBe(1);
+  });
+});
+
+describe("live unbonding period formatting", () => {
+  it("formats the contract duration without assuming 21 days", () => {
+    expect(formatUnbondingPeriod(86_400n)).toBe("1 day");
+    expect(formatUnbondingPeriod(1_814_400n)).toBe("21 days");
+    expect(formatUnbondingPeriod(176_400n)).toBe("2 days 1 hour");
+    expect(formatUnbondingPeriod(3_601n)).toBe("2 hours");
+  });
+
+  it("fails closed for missing or invalid contract durations", () => {
+    expect(formatUnbondingPeriod(null)).toBe("Unavailable");
+    expect(formatUnbondingPeriod(-1n)).toBe("Unavailable");
+    expect(calculateUnbondingCompletionTimeMs(null, 1_700_000_000_000)).toBe(
+      null,
+    );
+  });
+
+  it("preserves a governance-configured zero-second cooldown", () => {
+    const now = 1_700_000_000_000;
+    expect(formatUnbondingPeriod(0n)).toBe("No cooldown");
+    expect(calculateUnbondingCompletionTimeMs(0n, now)).toBe(now);
+  });
+
+  it("calculates completion from the live duration", () => {
+    const now = 1_700_000_000_000;
+    expect(calculateUnbondingCompletionTimeMs(86_400n, now)).toBe(
+      now + 86_400_000,
+    );
   });
 });

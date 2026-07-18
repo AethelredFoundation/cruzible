@@ -14,6 +14,7 @@ const OPERATIONAL_TOKEN = "12345678901234567890123456789012";
 const prismaMocks = vi.hoisted(() => ({
   queryRaw: vi.fn(),
   disconnect: vi.fn(),
+  indexerCursorFindUnique: vi.fn(),
 }));
 
 vi.mock("@prisma/client", () => {
@@ -21,6 +22,7 @@ vi.mock("@prisma/client", () => {
     return {
       $queryRaw: prismaMocks.queryRaw,
       $disconnect: prismaMocks.disconnect,
+      indexerCursor: { findUnique: prismaMocks.indexerCursorFindUnique },
     };
   });
   return { PrismaClient: MockPrismaClient };
@@ -40,6 +42,12 @@ describe("/health/ready readiness gating", () => {
     vi.resetModules();
     prismaMocks.queryRaw.mockResolvedValue([1]);
     prismaMocks.disconnect.mockResolvedValue(undefined);
+    prismaMocks.indexerCursorFindUnique.mockResolvedValue({
+      blockNumber: 12343n,
+      pendingBlockNumber: null,
+      requiresRebuild: false,
+      updatedAt: new Date(),
+    });
   });
 
   afterEach(() => {
@@ -87,13 +95,13 @@ describe("/health/ready readiness gating", () => {
   async function registerReconciliation(
     status: string | null,
     criticalAlerts: number,
+    timestamp = new Date().toISOString(),
   ) {
     const { ReconciliationScheduler } =
       await import("../src/services/ReconciliationScheduler");
     const { AlertService } = await import("../src/services/AlertService");
 
-    const latestResult =
-      status != null ? { status, timestamp: new Date().toISOString() } : null;
+    const latestResult = status != null ? { status, timestamp } : null;
 
     container.registerInstance(ReconciliationScheduler, {
       getLatestResult: vi.fn().mockReturnValue(latestResult),
@@ -105,10 +113,10 @@ describe("/health/ready readiness gating", () => {
   }
 
   /** Register mock IndexerService with a specific lag value. */
-  async function registerIndexer(lag: number) {
+  async function registerIndexer(lag: number, requiresRebuild = false) {
     const { IndexerService } = await import("../src/services/IndexerService");
     container.registerInstance(IndexerService, {
-      getMetrics: vi.fn().mockReturnValue({ lag }),
+      getMetrics: vi.fn().mockReturnValue({ lag, requiresRebuild }),
     } as any);
   }
 
@@ -149,7 +157,122 @@ describe("/health/ready readiness gating", () => {
 
       expect(res.status).toBe(200);
       expect(body.ready).toBe(true);
+      expect(body.protocolStatus).toBe("healthy");
       expect(body.checks.reconciliation.ready).toBe(true);
+    });
+  });
+
+  it("reads and validates the cursor for the configured network and vault namespace", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    await registerIndexer(2);
+    const { config } = await import("../src/config");
+    const { buildIndexerNetworkKeys } =
+      await import("../src/lib/indexerNetworkIdentity");
+    const identity = {
+      chainId: "7332",
+      anchorHash: "0x" + "aa".repeat(32),
+      vaultAddress: "0x1111111111111111111111111111111111111111",
+    };
+    Object.assign(config as object, {
+      indexerExpectedChainId: identity.chainId,
+      indexerExpectedGenesisHash: identity.anchorHash,
+      cruzibleVaultAddress: identity.vaultAddress,
+    });
+    prismaMocks.indexerCursorFindUnique.mockResolvedValue({
+      blockNumber: 12343n,
+      pendingBlockNumber: null,
+      requiresRebuild: false,
+      networkChainId: identity.chainId,
+      networkAnchorHash: identity.anchorHash,
+      networkVaultAddress: identity.vaultAddress,
+      networkStaethelAddress: "no-staethel",
+      networkStablecoinBridgeAddress: "no-bridge",
+      updatedAt: new Date(),
+    });
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.checks.indexer.networkIdentityValid).toBe(true);
+      expect(prismaMocks.indexerCursorFindUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            cursorKey: buildIndexerNetworkKeys(identity).cursorKey,
+          },
+        }),
+      );
+    });
+  });
+
+  it("returns 503 when a configured cursor is bound to another vault", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    await registerIndexer(2);
+    const { config } = await import("../src/config");
+    const identity = {
+      chainId: "7332",
+      anchorHash: "0x" + "aa".repeat(32),
+      vaultAddress: "0x1111111111111111111111111111111111111111",
+    };
+    Object.assign(config as object, {
+      indexerExpectedChainId: identity.chainId,
+      indexerExpectedGenesisHash: identity.anchorHash,
+      cruzibleVaultAddress: identity.vaultAddress,
+    });
+    prismaMocks.indexerCursorFindUnique.mockResolvedValue({
+      blockNumber: 12343n,
+      pendingBlockNumber: null,
+      requiresRebuild: false,
+      networkChainId: identity.chainId,
+      networkAnchorHash: identity.anchorHash,
+      networkVaultAddress: "0x2222222222222222222222222222222222222222",
+      networkStaethelAddress: "no-staethel",
+      networkStablecoinBridgeAddress: "no-bridge",
+      updatedAt: new Date(),
+    });
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(body.ready).toBe(false);
+      expect(body.protocolStatus).toBe("unavailable");
+      expect(body.checks.indexer).toMatchObject({
+        networkIdentityValid: false,
+        ready: false,
+      });
+    });
+  });
+
+  it("returns 503 when the durable cursor is ahead of the RPC head", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    await registerIndexer(0);
+    prismaMocks.indexerCursorFindUnique.mockResolvedValue({
+      blockNumber: 12346n,
+      pendingBlockNumber: null,
+      requiresRebuild: false,
+      updatedAt: new Date(),
+    });
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(body.protocolStatus).toBe("unavailable");
+      expect(body.checks.indexer).toMatchObject({
+        lag: 0,
+        cursorAheadOfRpc: true,
+        ready: false,
+      });
     });
   });
 
@@ -190,18 +313,31 @@ describe("/health/ready readiness gating", () => {
 
       expect(readyRes.status).toBe(503);
       expect(readyBody.ready).toBe(false);
-      expect(readyBody.checks.indexer).toEqual({ lag: null, ready: false });
+      expect(readyBody.checks.indexer).toEqual({
+        lag: null,
+        pendingBlockNumber: null,
+        requiresRebuild: false,
+        networkIdentityValid: true,
+        cursorAheadOfRpc: false,
+        stale: false,
+        ready: false,
+      });
       expect(fullHealthRes.status).toBe(503);
       expect(fullHealthBody.status).toBe("unhealthy");
       expect(fullHealthBody.indexer).toEqual({
         ready: false,
         status: "UNAVAILABLE",
-        lag: null,
+        lag: 2,
+        pendingBlockNumber: null,
+        requiresRebuild: false,
+        networkIdentityValid: true,
+        cursorAheadOfRpc: false,
+        stale: false,
       });
     });
   });
 
-  it("returns 503 when reconciliation wiring is unavailable", async () => {
+  it("keeps the API ready while reporting unavailable reconciliation wiring", async () => {
     await setupHealthyCore();
     await registerIndexer(10);
     await registerUnavailableReconciliation();
@@ -211,8 +347,9 @@ describe("/health/ready readiness gating", () => {
       const res = await fetch(`${baseUrl}/health/ready`);
       const body = await res.json();
 
-      expect(res.status).toBe(503);
-      expect(body.ready).toBe(false);
+      expect(res.status).toBe(200);
+      expect(body.ready).toBe(true);
+      expect(body.protocolStatus).toBe("unavailable");
       expect(body.checks.reconciliation.status).toBe("UNAVAILABLE");
       expect(body.checks.reconciliation.ready).toBe(false);
     });
@@ -261,6 +398,7 @@ describe("/health/ready readiness gating", () => {
       expect(res.status).toBe(503);
       expect(body.ready).toBe(false);
       expect(body.status).toBe("not_ready");
+      expect(body.protocolStatus).toBe("unavailable");
       expect(body.checks).toBeUndefined();
       expect(serializedBody).not.toContain("secret-rpc.internal");
       expect(serializedBody).not.toContain("26657");
@@ -279,7 +417,7 @@ describe("/health/ready readiness gating", () => {
     });
   });
 
-  it("returns 503 when reconciliation status is CRITICAL", async () => {
+  it("keeps infrastructure ready while reporting CRITICAL protocol posture", async () => {
     await setupHealthyCore();
     await registerReconciliation("CRITICAL", 0);
     await registerIndexer(10);
@@ -289,14 +427,34 @@ describe("/health/ready readiness gating", () => {
       const res = await fetch(`${baseUrl}/health/ready`);
       const body = await res.json();
 
-      expect(res.status).toBe(503);
-      expect(body.ready).toBe(false);
+      expect(res.status).toBe(200);
+      expect(body.ready).toBe(true);
+      expect(body.protocolStatus).toBe("degraded");
       expect(body.checks.reconciliation.status).toBe("CRITICAL");
       expect(body.checks.reconciliation.ready).toBe(false);
     });
   });
 
-  it("returns 503 when critical alerts are active (reconciliation OK)", async () => {
+  it("reports protocol unavailable until the first reconciliation result exists", async () => {
+    await setupHealthyCore();
+    await registerReconciliation(null, 0);
+    await registerIndexer(10);
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.ready).toBe(true);
+      expect(body.protocolStatus).toBe("unavailable");
+      expect(body.checks.reconciliation.status).toBe("UNKNOWN");
+      expect(body.checks.reconciliation.lastRun).toBeNull();
+      expect(body.checks.reconciliation.ready).toBe(false);
+    });
+  });
+
+  it("keeps infrastructure ready while reporting active critical alerts", async () => {
     await setupHealthyCore();
     await registerReconciliation("OK", 3);
     await registerIndexer(10);
@@ -306,8 +464,9 @@ describe("/health/ready readiness gating", () => {
       const res = await fetch(`${baseUrl}/health/ready`);
       const body = await res.json();
 
-      expect(res.status).toBe(503);
-      expect(body.ready).toBe(false);
+      expect(res.status).toBe(200);
+      expect(body.ready).toBe(true);
+      expect(body.protocolStatus).toBe("degraded");
       expect(body.checks.reconciliation.activeCriticalAlerts).toBe(3);
       expect(body.checks.reconciliation.ready).toBe(false);
     });
@@ -330,7 +489,151 @@ describe("/health/ready readiness gating", () => {
     });
   });
 
-  it("returns 200 when reconciliation is WARNING (only CRITICAL gates readiness)", async () => {
+  it("returns 503 while indexer materialized projections require rebuilding", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    await registerIndexer(10, true);
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(body.ready).toBe(false);
+      expect(body.checks.indexer).toEqual({
+        lag: 10,
+        pendingBlockNumber: null,
+        requiresRebuild: true,
+        networkIdentityValid: true,
+        cursorAheadOfRpc: false,
+        stale: false,
+        ready: false,
+      });
+    });
+  });
+
+  it("returns 503 while a projection generation is pending commit", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    prismaMocks.indexerCursorFindUnique.mockResolvedValue({
+      blockNumber: 12343n,
+      pendingBlockNumber: 12344n,
+      requiresRebuild: false,
+      updatedAt: new Date(),
+    });
+    const { config } = await import("../src/config");
+    (config as unknown as { indexerEnabled: boolean }).indexerEnabled = false;
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(body.checks.indexer).toEqual({
+        lag: 2,
+        pendingBlockNumber: 12344,
+        requiresRebuild: false,
+        networkIdentityValid: true,
+        cursorAheadOfRpc: false,
+        stale: false,
+        ready: false,
+      });
+    });
+  });
+
+  it("returns 503 from the durable rebuild marker when the indexer runs in another process", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    prismaMocks.indexerCursorFindUnique.mockResolvedValue({
+      blockNumber: 12343n,
+      requiresRebuild: true,
+      updatedAt: new Date(),
+    });
+    const { config } = await import("../src/config");
+    (config as unknown as { indexerEnabled: boolean }).indexerEnabled = false;
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(body.ready).toBe(false);
+      expect(body.checks.indexer).toEqual({
+        lag: 2,
+        pendingBlockNumber: null,
+        requiresRebuild: true,
+        networkIdentityValid: true,
+        cursorAheadOfRpc: false,
+        stale: false,
+        ready: false,
+      });
+    });
+  });
+
+  it("returns 503 for a stale no-progress cursor when the indexer runs separately", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    prismaMocks.indexerCursorFindUnique.mockResolvedValue({
+      blockNumber: 12340n,
+      requiresRebuild: false,
+      updatedAt: new Date(Date.now() - 120_000),
+    });
+    const { config } = await import("../src/config");
+    (config as unknown as { indexerEnabled: boolean }).indexerEnabled = false;
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(body.ready).toBe(false);
+      expect(body.checks.indexer).toEqual({
+        lag: 5,
+        pendingBlockNumber: null,
+        requiresRebuild: false,
+        networkIdentityValid: true,
+        cursorAheadOfRpc: false,
+        stale: true,
+        ready: false,
+      });
+    });
+  });
+
+  it("returns 503 for critical durable cursor lag when the indexer runs separately", async () => {
+    await setupHealthyCore();
+    await registerReconciliation("OK", 0);
+    prismaMocks.indexerCursorFindUnique.mockResolvedValue({
+      blockNumber: 11700n,
+      requiresRebuild: false,
+      updatedAt: new Date(),
+    });
+    const { config } = await import("../src/config");
+    (config as unknown as { indexerEnabled: boolean }).indexerEnabled = false;
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(body.ready).toBe(false);
+      expect(body.checks.indexer).toEqual({
+        lag: 645,
+        pendingBlockNumber: null,
+        requiresRebuild: false,
+        networkIdentityValid: true,
+        cursorAheadOfRpc: false,
+        stale: false,
+        ready: false,
+      });
+    });
+  });
+
+  it("returns 200 with a degraded protocol status for reconciliation WARNING", async () => {
     await setupHealthyCore();
     await registerReconciliation("WARNING", 0);
     await registerIndexer(10);
@@ -342,8 +645,33 @@ describe("/health/ready readiness gating", () => {
 
       expect(res.status).toBe(200);
       expect(body.ready).toBe(true);
+      expect(body.protocolStatus).toBe("degraded");
       expect(body.checks.reconciliation.status).toBe("WARNING");
       expect(body.checks.reconciliation.ready).toBe(true);
+    });
+  });
+
+  it("keeps infrastructure ready but rejects a stale protocol result", async () => {
+    await setupHealthyCore();
+    await registerReconciliation(
+      "OK",
+      0,
+      new Date(Date.now() - 700_000).toISOString(),
+    );
+    await registerIndexer(10);
+    const app = await mountRouter();
+
+    await withHttpServer(app, async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.ready).toBe(true);
+      expect(body.protocolStatus).toBe("unavailable");
+      expect(body.checks.reconciliation).toMatchObject({
+        status: "STALE",
+        ready: false,
+      });
     });
   });
 });

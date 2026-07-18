@@ -25,7 +25,7 @@ mkdir -p artifacts
 "$SOLC" \
   --via-ir --optimize --optimize-runs 200 \
   --evm-version shanghai \
-  --bin --abi \
+  --bin --bin-runtime --abi \
   --overwrite \
   --base-path . \
   -o artifacts \
@@ -33,4 +33,6 @@ mkdir -p artifacts
 
 echo "artifacts:"
 ls -la artifacts/Cruzible.* artifacts/StAETHEL.* artifacts/WstAETHEL.*
-shasum -a 256 artifacts/Cruzible.bin artifacts/StAETHEL.bin
+shasum -a 256 \
+  artifacts/Cruzible.bin artifacts/Cruzible.bin-runtime \
+  artifacts/StAETHEL.bin artifacts/StAETHEL.bin-runtime

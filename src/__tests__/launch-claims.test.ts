@@ -61,13 +61,15 @@ describe("launch claim validation", () => {
     ]);
   });
 
-  it("keeps TEE and proof assurance checks scoped to contract docs", () => {
+  it("blocks unsupported TEE assurance in public product copy", () => {
     const findings = scanTextForLaunchClaims(
       "src/pages/vault/index.tsx",
       "The vault labels a source as hardware-verified.",
     );
 
-    expect(findings).toEqual([]);
+    expect(findings.map((finding) => finding.rule)).toEqual([
+      "CLAIM-UNBACKED-TEE-PROOF",
+    ]);
   });
 
   it("allows defensive disclosure language that avoids overclaiming", () => {

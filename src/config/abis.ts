@@ -47,7 +47,28 @@ export const CruzibleABI = [
     outputs: [{ name: "", type: "bool" }],
   },
   {
+    name: "complianceRequired",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "complianceAdmitted",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "staker", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
     name: "currentEpoch",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "unbondingPeriod",
     type: "function",
     stateMutability: "view",
     inputs: [],
@@ -106,12 +127,31 @@ export const CruzibleABI = [
     outputs: [{ name: "shares", type: "uint256" }],
   },
   {
+    // Production entrypoint: enforces the user's minimum shares inside the
+    // transaction, closing the quote-to-inclusion slippage window.
+    name: "stakeWithMinShares",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [{ name: "minShares", type: "uint256" }],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+  {
     // Compliance-gated entry: verifies the Digital Seal for the given PoUW
     // job via the ISeal precompile before admitting the stake.
     name: "stakeWithSeal",
     type: "function",
     stateMutability: "payable",
     inputs: [{ name: "jobId", type: "string" }],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+  {
+    name: "stakeWithSealAndMinShares",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      { name: "jobId", type: "string" },
+      { name: "minShares", type: "uint256" },
+    ],
     outputs: [{ name: "shares", type: "uint256" }],
   },
   {
@@ -126,6 +166,19 @@ export const CruzibleABI = [
     type: "function",
     stateMutability: "nonpayable",
     inputs: [{ name: "shares", type: "uint256" }],
+    outputs: [
+      { name: "withdrawalId", type: "uint256" },
+      { name: "aethelAmount", type: "uint256" },
+    ],
+  },
+  {
+    name: "unstakeWithMinAethel",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "shares", type: "uint256" },
+      { name: "minAethel", type: "uint256" },
+    ],
     outputs: [
       { name: "withdrawalId", type: "uint256" },
       { name: "aethelAmount", type: "uint256" },
@@ -175,6 +228,7 @@ export const CruzibleABI = [
       { name: "shares", type: "uint256", indexed: false },
       { name: "amount", type: "uint256", indexed: false },
       { name: "withdrawalId", type: "uint256", indexed: false },
+      { name: "completionTime", type: "uint256", indexed: false },
     ],
   },
   {

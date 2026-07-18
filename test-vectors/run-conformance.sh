@@ -21,7 +21,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CRUZIBLE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-AETHELRED_ROOT="$(cd "$CRUZIBLE_ROOT/../../.." && pwd)"
+AETHELRED_ROOT="${AETHELRED_ROOT:-$(cd "$CRUZIBLE_ROOT/../.." && pwd)}"
 
 # Color codes (disabled if not a TTY)
 if [ -t 1 ]; then
@@ -65,6 +65,25 @@ run_suite() {
   fi
 }
 
+run_go_keeper_conformance() {
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/cruzible-go-conformance.XXXXXX")" || return 1
+  local go_cache="${GOCACHE:-${TMPDIR:-/tmp}/cruzible-go-build-cache}"
+
+  if ! env GOCACHE="$go_cache" go test ./x/vault/keeper/ -run TestConformance -v -count=1 2>&1 | tee "$output_file"; then
+    rm -f "$output_file"
+    return 1
+  fi
+
+  if grep -q -- '^--- SKIP: TestConformance' "$output_file"; then
+    echo "  FAIL: a required Go conformance test was skipped"
+    rm -f "$output_file"
+    return 1
+  fi
+
+  rm -f "$output_file"
+}
+
 echo "=============================================="
 echo " Cruzible Cross-Language Conformance (Track 8)"
 echo "=============================================="
@@ -80,12 +99,12 @@ run_suite "TypeScript SDK" \
 # ── 2. Python SDK ──────────────────────────────────────────────────────────
 run_suite "Python SDK" \
   "$CRUZIBLE_ROOT/sdk/python" \
-  python -m pytest tests/test_conformance.py -v
+  env PYTHONPATH=src python -m pytest tests/test_conformance.py -v
 
 # ── 3. Go Keeper ───────────────────────────────────────────────────────────
 run_suite "Go Keeper" \
   "$AETHELRED_ROOT" \
-  go test ./x/vault/keeper/ -run TestConformance -v -count=1
+  run_go_keeper_conformance
 
 # ── Summary ────────────────────────────────────────────────────────────────
 echo ""

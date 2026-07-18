@@ -12,7 +12,7 @@
  *  - Maintain an in-memory fallback ring buffer for local/test operation
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { singleton } from "tsyringe";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { logger } from "../utils/logger";
@@ -89,6 +89,10 @@ const MAX_ALERT_HISTORY = 100;
  */
 const ALERT_ACTIVE_WINDOW_MS = 15 * 60 * 1000;
 const ALERT_METADATA_MAX_DEPTH = 5;
+const ALERT_OUTBOX_BATCH_LIMIT = 20;
+const ALERT_OUTBOX_MAX_ATTEMPTS = 8;
+const ALERT_OUTBOX_BASE_BACKOFF_MS = 30_000;
+const ALERT_OUTBOX_MAX_BACKOFF_MS = 15 * 60 * 1000;
 
 function webhookOriginForLogs(value: string): string {
   try {
@@ -203,6 +207,218 @@ export class AlertService {
   }
 
   /**
+   * Persist a deterministic outbox record before attempting delivery.
+   *
+   * Reconciliation leaders use this path so a failover can retry an
+   * undelivered alert using the same id, while an already-delivered alert is
+   * suppressed across replicas. Webhook consumers receive the deterministic
+   * id and can therefore make their own delivery handling idempotent too.
+   */
+  async sendDurableAlert(
+    idempotencyKey: string,
+    severity: AlertSeverity,
+    type: AlertType,
+    message: string,
+    metadata: AlertMetadata = {},
+  ): Promise<Alert | null> {
+    const normalizedKey = idempotencyKey.trim();
+    if (!normalizedKey) {
+      throw new Error("A durable alert idempotency key is required");
+    }
+
+    // Local development has no durable store. Production configuration
+    // requires DATABASE_URL, so this fallback cannot silently weaken a
+    // production reconciliation alert.
+    if (!this.prisma) {
+      return this.sendAlert(severity, type, message, metadata);
+    }
+
+    const id = `alert_${createHash("sha256")
+      .update(normalizedKey)
+      .digest("hex")}`;
+    const safeMetadata = redactRecord(metadata, {
+      maxDepth: ALERT_METADATA_MAX_DEPTH,
+    });
+    const createdAt = new Date();
+
+    let stored;
+    try {
+      stored = await this.prisma.alertEvent.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
+          severity,
+          type,
+          message,
+          metadata: safeMetadata as Prisma.InputJsonValue,
+          delivered: false,
+          attemptCount: 0,
+          nextAttemptAt: createdAt,
+          createdAt,
+        },
+      });
+    } catch (error) {
+      logger.error("Failed to persist durable alert before delivery", {
+        alertId: id,
+        ...errorContext(error),
+      });
+      throw Object.assign(new Error("Durable alert persistence failed"), {
+        cause: error,
+      });
+    }
+
+    if (
+      stored.delivered ||
+      stored.deadLetteredAt ||
+      (stored.nextAttemptAt && stored.nextAttemptAt.getTime() > Date.now())
+    ) {
+      return this.mapAlertEvent(stored);
+    }
+
+    return this.attemptDurableAlert(stored);
+  }
+
+  /**
+   * Drain due outbox rows independently of whether the originating condition
+   * is emitted again. The scheduler supplies a Redis lease-fenced claim so
+   * only one replica attempts each row at a time.
+   */
+  async retryUndeliveredAlerts(options?: {
+    limit?: number;
+    claim?: (alertId: string) => Promise<boolean>;
+  }): Promise<{ attempted: number; delivered: number; deadLettered: number }> {
+    if (!this.prisma) {
+      return { attempted: 0, delivered: 0, deadLettered: 0 };
+    }
+
+    const now = new Date();
+    const limit = Math.max(
+      1,
+      Math.min(options?.limit ?? ALERT_OUTBOX_BATCH_LIMIT, 100),
+    );
+    let pending;
+    try {
+      pending = await this.prisma.alertEvent.findMany({
+        where: {
+          delivered: false,
+          deadLetteredAt: null,
+          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+        },
+        orderBy: [{ nextAttemptAt: "asc" }, { createdAt: "asc" }],
+        take: limit,
+      });
+    } catch (error) {
+      logger.error("Durable alert outbox scan failed", errorContext(error));
+      return { attempted: 0, delivered: 0, deadLettered: 0 };
+    }
+
+    let attempted = 0;
+    let delivered = 0;
+    let deadLettered = 0;
+    for (const stored of pending) {
+      try {
+        if (options?.claim && !(await options.claim(stored.id))) continue;
+        attempted += 1;
+        const alert = await this.attemptDurableAlert(stored);
+        if (alert.delivered) delivered += 1;
+        if (
+          !alert.delivered &&
+          stored.attemptCount + 1 >= ALERT_OUTBOX_MAX_ATTEMPTS
+        ) {
+          deadLettered += 1;
+        }
+      } catch (error) {
+        logger.error("Durable alert outbox retry failed", {
+          alertId: stored.id,
+          ...errorContext(error),
+        });
+      }
+    }
+
+    return { attempted, delivered, deadLettered };
+  }
+
+  private async attemptDurableAlert(stored: {
+    id: string;
+    severity: string;
+    type: string;
+    message: string;
+    metadata: Prisma.JsonValue;
+    delivered: boolean;
+    attemptCount: number;
+    createdAt: Date;
+  }): Promise<Alert> {
+    if (!this.prisma) {
+      throw new Error("Durable alert storage is unavailable");
+    }
+
+    const alert = this.mapAlertEvent(stored);
+    const attemptAt = new Date();
+    const deliveryResults = [
+      this.deliverConsole(alert),
+      await this.deliverWebhook(alert),
+    ].filter((result): result is AlertDeliveryResult => result !== null);
+    const deliveryFailures = deliveryResults.filter(
+      (result) => result.required && !result.success,
+    );
+    alert.delivered = deliveryFailures.length === 0;
+    if (deliveryFailures.length > 0) {
+      alert.metadata = {
+        ...alert.metadata,
+        deliveryFailures: deliveryFailures.map((failure) => ({
+          channel: failure.channel,
+          ...failure.metadata,
+        })),
+      };
+    }
+
+    const attemptCount = stored.attemptCount + 1;
+    const exhausted =
+      !alert.delivered && attemptCount >= ALERT_OUTBOX_MAX_ATTEMPTS;
+    const backoffMs = Math.min(
+      ALERT_OUTBOX_BASE_BACKOFF_MS * 2 ** Math.max(attemptCount - 1, 0),
+      ALERT_OUTBOX_MAX_BACKOFF_MS,
+    );
+
+    try {
+      await this.prisma.alertEvent.update({
+        where: { id: stored.id },
+        data: {
+          delivered: alert.delivered,
+          metadata: alert.metadata as Prisma.InputJsonValue,
+          attemptCount,
+          lastAttemptAt: attemptAt,
+          nextAttemptAt:
+            alert.delivered || exhausted
+              ? null
+              : new Date(attemptAt.getTime() + backoffMs),
+          deadLetteredAt: exhausted ? attemptAt : null,
+        },
+      });
+    } catch (error) {
+      logger.error("Failed to finalize durable alert delivery state", {
+        alertId: stored.id,
+        ...errorContext(error),
+      });
+      throw Object.assign(
+        new Error("Durable alert delivery state persistence failed"),
+        { cause: error },
+      );
+    }
+
+    if (exhausted) {
+      logger.error("Durable alert moved to the dead-letter state", {
+        alertId: alert.id,
+        attemptCount,
+      });
+    }
+
+    this.pushHistory(alert);
+    return alert;
+  }
+
+  /**
    * Return the most recent alerts, newest first.
    * Optionally filter by severity or type.
    */
@@ -283,6 +499,18 @@ export class AlertService {
    * Return the count of active CRITICAL alerts (used by health check).
    */
   async getActiveCriticalCount(): Promise<number> {
+    if (this.prisma) {
+      // Readiness must not infer this from the newest-N history sample: a
+      // burst of INFO/WARNING events could otherwise push a still-active
+      // CRITICAL out of that window. Delivery state does not change whether
+      // the underlying critical condition was raised.
+      return this.prisma.alertEvent.count({
+        where: {
+          severity: AlertSeverity.CRITICAL,
+          createdAt: { gte: new Date(Date.now() - ALERT_ACTIVE_WINDOW_MS) },
+        },
+      });
+    }
     const summary = await this.getAlertSummary();
     return summary.activeCritical;
   }

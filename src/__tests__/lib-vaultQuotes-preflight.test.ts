@@ -21,14 +21,14 @@ describe("vaultQuotes buildVaultQuoteSafety", () => {
     nowMs: now,
   };
 
-  it("computes expected output for a stake (amount / rate)", () => {
-    expect(buildVaultQuoteSafety(base).expectedOutput).toBe(50);
+  it("keeps stake output in rebasing token units without applying the raw-share rate twice", () => {
+    expect(buildVaultQuoteSafety(base).expectedOutput).toBe(100);
   });
 
-  it("computes expected output for an unstake (amount * rate)", () => {
+  it("keeps unstake output in AETHEL-denominated rebasing token units", () => {
     expect(
       buildVaultQuoteSafety({ ...base, kind: "unstake" }).expectedOutput,
-    ).toBe(200);
+    ).toBe(100);
   });
 
   it("permits submission with a fresh live quote", () => {

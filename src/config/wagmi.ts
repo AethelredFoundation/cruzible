@@ -8,12 +8,7 @@
 import { http, createConfig, createStorage, injected } from "wagmi";
 import { coinbaseWallet } from "@cruzible/wagmi-connector-coinbase";
 import { walletConnect } from "@cruzible/wagmi-connector-walletconnect";
-import {
-  aethelredMainnet,
-  aethelredTestnet,
-  aethelredDevnet,
-  activeChain,
-} from "./chains";
+import { activeChain, supportedChains } from "./chains";
 
 // ---------------------------------------------------------------------------
 // WalletConnect Project ID
@@ -62,11 +57,6 @@ const connectors = IS_BROWSER
 
 // Testnet and devnet share the confirmed EVM chain id (7332, different
 // endpoints), so one 7332 transport covers both; mainnet is the distinct id.
-const transports = {
-  [aethelredMainnet.id]: http(),
-  [aethelredTestnet.id]: http(), // 7332 — also serves aethelredDevnet
-};
-
 // wagmi rejects duplicate chain ids in its chains tuple, so dedupe by id.
 // Map keeps the LAST entry per key, so activeChain goes last: without it,
 // devnet (last in the list) survived as the 7332 chain and its default
@@ -74,10 +64,13 @@ const transports = {
 // surviving 7332 entry carries the endpoints of the selected environment.
 const uniqueChains = Array.from(
   new Map(
-    [aethelredMainnet, aethelredTestnet, aethelredDevnet, activeChain].map(
-      (c) => [c.id, c] as const,
+    [...supportedChains, activeChain].map(
+      (chain) => [chain.id, chain] as const,
     ),
   ).values(),
+);
+const transports = Object.fromEntries(
+  uniqueChains.map((chain) => [chain.id, http()]),
 );
 
 // ---------------------------------------------------------------------------
@@ -86,8 +79,8 @@ const uniqueChains = Array.from(
 
 export const wagmiConfig = createConfig({
   chains: uniqueChains as unknown as readonly [
-    typeof aethelredMainnet,
-    ...(typeof aethelredMainnet)[],
+    typeof activeChain,
+    ...(typeof activeChain)[],
   ],
   connectors,
   transports,

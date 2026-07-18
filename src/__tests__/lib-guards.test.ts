@@ -153,10 +153,10 @@ describe("withdrawalRequests toDisplayWithdrawalRequests", () => {
     };
   }
 
-  it("maps amounts from wei to ether floats", () => {
+  it("maps the immutable AETHEL snapshot into both display amounts", () => {
     const [d] = toDisplayWithdrawalRequests([req()], 1_000_000);
     expect(d.amount).toBe(2);
-    expect(d.stAethelAmount).toBe(1);
+    expect(d.stAethelAmount).toBe(2);
     expect(d.id).toBe("w1");
     expect(d.withdrawalId).toBe(1n);
   });

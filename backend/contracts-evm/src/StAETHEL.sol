@@ -61,6 +61,8 @@ contract StAETHEL {
     error InsufficientAllowance();
     error NotGovernance();
     error RecipientNotVerified(address recipient);
+    error AlreadyInitialized();
+    error TransferTooSmall();
 
     modifier onlyVault() {
         if (msg.sender != vault) revert OnlyVault();
@@ -91,15 +93,43 @@ contract StAETHEL {
         emit TransferShares(address(0), to, sharesAmount);
     }
 
+    /// @notice Atomically create the permanently locked and user-owned shares
+    ///         for the first deposit. Updating the final denominator before
+    ///         either Transfer event prevents bootstrap mint history from
+    ///         overstating token supply.
+    function mintBootstrapShares(address lockAddress, address to, uint256 lockedShares, uint256 userShares)
+        external
+        onlyVault
+    {
+        if (_totalShares != 0) revert AlreadyInitialized();
+        if (lockAddress == address(0) || to == address(0)) revert ZeroAddress();
+
+        _totalShares = lockedShares + userShares;
+        _shares[lockAddress] = lockedShares;
+        _shares[to] = userShares;
+
+        uint256 lockedAmount = getAethelByShares(lockedShares);
+        uint256 userAmount = getAethelByShares(userShares);
+        emit Transfer(address(0), lockAddress, lockedAmount);
+        emit TransferShares(address(0), lockAddress, lockedShares);
+        emit Transfer(address(0), to, userAmount);
+        emit TransferShares(address(0), to, userShares);
+    }
+
     /// @notice Burn shares from an account (vault-only, on unstake).
     function burnShares(address from, uint256 sharesAmount) external onlyVault {
         uint256 held = _shares[from];
         if (held < sharesAmount) revert InsufficientShares();
+        // Snapshot the rebasing token value before changing the denominator.
+        // The vault updates totalPooledAethel only after this call returns, so
+        // computing the event value after reducing _totalShares would
+        // overstate the amount burned.
+        uint256 aethelAmount = getAethelByShares(sharesAmount);
         unchecked {
             _shares[from] = held - sharesAmount;
             _totalShares -= sharesAmount;
         }
-        emit Transfer(from, address(0), getAethelByShares(sharesAmount));
+        emit Transfer(from, address(0), aethelAmount);
         emit TransferShares(from, address(0), sharesAmount);
     }
 
@@ -154,6 +184,16 @@ contract StAETHEL {
         return true;
     }
 
+    /// @notice Transfer an exact number of raw shares. Wrappers use this on
+    ///         redemption so shares are neither orphaned nor overdrawn by a
+    ///         shares→AETHEL→shares double-floor conversion at odd rates.
+    ///         Like transfer(), this can move only the caller's own balance
+    ///         and still enforces the recipient identity gate.
+    function transferShares(address to, uint256 sharesAmount) external returns (uint256 aethelAmount) {
+        aethelAmount = getAethelByShares(sharesAmount);
+        _transferShares(msg.sender, to, sharesAmount, aethelAmount);
+    }
+
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         uint256 allowed = _allowances[from][msg.sender];
         if (allowed != type(uint256).max) {
@@ -194,6 +234,18 @@ contract StAETHEL {
     }
 
     function _transfer(address from, address to, uint256 amount) internal {
+        uint256 sharesToMove = getSharesByAethel(amount);
+        if (amount > 0 && sharesToMove == 0) revert TransferTooSmall();
+        uint256 held = _shares[from];
+        // ERC-20 amounts are AETHEL-denominated rebasing units.  The
+        // conversion to raw shares rounds down, so a share-only comparison
+        // can otherwise let a caller request slightly more than balanceOf
+        // while still producing the same raw-share amount.
+        if (getAethelByShares(held) < amount) revert InsufficientShares();
+        _transferShares(from, to, sharesToMove, amount);
+    }
+
+    function _transferShares(address from, address to, uint256 sharesAmount, uint256 aethelAmount) internal {
         if (to == address(0)) revert ZeroAddress();
         // Model B: unverified parties cannot ACQUIRE the token. Recipient-only
         // by design — checking senders would let an identity suspension trap
@@ -203,14 +255,13 @@ contract StAETHEL {
                 revert RecipientNotVerified(to);
             }
         }
-        uint256 sharesToMove = getSharesByAethel(amount);
         uint256 held = _shares[from];
-        if (held < sharesToMove) revert InsufficientShares();
+        if (held < sharesAmount) revert InsufficientShares();
         unchecked {
-            _shares[from] = held - sharesToMove;
+            _shares[from] = held - sharesAmount;
         }
-        _shares[to] += sharesToMove;
-        emit Transfer(from, to, amount);
-        emit TransferShares(from, to, sharesToMove);
+        _shares[to] += sharesAmount;
+        emit Transfer(from, to, aethelAmount);
+        emit TransferShares(from, to, sharesAmount);
     }
 }

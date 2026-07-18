@@ -42,6 +42,11 @@ import {
   fetchReconciliationControlPlane,
   type ReconciliationControlPlaneSummary,
 } from "@/lib/reconciliation";
+import { isQuerySnapshotFresh } from "@/lib/homeTruth";
+import {
+  classifyBalanceRead,
+  type BalanceReadStatus,
+} from "@/lib/balanceTruth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +79,19 @@ export interface WalletState {
   isWrongNetwork: boolean;
   /** The connected chain ID (0 if disconnected) */
   chainId: number;
+  balanceSnapshots: {
+    native: WalletBalanceSnapshot;
+    aethel: WalletBalanceSnapshot;
+    stAethel: WalletBalanceSnapshot;
+    stablecoins: Record<string, WalletBalanceSnapshot>;
+  };
+}
+
+export interface WalletBalanceSnapshot {
+  value: number | null;
+  valueUnits: bigint | null;
+  status: BalanceReadStatus;
+  updatedAt: number | null;
 }
 
 export interface RealTimeState {
@@ -89,6 +107,8 @@ export interface RealTimeState {
   validatorUniverseHash: string;
   reconciliationWarnings: number;
   reconciliationComplete: boolean | null;
+  blockStatus: "live" | "stale" | "unavailable";
+  controlPlaneStatus: "live" | "stale" | "unavailable";
 }
 
 export interface Notification {
@@ -151,6 +171,27 @@ const DEFAULT_WALLET: WalletState = {
   isConnecting: false,
   isWrongNetwork: false,
   chainId: 0,
+  balanceSnapshots: {
+    native: {
+      value: null,
+      valueUnits: null,
+      status: "unavailable",
+      updatedAt: null,
+    },
+    aethel: {
+      value: null,
+      valueUnits: null,
+      status: "unavailable",
+      updatedAt: null,
+    },
+    stAethel: {
+      value: null,
+      valueUnits: null,
+      status: "unavailable",
+      updatedAt: null,
+    },
+    stablecoins: {},
+  },
 };
 
 const DEFAULT_REALTIME: RealTimeState = {
@@ -166,6 +207,8 @@ const DEFAULT_REALTIME: RealTimeState = {
   validatorUniverseHash: "",
   reconciliationWarnings: 0,
   reconciliationComplete: null,
+  blockStatus: "unavailable",
+  controlPlaneStatus: "unavailable",
 };
 
 // ERC-20 balances only. AETHEL is deliberately NOT here: it is the NATIVE
@@ -219,13 +262,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const { switchChain } = useSwitchChain();
 
   // Query native network-token balance for gas/context display.
-  const { data: nativeBalance } = useBalance({
+  const nativeBalanceQuery = useBalance({
     address: address,
     chainId: activeChain.id,
     query: { enabled: isConnected, refetchInterval: 12_000 },
   });
 
-  const { data: tokenBalances } = useReadContracts({
+  const tokenBalancesQuery = useReadContracts({
     contracts: CONFIGURED_TOKEN_CONTRACTS.map((token) => ({
       address: token.address ?? zeroAddress,
       abi: ERC20ABI,
@@ -254,9 +297,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const stablecoinBalances: Record<string, number> = {};
     const stablecoinBalanceUnits: Record<string, bigint> = {};
     const tokenBalanceUnits = new Map<string, bigint>();
+    const tokenSnapshots = new Map<string, WalletBalanceSnapshot>();
 
     CONFIGURED_TOKEN_CONTRACTS.forEach((token, index) => {
-      const balance = tokenBalances?.[index]?.result as bigint | undefined;
+      const read = tokenBalancesQuery.data?.[index];
+      const balance = read?.result as bigint | undefined;
+      const hasValue = typeof read?.result === "bigint";
+      const status = classifyBalanceRead({
+        hasValue,
+        isLoading: tokenBalancesQuery.isLoading,
+        isError: tokenBalancesQuery.isError || read?.status === "failure",
+        dataUpdatedAt: tokenBalancesQuery.dataUpdatedAt,
+      });
+      tokenSnapshots.set(token.symbol, {
+        value:
+          hasValue && balance !== undefined
+            ? parseFloat(formatUnits(balance, token.decimals))
+            : null,
+        valueUnits: hasValue && balance !== undefined ? balance : null,
+        status,
+        updatedAt:
+          tokenBalancesQuery.dataUpdatedAt > 0
+            ? tokenBalancesQuery.dataUpdatedAt
+            : null,
+      });
       if (balance !== undefined) {
         tokenBalanceUnits.set(token.symbol, balance);
       }
@@ -267,10 +331,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // to read, so the stakeable balance comes from the native query. A
     // configured bridged-AETHEL ERC-20 (other chains) still takes priority.
     const aethelBalance =
-      tokenBalanceUnits.get("AETHEL") ?? nativeBalance?.value;
+      tokenBalanceUnits.get("AETHEL") ?? nativeBalanceQuery.data?.value;
     const stAethelBalance = tokenBalanceUnits.get("stAETHEL");
     const usdcBalance = tokenBalanceUnits.get("USDC");
     const usdtBalance = tokenBalanceUnits.get("USDT");
+    const nativeHasValue = nativeBalanceQuery.data?.value !== undefined;
+    const nativeStatus = classifyBalanceRead({
+      hasValue: nativeHasValue,
+      isLoading: nativeBalanceQuery.isLoading,
+      isError: nativeBalanceQuery.isError,
+      dataUpdatedAt: nativeBalanceQuery.dataUpdatedAt,
+    });
+    const nativeSnapshot: WalletBalanceSnapshot = {
+      value: nativeHasValue
+        ? parseFloat(
+            formatUnits(
+              nativeBalanceQuery.data!.value,
+              nativeBalanceQuery.data!.decimals,
+            ),
+          )
+        : null,
+      valueUnits: nativeBalanceQuery.data?.value ?? null,
+      status: nativeStatus,
+      updatedAt:
+        nativeBalanceQuery.dataUpdatedAt > 0
+          ? nativeBalanceQuery.dataUpdatedAt
+          : null,
+    };
+    const stAethelSnapshot =
+      tokenSnapshots.get("stAETHEL") ??
+      DEFAULT_WALLET.balanceSnapshots.stAethel;
+    const usdcSnapshot = tokenSnapshots.get("USDC") ?? {
+      ...DEFAULT_WALLET.balanceSnapshots.native,
+    };
+    const usdtSnapshot = tokenSnapshots.get("USDT") ?? {
+      ...DEFAULT_WALLET.balanceSnapshots.native,
+    };
 
     if (usdcBalance !== undefined) {
       stablecoinBalances.USDC = parseFloat(formatUnits(usdcBalance, 6));
@@ -284,10 +380,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return {
       connected: true,
       address: address,
-      balance: nativeBalance
-        ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
-        : 0,
-      balanceWei: nativeBalance?.value ?? 0n,
+      balance: nativeSnapshot.value ?? 0,
+      balanceWei: nativeSnapshot.valueUnits ?? 0n,
       aethelBalance:
         aethelBalance !== undefined
           ? parseFloat(formatUnits(aethelBalance, 18))
@@ -303,12 +397,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isConnecting: false,
       isWrongNetwork,
       chainId,
+      balanceSnapshots: {
+        native: nativeSnapshot,
+        aethel: nativeSnapshot,
+        stAethel: stAethelSnapshot,
+        stablecoins: {
+          USDC: usdcSnapshot,
+          USDT: usdtSnapshot,
+        },
+      },
     };
   }, [
     isConnected,
     address,
-    nativeBalance,
-    tokenBalances,
+    nativeBalanceQuery.data,
+    nativeBalanceQuery.dataUpdatedAt,
+    nativeBalanceQuery.isError,
+    nativeBalanceQuery.isLoading,
+    tokenBalancesQuery.data,
+    tokenBalancesQuery.dataUpdatedAt,
+    tokenBalancesQuery.isError,
+    tokenBalancesQuery.isLoading,
     wagmiConnecting,
     isWrongNetwork,
     chainId,
@@ -352,57 +461,105 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [isWrongNetwork]);
 
   // --- Real-time block data via wagmi --------------------------------------
-  const { data: blockNumber } = useBlockNumber({
+  const blockQuery = useBlockNumber({
     chainId: activeChain.id,
     watch: false,
     query: { refetchInterval: 30_000, staleTime: 10_000 },
   });
+  const blockNumber = blockQuery.data;
 
   const [realTime, setRealTime] = useState<RealTimeState>(DEFAULT_REALTIME);
-  const { data: controlPlane = null } =
-    useQuery<ReconciliationControlPlaneSummary | null>({
-      queryKey: RECONCILIATION_CONTROL_PLANE_QUERY_KEY,
-      queryFn: fetchReconciliationControlPlane,
-      refetchInterval: 30_000,
-      staleTime: 10_000,
-      retry: 1,
-    });
+  const controlPlaneQuery = useQuery<ReconciliationControlPlaneSummary | null>({
+    queryKey: RECONCILIATION_CONTROL_PLANE_QUERY_KEY,
+    queryFn: fetchReconciliationControlPlane,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+    retry: 1,
+  });
+  const controlPlane = controlPlaneQuery.data ?? null;
+  const blockIsFresh = isQuerySnapshotFresh({
+    hasData: blockNumber !== undefined,
+    isError: blockQuery.isError,
+    dataUpdatedAt: blockQuery.dataUpdatedAt,
+  });
+  const controlPlaneIsFresh = isQuerySnapshotFresh({
+    hasData: controlPlane !== null,
+    isError: controlPlaneQuery.isError,
+    dataUpdatedAt: controlPlaneQuery.dataUpdatedAt,
+  });
+  const blockStatus = blockIsFresh
+    ? "live"
+    : blockNumber !== undefined
+      ? "stale"
+      : "unavailable";
+  const controlPlaneStatus = controlPlaneIsFresh
+    ? "live"
+    : controlPlane !== null
+      ? "stale"
+      : "unavailable";
 
   useEffect(() => {
     setRealTime((prev) => {
       const nextBlockHeight =
-        blockNumber !== undefined
+        blockIsFresh && blockNumber !== undefined
           ? Number(blockNumber)
-          : (controlPlane?.chain_height ?? prev.blockHeight);
+          : controlPlaneIsFresh && controlPlane
+            ? controlPlane.chain_height
+            : prev.blockHeight;
       const fallbackEpoch =
-        blockNumber !== undefined
+        blockIsFresh && blockNumber !== undefined
           ? Math.floor(Number(blockNumber) / 1000)
           : prev.epoch;
+      const controlPlaneCapturedAt =
+        controlPlaneIsFresh && controlPlane
+          ? Date.parse(controlPlane.captured_at)
+          : Number.NaN;
+      const lastBlockTime = blockIsFresh
+        ? blockQuery.dataUpdatedAt
+        : Number.isFinite(controlPlaneCapturedAt)
+          ? controlPlaneCapturedAt
+          : prev.lastBlockTime;
 
       return {
         ...prev,
         blockHeight: nextBlockHeight,
-        lastBlockTime:
-          blockNumber !== undefined || controlPlane
-            ? Date.now()
-            : prev.lastBlockTime,
-        epoch: controlPlane?.epoch ?? fallbackEpoch,
+        lastBlockTime,
+        epoch:
+          controlPlaneIsFresh && controlPlane
+            ? controlPlane.epoch
+            : fallbackEpoch,
         epochSource:
-          controlPlane?.epoch_source ??
-          (blockNumber !== undefined
+          (controlPlaneIsFresh ? controlPlane?.epoch_source : undefined) ??
+          (blockIsFresh && blockNumber !== undefined
             ? "rpc/block-height-estimate"
             : prev.epochSource),
         protocolCapturedAt:
-          controlPlane?.captured_at ?? prev.protocolCapturedAt,
+          (controlPlaneIsFresh ? controlPlane?.captured_at : undefined) ??
+          prev.protocolCapturedAt,
         validatorUniverseHash:
-          controlPlane?.validator_universe_hash ?? prev.validatorUniverseHash,
+          (controlPlaneIsFresh
+            ? controlPlane?.validator_universe_hash
+            : undefined) ?? prev.validatorUniverseHash,
         reconciliationWarnings:
-          controlPlane?.warning_count ?? prev.reconciliationWarnings,
+          (controlPlaneIsFresh ? controlPlane?.warning_count : undefined) ??
+          prev.reconciliationWarnings,
         reconciliationComplete:
-          controlPlane?.stake_snapshot_complete ?? prev.reconciliationComplete,
+          (controlPlaneIsFresh
+            ? controlPlane?.stake_snapshot_complete
+            : undefined) ?? prev.reconciliationComplete,
+        blockStatus,
+        controlPlaneStatus,
       };
     });
-  }, [blockNumber, controlPlane]);
+  }, [
+    blockIsFresh,
+    blockNumber,
+    blockQuery.dataUpdatedAt,
+    blockStatus,
+    controlPlane,
+    controlPlaneIsFresh,
+    controlPlaneStatus,
+  ]);
 
   // --- Notifications --------------------------------------------------------
   const [notifications, setNotifications] = useState<Notification[]>([]);

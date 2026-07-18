@@ -3,6 +3,9 @@
 import { useCallback } from "react";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { bufferGasLimit } from "@/lib/gas";
+import { activeChain, ACTIVE_GENESIS_HASH } from "@/config/chains";
+import { assertWalletNetworkIdentity } from "@/lib/networkGenesis";
+import { getPreflightFailureMessage } from "@/lib/transactionPreflight";
 
 /**
  * Drop-in replacement for wagmi's `useWriteContract` that buffers the gas
@@ -12,9 +15,8 @@ import { bufferGasLimit } from "@/lib/gas";
  * state-changing calls, so a raw wagmi write reverts out-of-gas. This
  * hook estimates the call, applies {@link bufferGasLimit}, and passes the
  * result as an explicit `gas` limit — unless the caller already set one.
- * If estimation itself reverts (a genuinely failing call), we fall
- * through to the normal write so wagmi surfaces the real revert reason
- * rather than masking it.
+ * Estimation failures fail closed before a wallet prompt because they usually
+ * mean the transaction is known to revert in the current state.
  *
  * The parameter shape is intentionally permissive: wagmi's generic write
  * variables are a discriminated union that rejects a plain `{ value }` on
@@ -37,7 +39,8 @@ export function useSafeWriteContract() {
   const { writeContractAsync, ...rest } = useWriteContract();
   const publicClient = usePublicClient();
   // Tolerate a bare useAccount() mock: destructuring undefined would throw.
-  const address = useAccount()?.address;
+  const account = useAccount();
+  const address = account?.address;
 
   type Runner = typeof writeContractAsync;
   const run = writeContractAsync as unknown as (
@@ -52,6 +55,26 @@ export function useSafeWriteContract() {
       const forward = (p: WriteParams) =>
         options === undefined ? run(p) : run(p, options);
 
+      if (ACTIVE_GENESIS_HASH) {
+        if (!publicClient || !account?.connector?.getProvider) {
+          throw new Error(
+            "Cannot verify the connected wallet network identity before signing.",
+          );
+        }
+        const walletProvider = (await account.connector.getProvider()) as {
+          request(args: {
+            method: string;
+            params?: readonly unknown[];
+          }): Promise<unknown>;
+        };
+        await assertWalletNetworkIdentity({
+          walletProvider,
+          configuredProvider: publicClient,
+          expectedChainId: params.chainId ?? activeChain.id,
+          expectedGenesisHash: ACTIVE_GENESIS_HASH,
+        });
+      }
+
       if (params.gas === undefined && publicClient) {
         try {
           const estimate = await publicClient.estimateContractGas({
@@ -65,14 +88,15 @@ export function useSafeWriteContract() {
             NonNullable<typeof publicClient>["estimateContractGas"]
           >[0]);
           return forward({ ...params, gas: bufferGasLimit(estimate) });
-        } catch {
-          // Estimation reverted — proceed with the plain write so wagmi/viem
-          // reports the actual failure rather than us swallowing it.
+        } catch (error) {
+          throw new Error(
+            `Transaction blocked before wallet signing: ${getPreflightFailureMessage(error)}`,
+          );
         }
       }
       return forward(params);
     },
-    [run, publicClient, address],
+    [run, publicClient, address, account?.connector],
   );
 
   return { ...rest, writeContractAsync: safeWriteContractAsync };

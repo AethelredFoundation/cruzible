@@ -1,4 +1,9 @@
-# Audit Evidence Index
+# Historical Audit Evidence Index
+
+> This is a point-in-time snapshot for the 2026-07-11 audit. It does not cover
+> later hardening commits and must not be presented as evidence for the current
+> release candidate. A new candidate needs machine-readable results pinned to
+> its exact commit, chain binary digest, genesis hash, and deployed bytecode.
 
 Immutable identifiers for every result in
 [PRODUCTION_READINESS_AUDIT.md](PRODUCTION_READINESS_AUDIT.md) (rev. 2,
@@ -8,7 +13,7 @@ Immutable identifiers for every result in
 
 | Repo                                     | Branch                                            | Commit                                                                                                                                                                         |
 | ---------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `aethelred-foundation/cruzible`          | `fix/native-staking-and-balance` (PR #11)         | `79e170b7cc52259534871cff695a14cc6afe5aeb` + this evidence/hardening commit (see git log)                                                                                      |
+| `aethelred-foundation/cruzible`          | `fix/native-staking-and-balance` (PR #11)         | `79e170b7cc52259534871cff695a14cc6afe5aeb`                                                                                                                                   |
 | `aethelred-foundation/aethelred` (chain) | `release/public-testnet-pqc` (post-merge PR #154) | `d665afa46dc433b07e4dc2e660d86ada818a10f3` (test runs); vuln remediation merged after as PR #155, merge `3850fb27919a` (Go 1.25.12 toolchain + x/net v0.55.0; retested 7/7 ok) |
 | wallet                                   | `feat/dapp-connection-consent` (PR #190)          | `9505d57cb4f979e32b047c83fce8a7f0f8ecd432`                                                                                                                                     |
 | zeroid                                   | `feat/economic-flywheel`                          | `672cbe5093b5d1186eafeb4800d991b87d1d68d5`                                                                                                                                     |
@@ -41,7 +46,7 @@ Immutable identifiers for every result in
 ## Commands (reproduce any row of the evidence table)
 
 ```bash
-# Contracts — 59 tests incl. fuzz/adversarial/economic/identity-boundary
+# Contracts at the pinned audit commit — 59 tests incl. fuzz/adversarial/economic/identity-boundary
 cd backend/contracts-evm && forge test
 
 # Chain — post-merge release branch

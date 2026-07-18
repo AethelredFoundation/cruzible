@@ -21,6 +21,22 @@ import {
 
 export function WalletButton() {
   const { wallet, connectWallet, disconnectWallet, switchNetwork } = useApp();
+  const aethelBalanceLabel =
+    wallet.balanceSnapshots?.aethel.status === "available"
+      ? formatNumber(wallet.balanceSnapshots.aethel.value ?? 0, 4)
+      : wallet.balanceSnapshots?.aethel.status === "loading"
+        ? "Loading"
+        : wallet.balanceSnapshots?.aethel.status === "stale"
+          ? "Stale"
+          : "Unavailable";
+  const stAethelBalanceLabel =
+    wallet.balanceSnapshots?.stAethel.status === "available"
+      ? formatNumber(wallet.balanceSnapshots.stAethel.value ?? 0, 4)
+      : wallet.balanceSnapshots?.stAethel.status === "loading"
+        ? "Loading"
+        : wallet.balanceSnapshots?.stAethel.status === "stale"
+          ? "Stale"
+          : "Unavailable";
   const { connectors } = useConnect();
   const walletOptions = orderWalletConnectors(connectors);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -120,13 +136,13 @@ export function WalletButton() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">AETHEL</span>
                 <span className="text-sm font-medium text-gray-200">
-                  {formatNumber(wallet.aethelBalance, 4)}
+                  {aethelBalanceLabel}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">stAETHEL</span>
                 <span className="text-sm font-medium text-gray-200">
-                  {formatNumber(wallet.stBalance, 4)}
+                  {stAethelBalanceLabel}
                 </span>
               </div>
               <div className="flex items-center justify-between">

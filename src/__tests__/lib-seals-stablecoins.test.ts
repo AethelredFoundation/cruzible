@@ -212,13 +212,13 @@ describe("constants stablecoin registry", () => {
   });
 
   it("isStablecoinEnabled is true only for ACTIVE phase", () => {
-    expect(isStablecoinEnabled(STABLECOIN_ASSETS.USDC)).toBe(true);
+    expect(isStablecoinEnabled(STABLECOIN_ASSETS.USDC)).toBe(false);
     expect(isStablecoinEnabled(STABLECOIN_ASSETS.USDT)).toBe(false);
   });
 
   it("getEnabledStablecoins returns only ACTIVE assets", () => {
     const enabled = getEnabledStablecoins();
-    expect(enabled.map((a) => a.symbol)).toContain("USDC");
+    expect(enabled.map((a) => a.symbol)).not.toContain("USDC");
     expect(enabled.map((a) => a.symbol)).not.toContain("USDT");
   });
 

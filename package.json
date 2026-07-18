@@ -1,7 +1,7 @@
 {
   "name": "@aethelred/cruzible",
   "version": "1.0.0",
-  "description": "Aethelred Blockchain Explorer and Dashboard - Production Grade",
+  "description": "Cruzible liquid-staking application for the Aethelred network",
   "private": true,
   "packageManager": "npm@10.9.4",
   "scripts": {
@@ -29,6 +29,10 @@
     "security:hygiene": "node scripts/security-hygiene-scan.mjs",
     "release:sbom": "node scripts/generate-release-sbom.mjs --check",
     "release:sbom:write": "node scripts/generate-release-sbom.mjs --output .release-evidence/cruzible-release-sbom.spdx.json",
+    "contracts:evm:artifacts": "forge build --root backend/contracts-evm && node scripts/validate-evm-contract-artifacts.mjs",
+    "contracts:evm:test": "forge test --root backend/contracts-evm",
+    "contracts:evm:check": "npm run contracts:evm:artifacts && npm run contracts:evm:test",
+    "release:evm:bundle": "npm run contracts:evm:artifacts && node scripts/prepare-evm-release-artifacts.mjs",
     "readiness:gaps": "node scripts/validate-production-gap-register.mjs",
     "readiness:routes": "node scripts/validate-public-route-inventory.mjs",
     "readiness:claims": "node scripts/validate-launch-claims.mjs",
@@ -37,14 +41,17 @@
     "readiness:launch-drill": "node scripts/staged-launch-drill.mjs --dry-run",
     "launch:drill:staging": "node scripts/staged-launch-drill.mjs",
     "deployment:validate": "node scripts/validate-deployment-manifests.mjs",
+    "deployment:evm:validate": "node scripts/validate-evm-deployment-manifest.mjs",
+    "deployment:evm:release-validate": "node scripts/validate-release-evm-deployment.mjs",
+    "deployment:release-images:validate": "node scripts/validate-release-rollout-images.mjs",
     "standalone:prepare": "node scripts/prepare-next-standalone.mjs",
     "performance:api": "npm --prefix backend/api run benchmark:check",
     "performance:budget": "node scripts/check-frontend-bundle-budget.mjs",
     "performance:journey": "playwright test e2e/performance-budget.spec.ts --project=chromium",
     "analyze": "node scripts/validate-frontend-public-env.mjs && cross-env ANALYZE=true next build",
     "postbuild": "next-sitemap",
-    "validate": "npm run type-check && npm run lint && npm run format:check && npm run security:dependencies && npm run security:advisories && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run test",
-    "verify:ci": "npm run lint && npm run format:check && npm run security:dependencies && npm run security:advisories && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run type-check && npm run test:ci && npm run build"
+    "validate": "npm run type-check && npm run lint && npm run format:check && npm run security:dependencies && npm run security:advisories && npm run contracts:evm:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run test",
+    "verify:ci": "npm run lint && npm run format:check && npm run security:dependencies && npm run security:advisories && npm run contracts:evm:check && npm run readiness:gaps && npm run readiness:routes && npm run readiness:claims && npm run readiness:dr && npm run readiness:restore-drill && npm run readiness:launch-drill && npm run release:sbom && npm run performance:api && npm run type-check && npm run test:ci && npm run build"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",

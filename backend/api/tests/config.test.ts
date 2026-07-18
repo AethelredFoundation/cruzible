@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const originalEnv = { ...process.env };
 const CONFIG_ENV_KEYS = [
   "NODE_ENV",
+  "CRUZIBLE_NETWORK",
+  "CRUZIBLE_ALLOW_PLAINTEXT_HTTP",
   "PORT",
   "RPC_URL",
   "DATABASE_URL",
@@ -32,6 +34,7 @@ const CONFIG_ENV_KEYS = [
   "ALLOW_MOCK_SIGNATURES",
   "AUTH_ADMIN_ADDRESSES",
   "AUTH_OPERATOR_ADDRESSES",
+  "CRUZIBLE_RUNTIME_ROLE",
   "AUTH_NONCE_TTL_MS",
   "AUTH_RATE_LIMIT_WINDOW_MS",
   "AUTH_RATE_LIMIT_MAX",
@@ -52,7 +55,9 @@ const CONFIG_ENV_KEYS = [
   "CRUZIBLE_VAULT_ADDRESS",
   "STAETHEL_ADDRESS",
   "STABLECOIN_BRIDGE_ADDRESS",
+  "INDEXER_REQUIRE_STABLECOIN_BRIDGE",
   "INDEXER_EXPECTED_CHAIN_ID",
+  "INDEXER_EXPECTED_GENESIS_HASH",
   "ALERT_WEBHOOK_URL",
   "ALERT_WEBHOOK_URL_FILE",
   "ALERT_RATE_LIMIT_MS",
@@ -66,7 +71,10 @@ const CONFIG_ENV_KEYS = [
 
 const productionBaseEnv = {
   NODE_ENV: "production",
+  CRUZIBLE_NETWORK: "testnet",
+  CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "true",
   RPC_URL: "http://127.0.0.1:26657",
+  INDEXER_RPC_URL: "http://127.0.0.1:8545",
   DATABASE_URL: "postgresql://cruzible:cruzible@127.0.0.1:5432/cruzible",
   REDIS_URL: "rediss://cache.cruzible.org:6379",
   CORS_ORIGINS: "https://app.cruzible.org",
@@ -75,6 +83,11 @@ const productionBaseEnv = {
   LOG_HASH_SECRET: "production-log-hash-secret-0123456789",
   ALLOW_MOCK_SIGNATURES: "false",
   AUTH_OPERATOR_ADDRESSES: "aeth1operator",
+  INDEXER_EXPECTED_CHAIN_ID: "7332",
+  INDEXER_EXPECTED_GENESIS_HASH:
+    "0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7",
+  CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
+  STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222",
   INDEXER_ENABLED: "false",
 } satisfies NodeJS.ProcessEnv;
 
@@ -284,10 +297,55 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
+        CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "false",
+        RPC_URL: "https://rpc.cruzible.org",
+        INDEXER_RPC_URL: "https://evm-rpc.cruzible.org",
         CORS_ORIGINS: "http://app.cruzible.org",
       }),
     ).rejects.toThrow(
       "Refusing to start with non-HTTPS CORS origins in production",
+    );
+  });
+
+  it("allows an exact public HTTP origin only with the pre-TLS testnet opt-in", async () => {
+    const { config } = await loadConfigWithEnv({
+      ...productionBaseEnv,
+      CRUZIBLE_NETWORK: "testnet",
+      CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "true",
+      CORS_ORIGINS: "http://93.127.132.52:3005",
+    });
+
+    expect(config.network).toBe("testnet");
+    expect(config.allowPlaintextHttp).toBe(true);
+    expect(config.corsOrigins).toEqual(["http://93.127.132.52:3005"]);
+  });
+
+  it("forbids the plaintext CORS escape hatch on mainnet", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_NETWORK: "mainnet",
+        CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "true",
+        RPC_URL: "https://rpc.cruzible.org",
+        INDEXER_RPC_URL: "https://evm-rpc.cruzible.org",
+        STABLECOIN_BRIDGE_ADDRESS: "0x3333333333333333333333333333333333333333",
+        CORS_ORIGINS: "http://93.127.132.52:3005",
+      }),
+    ).rejects.toThrow(
+      "Refusing to allow plaintext HTTP CORS origins on mainnet",
+    );
+  });
+
+  it("still rejects private HTTP origins with the pre-TLS opt-in", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_NETWORK: "testnet",
+        CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "true",
+        CORS_ORIGINS: "http://127.0.0.1:3005",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start with private or local CORS origins in production",
     );
   });
 
@@ -652,6 +710,44 @@ describe("backend config hardening", () => {
     );
   });
 
+  it("does not require interactive auth roles for the production indexer runtime", async () => {
+    const { config } = await loadConfigWithEnv({
+      ...productionBaseEnv,
+      CRUZIBLE_RUNTIME_ROLE: "indexer",
+      AUTH_ADMIN_ADDRESSES: "",
+      AUTH_OPERATOR_ADDRESSES: "",
+      INDEXER_ENABLED: "true",
+      INDEXER_RPC_URL: "http://127.0.0.1:8545",
+      INDEXER_WS_URL: "ws://127.0.0.1:8546",
+      INDEXER_EXPECTED_CHAIN_ID: "31337",
+      CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
+      STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222",
+    });
+
+    expect(config.runtimeRole).toBe("indexer");
+    expect(config.authAdminAddresses).toEqual([]);
+    expect(config.authOperatorAddresses).toEqual([]);
+  });
+
+  it("requires an explicit EVM RPC for production API vault reconciliation", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
+        INDEXER_RPC_URL: "",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start production API vault reconciliation without explicit INDEXER_RPC_URL",
+    );
+
+    const { config } = await loadConfigWithEnv({
+      ...productionBaseEnv,
+      CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
+      INDEXER_RPC_URL: "https://evm-rpc.cruzible.org",
+    });
+    expect(config.indexerRpcUrl).toBe("https://evm-rpc.cruzible.org");
+  });
+
   it("rejects malformed auth role addresses", async () => {
     await expect(
       loadConfigWithEnv({
@@ -804,10 +900,13 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
+        CRUZIBLE_RUNTIME_ROLE: "indexer",
         INDEXER_ENABLED: "true",
         INDEXER_RPC_URL: "http://127.0.0.1:8545",
         INDEXER_WS_URL: "ws://127.0.0.1:8546",
         INDEXER_EXPECTED_CHAIN_ID: "31337",
+        CRUZIBLE_VAULT_ADDRESS: undefined,
+        STAETHEL_ADDRESS: undefined,
       }),
     ).rejects.toThrow(
       "Refusing to start production indexer without CRUZIBLE_VAULT_ADDRESS",
@@ -818,13 +917,154 @@ describe("backend config hardening", () => {
     await expect(
       loadConfigWithEnv({
         ...productionBaseEnv,
+        CRUZIBLE_RUNTIME_ROLE: "indexer",
         INDEXER_ENABLED: "true",
         INDEXER_RPC_URL: "http://127.0.0.1:8545",
         INDEXER_WS_URL: "ws://127.0.0.1:8546",
+        INDEXER_EXPECTED_CHAIN_ID: undefined,
       }),
     ).rejects.toThrow(
       "Refusing to start production indexer without INDEXER_EXPECTED_CHAIN_ID",
     );
+  });
+
+  it("requires explicit wallet-login network domain separation in production", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_NETWORK: undefined,
+      }),
+    ).rejects.toThrow(
+      "Refusing to start any production runtime without CRUZIBLE_NETWORK",
+    );
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        INDEXER_EXPECTED_CHAIN_ID: undefined,
+      }),
+    ).rejects.toThrow(
+      "Refusing to start production API without INDEXER_EXPECTED_CHAIN_ID for wallet-login domain separation",
+    );
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        INDEXER_EXPECTED_GENESIS_HASH: undefined,
+      }),
+    ).rejects.toThrow(
+      "Refusing to start production API without INDEXER_EXPECTED_GENESIS_HASH for wallet-login domain separation",
+    );
+  });
+
+  it("requires CRUZIBLE_NETWORK for the production indexer runtime too", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_RUNTIME_ROLE: "indexer",
+        AUTH_OPERATOR_ADDRESSES: "",
+        CRUZIBLE_NETWORK: undefined,
+        INDEXER_ENABLED: "true",
+        INDEXER_WS_URL: "ws://127.0.0.1:8546",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start any production runtime without CRUZIBLE_NETWORK",
+    );
+  });
+
+  it("requires explicit plaintext opt-in for production testnet API RPC", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "false",
+      }),
+    ).rejects.toThrow(
+      "RPC_URL plaintext transport requires CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true",
+    );
+  });
+
+  it("requires HTTPS for production mainnet API RPC", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_NETWORK: "mainnet",
+        STABLECOIN_BRIDGE_ADDRESS: "0x3333333333333333333333333333333333333333",
+      }),
+    ).rejects.toThrow("RPC_URL must use https:// on production mainnet");
+  });
+
+  it("requires WSS for the production mainnet indexer", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_RUNTIME_ROLE: "indexer",
+        AUTH_OPERATOR_ADDRESSES: "",
+        CRUZIBLE_NETWORK: "mainnet",
+        RPC_URL: "https://rpc.cruzible.org",
+        INDEXER_RPC_URL: "https://evm-rpc.cruzible.org",
+        INDEXER_WS_URL: "ws://evm-rpc.cruzible.org/ws",
+        STABLECOIN_BRIDGE_ADDRESS: "0x3333333333333333333333333333333333333333",
+        INDEXER_ENABLED: "true",
+      }),
+    ).rejects.toThrow("INDEXER_WS_URL must use wss:// on production mainnet");
+  });
+
+  it("requires identical indexed-source identity inputs for production API cursor reads", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        STAETHEL_ADDRESS: undefined,
+      }),
+    ).rejects.toThrow(
+      "Refusing to start production API without STAETHEL_ADDRESS for indexer identity",
+    );
+
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_NETWORK: "mainnet",
+        RPC_URL: "https://rpc.cruzible.org",
+        INDEXER_RPC_URL: "https://evm-rpc.cruzible.org",
+        STABLECOIN_BRIDGE_ADDRESS: undefined,
+      }),
+    ).rejects.toThrow(
+      "Refusing to start production API without STABLECOIN_BRIDGE_ADDRESS for the mainnet indexer identity",
+    );
+  });
+
+  it("derives the same cursor key for API and indexer runtime profiles", async () => {
+    const apiModule = await loadConfigWithEnv({
+      ...productionBaseEnv,
+      CRUZIBLE_RUNTIME_ROLE: "api",
+    });
+    const apiConfig = apiModule.config;
+    const { buildIndexerNetworkKeys } =
+      await import("../src/lib/indexerNetworkIdentity");
+    const apiKey = buildIndexerNetworkKeys({
+      chainId: apiConfig.indexerExpectedChainId!,
+      anchorHash: apiConfig.indexerExpectedGenesisHash!,
+      vaultAddress: apiConfig.cruzibleVaultAddress,
+      staethelAddress: apiConfig.staethelAddress,
+      stablecoinBridgeAddress: apiConfig.stablecoinBridgeAddress,
+    }).cursorKey;
+
+    const indexerModule = await loadConfigWithEnv({
+      ...productionBaseEnv,
+      CRUZIBLE_RUNTIME_ROLE: "indexer",
+      AUTH_OPERATOR_ADDRESSES: "",
+      INDEXER_ENABLED: "true",
+      INDEXER_WS_URL: "ws://127.0.0.1:8546",
+    });
+    const indexerConfig = indexerModule.config;
+    const indexerKey = buildIndexerNetworkKeys({
+      chainId: indexerConfig.indexerExpectedChainId!,
+      anchorHash: indexerConfig.indexerExpectedGenesisHash!,
+      vaultAddress: indexerConfig.cruzibleVaultAddress,
+      staethelAddress: indexerConfig.staethelAddress,
+      stablecoinBridgeAddress: indexerConfig.stablecoinBridgeAddress,
+    }).cursorKey;
+
+    expect(indexerKey).toBe(apiKey);
   });
 
   it("rejects invalid production indexer expected chain ids", async () => {
@@ -859,5 +1099,44 @@ describe("backend config hardening", () => {
       "0x3333333333333333333333333333333333333333",
     );
     expect(config.indexerExpectedChainId).toBe("31337");
+  });
+
+  it("accepts the production public-testnet indexer without an undeployed bridge", async () => {
+    const { config } = await loadConfigWithEnv({
+      ...productionBaseEnv,
+      CRUZIBLE_RUNTIME_ROLE: "indexer",
+      AUTH_OPERATOR_ADDRESSES: "",
+      INDEXER_ENABLED: "true",
+      INDEXER_RPC_URL: "http://127.0.0.1:8545",
+      INDEXER_WS_URL: "ws://127.0.0.1:8546",
+      INDEXER_EXPECTED_CHAIN_ID: "31337",
+      CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
+      STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222",
+      STABLECOIN_BRIDGE_ADDRESS: "",
+      INDEXER_REQUIRE_STABLECOIN_BRIDGE: "false",
+    });
+
+    expect(config.stablecoinBridgeAddress).toBe("");
+    expect(config.indexerRequireStablecoinBridge).toBe(false);
+  });
+
+  it("requires the bridge address for the all-periphery indexer profile", async () => {
+    await expect(
+      loadConfigWithEnv({
+        ...productionBaseEnv,
+        CRUZIBLE_RUNTIME_ROLE: "indexer",
+        AUTH_OPERATOR_ADDRESSES: "",
+        INDEXER_ENABLED: "true",
+        INDEXER_RPC_URL: "http://127.0.0.1:8545",
+        INDEXER_WS_URL: "ws://127.0.0.1:8546",
+        INDEXER_EXPECTED_CHAIN_ID: "31337",
+        CRUZIBLE_VAULT_ADDRESS: "0x1111111111111111111111111111111111111111",
+        STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222",
+        STABLECOIN_BRIDGE_ADDRESS: "",
+        INDEXER_REQUIRE_STABLECOIN_BRIDGE: "true",
+      }),
+    ).rejects.toThrow(
+      "Refusing to start production indexer without STABLECOIN_BRIDGE_ADDRESS for the all-periphery/mainnet profile",
+    );
   });
 });

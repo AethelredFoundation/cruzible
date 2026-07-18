@@ -6,6 +6,12 @@ import {StAETHEL} from "../src/StAETHEL.sol";
 
 /// Minimal Foundry cheatcode interface (hermetic — no forge-std dependency).
 interface Vm {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
     function prank(address) external;
     function startPrank(address) external;
     function stopPrank() external;
@@ -16,6 +22,8 @@ interface Vm {
     function expectRevert(bytes4) external;
     function expectRevert(bytes calldata) external;
     function label(address, string calldata) external;
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory);
 }
 
 /// A mock ISeal deployed at 0x0900 so the compliance gate can be tested without
@@ -70,7 +78,6 @@ contract MockISeal {
         return (policyOk, policyReason);
     }
 }
-
 
 /// Mock ZeroID identity registry: the minimal surface Cruzible's identity
 /// gate consumes (resolveByController + isActiveIdentity). The REAL registry
@@ -128,6 +135,7 @@ contract MockStakingPrecompile {
     uint256 public lastAmount;
     uint256 public delegateCalls;
     uint256 public undelegateCalls;
+    bool public keepMaturedVisible;
 
     /// Chain-side state (uaethel): bonded principal + unbonding entries.
     uint256 public bondedUaethel;
@@ -139,6 +147,10 @@ contract MockStakingPrecompile {
 
     function setUnbondingPeriod(uint256 period) external {
         unbondingPeriod = period;
+    }
+
+    function setKeepMaturedVisible(bool value) external {
+        keepMaturedVisible = value;
     }
 
     function delegate(address delegatorAddress, string calldata validatorAddress, uint256 amount)
@@ -186,11 +198,7 @@ contract MockStakingPrecompile {
         entries[idx].balance = newBalanceUaethel;
     }
 
-    function delegation(address, string calldata)
-        external
-        view
-        returns (uint256 shares, Coin memory balance)
-    {
+    function delegation(address, string calldata) external view returns (uint256 shares, Coin memory balance) {
         // Shares scale is irrelevant to the vault (it reads balance.amount).
         return (bondedUaethel * 1e18, Coin({denom: "uaethel", amount: bondedUaethel}));
     }
@@ -204,12 +212,14 @@ contract MockStakingPrecompile {
         // returning only entries whose completion is still in the future.
         uint256 n;
         for (uint256 i = 0; i < entries.length; i++) {
-            if (uint64(entries[i].completionTime) > block.timestamp) n++;
+            if (keepMaturedVisible || uint64(entries[i].completionTime) > block.timestamp) n++;
         }
         out.entries = new UnbondingDelegationEntry[](n);
         uint256 j;
         for (uint256 i = 0; i < entries.length; i++) {
-            if (uint64(entries[i].completionTime) > block.timestamp) out.entries[j++] = entries[i];
+            if (keepMaturedVisible || uint64(entries[i].completionTime) > block.timestamp) {
+                out.entries[j++] = entries[i];
+            }
         }
     }
 }
@@ -365,6 +375,79 @@ contract CruzibleTest {
         assertEq(token.balanceOf(bob), 2 ether, "bob 1->2 (25%)");
     }
 
+    function test_stake_with_min_shares_enforces_execution_rate() public {
+        setUp();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        uint256 bootstrapShares = vault.stakeWithMinShares{value: 5 ether}(5 ether - 1000);
+        assertEq(bootstrapShares, 5 ether - 1000, "bounded bootstrap returns minted shares");
+
+        // Move the rate after a hypothetical 1:1 quote. Bob's transaction
+        // must not silently mint fewer shares than the signed bound.
+        vm.deal(rewarder, 0.25 ether);
+        vm.prank(rewarder);
+        vault.addRewards{value: 0.25 ether}();
+
+        vm.deal(bob, 1 ether);
+        uint256 actualShares = token.getSharesByAethel(1 ether);
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(Cruzible.MinimumSharesNotMet.selector, 1 ether, actualShares));
+        vault.stakeWithMinShares{value: 1 ether}(1 ether);
+        assertEq(token.sharesOf(bob), 0, "failed bound mints no shares");
+    }
+
+    function test_unstake_with_min_aethel_is_atomic() public {
+        setUp();
+        vm.deal(alice, 5 ether);
+        vm.prank(alice);
+        vault.stake{value: 5 ether}();
+
+        uint256 shares = 1 ether;
+        uint256 quotedAethel = token.getAethelByShares(shares);
+        uint256 sharesBefore = token.sharesOf(alice);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Cruzible.MinimumAethelNotMet.selector, quotedAethel + 1, quotedAethel));
+        vault.unstakeWithMinAethel(shares, quotedAethel + 1);
+        assertEq(token.sharesOf(alice), sharesBefore, "failed bound burns no shares");
+        assertEq(vault.totalReserved(), 0, "failed bound creates no reservation");
+
+        vm.prank(alice);
+        (, uint256 aethelAmount) = vault.unstakeWithMinAethel(shares, quotedAethel);
+        assertEq(aethelAmount, quotedAethel, "bounded exit reserves quoted AETHEL");
+    }
+
+    function test_partial_burn_emits_pre_burn_value_above_one_rate() public {
+        setUp();
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        vault.stake{value: 10 ether}();
+
+        vm.deal(rewarder, 0.5 ether);
+        vm.prank(rewarder);
+        vault.addRewards{value: 0.5 ether}();
+
+        uint256 shares = 2 ether;
+        uint256 expectedValue = token.getAethelByShares(shares);
+        vm.recordLogs();
+        vm.prank(alice);
+        vault.unstakeWithMinAethel(shares, expectedValue);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 transferSignature = keccak256("Transfer(address,address,uint256)");
+        bool found;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(token) && logs[i].topics[0] == transferSignature) {
+                assertTrue(logs[i].topics[1] == bytes32(uint256(uint160(alice))), "burn Transfer sender is alice");
+                assertTrue(logs[i].topics[2] == bytes32(0), "burn Transfer recipient is zero");
+                assertEq(abi.decode(logs[i].data, (uint256)), expectedValue, "burn event uses pre-burn value");
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "burn Transfer event found");
+    }
+
     function test_unauthorized_calls_revert() public {
         setUp();
         vm.deal(alice, 1 ether);
@@ -410,6 +493,27 @@ contract CruzibleTest {
         vm.prank(alice);
         vault.stake{value: 2 ether}();
         assertApprox(token.balanceOf(alice), 7 ether, 2000, "admitted staker can top up");
+    }
+
+    function test_seal_admission_rolls_back_when_min_shares_not_met() public {
+        setUp();
+        vm.prank(gov);
+        vault.setComplianceRequired(true);
+
+        string memory sealId = "seal-alice-bounded";
+        string memory jobId = "job-alice-bounded";
+        seal.setSeal(jobId, sealId, true, string.concat("cruzible-stake:", _hex(alice)));
+
+        vm.deal(alice, 5 ether);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Cruzible.MinimumSharesNotMet.selector, 5 ether, 5 ether - 1000));
+        vault.stakeWithSealAndMinShares{value: 5 ether}(jobId, 5 ether);
+        assertTrue(!vault.complianceAdmitted(alice), "failed bound rolls admission back");
+        assertTrue(!vault.sealUsed(sealId), "failed bound does not consume seal");
+
+        vm.prank(alice);
+        uint256 shares = vault.stakeWithSealAndMinShares{value: 5 ether}(jobId, 5 ether - 1000);
+        assertEq(shares, 5 ether - 1000, "same seal succeeds with attainable bound");
     }
 
     function test_compliance_gate_rejects_seal_bound_to_other() public {
@@ -469,6 +573,66 @@ contract CruzibleTest {
         assertEq(token.sharesOf(0x000000000000000000000000000000000000dEaD), 1000, "dead shares locked");
         assertEq(token.getTotalShares(), 5 ether, "total shares = deposit");
         assertEq(token.sharesOf(alice), 5 ether - 1000, "alice shares = deposit - locked");
+    }
+
+    function test_bootstrap_mint_events_do_not_overstate_supply() public {
+        setUp();
+        vm.deal(alice, 5 ether);
+        vm.recordLogs();
+        vm.prank(alice);
+        vault.stake{value: 5 ether}();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 transferSignature = keccak256("Transfer(address,address,uint256)");
+        uint256 mintedValue;
+        uint256 mintEvents;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (
+                logs[i].emitter == address(token) && logs[i].topics[0] == transferSignature
+                    && logs[i].topics[1] == bytes32(0)
+            ) {
+                mintedValue += abi.decode(logs[i].data, (uint256));
+                mintEvents++;
+            }
+        }
+
+        assertEq(mintEvents, 2, "bootstrap emits locked and user mints");
+        assertEq(mintedValue, token.totalSupply(), "mint events equal rebasing supply");
+    }
+
+    function test_positive_transfer_that_rounds_to_zero_shares_reverts() public {
+        setUp();
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vault.stake{value: 1 ether}();
+        vm.deal(rewarder, 0.05 ether);
+        vm.prank(rewarder);
+        vault.addRewards{value: 0.05 ether}();
+
+        vm.prank(alice);
+        vm.expectRevert(StAETHEL.TransferTooSmall.selector);
+        token.transfer(bob, 1);
+        assertEq(token.sharesOf(bob), 0, "dust transfer cannot report phantom value");
+    }
+
+    function test_transfer_cannot_round_amount_above_balance_down_to_held_shares() public {
+        setUp();
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vault.stake{value: 1 ether}();
+        vm.deal(rewarder, 0.05 ether);
+        vm.prank(rewarder);
+        vault.addRewards{value: 0.05 ether}();
+
+        uint256 balance = token.balanceOf(alice);
+        // At a non-integer rate the raw-share conversion rounds down. The
+        // requested token amount must still obey standard ERC-20 balance
+        // semantics even when it maps to the sender's exact held shares.
+        assertEq(token.getSharesByAethel(balance + 1), token.sharesOf(alice), "rounds to held shares");
+        vm.prank(alice);
+        vm.expectRevert(StAETHEL.InsufficientShares.selector);
+        token.transfer(bob, balance + 1);
+        assertEq(token.sharesOf(bob), 0, "over-balance transfer remains atomic");
     }
 
     function test_dust_bootstrap_reverts() public {
@@ -576,7 +740,7 @@ contract CruzibleTest {
         vm.prank(alice);
         vault.stake{value: 5 ether}();
         vm.prank(alice);
-        (uint256 wid, ) = vault.unstake(1 ether);
+        (uint256 wid,) = vault.unstake(1 ether);
 
         // Pauser stops deposits...
         vm.prank(rewarder); // rewarder == pauser in setUp
@@ -764,7 +928,7 @@ contract CruzibleTest {
 
     function test_delegate_converts_to_bond_denom_and_tracks() public {
         setUp();
-        (MockStakingPrecompile st, ) = setUpStakingMocks();
+        (MockStakingPrecompile st,) = setUpStakingMocks();
         vm.deal(alice, 10 ether);
         vm.prank(alice);
         vault.stake{value: 10 ether}();
@@ -803,7 +967,7 @@ contract CruzibleTest {
 
     function test_undelegate_reduces_tracking() public {
         setUp();
-        (MockStakingPrecompile st, ) = setUpStakingMocks();
+        (MockStakingPrecompile st,) = setUpStakingMocks();
         vm.deal(alice, 10 ether);
         vm.prank(alice);
         vault.stake{value: 10 ether}();
@@ -866,10 +1030,7 @@ contract CruzibleTest {
     /// alice staked 10, 8 delegated out: buffer 2, delegatedTo[VAL] 8. The
     /// vm.deal mirrors the REAL precompile's bank move (delegated funds leave
     /// the vault's native balance), which the mock cannot perform.
-    function setUpDelegatedVault()
-        internal
-        returns (MockStakingPrecompile st, MockDistributionPrecompile dist)
-    {
+    function setUpDelegatedVault() internal returns (MockStakingPrecompile st, MockDistributionPrecompile dist) {
         (st, dist) = setUpStakingMocks();
         vm.deal(alice, 10 ether);
         vm.prank(alice);
@@ -881,7 +1042,7 @@ contract CruzibleTest {
 
     function test_undelegate_for_queue_is_permissionless_and_deficit_bounded() public {
         setUp();
-        (MockStakingPrecompile st, ) = setUpDelegatedVault();
+        (MockStakingPrecompile st,) = setUpDelegatedVault();
 
         // No deficit yet: the buffer covers every promise.
         vm.prank(bob);
@@ -914,7 +1075,7 @@ contract CruzibleTest {
         setUp();
         setUpDelegatedVault();
         vm.prank(alice);
-        (uint256 wid, ) = vault.unstake(5 ether);
+        (uint256 wid,) = vault.unstake(5 ether);
         vm.prank(bob);
         vault.undelegateForQueue(VAL);
 
@@ -932,6 +1093,76 @@ contract CruzibleTest {
         vm.prank(alice);
         vault.withdraw(wid);
         assertEq(alice.balance - before, 5 ether, "queued exit paid in full");
+    }
+
+    function test_sync_waits_for_consensus_to_remove_matured_entry() public {
+        setUp();
+        (MockStakingPrecompile st,) = setUpDelegatedVault();
+        vm.prank(gov);
+        vault.undelegateFromValidator(VAL, 3 ether);
+
+        vm.warp(block.timestamp + 61);
+        st.setKeepMaturedVisible(true);
+        assertEq(vault.syncUndelegations(VAL), 0, "local timestamp cannot outrun consensus settlement");
+        assertEq(vault.totalUnbonding(), 3 ether, "in-flight coverage remains while chain reports entry");
+
+        st.setKeepMaturedVisible(false);
+        vm.deal(address(vault), address(vault).balance + 3 ether);
+        assertEq(vault.syncUndelegations(VAL), 3 ether, "settled entry releases after consensus removal");
+    }
+
+    function test_matured_unbonding_slash_is_realized_without_pre_maturity_keeper() public {
+        setUp();
+        (MockStakingPrecompile st,) = setUpDelegatedVault();
+        vm.prank(gov);
+        vault.undelegateFromValidator(VAL, 4 ether);
+
+        // No keeper reconciles before maturity. Consensus removes the entry
+        // and credits only the post-slash 3.6 AETHEL payout.
+        st.slashUnbonding(0, 3_600_000);
+        vm.warp(block.timestamp + 61);
+        vm.deal(address(vault), address(vault).balance + 3.6 ether);
+        assertEq(vault.syncUndelegations(VAL), 4 ether, "recorded entry settles exactly once");
+        assertEq(vault.totalUnbonding(), 0, "removed entry is no longer counted in flight");
+        assertEq(vault.totalPooledAethel(), 9.6 ether, "missing maturity payout is socialized immediately");
+        assertEq(vault.uncoveredDeficit(), 0, "active pool fully absorbs slash");
+        assertEq(
+            vault.totalManaged(),
+            vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
+            "post-settlement balance sheet remains solvent"
+        );
+    }
+
+    function test_catastrophic_maturity_loss_fails_closed_until_recapitalized() public {
+        setUp();
+        (MockStakingPrecompile st,) = setUpDelegatedVault();
+        uint256 allAliceShares = token.sharesOf(alice);
+        vm.prank(alice);
+        (uint256 withdrawalId,) = vault.unstake(allAliceShares);
+        vm.prank(bob);
+        vault.undelegateForQueue(VAL);
+
+        st.slashUnbonding(0, 7_000_000);
+        vm.warp(block.timestamp + 101);
+        vm.deal(address(vault), address(vault).balance + 7 ether);
+        vault.syncUndelegations(VAL);
+
+        uint256 deficit = vault.uncoveredDeficit();
+        assertTrue(deficit > 0, "loss beyond active pool is explicit");
+        assertTrue(vault.depositsPaused(), "catastrophic loss pauses deposits");
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Cruzible.ProtocolInsolvent.selector, deficit));
+        vault.withdraw(withdrawalId);
+
+        vm.deal(bob, deficit);
+        vm.prank(bob);
+        vault.recapitalize{value: deficit}();
+        assertEq(vault.uncoveredDeficit(), 0, "recapitalization clears explicit gap");
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.withdraw(withdrawalId);
+        assertTrue(alice.balance > before, "queued claim resumes only after assets are restored");
     }
 
     function test_total_managed_covers_all_promises_across_delegation() public {
@@ -952,7 +1183,7 @@ contract CruzibleTest {
 
     function test_reconcile_realizes_bonded_slash_and_socializes() public {
         setUp();
-        (MockStakingPrecompile st, ) = setUpDelegatedVault();
+        (MockStakingPrecompile st,) = setUpDelegatedVault();
 
         // The chain slashed the validator 10%: the vault's on-chain delegation
         // is now 7.2 AETHEL while the vault still records 8.
@@ -974,7 +1205,7 @@ contract CruzibleTest {
 
     function test_reconcile_realizes_unbonding_slash() public {
         setUp();
-        (MockStakingPrecompile st, ) = setUpDelegatedVault();
+        (MockStakingPrecompile st,) = setUpDelegatedVault();
         vm.prank(gov);
         vault.undelegateFromValidator(VAL, 4 ether);
         assertEq(vault.totalUnbonding(), 4 ether, "governance undelegation also tracked");
@@ -1049,7 +1280,7 @@ contract CruzibleTest {
 
         // Exits are NEVER identity-gated: a revoked identity can still leave.
         vm.prank(alice);
-        (uint256 wid, ) = vault.unstake(1 ether);
+        (uint256 wid,) = vault.unstake(1 ether);
         vm.warp(block.timestamp + 101);
         vm.prank(alice);
         vault.withdraw(wid);

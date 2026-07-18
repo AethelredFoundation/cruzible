@@ -46,11 +46,14 @@ function getImageRefs(manifest: string): string[] {
 }
 
 function getDeploymentBlock(manifest: string, name: string): string {
-  const deployment = manifest.match(
-    new RegExp(
-      String.raw`apiVersion: apps/v1[\s\S]*?kind: Deployment[\s\S]*?metadata:\n\s+name: ${name}[\s\S]*?(?=\n---|$)`,
-    ),
-  )?.[0];
+  const deployment = manifest
+    .split(/\n---\s*\n/)
+    .find(
+      (document) =>
+        /^apiVersion: apps\/v1$/m.test(document) &&
+        /^kind: Deployment$/m.test(document) &&
+        new RegExp(String.raw`^\s+name: ${name}\s*$`, "m").test(document),
+    );
 
   if (!deployment) {
     throw new Error(`Deployment ${name} not found`);
@@ -206,13 +209,74 @@ describe("Kubernetes base manifests", () => {
     );
   });
 
-  it("passes required indexer launch invariants through fail-closed config", () => {
+  it("passes one canonical indexer identity and contract namespace to both runtimes", () => {
     expect(backendManifest).toContain(
       'indexer.expected.chain.id: "REPLACE_WITH_EXPECTED_CHAIN_ID"',
     );
-    expect(getDeploymentBlock(backendManifest, "cruzible-indexer")).toContain(
-      "INDEXER_EXPECTED_CHAIN_ID",
+    expect(backendManifest).toContain(
+      'indexer.expected.genesis.hash: "REPLACE_WITH_EXPECTED_GENESIS_HASH"',
     );
+    for (const deployment of ["cruzible-api", "cruzible-indexer"]) {
+      const block = getDeploymentBlock(backendManifest, deployment);
+      for (const [envName, configKey] of [
+        ["INDEXER_EXPECTED_CHAIN_ID", "indexer.expected.chain.id"],
+        ["INDEXER_EXPECTED_GENESIS_HASH", "indexer.expected.genesis.hash"],
+        ["CRUZIBLE_VAULT_ADDRESS", "cruzible.vault.address"],
+        ["STAETHEL_ADDRESS", "staethel.address"],
+        ["STABLECOIN_BRIDGE_ADDRESS", "stablecoin.bridge.address"],
+      ]) {
+        expect(block).toContain(`name: ${envName}`);
+        expect(block).toContain(`key: ${configKey}`);
+      }
+    }
+  });
+
+  it("makes each migration run explicit and fail-closed on writer and legacy scheduler quiescence", () => {
+    expect(backendManifest).toContain('migration.indexer.quiesced: "false"');
+    expect(backendManifest).toContain(
+      'migration.legacy.schedulers.quiesced: "false"',
+    );
+    expect(backendManifest).toContain(
+      'cruzible.io/recreate-before-apply: "required"',
+    );
+    expect(backendManifest).toContain(
+      'cruzible.io/requires-indexer-quiescence: "true"',
+    );
+    expect(backendManifest).toContain(
+      'cruzible.io/requires-legacy-scheduler-quiescence: "true"',
+    );
+    expect(backendManifest).toContain("name: CRUZIBLE_MIGRATION_QUIESCED");
+    expect(backendManifest).toContain(
+      "name: CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED",
+    );
+  });
+
+  it("declares runtime-specific auth and optional testnet bridge policy", () => {
+    const api = getDeploymentBlock(backendManifest, "cruzible-api");
+    const indexer = getDeploymentBlock(backendManifest, "cruzible-indexer");
+
+    expect(api).toContain(
+      "name: CRUZIBLE_RUNTIME_ROLE\n              value: api",
+    );
+    expect(api).toContain("name: AUTH_OPERATOR_ADDRESSES");
+    expect(api).toContain("name: INDEXER_RPC_URL");
+    expect(api).toContain("name: CRUZIBLE_VAULT_ADDRESS");
+    expect(api).toContain("name: STAETHEL_ADDRESS");
+    expect(api).toContain("name: STABLECOIN_BRIDGE_ADDRESS");
+    expect(backendManifest).toContain(
+      'auth.operator.addresses: "REPLACE_WITH_AUTH_OPERATOR_ADDRESSES"',
+    );
+    expect(indexer).toContain(
+      "name: CRUZIBLE_RUNTIME_ROLE\n              value: indexer",
+    );
+    expect(indexer).not.toContain("name: AUTH_OPERATOR_ADDRESSES");
+    expect(backendManifest).toContain(
+      'stablecoin.bridge.address: "REPLACE_WITH_STABLECOIN_BRIDGE_ADDRESS"',
+    );
+    expect(backendManifest).toContain(
+      'indexer.require.stablecoin.bridge: "true"',
+    );
+    expect(indexer).toContain("name: INDEXER_REQUIRE_STABLECOIN_BRIDGE");
   });
 
   it("uses a production-safe CORS origin in the base backend config", () => {
@@ -222,6 +286,31 @@ describe("Kubernetes base manifests", () => {
     expect(backendManifest).not.toContain("cruzible.example");
   });
 
+  it("injects the frontend server response policy from a fail-closed runtime config", () => {
+    const deployment = getDeploymentBlock(
+      frontendManifest,
+      "cruzible-frontend",
+    );
+
+    expect(frontendManifest).toContain(
+      "name: cruzible-frontend-runtime-config",
+    );
+    expect(frontendManifest).toContain('CRUZIBLE_EXTRA_API_ORIGINS: ""');
+    expect(frontendManifest).toContain(
+      'CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "false"',
+    );
+    for (const key of [
+      "CRUZIBLE_EXTRA_API_ORIGINS",
+      "CRUZIBLE_ALLOW_PLAINTEXT_HTTP",
+    ]) {
+      expect(deployment).toContain(`name: ${key}`);
+      expect(deployment).toContain(
+        "configMapKeyRef:\n                  name: cruzible-frontend-runtime-config",
+      );
+      expect(deployment).toContain(`key: ${key}`);
+    }
+  });
+
   it("requires immutable image digests instead of floating tags", () => {
     const images = getImageRefs(`${backendManifest}\n${frontendManifest}`);
 
@@ -229,6 +318,7 @@ describe("Kubernetes base manifests", () => {
       expect.arrayContaining([
         "ghcr.io/aethelred/cruzible/api@sha256:REPLACE_WITH_API_IMAGE_DIGEST",
         "ghcr.io/aethelred/cruzible/api-indexer@sha256:REPLACE_WITH_INDEXER_IMAGE_DIGEST",
+        "ghcr.io/aethelred/cruzible/api-migration@sha256:REPLACE_WITH_MIGRATION_IMAGE_DIGEST",
         "ghcr.io/aethelred/cruzible/frontend@sha256:REPLACE_WITH_FRONTEND_IMAGE_DIGEST",
       ]),
     );
@@ -255,6 +345,9 @@ describe("Kubernetes base manifests", () => {
     );
     expect(imageVerificationPolicy).toContain(
       "ghcr.io/aethelred/cruzible/api-indexer@sha256:*",
+    );
+    expect(imageVerificationPolicy).toContain(
+      "ghcr.io/aethelred/cruzible/api-migration@sha256:*",
     );
     expect(imageVerificationPolicy).toContain(
       "ghcr.io/aethelred/cruzible/frontend@sha256:*",
@@ -299,6 +392,25 @@ describe("Kubernetes base manifests", () => {
     expect(frontendManifest).toContain("kind: PodDisruptionBudget");
     expect(frontendManifest).toContain("name: cruzible-frontend-pdb");
     expect(frontendManifest).toContain("minAvailable: 2");
+  });
+
+  it("gates indexer startup/readiness and restarts an event-loop hang", () => {
+    const indexer = getDeploymentBlock(backendManifest, "cruzible-indexer");
+
+    expect(indexer).toContain(
+      "name: INDEXER_HEARTBEAT_FILE\n              value: /tmp/cruzible-indexer-heartbeat.json",
+    );
+    expect(indexer).toContain(
+      'name: INDEXER_HEARTBEAT_MAX_AGE_MS\n              value: "45000"',
+    );
+    for (const probe of ["startupProbe", "readinessProbe", "livenessProbe"]) {
+      expect(indexer).toContain(`${probe}:`);
+    }
+    expect(
+      indexer.match(/command: \["node", "dist\/indexer-healthcheck\.js"\]/g),
+    ).toHaveLength(3);
+    expect(indexer).toContain("failureThreshold: 36");
+    expect(indexer).toContain("failureThreshold: 4");
   });
 
   it("bounds writable runtime storage for read-only-root workloads", () => {

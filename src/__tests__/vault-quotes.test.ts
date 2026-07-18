@@ -15,7 +15,7 @@ describe("vault quote safety", () => {
     });
 
     expect(quote.canSubmit).toBe(true);
-    expect(quote.expectedOutput).toBe(5);
+    expect(quote.expectedOutput).toBe(10);
     expect(quote.quoteAgeMs).toBe(1_000);
     expect(quote.blockReason).toBeNull();
   });
@@ -30,7 +30,7 @@ describe("vault quote safety", () => {
     });
 
     expect(quote.canSubmit).toBe(true);
-    expect(quote.expectedOutput).toBe(10);
+    expect(quote.expectedOutput).toBe(5);
   });
 
   it("fails closed when the live exchange rate is unavailable", () => {

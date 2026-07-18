@@ -10,6 +10,7 @@ function loadNextConfig(nodeEnv: string) {
   delete require.cache[configPath];
   vi.stubEnv("NODE_ENV", nodeEnv);
   return require("../../next.config.js") as {
+    env: { NEXT_PUBLIC_APP_VERSION: string };
     images: { remotePatterns: Array<{ protocol: string; hostname: string }> };
     productionBrowserSourceMaps: boolean;
     headers: () => Promise<
@@ -86,6 +87,14 @@ describe("Next.js security config", () => {
     expect(nextConfig.productionBrowserSourceMaps).toBe(false);
   });
 
+  it("preserves an operator-supplied release version", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_VERSION", "release-35766d3");
+
+    expect(loadNextConfig("production").env.NEXT_PUBLIC_APP_VERSION).toBe(
+      "release-35766d3",
+    );
+  });
+
   it("sets an explicit resource-loading Content Security Policy", async () => {
     const csp = buildContentSecurityPolicy({
       nonce: "test-nonce",
@@ -113,7 +122,7 @@ describe("Next.js security config", () => {
     );
     expect(csp).toContain("https://api.testnet.aethelred.org");
     expect(csp).toContain("https://api.web3modal.org");
-    expect(csp).toContain("wss://evm-ws-testnet.aethelred.network");
+    expect(csp).not.toContain("evm-rpc-testnet.aethelred.network");
     expect(csp).not.toContain("https://api.mainnet.aethelred.org");
     expect(csp).not.toContain("https://evm-rpc.aethelred.network");
     expect(csp).not.toContain("wss://evm-ws.aethelred.network");
@@ -155,23 +164,41 @@ describe("Next.js security config", () => {
     );
   });
 
+  it("keeps a built pre-TLS image usable when runtime CSP inputs match", () => {
+    const csp = buildContentSecurityPolicy({
+      nonce: "test-nonce",
+      nodeEnv: "production",
+      apiUrl: "http://203.0.113.10:3001/v1",
+      chainEnv: "testnet",
+      allowPlaintextHttp: true,
+      extraApiOrigins: ["http://203.0.113.10:3001"],
+      rpcOverrideUrl: "http://203.0.113.10:8545",
+    });
+    const connectSrc = getCspDirective(csp, "connect-src");
+
+    expect(connectSrc).toContain("http://203.0.113.10:3001");
+    expect(connectSrc).toContain("http://203.0.113.10:8545");
+    expect(csp).not.toContain("upgrade-insecure-requests");
+  });
+
   it("scopes production CSP connect sources to the active mainnet environment", () => {
     const csp = buildContentSecurityPolicy({
       nonce: "test-nonce",
       nodeEnv: "production",
       apiUrl: "https://api.mainnet.aethelred.org/v1",
       chainEnv: "mainnet",
+      rpcOverrideUrl: "https://rpc.mainnet.example.org",
     });
     const connectSrc = getCspDirective(csp, "connect-src");
 
     expect(connectSrc).toContain("https://api.mainnet.aethelred.org");
-    expect(connectSrc).toContain("https://evm-rpc.aethelred.network");
-    expect(connectSrc).toContain("wss://evm-ws.aethelred.network");
+    expect(connectSrc).toContain("https://rpc.mainnet.example.org");
+    expect(connectSrc).not.toContain("evm-rpc.aethelred.network");
     expect(connectSrc).not.toContain("https://api.testnet.aethelred.org");
     expect(connectSrc).not.toContain(
       "https://evm-rpc-testnet.aethelred.network",
     );
-    expect(connectSrc).not.toContain("wss://evm-ws-testnet.aethelred.network");
+    expect(connectSrc).not.toContain("evm-ws-testnet.aethelred.network");
   });
 
   it("fails closed on unsafe production API origins in CSP", () => {

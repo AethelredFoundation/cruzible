@@ -52,8 +52,8 @@ describe("getAssetId", () => {
 // ---------------------------------------------------------------------------
 
 describe("isStablecoinEnabled", () => {
-  it("returns true for ACTIVE phase assets", () => {
-    expect(isStablecoinEnabled(STABLECOIN_ASSETS.USDC)).toBe(true);
+  it("returns false while USDC remains READ_ONLY pending E2E settlement evidence", () => {
+    expect(isStablecoinEnabled(STABLECOIN_ASSETS.USDC)).toBe(false);
   });
 
   it("returns false for READ_ONLY phase assets", () => {
@@ -74,14 +74,14 @@ describe("isStablecoinEnabled", () => {
 // ---------------------------------------------------------------------------
 
 describe("STABLECOIN_ASSETS", () => {
-  it("contains USDC with ACTIVE phase", () => {
+  it("contains USDC with READ_ONLY phase", () => {
     const usdc = STABLECOIN_ASSETS.USDC;
 
     expect(usdc).toBeDefined();
     expect(usdc.symbol).toBe("USDC");
     expect(usdc.name).toBe("USD Coin");
     expect(usdc.decimals).toBe(6);
-    expect(usdc.phase).toBe(StablecoinPhase.ACTIVE);
+    expect(usdc.phase).toBe(StablecoinPhase.READ_ONLY);
     expect(usdc.routingType).toBe(StablecoinRoutingType.CCTP_V2);
   });
 
@@ -113,20 +113,16 @@ describe("STABLECOIN_ASSETS", () => {
 // ---------------------------------------------------------------------------
 
 describe("getEnabledStablecoins", () => {
-  it("returns only ACTIVE phase assets", () => {
+  it("returns no assets before an end-to-end route is release-approved", () => {
     const enabled = getEnabledStablecoins();
-
-    expect(enabled.length).toBeGreaterThan(0);
-    for (const asset of enabled) {
-      expect(asset.phase).toBe(StablecoinPhase.ACTIVE);
-    }
+    expect(enabled).toEqual([]);
   });
 
-  it("includes USDC but not USDT", () => {
+  it("does not expose USDC or USDT write routes", () => {
     const enabled = getEnabledStablecoins();
     const symbols = enabled.map((a) => a.symbol);
 
-    expect(symbols).toContain("USDC");
+    expect(symbols).not.toContain("USDC");
     expect(symbols).not.toContain("USDT");
   });
 });

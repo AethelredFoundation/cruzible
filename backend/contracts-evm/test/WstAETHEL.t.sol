@@ -15,6 +15,46 @@ interface Vm {
     function addr(uint256) external pure returns (address);
 }
 
+contract ReentrantStAethelMock {
+    WstAETHEL internal wrapper;
+    mapping(address => uint256) internal accountShares;
+    bool internal attack;
+
+    function configure(WstAETHEL wrapper_) external {
+        wrapper = wrapper_;
+        attack = true;
+    }
+
+    function transfer(address, uint256) external pure returns (bool) {
+        return true;
+    }
+
+    function transferShares(address, uint256 amount) external pure returns (uint256) {
+        return amount;
+    }
+
+    function transferFrom(address, address to, uint256 amount) external returns (bool) {
+        if (attack) {
+            attack = false;
+            wrapper.wrap(1);
+        }
+        accountShares[to] += amount;
+        return true;
+    }
+
+    function sharesOf(address account) external view returns (uint256) {
+        return accountShares[account];
+    }
+
+    function getSharesByAethel(uint256 amount) external pure returns (uint256) {
+        return amount;
+    }
+
+    function getAethelByShares(uint256 amount) external pure returns (uint256) {
+        return amount;
+    }
+}
+
 /// WstAETHEL — the wstETH pattern over rebasing stAETHEL.
 ///
 /// Invariants pinned here:
@@ -113,6 +153,30 @@ contract WstAETHELTest {
         assertEq(wst.balanceOf(alice), 0, "wst burned");
     }
 
+    function test_unwrap_moves_exact_raw_shares_at_odd_exchange_rate() public {
+        setUp();
+        _stakeAlice(10 ether);
+        vm.prank(gov);
+        vault.setRateGuard(2000, 10 minutes);
+        vm.deal(rewarder, 1.01 ether);
+        vm.prank(rewarder);
+        vault.addRewards{value: 1.01 ether}(); // P=11.01, S=10: double-floor is observable.
+
+        vm.prank(alice);
+        token.approve(address(wst), 1 ether);
+        vm.prank(alice);
+        wst.wrap(1 ether);
+
+        uint256 wstAmount = 100;
+        uint256 wrapperSharesBefore = token.sharesOf(address(wst));
+        uint256 aliceSharesBefore = token.sharesOf(alice);
+        vm.prank(alice);
+        wst.unwrap(wstAmount);
+
+        assertEq(wrapperSharesBefore - token.sharesOf(address(wst)), wstAmount, "wrapper releases exact raw shares");
+        assertEq(token.sharesOf(alice) - aliceSharesBefore, wstAmount, "recipient receives exact raw shares");
+    }
+
     function test_wrap_unwrap_zero_reverts() public {
         setUp();
         _stakeAlice(1 ether);
@@ -122,6 +186,16 @@ contract WstAETHELTest {
         vm.prank(alice);
         vm.expectRevert(WstAETHEL.ZeroAmount.selector);
         wst.unwrap(0);
+    }
+
+    function test_wrap_rejects_token_callback_reentrancy() public {
+        ReentrantStAethelMock maliciousToken = new ReentrantStAethelMock();
+        WstAETHEL guardedWrapper = new WstAETHEL(address(maliciousToken));
+        maliciousToken.configure(guardedWrapper);
+
+        vm.expectRevert(WstAETHEL.Reentrancy.selector);
+        guardedWrapper.wrap(2 ether);
+        assertEq(guardedWrapper.totalSupply(), 0, "reentrant wrap cannot mint unbacked wst");
     }
 
     function test_erc20_transfer_and_approve() public {
@@ -156,9 +230,8 @@ contract WstAETHELTest {
         uint256 value = 123;
         uint256 deadline = block.timestamp + 1 hours;
 
-        bytes32 structHash = keccak256(
-            abi.encode(wst.PERMIT_TYPEHASH(), alice, spender, value, wst.nonces(alice), deadline)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(wst.PERMIT_TYPEHASH(), alice, spender, value, wst.nonces(alice), deadline));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", wst.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePk, digest);
 

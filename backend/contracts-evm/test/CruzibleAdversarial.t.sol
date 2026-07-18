@@ -116,8 +116,7 @@ contract CruzibleAdversarialTest {
             assertTrue(paid == value - fee, "payout must be exactly value minus fee");
             assertTrue(alice.balance - before == paid, "native transfer must match");
             assertTrue(
-                vault.totalManaged() >=
-                    vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
+                vault.totalManaged() >= vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
                 "solvency must hold after an instant exit"
             );
         } catch {
@@ -161,7 +160,7 @@ contract CruzibleAdversarialTest {
         vm.prank(alice);
         vault.stake{value: 10 ether}();
         vm.prank(alice);
-        (uint256 wid, ) = vault.unstake(2 ether);
+        (uint256 wid,) = vault.unstake(2 ether);
 
         // Governance points the gate at a registry that then breaks.
         RevertingRegistry broken = new RevertingRegistry();
@@ -216,8 +215,7 @@ contract CruzibleAdversarialTest {
     /// failure reproduces exactly.
     function test_accounting_storm_holds_solvency_invariant() public {
         setUp();
-        address[5] memory actors =
-            [address(0xA1), address(0xA2), address(0xA3), address(0xA4), address(0xA5)];
+        address[5] memory actors = [address(0xA1), address(0xA2), address(0xA3), address(0xA4), address(0xA5)];
         uint256[] memory pendingIds = new uint256[](64);
         uint256 pendingCount;
         uint256 t = block.timestamp;
@@ -238,7 +236,7 @@ contract CruzibleAdversarialTest {
             } else if (op == 1) {
                 uint256 shares = 1 + (r % token.sharesOf(actor));
                 vm.prank(actor);
-                (uint256 wid, ) = vault.unstake(shares);
+                (uint256 wid,) = vault.unstake(shares);
                 if (pendingCount < 64) pendingIds[pendingCount++] = wid;
             } else if (op == 2) {
                 uint256 shares = 1 + (r % token.sharesOf(actor));
@@ -269,8 +267,7 @@ contract CruzibleAdversarialTest {
             }
 
             assertTrue(
-                vault.totalManaged() >=
-                    vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
+                vault.totalManaged() >= vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
                 "solvency must hold after every operation"
             );
             uint256 shares_ = token.getTotalShares();
@@ -304,8 +301,7 @@ contract CruzibleAdversarialTest {
         vm.deal(address(vault), address(vault).balance + 100 ether); // donation
         assertTrue(vault.getExchangeRate() == rateBefore, "donation must not move the rate");
         assertTrue(
-            vault.totalManaged() >=
-                vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
+            vault.totalManaged() >= vault.totalPooledAethel() + vault.totalReserved() + vault.merkleReserve(),
             "solvency (>=) holds with donated surplus"
         );
     }
@@ -370,7 +366,7 @@ contract CruzibleAdversarialTest {
         uint256[] memory ids = new uint256[](100);
         for (uint256 i = 0; i < 100; i++) {
             vm.prank(alice);
-            (uint256 wid, ) = vault.unstake(0.001 ether);
+            (uint256 wid,) = vault.unstake(0.001 ether);
             ids[i] = wid;
         }
         vm.warp(block.timestamp + 101);
@@ -596,7 +592,7 @@ contract CruzibleAdversarialTest {
         registry.setIdentity(alice, keccak256("did:alice"), false);
 
         vm.prank(alice);
-        (uint256 wid, ) = vault.unstake(2 ether);
+        (uint256 wid,) = vault.unstake(2 ether);
         vm.prank(alice);
         vault.instantUnstake(1 ether, 0);
         vm.warp(block.timestamp + 101);
@@ -619,9 +615,7 @@ contract CruzibleAdversarialTest {
         // Not allowlisted: the wrap transfer (alice → wrapper) is blocked.
         vm.startPrank(alice);
         token.approve(address(wst), type(uint256).max);
-        vm.expectRevert(
-            abi.encodeWithSelector(StAETHEL.RecipientNotVerified.selector, address(wst))
-        );
+        vm.expectRevert(abi.encodeWithSelector(StAETHEL.RecipientNotVerified.selector, address(wst)));
         wst.wrap(2 ether);
         vm.stopPrank();
 

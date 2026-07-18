@@ -9,6 +9,14 @@ const PRODUCTION_API_ORIGINS_BY_CHAIN: Record<
   testnet: ["https://api.testnet.aethelred.org"],
 };
 
+function extraApiOrigins(): string {
+  return process.env.NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS ?? "";
+}
+
+function allowPlaintextHttp(): boolean {
+  return process.env.NEXT_PUBLIC_CRUZIBLE_ALLOW_PLAINTEXT_HTTP === "true";
+}
+
 function activeChainEnv(): ChainEnv {
   const value = process.env.NEXT_PUBLIC_CHAIN_ENV;
   if (value === "mainnet" || value === "testnet" || value === "devnet") {
@@ -37,7 +45,44 @@ function assertAllowedProductionApiOrigin(
     return;
   }
 
-  const allowedOrigins = PRODUCTION_API_ORIGINS_BY_CHAIN[chainEnv];
+  const extraOrigins = extraApiOrigins()
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => {
+      let parsed: URL;
+      try {
+        parsed = new URL(value);
+      } catch {
+        throw new Error(
+          "NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS must contain absolute URLs",
+        );
+      }
+      if (
+        parsed.username ||
+        parsed.password ||
+        parsed.search ||
+        parsed.hash ||
+        parsed.pathname.replace(/\/+$/, "")
+      ) {
+        throw new Error(
+          "NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS must contain bare origins without credentials",
+        );
+      }
+      if (
+        parsed.protocol !== "https:" &&
+        !(parsed.protocol === "http:" && allowPlaintextHttp())
+      ) {
+        throw new Error(
+          "NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS must use https unless the explicit pre-TLS profile is enabled",
+        );
+      }
+      return parsed.origin;
+    });
+  const allowedOrigins = [
+    ...PRODUCTION_API_ORIGINS_BY_CHAIN[chainEnv],
+    ...extraOrigins,
+  ];
   if (!allowedOrigins.includes(origin)) {
     throw new Error(
       `NEXT_PUBLIC_API_URL must be one of ${allowedOrigins.join(", ")} when NEXT_PUBLIC_CHAIN_ENV=${chainEnv}`,
@@ -87,9 +132,13 @@ function normalizeConfiguredApiUrl(configuredUrl: string): string {
     );
   }
 
-  if (parsed.protocol !== "https:" && !(chainEnv === "devnet" && isLocalHost)) {
+  if (
+    parsed.protocol !== "https:" &&
+    !(chainEnv === "devnet" && isLocalHost) &&
+    !allowPlaintextHttp()
+  ) {
     throw new Error(
-      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost",
+      "NEXT_PUBLIC_API_URL must use https unless NEXT_PUBLIC_CHAIN_ENV=devnet and the host is localhost, or the explicit pre-TLS profile is enabled",
     );
   }
 

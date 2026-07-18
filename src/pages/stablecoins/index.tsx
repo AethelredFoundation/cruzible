@@ -50,6 +50,7 @@ import {
   STABLECOIN_BRIDGE_STEPS,
   type BridgeRiskSignal,
 } from "@/lib/stablecoinBridgeRisk";
+import { isStablecoinBridgeAvailable } from "@/lib/stablecoinAvailability";
 
 // ============================================================================
 // TYPES
@@ -315,8 +316,12 @@ function BridgeTab() {
   const [destDomain, setDestDomain] = useState<CCTPDomainName>("ETHEREUM");
 
   const asset = STABLECOIN_ASSETS[selectedSymbol];
-  const balance = wallet.stablecoinBalances[selectedSymbol] ?? 0;
-  const balanceUnits = wallet.stablecoinBalanceUnits[selectedSymbol] ?? 0n;
+  const balanceSnapshot = wallet.balanceSnapshots?.stablecoins[selectedSymbol];
+  const balanceAvailable = balanceSnapshot?.status === "available";
+  const balance = balanceAvailable ? (balanceSnapshot.value ?? 0) : null;
+  const balanceUnits = balanceAvailable
+    ? (balanceSnapshot.valueUnits ?? 0n)
+    : 0n;
   const config = useStablecoinConfig(selectedSymbol);
   const { allowance, isLoading: allowanceLoading } =
     useStablecoinAllowance(selectedSymbol);
@@ -381,13 +386,10 @@ function BridgeTab() {
   );
 
   const handleMaxClick = useCallback(() => {
-    if (!asset) {
-      setAmount("0");
-      return;
-    }
+    if (!asset || !balanceAvailable) return;
 
     setAmount(formatUnits(balanceUnits, asset.decimals));
-  }, [asset, balanceUnits]);
+  }, [asset, balanceAvailable, balanceUnits]);
 
   const handleBridge = useCallback(async () => {
     if (parsedAmount <= 0n) return;
@@ -412,6 +414,7 @@ function BridgeTab() {
     onChainLoading ||
     !wallet.connected ||
     wallet.isWrongNetwork ||
+    !balanceAvailable ||
     !amount ||
     parsedAmount <= 0n ||
     parsedAmount > balanceUnits ||
@@ -501,9 +504,14 @@ function BridgeTab() {
               <label className="text-sm text-gray-400">Amount</label>
               <button
                 onClick={handleMaxClick}
+                disabled={!balanceAvailable}
                 className="text-xs text-red-400 hover:text-red-300 transition-colors"
               >
-                Balance: {balance.toLocaleString()} {selectedSymbol}
+                Balance:{" "}
+                {balanceAvailable && balance != null
+                  ? balance.toLocaleString()
+                  : "Unavailable"}{" "}
+                {selectedSymbol}
               </button>
             </div>
             <input
@@ -652,7 +660,10 @@ function BalancesTab() {
               </thead>
               <tbody className="divide-y divide-white/5">
                 {allAssets.map((asset) => {
-                  const bal = wallet.stablecoinBalances[asset.symbol] ?? 0;
+                  const snapshot =
+                    wallet.balanceSnapshots?.stablecoins[asset.symbol];
+                  const bal =
+                    snapshot?.status === "available" ? snapshot.value : null;
                   return (
                     <tr
                       key={asset.symbol}
@@ -674,12 +685,14 @@ function BalancesTab() {
                         </div>
                       </td>
                       <td className="py-4 px-4 text-right font-mono text-white">
-                        {wallet.connected
+                        {wallet.connected && bal != null
                           ? bal.toLocaleString(undefined, {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 6,
                             })
-                          : "—"}
+                          : wallet.connected
+                            ? "Unavailable"
+                            : "—"}
                       </td>
                       <td className="py-4 px-4 text-right text-gray-400 text-sm">
                         {asset.decimals}
@@ -810,6 +823,7 @@ function HistoryTab() {
 
 export default function StablecoinsPage() {
   const [activeTab, setActiveTab] = useState<StablecoinTab>("bridge");
+  const bridgeAvailable = isStablecoinBridgeAvailable();
 
   const tabs: { id: StablecoinTab; label: string }[] = [
     { id: "bridge", label: "Bridge" },
@@ -821,7 +835,11 @@ export default function StablecoinsPage() {
     <>
       <SEOHead
         title="Stablecoins | Cruzible by Aethelred"
-        description="Bridge stablecoins via CCTP. View balances and bridge history."
+        description={
+          bridgeAvailable
+            ? "Bridge stablecoins via CCTP. View balances and bridge history."
+            : "Stablecoin bridge availability and release status."
+        }
       />
 
       <div className="min-h-screen bg-gray-950 text-white">
@@ -837,33 +855,56 @@ export default function StablecoinsPage() {
               <div>
                 <h1 className="text-2xl font-bold">Stablecoins</h1>
                 <p className="text-sm text-gray-400">
-                  Bridge stablecoins via CCTP
+                  {bridgeAvailable
+                    ? "Bridge stablecoins via CCTP"
+                    : "Stablecoin bridge unavailable"}
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-1 mb-6 p-1 bg-white/5 rounded-lg w-fit">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  activeTab === tab.id
-                    ? "bg-red-600 text-white shadow-lg shadow-red-500/20"
-                    : "text-gray-400 hover:text-white hover:bg-white/5"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          {!bridgeAvailable ? (
+            <GlassCard className="border-amber-500/20 bg-amber-500/[0.04] p-6">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                <div>
+                  <h2 className="font-semibold text-white">
+                    Stablecoins unavailable
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-400">
+                    Cruzible has not released an end-to-end stablecoin route.
+                    Source-chain burn, attestation and relaying, destination
+                    mint, and recovery evidence must all pass the release gate
+                    before bridge actions are exposed.
+                  </p>
+                </div>
+              </div>
+            </GlassCard>
+          ) : (
+            <>
+              {/* Tabs */}
+              <div className="flex gap-1 mb-6 p-1 bg-white/5 rounded-lg w-fit">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                      activeTab === tab.id
+                        ? "bg-red-600 text-white shadow-lg shadow-red-500/20"
+                        : "text-gray-400 hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
 
-          {/* Tab Content */}
-          {activeTab === "bridge" && <BridgeTab />}
-          {activeTab === "balances" && <BalancesTab />}
-          {activeTab === "history" && <HistoryTab />}
+              {/* Tab Content */}
+              {activeTab === "bridge" && <BridgeTab />}
+              {activeTab === "balances" && <BalancesTab />}
+              {activeTab === "history" && <HistoryTab />}
+            </>
+          )}
         </main>
 
         <Footer />

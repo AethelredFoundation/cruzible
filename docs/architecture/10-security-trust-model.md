@@ -131,15 +131,15 @@ The telemetry relayer (which submits validator telemetry and triggers selection)
 
 The stablecoin bridge enables cross-chain USDC/USDT transfers via CCTP and TEE-attested minting. It introduces additional threat surfaces beyond the core vault:
 
-| Threat                                            | Severity | Likelihood | Mitigation                                                                                                    |
-| ------------------------------------------------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
-| Circuit breaker bypass (rate limit evasion)       | Critical | Low        | Atomic per-transaction checks in `bridgeOutViaCCTP`, hourly/daily BPS caps enforced in same call              |
-| CCTP relay failure (stuck funds)                  | High     | Medium     | Frontend displays pending status; CCTP nonce tracking; manual relay fallback                                  |
-| Proof-of-reserve oracle stale/manipulated         | High     | Medium     | `porHeartbeatSeconds` staleness check, `porDeviationBps` tolerance, `ReserveCheckPerformed` event audit trail |
-| Daily limit exhaustion (DoS via many small burns) | Medium   | Medium     | Per-epoch `mintCeilingPerEpoch` + `dailyTxLimit` caps; reconciliation alert at 80% usage                      |
-| Unauthorized config change                        | Critical | Low        | `configureStablecoin` restricted to bridge admin role; governance timelock recommended                        |
-| Indexer misses bridge events                      | Medium   | Low        | Idempotent upserts `@@unique([txHash, logIndex])`; reconciliation scheduler detects config drift              |
-| Decimal mismatch (6 vs 18)                        | High     | Low        | Asset registry enforces `decimals: 6` for USDC/USDT; `parseUnits(amount, asset.decimals)` used everywhere     |
+| Threat                                            | Severity | Likelihood | Mitigation                                                                                                                                                         |
+| ------------------------------------------------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Circuit breaker bypass (rate limit evasion)       | Critical | Low        | Atomic per-transaction checks in `bridgeOutViaCCTP`, hourly/daily BPS caps enforced in same call                                                                   |
+| CCTP relay failure (stuck funds)                  | High     | Medium     | Bridge writes remain READ_ONLY until nonce-correlated source/destination tracking and tested manual recovery exist; a source receipt is labeled settlement pending |
+| Proof-of-reserve oracle stale/manipulated         | High     | Medium     | `porHeartbeatSeconds` staleness check, `porDeviationBps` tolerance, `ReserveCheckPerformed` event audit trail                                                      |
+| Daily limit exhaustion (DoS via many small burns) | Medium   | Medium     | Per-epoch `mintCeilingPerEpoch` + `dailyTxLimit` caps; reconciliation alert at 80% usage                                                                           |
+| Unauthorized config change                        | Critical | Low        | `configureStablecoin` restricted to bridge admin role; governance timelock recommended                                                                             |
+| Indexer misses bridge events                      | Medium   | Low        | Idempotent upserts `@@unique([txHash, logIndex])`; reconciliation scheduler detects config drift                                                                   |
+| Decimal mismatch (6 vs 18)                        | High     | Low        | Asset registry enforces `decimals: 6` for USDC/USDT; `parseUnits(amount, asset.decimals)` used everywhere                                                          |
 
 ---
 

@@ -31,7 +31,7 @@ export const VAULT_RISK_DISCLOSURES = [
   },
   {
     title: "Liquidity and exit timing",
-    body: "Protocol withdrawals use a 21-day cooldown. Any secondary-market exit is separate from this vault flow and may carry price impact, counterparty risk, and unavailable liquidity.",
+    body: "Protocol withdrawals use the governance-configured on-chain cooldown. Any secondary-market exit is separate from this vault flow and may carry price impact, counterparty risk, and unavailable liquidity.",
   },
   {
     title: "Exchange-rate movement",
@@ -39,7 +39,7 @@ export const VAULT_RISK_DISCLOSURES = [
   },
   {
     title: "Reward proof availability",
-    body: "Claimable rewards are fetched from the proof pipeline at claim time. Cruzible does not invent balances when the proof endpoint is unavailable.",
+    body: "Reward claims are disabled because the authoritative allocation and Merkle-proof pipeline is not deployed. Cruzible does not invent claimable balances or proofs.",
   },
 ] as const;
 
@@ -133,16 +133,16 @@ export function buildVaultRiskSignals(
       title: "Withdrawal liquidity",
       status: "Cooldown enforced",
       detail:
-        "The vault treats the 21-day protocol cooldown as the default exit path and does not promise instant liquidity.",
+        "The vault treats the live governance-configured cooldown as the default exit path and does not promise instant liquidity.",
       tone: "warning",
     },
     {
       id: "reward-proof",
       title: "Reward proof",
-      status: "On-demand",
+      status: "Gated",
       detail:
-        "Reward claims fetch proof data at submission time instead of showing synthetic claimable balances.",
-      tone: "healthy",
+        "Reward claims remain disabled until the authoritative allocation and Merkle-proof pipeline is deployed.",
+      tone: "blocked",
     },
   ];
 }

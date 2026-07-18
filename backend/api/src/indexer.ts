@@ -12,6 +12,10 @@ import { container } from "tsyringe";
 
 import { BlockchainService } from "./services/BlockchainService";
 import { IndexerService } from "./services/IndexerService";
+import {
+  startIndexerWorkerHeartbeat,
+  type IndexerHeartbeatController,
+} from "./lib/indexerWorkerHeartbeat";
 import { errorContext } from "./utils/errorContext";
 import { logger } from "./utils/logger";
 
@@ -21,6 +25,7 @@ async function shutdown(
   signal: string,
   indexerService: IndexerService,
   blockchainService: BlockchainService,
+  heartbeat: IndexerHeartbeatController,
 ): Promise<void> {
   if (shuttingDown) {
     logger.warn(`Duplicate ${signal} received; shutdown already in progress`);
@@ -29,6 +34,12 @@ async function shutdown(
 
   shuttingDown = true;
   logger.info(`Received ${signal}. Shutting down indexer worker...`);
+
+  try {
+    await heartbeat.stop();
+  } catch (error) {
+    logger.error("Error while stopping indexer heartbeat", errorContext(error));
+  }
 
   try {
     await indexerService.shutdown();
@@ -57,29 +68,39 @@ async function main(): Promise<void> {
 
   await blockchainService.initialize();
   await indexerService.initialize();
+  const heartbeat = await startIndexerWorkerHeartbeat({
+    onError: (error) =>
+      logger.error("Failed to refresh indexer heartbeat", errorContext(error)),
+  });
 
   process.on("SIGTERM", () => {
-    void shutdown("SIGTERM", indexerService, blockchainService).then(() =>
-      process.exit(0),
+    void shutdown("SIGTERM", indexerService, blockchainService, heartbeat).then(
+      () => process.exit(0),
     );
   });
   process.on("SIGINT", () => {
-    void shutdown("SIGINT", indexerService, blockchainService).then(() =>
-      process.exit(0),
+    void shutdown("SIGINT", indexerService, blockchainService, heartbeat).then(
+      () => process.exit(0),
     );
   });
 
   process.on("uncaughtException", (error) => {
     logger.error("Uncaught exception in indexer worker", errorContext(error));
-    void shutdown("uncaughtException", indexerService, blockchainService).then(
-      () => process.exit(1),
-    );
+    void shutdown(
+      "uncaughtException",
+      indexerService,
+      blockchainService,
+      heartbeat,
+    ).then(() => process.exit(1));
   });
   process.on("unhandledRejection", (reason) => {
     logger.error("Unhandled rejection in indexer worker", errorContext(reason));
-    void shutdown("unhandledRejection", indexerService, blockchainService).then(
-      () => process.exit(1),
-    );
+    void shutdown(
+      "unhandledRejection",
+      indexerService,
+      blockchainService,
+      heartbeat,
+    ).then(() => process.exit(1));
   });
 
   logger.info("Indexer worker started");

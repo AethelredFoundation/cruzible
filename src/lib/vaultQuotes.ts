@@ -26,7 +26,6 @@ function isPositiveFiniteNumber(value: number | null): value is number {
 }
 
 export function buildVaultQuoteSafety({
-  kind,
   amount,
   exchangeRate,
   quoteUpdatedAt,
@@ -40,12 +39,11 @@ export function buildVaultQuoteSafety({
   const quoteAgeMs = hasQuoteTimestamp ? nowMs - quoteUpdatedAt : null;
   const isFresh =
     quoteAgeMs !== null && quoteAgeMs >= 0 && quoteAgeMs <= maxAgeMs;
-  const expectedOutput =
-    hasValidAmount && hasLiveRate
-      ? kind === "stake"
-        ? amount / exchangeRate
-        : amount * exchangeRate
-      : null;
+  // stAETHEL is rebasing: its ERC-20 balance is already denominated in the
+  // holder's current AETHEL claim. The exchange rate converts between that
+  // token amount and invariant raw shares; applying it again here would
+  // double-count the rebase.
+  const expectedOutput = hasValidAmount && hasLiveRate ? amount : null;
 
   let blockReason: string | null = null;
 

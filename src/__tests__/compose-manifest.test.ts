@@ -38,10 +38,10 @@ describe("Docker Compose production scaffold", () => {
     expectRequiredVariable("DB_NAME");
     expectRequiredVariable("DATABASE_URL_FILE");
     expectRequiredVariable("REDIS_URL_FILE");
-    expectRequiredVariable("REDIS_PASSWORD_FILE");
     expectRequiredVariable("RPC_URL");
     expectRequiredVariable("GRPC_URL");
     expectRequiredVariable("CORS_ORIGINS");
+    expectRequiredVariable("AUTH_OPERATOR_ADDRESSES");
     expectRequiredVariable("JWT_SECRET_FILE");
     expectRequiredVariable("JWT_REFRESH_SECRET_FILE");
     expectRequiredVariable("LOG_HASH_SECRET_FILE");
@@ -57,7 +57,6 @@ describe("Docker Compose production scaffold", () => {
     for (const secretName of [
       "cruzible_database_url",
       "cruzible_redis_url",
-      "cruzible_redis_password",
       "cruzible_db_password",
       "cruzible_jwt_secret",
       "cruzible_jwt_refresh_secret",
@@ -106,7 +105,6 @@ describe("Docker Compose production scaffold", () => {
       "./config/nginx/nginx.conf",
       "./config/prometheus/alerts.yml",
       "./config/prometheus/prometheus.yml",
-      "./config/redis/redis.conf",
       "./init/postgres",
     ]);
 
@@ -115,12 +113,15 @@ describe("Docker Compose production scaffold", () => {
     }
   });
 
-  it("authenticates Redis and operational metrics in the local production stack", () => {
-    expect(composeManifest).toContain("cruzible_redis_password");
-    expect(composeManifest).toContain("--requirepass");
+  it("requires external TLS Redis and authenticates operational metrics", () => {
     expect(composeManifest).toContain(
-      'redis-cli -a "$$(cat /run/secrets/cruzible_redis_password)" ping',
+      "REDIS_URL_FILE=/run/secrets/cruzible_redis_url",
     );
+    expect(composeManifest).not.toMatch(/^  redis:$/m);
+    expect(composeManifest).not.toContain("REDIS_IMAGE_DIGEST");
+    expect(composeManifest).not.toContain("cruzible_redis_password");
+    expect(composeManifest).not.toContain("redis-data");
+    expect(composeManifest).not.toMatch(/^\s+redis:\s*$/m);
     expect(prometheusConfig).toContain(
       "bearer_token_file: /run/secrets/cruzible_operational_token",
     );
@@ -134,8 +135,61 @@ describe("Docker Compose production scaffold", () => {
   });
 
   it("requires explicit indexer chain identity for production indexing", () => {
+    expect(
+      composeManifest.match(
+        /INDEXER_EXPECTED_CHAIN_ID=\$\{INDEXER_EXPECTED_CHAIN_ID:\?set INDEXER_EXPECTED_CHAIN_ID\}/g,
+      ),
+    ).toHaveLength(2);
+    expect(
+      composeManifest.match(
+        /INDEXER_EXPECTED_GENESIS_HASH=\$\{INDEXER_EXPECTED_GENESIS_HASH:\?set INDEXER_EXPECTED_GENESIS_HASH\}/g,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("wires one canonical contract namespace into both the API reconciler and indexer", () => {
+    expect(
+      composeManifest.match(
+        /INDEXER_RPC_URL=\$\{INDEXER_RPC_URL:\?set INDEXER_RPC_URL\}/g,
+      ),
+    ).toHaveLength(2);
+    expect(
+      composeManifest.match(
+        /CRUZIBLE_VAULT_ADDRESS=\$\{CRUZIBLE_VAULT_ADDRESS:\?set CRUZIBLE_VAULT_ADDRESS\}/g,
+      ),
+    ).toHaveLength(2);
+    expect(
+      composeManifest.match(
+        /STAETHEL_ADDRESS=\$\{STAETHEL_ADDRESS:\?set STAETHEL_ADDRESS\}/g,
+      ),
+    ).toHaveLength(2);
+    expect(
+      composeManifest.match(
+        /STABLECOIN_BRIDGE_ADDRESS=\$\{STABLECOIN_BRIDGE_ADDRESS:-\}/g,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("requires explicit drained indexer and legacy scheduler acknowledgements before migrations", () => {
     expect(composeManifest).toContain(
-      "INDEXER_EXPECTED_CHAIN_ID=${INDEXER_EXPECTED_CHAIN_ID:?set INDEXER_EXPECTED_CHAIN_ID}",
+      "CRUZIBLE_MIGRATION_QUIESCED=${CRUZIBLE_MIGRATION_QUIESCED:?set true only after the indexer is stopped and drained}",
+    );
+    expect(composeManifest).toContain(
+      "CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED=${CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED:?set true only after every old API scheduler is stopped and drained}",
+    );
+  });
+
+  it("separates API auth validation from the indexer and keeps the testnet bridge optional", () => {
+    expect(composeManifest).toContain("CRUZIBLE_RUNTIME_ROLE=api");
+    expect(composeManifest).toContain("CRUZIBLE_RUNTIME_ROLE=indexer");
+    expect(composeManifest).toContain(
+      "AUTH_OPERATOR_ADDRESSES=${AUTH_OPERATOR_ADDRESSES:?set AUTH_OPERATOR_ADDRESSES}",
+    );
+    expect(composeManifest).toContain(
+      "INDEXER_REQUIRE_STABLECOIN_BRIDGE=${INDEXER_REQUIRE_STABLECOIN_BRIDGE:-false}",
+    );
+    expect(composeManifest).not.toContain(
+      "STABLECOIN_BRIDGE_ADDRESS=${STABLECOIN_BRIDGE_ADDRESS:?set STABLECOIN_BRIDGE_ADDRESS}",
     );
   });
 
@@ -145,8 +199,8 @@ describe("Docker Compose production scaffold", () => {
     for (const variable of [
       "CRUZIBLE_API_IMAGE_DIGEST",
       "CRUZIBLE_INDEXER_IMAGE_DIGEST",
+      "CRUZIBLE_MIGRATION_IMAGE_DIGEST",
       "POSTGRES_IMAGE_DIGEST",
-      "REDIS_IMAGE_DIGEST",
       "NGINX_IMAGE_DIGEST",
       "PROMETHEUS_IMAGE_DIGEST",
       "GRAFANA_IMAGE_DIGEST",
@@ -154,6 +208,18 @@ describe("Docker Compose production scaffold", () => {
     ]) {
       expectRequiredVariable(variable);
     }
+  });
+
+  it("restarts a hung indexer using its process heartbeat watchdog", () => {
+    expect(composeManifest).toContain(
+      "INDEXER_HEARTBEAT_FILE=/tmp/cruzible-indexer-heartbeat.json",
+    );
+    expect(composeManifest).toContain("INDEXER_HEARTBEAT_MAX_AGE_MS=45000");
+    expect(composeManifest).toContain(
+      'test: ["CMD", "node", "dist/indexer-healthcheck.js"]',
+    );
+    expect(composeManifest).toContain("start_period: 90s");
+    expect(composeManifest).toContain("retries: 4");
   });
 
   it("runs first-party services from release image digests", () => {
@@ -168,10 +234,12 @@ describe("Docker Compose production scaffold", () => {
   });
 
   it("keeps internal service ports off public host interfaces", () => {
-    for (const port of ["3000", "5432", "6379"]) {
+    for (const port of ["3000", "5432"]) {
       expect(composeManifest).not.toContain(`"${port}:${port}"`);
       expect(composeManifest).toContain(`"127.0.0.1:${port}:${port}"`);
     }
+
+    expect(composeManifest).not.toContain('"127.0.0.1:6379:6379"');
 
     expect(composeManifest).toContain('"127.0.0.1:3002:3000"');
     expect(composeManifest).toContain('"127.0.0.1:16686:16686"');
@@ -183,7 +251,7 @@ describe("Docker Compose production scaffold", () => {
     expect(composeManifest).not.toContain("TRUST_PROXY=true");
   });
 
-  it("does not build the incomplete node scaffold in the production stack", () => {
+  it("uses the externally operated canonical chain instead of vendoring a node", () => {
     expect(composeManifest).not.toContain("context: ../node");
     expect(composeManifest).not.toContain("aethelred-node:");
     expect(composeManifest).not.toContain("seed-node:");

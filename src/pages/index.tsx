@@ -35,6 +35,11 @@ import {
   getProfileCompleteness,
   type ValidatorsResponse,
 } from "@/lib/validators";
+import {
+  buildHomeControlPlanePosture,
+  formatAvailableMetric,
+  isQuerySnapshotFresh,
+} from "@/lib/homeTruth";
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "Unavailable";
@@ -135,11 +140,32 @@ export default function HomePage() {
     refetchInterval: 30000,
   });
 
-  const controlPlane = controlPlaneQuery.data ?? null;
-  const liveReconciliation = liveReconciliationQuery.data ?? null;
+  const controlPlaneIsFresh = isQuerySnapshotFresh({
+    hasData: controlPlaneQuery.data != null,
+    isError: controlPlaneQuery.isError,
+    dataUpdatedAt: controlPlaneQuery.dataUpdatedAt,
+  });
+  const controlPlane = controlPlaneIsFresh
+    ? (controlPlaneQuery.data ?? null)
+    : null;
+  const liveReconciliationIsFresh = isQuerySnapshotFresh({
+    hasData: liveReconciliationQuery.data != null,
+    isError: liveReconciliationQuery.isError,
+    dataUpdatedAt: liveReconciliationQuery.dataUpdatedAt,
+  });
+  const validatorsAreFresh = isQuerySnapshotFresh({
+    hasData: validatorsQuery.data != null,
+    isError: validatorsQuery.isError,
+    dataUpdatedAt: validatorsQuery.dataUpdatedAt,
+  });
+  const liveReconciliation = liveReconciliationIsFresh
+    ? (liveReconciliationQuery.data ?? null)
+    : null;
+  const hasControlPlane = controlPlane != null;
+  const hasValidatorData = validatorsAreFresh;
   const validators = useMemo(
-    () => validatorsQuery.data?.data ?? [],
-    [validatorsQuery.data?.data],
+    () => (validatorsAreFresh ? (validatorsQuery.data?.data ?? []) : []),
+    [validatorsAreFresh, validatorsQuery.data?.data],
   );
 
   const validatorMetrics = useMemo(
@@ -152,8 +178,8 @@ export default function HomePage() {
   const shareCoverage = useMemo(
     () =>
       formatCoveragePercent(
-        liveReconciliation?.stake_snapshot?.meta?.included_total_shares,
-        liveReconciliation?.stake_snapshot?.meta?.vault_total_shares,
+        liveReconciliation?.stake_supply?.observed?.holder_total_shares,
+        liveReconciliation?.stake_supply?.observed?.vault_total_shares,
       ),
     [liveReconciliation],
   );
@@ -163,15 +189,18 @@ export default function HomePage() {
     liveReconciliationQuery.isLoading &&
     validatorsQuery.isLoading;
 
-  const hasWarning =
-    (controlPlane?.warning_count ?? 0) > 0 ||
-    (realTime.epochSource || "").includes("fallback");
+  const controlPlanePosture = buildHomeControlPlanePosture({
+    isAvailable: hasControlPlane,
+    isLoading: controlPlaneQuery.isLoading && !controlPlaneQuery.isError,
+    warningCount: controlPlane?.warning_count,
+    epochSource: controlPlane?.epoch_source ?? realTime.epochSource,
+  });
 
   return (
     <>
       <SEOHead
         title="Cruzible"
-        description="Truth-first liquid staking for Aethelred with live reconciliation, validator intelligence, and proof-backed protocol telemetry."
+        description="Truth-first liquid staking for Aethelred with live reconciliation, validator intelligence, and source-backed protocol telemetry."
         path="/"
       />
 
@@ -219,12 +248,8 @@ export default function HomePage() {
             <div className="mt-6 grid gap-3 lg:grid-cols-2">
               <StatusNotice
                 title="Production posture"
-                body={
-                  hasWarning
-                    ? "Some protocol telemetry is still on a warning path, so Cruzible is explicitly surfacing that state instead of pretending conditions are normal."
-                    : "Public control-plane state is available and the landing page is anchored to live reconciliation and validator data."
-                }
-                tone={hasWarning ? "warning" : "success"}
+                body={controlPlanePosture.body}
+                tone={controlPlanePosture.hasWarning ? "warning" : "success"}
               />
               <StatusNotice
                 title="What is intentionally gated"
@@ -238,7 +263,7 @@ export default function HomePage() {
             <MetricCard
               label="Latest Block"
               value={
-                realTime.blockHeight > 0
+                realTime.blockStatus === "live" && realTime.blockHeight > 0
                   ? String(realTime.blockHeight)
                   : "Unavailable"
               }
@@ -247,25 +272,29 @@ export default function HomePage() {
             <MetricCard
               label="Protocol Epoch"
               value={
-                realTime.epoch > 0 ? String(realTime.epoch) : "Unavailable"
+                realTime.epoch > 0 &&
+                (realTime.controlPlaneStatus === "live" ||
+                  realTime.blockStatus === "live")
+                  ? String(realTime.epoch)
+                  : "Unavailable"
               }
               detail={`Source: ${realTime.epochSource || "unavailable"}`}
             />
             <MetricCard
               label="Control-Plane Warnings"
-              value={String(
-                controlPlane?.warning_count ?? realTime.reconciliationWarnings,
-              )}
+              value={controlPlanePosture.warningMetric}
               detail={
                 controlPlane
                   ? `Latest public capture ${formatDateTime(controlPlane.captured_at)}`
-                  : "Waiting for public reconciliation capture"
+                  : controlPlaneQuery.isLoading
+                    ? "Loading the public reconciliation capture"
+                    : "Live public reconciliation capture unavailable"
               }
             />
             <MetricCard
-              label="Stake Coverage"
+              label="Share Supply Coverage"
               value={formatPercent(shareCoverage)}
-              detail="Included shares over indexed vault total shares in the latest reconciliation document."
+              detail="Indexed transferable holder shares over the vault's indexed total share supply. This does not assign holders to validators."
             />
           </section>
 
@@ -300,7 +329,9 @@ export default function HomePage() {
                     <div className="flex justify-between gap-3">
                       <span>Epoch source</span>
                       <span className="text-right text-white">
-                        {controlPlane?.epoch_source ?? realTime.epochSource}
+                        {controlPlane?.epoch_source ??
+                          realTime.epochSource ??
+                          "Unavailable"}
                       </span>
                     </div>
                     <div className="flex justify-between gap-3">
@@ -340,13 +371,18 @@ export default function HomePage() {
                     <div className="flex justify-between gap-3">
                       <span>Active validators</span>
                       <span className="text-right text-white">
-                        {String(validatorMetrics.activeCount)}
+                        {formatAvailableMetric(
+                          validatorMetrics.activeCount,
+                          hasValidatorData,
+                        )}
                       </span>
                     </div>
                     <div className="flex justify-between gap-3">
                       <span>Top 10 share</span>
                       <span className="text-right text-white">
-                        {validatorMetrics.topTenShare.toFixed(2)}%
+                        {hasValidatorData
+                          ? `${validatorMetrics.topTenShare.toFixed(2)}%`
+                          : "Unavailable"}
                       </span>
                     </div>
                   </div>
@@ -368,10 +404,10 @@ export default function HomePage() {
                     Live Vault Actions
                   </h3>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
-                    Staking, unstaking, live reward-proof claiming, and live
-                    vault state have been hardened to fail closed when telemetry
-                    is not available instead of rendering seeded balances or
-                    fake queues.
+                    Staking, unstaking, withdrawal claims, and live vault state
+                    fail closed when telemetry is unavailable. Reward-proof
+                    claims remain visibly gated until the authoritative proof
+                    pipeline is deployed.
                   </p>
                 </GlassCard>
               </div>
@@ -423,7 +459,13 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {controlPlane?.warnings?.length ? (
+                {!hasControlPlane ? (
+                  <StatusNotice
+                    title="Warning posture unavailable"
+                    body="No live control-plane snapshot is available, so Cruzible cannot report that the warning list is clear."
+                    tone="warning"
+                  />
+                ) : controlPlane.warnings?.length ? (
                   <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
                     <div className="flex items-center gap-2 text-sm font-medium text-amber-100">
                       <AlertTriangle className="h-4 w-4" />

@@ -59,7 +59,9 @@ export const SEARCH_NAVIGATION_TARGETS: SearchResultItem[] = [
     href: "/governance",
     description: "View gated governance launch requirements",
   },
-];
+].filter(
+  (target) => target.href !== "/stablecoins" || isStablecoinBridgeAvailable(),
+);
 
 const SEARCHABLE_NAVIGATION = SEARCH_NAVIGATION_TARGETS.map((target) => ({
   target,
@@ -119,3 +121,4 @@ export function buildSearchResults(
 
   return results;
 }
+import { isStablecoinBridgeAvailable } from "@/lib/stablecoinAvailability";

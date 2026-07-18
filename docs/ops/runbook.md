@@ -20,7 +20,7 @@ This runbook does not assume that every checked-in infrastructure artifact is tu
 - Operators can provide a reachable Redis instance for `REDIS_URL`.
 - Operators can provide a reachable Aethelred RPC endpoint for `RPC_URL`.
 - JWT secrets are provisioned externally and are not left at development defaults.
-- Compose operators can provide file-backed PostgreSQL, Redis, JWT, operational-token, Grafana, and nginx TLS secrets.
+- Compose operators can provide file-backed PostgreSQL, external `rediss://`, JWT, operational-token, Grafana, and nginx TLS secrets.
 - Operator/admin wallet addresses are provisioned through `AUTH_OPERATOR_ADDRESSES`
   and `AUTH_ADMIN_ADDRESSES`.
 - Backend env is injected by the runtime environment. `backend/api` does not auto-load `.env` files.
@@ -79,6 +79,7 @@ Before starting the API, inject the variables documented in [backend/.env.exampl
 # Frontend
 export NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org
 export NEXT_PUBLIC_CHAIN_ENV=testnet
+export NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=https://<operator-rpc>
 npm run build
 
 # API
@@ -92,10 +93,12 @@ cargo test --all
 
 ### Kubernetes base
 
-`k8s/base/` contains frontend, API gateway, and indexer manifests. Build the
-frontend image with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` Docker
-build args before rollout; Kubernetes runtime env does not rewrite values that
-Next.js compiled into browser bundles. Replace the checked-in image placeholders
+`k8s/base/` contains frontend, API gateway, indexer, and database-migration
+manifests. Build the frontend image with `NEXT_PUBLIC_API_URL`,
+`NEXT_PUBLIC_CHAIN_ENV`, the selected network's explicit RPC, and
+`NEXT_PUBLIC_AETHELRED_GENESIS_HASH` before rollout; Kubernetes runtime env does
+not rewrite values that Next.js compiled into browser bundles. Replace
+the checked-in image placeholders
 with immutable `sha256` image digests in the environment overlay before rollout;
 the base intentionally does not use floating tags. Before applying the backend
 manifests, replace placeholder values in `cruzible-api-config`, then create the
@@ -108,10 +111,25 @@ required `cruzible-api-secrets` Secret with these keys:
 - `operational-endpoints-token`
 - `alert-webhook-url` when alert delivery is enabled
 
+The frontend's CSP/HSTS inputs are server-runtime inputs:
+`CRUZIBLE_EXTRA_API_ORIGINS` and `CRUZIBLE_ALLOW_PLAINTEXT_HTTP` are read by
+server middleware at runtime. Patch `cruzible-frontend-runtime-config` in the
+environment overlay with exactly the values attested in the frontend candidate's
+build-configuration fingerprint. The promotion gate runs
+`scripts/validate-release-runtime-policy.mjs` and fails if either ConfigMap value
+differs. Keep the checked-in empty/`false` values for TLS deployments. A pre-TLS
+testnet candidate may attest a specific `http://` origin and `true`; rebuild and
+re-attest the image when removing that temporary exception.
+
 The API deployment probes `/health/live` for liveness and `/health/ready` for
 readiness. The API service and pods expose Prometheus scrape annotations for
 `/metrics`. The indexer manifest runs one `api-indexer` worker replica and does
-not expose an HTTP service. All Kubernetes workloads use a read-only root
+not expose an HTTP service. Instead, the worker writes a process-bound heartbeat
+to its bounded `/tmp` volume after initialization; startup, readiness, and
+liveness exec probes run `dist/indexer-healthcheck.js`. A stale event loop or
+dead worker therefore becomes unready and is restarted. The API's durable-cursor
+readiness remains the network-progress signal, so RPC/database incidents are not
+misclassified as a process hang. All Kubernetes workloads use a read-only root
 filesystem with only a bounded `/tmp` `emptyDir` write surface, explicit
 ephemeral-storage budgets, and backend Secret projections defaulted to `0440`
 for non-root `fsGroup` access. API and frontend rollouts keep a zero-unavailable
@@ -123,10 +141,32 @@ the approved ingress-controller namespace with
 `networking.cruzible.io/external-ingress=true` or patch the selector in an
 environment overlay before exposing the frontend or API services.
 
+### Release image promotion
+
+Configure the GitHub `production` environment with required reviewers before
+using the manual `Cruzible CI` release path. Each matrix leg publishes only its
+commit-SHA candidate, then must pass the high/critical vulnerability scan,
+keyless signature, signature verification, and provenance attestation. The
+separate promotion job waits for all four candidate legs (frontend, API,
+indexer, and migration), the aggregate quality gate, and the environment
+approval before moving their `:main` tags. Cross-repository tag updates are not
+atomic, so a later failure triggers best-effort restoration of every established
+channel tag already moved. A first-ever tag cannot be deleted safely; either
+way, channel tags are never deployment authority.
+
+Deploy only after the `promoted-release-images-<commit>` artifact records
+`promotion_status: completed`. Use the four immutable digests in that final
+inventory, including the migration image; never render a workload from `:main`
+or from a partial/failed promotion plan. Validate the rendered rollout against
+that completed inventory with `npm run deployment:release-images:validate --
+--promotion-inventory <inventory.json> --manifest <rendered.yaml>`.
+
 ### Compose baseline
 
-`backend/infra/docker-compose.yml` includes checked-in baselines for Redis,
-nginx, Prometheus, Grafana, and the PostgreSQL initialization mount. Before
+`backend/infra/docker-compose.yml` includes checked-in baselines for nginx,
+Prometheus, Grafana, and the PostgreSQL initialization mount. Redis is
+intentionally external: `REDIS_URL_FILE` must contain an operator-managed
+`rediss://` endpoint. Before
 using it outside local staging, provide all required `*_FILE` secrets, immutable
 third-party image digests, `GRAFANA_ROOT_URL`, and nginx TLS certificate/key
 files. Prometheus scrapes `/metrics` with the same
@@ -196,6 +236,11 @@ vars were present, but it never records token values.
 ## 5. Reconciliation and Alerts
 
 The reconciliation scheduler starts automatically with the API process.
+It compares indexed VaultState values with independent EVM reads at the exact
+indexed block. Reward-driven exchange rates above 1.0 are healthy when those
+sources agree, and vault TVL is never compared with network-wide validator
+stake. Aggregate holder shares are reconciled with vault `totalShares`; no
+single-validator ownership is fabricated for transferable stAETHEL holders.
 
 ### Relevant env controls
 
@@ -264,6 +309,47 @@ npm run db:migrate:deploy
 - `PrivilegedAuditEvent` is append-only at the database layer; do not bypass the
   mutation-prevention trigger during incident handling.
 
+### Mandatory production migration sequence
+
+The event-identity and stAETHEL share-ledger migrations backfill or replace
+indexer projections. They must never run while an old indexer process can
+write those tables. This release also changes the reconciliation scheduler's
+network namespace; a mixed-version rolling update would leave pre-namespace API
+replicas able to emit unfenced legacy alerts. The first rollout therefore
+requires a full legacy API scheduler drain as part of the same maintenance
+window.
+
+1. Put public traffic into the approved maintenance path. Scale both the API
+   gateway and indexer to zero, then wait until every old pod/container and any
+   in-flight reconciliation tick have exited. Do not use the normal
+   `maxUnavailable: 0` rolling update for this pre-namespace-to-v2 transition.
+   Set neither quiescence acknowledgement before both drains are verified.
+2. With the indexer still stopped, take the pre-migration backup and verify its
+   manifest and `pg_restore --list` check succeeded.
+3. Run the immutable `api-migration@sha256:<digest>` image. For Compose, export
+   both `CRUZIBLE_MIGRATION_QUIESCED=true` and
+   `CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED=true` only after
+   `docker compose stop api-gateway indexer` has completed, then run
+   `docker compose run --rm migrate`. For Kubernetes, set both rendered
+   `migration.indexer.quiesced` and `migration.legacy.schedulers.quiesced` to
+   `"true"`, delete the prior fixed-name Job with
+   `kubectl -n cruzible delete job cruzible-db-migrate --ignore-not-found`, and
+   apply the release manifests. The delete/recreate step is mandatory because
+   Kubernetes does not rerun a completed Job on a later apply.
+4. Wait for `cruzible-db-migrate` to complete and run the same image in
+   `status` mode. Do not start application containers while status reports an
+   unapplied or failed migration. The API/indexer `schema-ready` init
+   containers provide an additional fail-closed gate; they do not apply schema.
+5. Start the new indexer image and one new API replica. Wait for `/health/ready`
+   to show the namespaced durable cursor, cleared rebuild marker, and lag within
+   policy. Scale the new API release to its desired count, restore traffic, and
+   reset both quiescence acknowledgements to `false` after the window.
+
+If migration or projection rebuild fails, keep the indexer at zero. Preserve
+the failed database for analysis and restore the verified backup before
+starting the previous application image; Prisma migrations have no automatic
+down migration.
+
 ## 7. Rollback Guidance
 
 ### Frontend
@@ -327,7 +413,7 @@ production evidence for actual release decisions.
 
 ## 9. Known Operator Gaps In This Repo Snapshot
 
-- `backend/infra/docker-compose.yml` requires operator-provisioned secret files, Redis credentials, TLS certificate/key files, immutable third-party image digests, and a staging dry run before it can be treated as production-ready.
+- `backend/infra/docker-compose.yml` requires operator-provisioned secret files, an external TLS Redis endpoint, TLS certificate/key files, immutable third-party image digests, and a staging dry run before it can be treated as production-ready.
 - `k8s/base/backend.yaml` contains fail-closed placeholder config and requires environment-specific values plus the `cruzible-api-secrets` Secret before rollout; the base projects those secrets as read-only `0440` files for non-root `fsGroup` access.
 - `k8s/base/network-policy.yaml` requires an explicitly labeled ingress-controller namespace before cross-namespace traffic can reach the frontend or API services.
 - Production database-backed auth and alert state requires the `AuthNonce`,

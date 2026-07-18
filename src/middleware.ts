@@ -15,6 +15,7 @@ type CspOptions = {
 // (src/config/chains.ts) or the CSP blocks the app's own RPC calls.
 const TESTNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL;
 const DEVNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL;
+const MAINNET_RPC_OVERRIDE = process.env.NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL;
 
 // The same operator allowlist the build validator
 // (scripts/validate-frontend-public-env.mjs) accepts — a build that passed
@@ -97,16 +98,8 @@ const PRODUCTION_API_ORIGINS_BY_CHAIN: Record<
 };
 
 const CONNECT_SOURCES_BY_CHAIN: Record<ChainEnv, readonly string[]> = {
-  mainnet: [
-    "https://api.mainnet.aethelred.org",
-    "https://evm-rpc.aethelred.network",
-    "wss://evm-ws.aethelred.network",
-  ],
-  testnet: [
-    "https://api.testnet.aethelred.org",
-    "https://evm-rpc-testnet.aethelred.network",
-    "wss://evm-ws-testnet.aethelred.network",
-  ],
+  mainnet: ["https://api.mainnet.aethelred.org"],
+  testnet: ["https://api.testnet.aethelred.org"],
   devnet: [
     "http://localhost:*",
     "http://127.0.0.1:*",
@@ -243,11 +236,13 @@ export function buildContentSecurityPolicy({
   // be reachable under this CSP, or the app blocks its own chain reads.
   const rpcOverride =
     rpcOverrideUrl ??
-    (chainEnv === "testnet"
-      ? TESTNET_RPC_OVERRIDE
-      : chainEnv === "devnet"
-        ? DEVNET_RPC_OVERRIDE
-        : undefined);
+    (chainEnv === "mainnet"
+      ? MAINNET_RPC_OVERRIDE
+      : chainEnv === "testnet"
+        ? TESTNET_RPC_OVERRIDE
+        : chainEnv === "devnet"
+          ? DEVNET_RPC_OVERRIDE
+          : undefined);
   const connectSrc = uniqueSources([
     "'self'",
     configuredApiOrigin,

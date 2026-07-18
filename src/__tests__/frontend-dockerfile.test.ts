@@ -1,29 +1,31 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { FRONTEND_PUBLIC_BUILD_KEYS } from "../../scripts/lib/frontend-public-env-keys.mjs";
 
 const dockerfile = readFileSync(resolve(process.cwd(), "Dockerfile"), "utf8");
 
 describe("frontend Dockerfile hardening", () => {
   it("requires public build args instead of defaulting production images", () => {
-    for (const buildArg of [
-      "NEXT_PUBLIC_API_URL",
-      "NEXT_PUBLIC_CHAIN_ENV",
-      "NEXT_PUBLIC_CRUZIBLE_ADDRESS",
-      "NEXT_PUBLIC_STAETHEL_ADDRESS",
-      "NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS",
-      "NEXT_PUBLIC_GOVERNANCE_ADDRESS",
-      "NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS",
-      "NEXT_PUBLIC_USDC_TOKEN_ADDRESS",
-      "NEXT_PUBLIC_USDT_TOKEN_ADDRESS",
-      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID",
-    ]) {
+    const dockerPublicArgs = [
+      ...dockerfile.matchAll(/^ARG (NEXT_PUBLIC_\S+)$/gmu),
+    ]
+      .map((match) => match[1])
+      .sort();
+    expect(dockerPublicArgs).toEqual([...FRONTEND_PUBLIC_BUILD_KEYS].sort());
+    for (const buildArg of FRONTEND_PUBLIC_BUILD_KEYS) {
       expect(dockerfile).toContain(`ARG ${buildArg}`);
       expect(dockerfile).toContain(`ENV ${buildArg}=\${${buildArg}}`);
     }
     expect(dockerfile).not.toContain("ARG NEXT_PUBLIC_CHAIN_ENV=testnet");
     expect(dockerfile).toContain("NEXT_PUBLIC_API_URL build arg is required");
     expect(dockerfile).toContain("NEXT_PUBLIC_CHAIN_ENV build arg is required");
+    expect(dockerfile).toContain(
+      "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL build arg is required for testnet",
+    );
+    expect(dockerfile).toContain(
+      "NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID build arg is required for mainnet",
+    );
   });
 
   it("does not expose compiled public config as mutable runtime env", () => {
@@ -36,6 +38,8 @@ describe("frontend Dockerfile hardening", () => {
     expect(runnerStage).toBeDefined();
     expect(runnerStage).not.toContain("ENV NEXT_PUBLIC_API_URL");
     expect(runnerStage).not.toContain("ENV NEXT_PUBLIC_CHAIN_ENV");
+    expect(runnerStage).toContain('ENV CRUZIBLE_EXTRA_API_ORIGINS=""');
+    expect(runnerStage).toContain('ENV CRUZIBLE_ALLOW_PLAINTEXT_HTTP="false"');
   });
 
   it("runs the production server behind an init process with a healthcheck", () => {

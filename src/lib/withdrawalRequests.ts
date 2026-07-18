@@ -13,6 +13,49 @@ export interface DisplayWithdrawalRequest {
   totalDays: number;
 }
 
+export function formatUnbondingPeriod(seconds: bigint | null): string {
+  if (seconds == null || seconds < 0n) return "Unavailable";
+  if (seconds === 0n) return "No cooldown";
+
+  const secondsPerDay = 86_400n;
+  const secondsPerHour = 3_600n;
+  const days = seconds / secondsPerDay;
+  const hours = (seconds % secondsPerDay) / secondsPerHour;
+
+  if (days > 0n) {
+    const dayLabel = `${days.toString()} day${days === 1n ? "" : "s"}`;
+    if (hours === 0n) return dayLabel;
+    return `${dayLabel} ${hours.toString()} hour${hours === 1n ? "" : "s"}`;
+  }
+
+  const roundedHours = (seconds + secondsPerHour - 1n) / secondsPerHour;
+  return `${roundedHours.toString()} hour${roundedHours === 1n ? "" : "s"}`;
+}
+
+export function calculateUnbondingCompletionTimeMs(
+  seconds: bigint | null,
+  nowMs: number,
+): number | null {
+  if (
+    seconds == null ||
+    seconds < 0n ||
+    !Number.isSafeInteger(nowMs) ||
+    nowMs < 0
+  ) {
+    return null;
+  }
+
+  const maxAdditionalSeconds = BigInt(
+    Math.floor((Number.MAX_SAFE_INTEGER - nowMs) / 1_000),
+  );
+  if (seconds > maxAdditionalSeconds) return null;
+
+  const completion = nowMs + Number(seconds) * 1_000;
+  return Number.isSafeInteger(completion) && completion <= 8.64e15
+    ? completion
+    : null;
+}
+
 export function toDisplayWithdrawalRequests(
   withdrawals: WithdrawalRequest[],
   nowSeconds: number,
@@ -31,7 +74,10 @@ export function toDisplayWithdrawalRequests(
       id: `w${withdrawal.id.toString()}`,
       withdrawalId: withdrawal.id,
       amount: parseFloat(formatEther(withdrawal.aethelAmount)),
-      stAethelAmount: parseFloat(formatEther(withdrawal.shares)),
+      // Withdrawal.shares is the invariant internal share unit. The rebasing
+      // stAETHEL amount burned at request time is its AETHEL value, which the
+      // vault snapshots in aethelAmount.
+      stAethelAmount: parseFloat(formatEther(withdrawal.aethelAmount)),
       startDate: new Date(start * 1000).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
