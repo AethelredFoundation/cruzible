@@ -20,9 +20,9 @@ describe("frontend API config", () => {
   it("uses local API only outside production when unset", () => {
     vi.stubEnv("NODE_ENV", "test");
 
-    expect(getApiV1BaseUrl()).toBe("http://localhost:3001/v1");
+    expect(getApiV1BaseUrl()).toBe("http://localhost:4001/v1");
     expect(getApiUrl("/validators")).toBe(
-      "http://localhost:3001/v1/validators",
+      "http://localhost:4001/v1/validators",
     );
   });
 
@@ -129,7 +129,7 @@ describe("frontend API config", () => {
   it("rejects localhost API URLs outside devnet production builds", () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.NEXT_PUBLIC_CHAIN_ENV = "testnet";
-    process.env.NEXT_PUBLIC_API_URL = "http://localhost:3001";
+    process.env.NEXT_PUBLIC_API_URL = "http://localhost:4001";
 
     expect(() => getApiV1BaseUrl()).toThrow(
       "NEXT_PUBLIC_API_URL must not point at localhost unless NEXT_PUBLIC_CHAIN_ENV=devnet",
@@ -139,9 +139,9 @@ describe("frontend API config", () => {
   it("allows localhost API URLs for explicit devnet production builds", () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.NEXT_PUBLIC_CHAIN_ENV = "devnet";
-    process.env.NEXT_PUBLIC_API_URL = "http://localhost:3001";
+    process.env.NEXT_PUBLIC_API_URL = "http://localhost:4001";
 
-    expect(getApiV1BaseUrl()).toBe("http://localhost:3001/v1");
+    expect(getApiV1BaseUrl()).toBe("http://localhost:4001/v1");
   });
 
   it("allows an explicitly compiled self-hosted HTTPS testnet API", async () => {
@@ -161,15 +161,15 @@ describe("frontend API config", () => {
   it("allows only an explicitly allowlisted HTTP origin in the pre-TLS profile", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NEXT_PUBLIC_CHAIN_ENV", "testnet");
-    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://93.127.132.52:3001");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://93.127.132.52:4001");
     vi.stubEnv(
       "NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS",
-      "http://93.127.132.52:3001",
+      "http://93.127.132.52:4001",
     );
     vi.stubEnv("NEXT_PUBLIC_CRUZIBLE_ALLOW_PLAINTEXT_HTTP", "true");
     vi.resetModules();
     const { getApiV1BaseUrl: getFreshApiBase } = await import("@/config/api");
 
-    expect(getFreshApiBase()).toBe("http://93.127.132.52:3001/v1");
+    expect(getFreshApiBase()).toBe("http://93.127.132.52:4001/v1");
   });
 });

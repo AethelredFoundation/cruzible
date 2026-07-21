@@ -415,7 +415,7 @@ describe("validator API helpers", () => {
 
     expect(response.data).toEqual([]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:3001/v1/validators?limit=10&offset=5&status=active",
+      "http://localhost:4001/v1/validators?limit=10&offset=5&status=active",
       expect.objectContaining({ credentials: "include" }),
     );
     expect(

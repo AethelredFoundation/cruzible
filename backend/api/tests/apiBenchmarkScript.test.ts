@@ -66,7 +66,7 @@ describe("API benchmark gate", () => {
 
     expect(evidence.schema).toBe("cruzible.api_benchmark_gate.v1");
     expect(evidence.mode).toBe("check");
-    expect(evidence.target.url).toBe("http://127.0.0.1:3000/health/live");
+    expect(evidence.target.url).toBe("http://127.0.0.1:4001/health/live");
     expect(evidence.thresholds).toMatchObject({
       requests: 12,
       concurrency: 3,

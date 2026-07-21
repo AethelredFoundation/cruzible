@@ -1,4 +1,4 @@
-const LOCAL_API_V1_URL = "http://localhost:3001/v1";
+const LOCAL_API_V1_URL = "http://localhost:4001/v1";
 const API_VERSION_PATH = "/v1";
 type ChainEnv = "mainnet" | "testnet" | "devnet";
 const PRODUCTION_API_ORIGINS_BY_CHAIN: Record<

@@ -23,6 +23,8 @@ describe("API Dockerfile hardening", () => {
     const productionStage = getProductionStage();
 
     expect(productionStage).toContain("ENV NODE_ENV=production");
-    expect(productionStage).toContain("ENV PORT=3000");
+    expect(productionStage).toContain("ENV PORT=4001");
+    expect(productionStage).toContain("EXPOSE 4001");
+    expect(productionStage).toContain("http://localhost:4001/health/live");
   });
 });

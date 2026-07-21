@@ -7,6 +7,10 @@ const composeManifest = readFileSync(
   resolve(infraDir, "docker-compose.yml"),
   "utf8",
 );
+const testnetComposeManifest = readFileSync(
+  resolve(process.cwd(), "docker-compose.yml"),
+  "utf8",
+);
 const prometheusConfig = readFileSync(
   resolve(infraDir, "config/prometheus/prometheus.yml"),
   "utf8",
@@ -234,7 +238,7 @@ describe("Docker Compose production scaffold", () => {
   });
 
   it("keeps internal service ports off public host interfaces", () => {
-    for (const port of ["3000", "5432"]) {
+    for (const port of ["4001", "5432"]) {
       expect(composeManifest).not.toContain(`"${port}:${port}"`);
       expect(composeManifest).toContain(`"127.0.0.1:${port}:${port}"`);
     }
@@ -244,6 +248,16 @@ describe("Docker Compose production scaffold", () => {
     expect(composeManifest).toContain('"127.0.0.1:3002:3000"');
     expect(composeManifest).toContain('"127.0.0.1:16686:16686"');
     expect(composeManifest).toContain('"127.0.0.1:14250:14250"');
+  });
+
+  it("uses the canonical Cruzible backend port throughout the stack", () => {
+    expect(composeManifest).toContain("PORT=4001");
+    expect(composeManifest).toContain("http://localhost:4001/health/ready");
+    expect(prometheusConfig).toContain("api-gateway:4001");
+    expect(testnetComposeManifest).toContain('PORT: "4001"');
+    expect(testnetComposeManifest).toContain(
+      '"${CRUZIBLE_API_PORT:-4001}:4001"',
+    );
   });
 
   it("pins API proxy trust to the nginx hop", () => {

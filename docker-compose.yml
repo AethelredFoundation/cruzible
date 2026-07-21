@@ -1,7 +1,7 @@
 # Cruzible backend stack — single-box testnet bring-up.
 #
 #   cp .env.testnet.example .env    # then edit: chain endpoints + deployed addresses
-#   docker compose up --build       # Postgres + Redis + Prisma migrations + API on :3001
+#   docker compose up --build       # Postgres + Redis + Prisma migrations + API on :4001
 #
 # Optionally run the chain indexer as well (needs INDEXER_RPC_URL in .env):
 #   docker compose --profile indexer up --build
@@ -67,10 +67,10 @@ services:
       DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
       REDIS_URL: redis://redis:6379
       NODE_ENV: ${NODE_ENV:-development}
-      # Container port stays 3000 — the image's healthcheck probes it.
-      PORT: "3000"
+      # Keep the published and container API ports aligned for simpler VPS ops.
+      PORT: "4001"
     ports:
-      - "${CRUZIBLE_API_PORT:-3001}:3000"
+      - "${CRUZIBLE_API_PORT:-4001}:4001"
     depends_on:
       migrate:
         condition: service_completed_successfully

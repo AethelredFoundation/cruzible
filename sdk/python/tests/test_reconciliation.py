@@ -134,7 +134,7 @@ class ReconciliationTests(unittest.TestCase):
 
         with patch("cruzible_sdk.reconciliation.urlopen", return_value=_FakeResponse()):
             document = fetch_reconciliation_input(
-                "http://127.0.0.1:3001/v1/reconciliation/live",
+                "http://127.0.0.1:4001/v1/reconciliation/live",
                 timeout=5.0,
             )
 

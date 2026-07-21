@@ -140,7 +140,7 @@ Minimum viable set (needs reachable PostgreSQL + Redis):
 
 ```bash
 export NODE_ENV=development
-export PORT=3001
+export PORT=4001
 export DATABASE_URL=postgresql://user:pass@localhost:5432/cruzible
 export REDIS_URL=redis://localhost:6379
 export RPC_URL=http://54.165.44.130:8545

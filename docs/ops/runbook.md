@@ -187,11 +187,11 @@ files. Prometheus scrapes `/metrics` with the same
 ### Common checks
 
 ```bash
-curl -s http://localhost:3001/health | jq
-curl -s http://localhost:3001/health/live | jq
-curl -s http://localhost:3001/health/ready | jq
-curl -s http://localhost:3001/metrics | head
-curl -s http://localhost:3001/v1/reconciliation/live?validator_limit=50 | jq
+curl -s http://localhost:4001/health | jq
+curl -s http://localhost:4001/health/live | jq
+curl -s http://localhost:4001/health/ready | jq
+curl -s http://localhost:4001/metrics | head
+curl -s http://localhost:4001/v1/reconciliation/live?validator_limit=50 | jq
 ```
 
 ### Staged launch drill

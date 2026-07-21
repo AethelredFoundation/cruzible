@@ -286,6 +286,20 @@ describe("Kubernetes base manifests", () => {
     expect(backendManifest).not.toContain("cruzible.example");
   });
 
+  it("keeps backend and frontend listeners on their reserved ports", () => {
+    const api = getDeploymentBlock(backendManifest, "cruzible-api");
+    const frontend = getDeploymentBlock(frontendManifest, "cruzible-frontend");
+
+    expect(api).toContain("containerPort: 4001");
+    expect(api).toContain('name: PORT\n              value: "4001"');
+    expect(api).not.toContain("containerPort: 3000");
+    expect(backendManifest).toContain('prometheus.io/port: "4001"');
+    expect(backendManifest).toContain("targetPort: 4001");
+
+    expect(frontend).toContain("containerPort: 3000");
+    expect(frontend).not.toContain("containerPort: 4001");
+  });
+
   it("injects the frontend server response policy from a fail-closed runtime config", () => {
     const deployment = getDeploymentBlock(
       frontendManifest,
@@ -459,7 +473,8 @@ describe("Kubernetes base manifests", () => {
     );
     expect(networkPolicyManifest).toContain("k8s-app: kube-dns");
     expect(networkPolicyManifest).toContain("app: cruzible-api");
-    expect(networkPolicyManifest).toContain("port: 3000");
+    expect(frontendPolicy).toContain("port: 3000");
+    expect(apiPolicy).toContain("port: 4001");
     expect(apiPolicy).not.toContain("ipBlock:");
     expect(indexerPolicy).not.toContain("ipBlock:");
     expect(networkPolicyManifest).not.toContain("cidr: 0.0.0.0/0");

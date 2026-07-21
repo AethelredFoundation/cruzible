@@ -137,7 +137,7 @@ spec:
       annotations:
         cruzible.io/metrics-auth: "bearer-token-required"
         prometheus.io/path: /metrics
-        prometheus.io/port: "3000"
+        prometheus.io/port: "4001"
         prometheus.io/scrape: "false"
     spec:
       automountServiceAccountToken: false
@@ -196,7 +196,7 @@ spec:
           image: ghcr.io/aethelred/cruzible/api@sha256:REPLACE_WITH_API_IMAGE_DIGEST
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 3000
+            - containerPort: 4001
               name: http
           env:
             - name: NODE_ENV
@@ -214,7 +214,7 @@ spec:
                   name: cruzible-api-config
                   key: cruzible.allow.plaintext.http
             - name: PORT
-              value: "3000"
+              value: "4001"
             - name: INDEXER_ENABLED
               value: "false"
             - name: TRUST_PROXY
@@ -384,7 +384,7 @@ spec:
     app: cruzible-api
   ports:
     - port: 80
-      targetPort: 3000
+      targetPort: 4001
       protocol: TCP
       name: http
   type: ClusterIP

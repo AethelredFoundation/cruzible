@@ -23,13 +23,13 @@ services:
     image: ghcr.io/aethelred/cruzible/api@sha256:${CRUZIBLE_API_IMAGE_DIGEST:?set CRUZIBLE_API_IMAGE_DIGEST}
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:4001:4001"
     environment:
       - NODE_ENV=production
       - CRUZIBLE_RUNTIME_ROLE=api
       - CRUZIBLE_NETWORK=${CRUZIBLE_NETWORK:-testnet}
       - CRUZIBLE_ALLOW_PLAINTEXT_HTTP=${CRUZIBLE_ALLOW_PLAINTEXT_HTTP:-false}
-      - PORT=3000
+      - PORT=4001
       - RPC_URL=${RPC_URL:?set RPC_URL}
       - GRPC_URL=${GRPC_URL:?set GRPC_URL}
       - DATABASE_URL_FILE=/run/secrets/cruzible_database_url
@@ -66,7 +66,7 @@ services:
     networks:
       - aethelred-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health/ready"]
+      test: ["CMD", "curl", "-f", "http://localhost:4001/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 3

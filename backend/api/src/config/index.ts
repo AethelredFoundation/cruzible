@@ -148,7 +148,7 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
-  PORT: integerEnvSchema({ min: 1, max: 65535, defaultValue: 3001 }),
+  PORT: integerEnvSchema({ min: 1, max: 65535, defaultValue: 4001 }),
   RPC_URL: z.string().url().default("http://127.0.0.1:26657"),
   DATABASE_URL: optionalUrlSchema,
   REDIS_URL: optionalUrlSchema,

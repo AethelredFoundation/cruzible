@@ -70,7 +70,7 @@ describe("fetchModelDetail", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:3001/v1/models/missing-model",
+      "http://localhost:4001/v1/models/missing-model",
     );
   });
 });
@@ -108,7 +108,7 @@ describe("fetchAllModels", () => {
     expect(result.models).toHaveLength(1_000);
     expect(fetchMock).toHaveBeenCalledTimes(10);
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(
-      "http://localhost:3001/v1/models?limit=100&offset=900&sort=registered_at%3Adesc",
+      "http://localhost:4001/v1/models?limit=100&offset=900&sort=registered_at%3Adesc",
     );
   });
 });

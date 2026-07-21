@@ -32,10 +32,10 @@ describe("legacy API client path construction", () => {
     await getStakingInfo("aeth1user/../../admin");
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "http://localhost:3001/v1/jobs/job%2F1%3Fdebug%3Dtrue",
-      "http://localhost:3001/v1/transactions/tx%2Fhash%23fragment",
-      "http://localhost:3001/v1/validators/aeth%20val%2Foper1",
-      "http://localhost:3001/v1/staking/aeth1user%2F..%2F..%2Fadmin",
+      "http://localhost:4001/v1/jobs/job%2F1%3Fdebug%3Dtrue",
+      "http://localhost:4001/v1/transactions/tx%2Fhash%23fragment",
+      "http://localhost:4001/v1/validators/aeth%20val%2Foper1",
+      "http://localhost:4001/v1/staking/aeth1user%2F..%2F..%2Fadmin",
     ]);
   });
 });

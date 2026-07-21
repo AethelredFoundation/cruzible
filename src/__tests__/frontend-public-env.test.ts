@@ -289,12 +289,12 @@ describe("frontend public build environment validation", () => {
     expect(
       validateFrontendPublicEnv({
         NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
+        NEXT_PUBLIC_API_URL: "http://localhost:4001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "devnet",
         NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"d".repeat(64)}`,
       }),
     ).toEqual({
-      apiOrigin: "http://localhost:3001",
+      apiOrigin: "http://localhost:4001",
       chainEnv: "devnet",
     });
   });
@@ -314,7 +314,7 @@ describe("frontend public build environment validation", () => {
     expect(() =>
       validateFrontendPublicEnv({
         NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
+        NEXT_PUBLIC_API_URL: "http://localhost:4001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "devnet",
         NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"d".repeat(64)}`,
         NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
@@ -329,7 +329,7 @@ describe("frontend public build environment validation", () => {
     expect(
       validateFrontendPublicEnv({
         NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "http://localhost:3001/v1",
+        NEXT_PUBLIC_API_URL: "http://localhost:4001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "devnet",
         NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"d".repeat(64)}`,
         NEXT_PUBLIC_ENABLE_DEVTOOLS: "true",
@@ -338,7 +338,7 @@ describe("frontend public build environment validation", () => {
         NEXT_PUBLIC_DEVTOOLS_RPC_URL: "http://[::1]:26657",
       }),
     ).toEqual({
-      apiOrigin: "http://localhost:3001",
+      apiOrigin: "http://localhost:4001",
       chainEnv: "devnet",
     });
   });
@@ -347,11 +347,11 @@ describe("frontend public build environment validation", () => {
     expect(
       validateFrontendPublicEnv({
         ...testnetBaseEnv,
-        NEXT_PUBLIC_API_URL: "https://54.165.44.130:3001/v1",
-        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:3001",
+        NEXT_PUBLIC_API_URL: "https://54.165.44.130:4001/v1",
+        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:4001",
       }),
     ).toEqual({
-      apiOrigin: "https://54.165.44.130:3001",
+      apiOrigin: "https://54.165.44.130:4001",
       chainEnv: "testnet",
     });
   });
@@ -360,8 +360,8 @@ describe("frontend public build environment validation", () => {
     expect(() =>
       validateFrontendPublicEnv({
         ...testnetBaseEnv,
-        NEXT_PUBLIC_API_URL: "https://198.51.100.7:3001/v1",
-        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:3001",
+        NEXT_PUBLIC_API_URL: "https://198.51.100.7:4001/v1",
+        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:4001",
       }),
     ).toThrow("NEXT_PUBLIC_API_URL must be one of");
   });
@@ -370,8 +370,8 @@ describe("frontend public build environment validation", () => {
     expect(() =>
       validateFrontendPublicEnv({
         ...testnetBaseEnv,
-        NEXT_PUBLIC_API_URL: "https://54.165.44.130:3001/v1",
-        CRUZIBLE_EXTRA_API_ORIGINS: "http://54.165.44.130:3001",
+        NEXT_PUBLIC_API_URL: "https://54.165.44.130:4001/v1",
+        CRUZIBLE_EXTRA_API_ORIGINS: "http://54.165.44.130:4001",
       }),
     ).toThrow("CRUZIBLE_EXTRA_API_ORIGINS entries must use https");
   });
@@ -419,10 +419,10 @@ describe("frontend public build environment validation", () => {
     expect(
       validateFrontendPublicEnv({
         NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "http://93.127.132.52:3001/v1",
+        NEXT_PUBLIC_API_URL: "http://93.127.132.52:4001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "testnet",
         NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: "http://93.127.132.52:8545",
-        CRUZIBLE_EXTRA_API_ORIGINS: "http://93.127.132.52:3001",
+        CRUZIBLE_EXTRA_API_ORIGINS: "http://93.127.132.52:4001",
         CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "true",
         NEXT_PUBLIC_AETHELRED_GENESIS_HASH: `0x${"a".repeat(64)}`,
         NEXT_PUBLIC_CRUZIBLE_ADDRESS:
@@ -433,7 +433,7 @@ describe("frontend public build environment validation", () => {
           "7a4f9c2e1b8d43c6a095f2e7d4b1c830",
       }),
     ).toEqual({
-      apiOrigin: "http://93.127.132.52:3001",
+      apiOrigin: "http://93.127.132.52:4001",
       chainEnv: "testnet",
     });
   });
@@ -442,9 +442,9 @@ describe("frontend public build environment validation", () => {
     expect(() =>
       validateFrontendPublicEnv({
         NODE_ENV: "production" as const,
-        NEXT_PUBLIC_API_URL: "http://93.127.132.52:3001/v1",
+        NEXT_PUBLIC_API_URL: "http://93.127.132.52:4001/v1",
         NEXT_PUBLIC_CHAIN_ENV: "testnet",
-        CRUZIBLE_EXTRA_API_ORIGINS: "http://93.127.132.52:3001",
+        CRUZIBLE_EXTRA_API_ORIGINS: "http://93.127.132.52:4001",
         NEXT_PUBLIC_CRUZIBLE_ADDRESS:
           "0x1111111111111111111111111111111111111111",
         NEXT_PUBLIC_STAETHEL_ADDRESS:
@@ -461,8 +461,8 @@ describe("frontend public build environment validation", () => {
     expect(() =>
       validateFrontendPublicEnv({
         ...testnetBaseEnv,
-        NEXT_PUBLIC_API_URL: "https://54.165.44.130:3001/v1",
-        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:3001/v1",
+        NEXT_PUBLIC_API_URL: "https://54.165.44.130:4001/v1",
+        CRUZIBLE_EXTRA_API_ORIGINS: "https://54.165.44.130:4001/v1",
       }),
     ).toThrow(
       "CRUZIBLE_EXTRA_API_ORIGINS entries must be bare origins, not deep paths",

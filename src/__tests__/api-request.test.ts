@@ -33,7 +33,7 @@ describe("apiRequest", () => {
     await apiRequest("/validators");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:3001/v1/validators",
+      "http://localhost:4001/v1/validators",
       expect.objectContaining({ cache: "no-store", credentials: "include" }),
     );
 

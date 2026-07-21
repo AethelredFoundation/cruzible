@@ -129,6 +129,14 @@ afterEach(() => {
 });
 
 describe("backend config hardening", () => {
+  it("uses the reserved Cruzible backend port by default", async () => {
+    const { config } = await loadConfigWithEnv({
+      NODE_ENV: "development",
+    });
+
+    expect(config.port).toBe(4001);
+  });
+
   it("rejects development JWT secrets in production", async () => {
     await expect(
       loadConfigWithEnv({

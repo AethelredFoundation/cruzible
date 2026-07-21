@@ -150,14 +150,14 @@ describe("Next.js security config", () => {
     const csp = buildContentSecurityPolicy({
       nonce: "test-nonce",
       nodeEnv: "production",
-      apiUrl: "https://54.165.44.130:3001/v1",
+      apiUrl: "https://54.165.44.130:4001/v1",
       chainEnv: "testnet",
-      extraApiOrigins: ["https://54.165.44.130:3001"],
+      extraApiOrigins: ["https://54.165.44.130:4001"],
       rpcOverrideUrl: "http://93.127.132.52:8545",
     });
 
     expect(getCspDirective(csp, "connect-src")).toContain(
-      "https://54.165.44.130:3001",
+      "https://54.165.44.130:4001",
     );
     expect(getCspDirective(csp, "connect-src")).toContain(
       "http://93.127.132.52:8545",
@@ -168,15 +168,15 @@ describe("Next.js security config", () => {
     const csp = buildContentSecurityPolicy({
       nonce: "test-nonce",
       nodeEnv: "production",
-      apiUrl: "http://203.0.113.10:3001/v1",
+      apiUrl: "http://203.0.113.10:4001/v1",
       chainEnv: "testnet",
       allowPlaintextHttp: true,
-      extraApiOrigins: ["http://203.0.113.10:3001"],
+      extraApiOrigins: ["http://203.0.113.10:4001"],
       rpcOverrideUrl: "http://203.0.113.10:8545",
     });
     const connectSrc = getCspDirective(csp, "connect-src");
 
-    expect(connectSrc).toContain("http://203.0.113.10:3001");
+    expect(connectSrc).toContain("http://203.0.113.10:4001");
     expect(connectSrc).toContain("http://203.0.113.10:8545");
     expect(csp).not.toContain("upgrade-insecure-requests");
   });
@@ -211,7 +211,7 @@ describe("Next.js security config", () => {
     const localhostCsp = buildContentSecurityPolicy({
       nonce: "test-nonce",
       nodeEnv: "production",
-      apiUrl: "http://localhost:3001/v1",
+      apiUrl: "http://localhost:4001/v1",
       chainEnv: "testnet",
     });
     const credentialedCsp = buildContentSecurityPolicy({
@@ -225,7 +225,7 @@ describe("Next.js security config", () => {
       "https://api.testnet.aethelred.org.evil.example",
     );
     expect(getCspDirective(localhostCsp, "connect-src")).not.toContain(
-      "http://localhost:3001",
+      "http://localhost:4001",
     );
     expect(getCspDirective(credentialedCsp, "connect-src")).not.toContain(
       "https://user:pass@",

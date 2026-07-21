@@ -69,8 +69,8 @@ npm run benchmark:check
 npm run benchmark -- --url https://api.testnet.aethelred.org/health/live
 
 # Runtime probes
-curl -s http://localhost:3001/health | jq
-curl -s http://localhost:3001/health/ready | jq
+curl -s http://localhost:4001/health | jq
+curl -s http://localhost:4001/health/ready | jq
 
 # Contracts
 cd ../contracts

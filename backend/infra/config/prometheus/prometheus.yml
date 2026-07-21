@@ -19,4 +19,4 @@ scrape_configs:
     bearer_token_file: /run/secrets/cruzible_operational_token
     static_configs:
       - targets:
-          - api-gateway:3000
+          - api-gateway:4001

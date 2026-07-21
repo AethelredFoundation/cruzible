@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 const BENCHMARK_SCHEMA = "cruzible.api_benchmark_gate.v1";
 const DEFAULT_CONFIG = {
-  targetUrl: "http://127.0.0.1:3000/health/live",
+  targetUrl: "http://127.0.0.1:4001/health/live",
   requests: 40,
   concurrency: 4,
   timeoutMs: 2_000,
