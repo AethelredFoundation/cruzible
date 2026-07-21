@@ -7,12 +7,17 @@ is already up via `docker compose up --build -d` (see `.env.testnet.example`).
 
 ## 1. Build & serve the frontend (pre-DNS/pre-TLS profile)
 
-Three env vars beyond the addresses matter here:
+Four env vars beyond the addresses matter here:
 
 - `NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL` — **your node's public EVM RPC.**
   Without it the bundle falls back to the placeholder DNS
   (`evm-rpc-testnet.aethelred.network`, which does not resolve) and every
   chain card shows "Unavailable". Compiled in at **build time**.
+- `NEXT_PUBLIC_AETHELRED_GENESIS_HASH` — immutable block-1 network anchor.
+  For the public testnet RPC `http://54.165.44.130:8545`, the verified value
+  is `0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7`
+  (chain ID `7332` / `0x1ca4`). Do not omit or bypass this guard: it prevents a
+  wallet on a different network with the same chain ID from signing writes.
 - `CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true` — omits HSTS and the CSP
   `upgrade-insecure-requests` directive. Without it, a page served over plain
   HTTP on a public IP has every asset request auto-upgraded to https →
@@ -36,6 +41,7 @@ export CRUZIBLE_EXTRA_API_ORIGINS=http://<dapp-host>:4001
 NEXT_PUBLIC_CHAIN_ENV=testnet \
 NEXT_PUBLIC_API_URL=http://<dapp-host>:4001/v1 \
 NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://<node-host>:8545 \
+NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7 \
 NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x<vault> \
 NEXT_PUBLIC_STAETHEL_ADDRESS=0x<staethel> \
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=<real 32-hex id> \
@@ -44,6 +50,32 @@ npm run build
 npm run standalone:prepare
 node .next/standalone/server.js   # with the two exports still set
 ```
+
+For the current US test topology, the backend container on port `4001`
+terminates plain HTTP itself; it does not terminate TLS. Until an HTTPS reverse
+proxy and trusted certificate are installed, use the following exact scheme
+and keep the two policy variables exported for both build and start:
+
+```bash
+export CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true
+export CRUZIBLE_EXTRA_API_ORIGINS=http://93.127.132.52:4001
+NEXT_PUBLIC_CHAIN_ENV=testnet \
+NEXT_PUBLIC_API_URL=http://93.127.132.52:4001/v1 \
+NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://54.165.44.130:8545 \
+NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7 \
+NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x988215219883cf9efb87f0cbd54a863646d127bf \
+NEXT_PUBLIC_STAETHEL_ADDRESS=0x8f38f80e674b7bc0829df5193d49c4a1ca8e8f83 \
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=7a4f9c2e1b8d43c6a095f2e7d4b1c830 \
+npm run build
+
+npm run start
+```
+
+This command verifies build configuration only. Before transaction retesting,
+deploy the contracts produced by the current branch and replace both addresses;
+the prior deployment does not contain the hardened vault/token bytecode in this
+release. Archive the release deployment manifest as described in
+`TESTNET_DEPLOYMENT.md`.
 
 > **The `export`ed pair is read at RUNTIME, not baked at build.** The
 > `NEXT_PUBLIC_*` values are compiled into the bundle, but

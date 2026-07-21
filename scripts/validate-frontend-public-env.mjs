@@ -342,7 +342,10 @@ function assertAllowedProductionApiOrigin(env, chainEnv, origin) {
   }
 }
 
-export function validateFrontendPublicEnv(env = process.env) {
+export function validateFrontendPublicEnv(
+  env = process.env,
+  { productionBuild = env.NODE_ENV === "production" } = {},
+) {
   const apiUrl = env.NEXT_PUBLIC_API_URL?.trim();
   const rawChainEnv = env.NEXT_PUBLIC_CHAIN_ENV?.trim();
   const chainEnv = rawChainEnv || "testnet";
@@ -353,7 +356,7 @@ export function validateFrontendPublicEnv(env = process.env) {
     );
   }
 
-  if (env.NODE_ENV === "production" && !rawChainEnv) {
+  if (productionBuild && !rawChainEnv) {
     throw new FrontendPublicEnvError(
       "NEXT_PUBLIC_CHAIN_ENV is required for production builds.",
     );
@@ -467,7 +470,7 @@ export function validateFrontendPublicEnv(env = process.env) {
   }
 
   const genesisHash = env.NEXT_PUBLIC_AETHELRED_GENESIS_HASH?.trim();
-  if (env.NODE_ENV === "production" && !genesisHash) {
+  if (productionBuild && !genesisHash) {
     throw new FrontendPublicEnvError(
       "NEXT_PUBLIC_AETHELRED_GENESIS_HASH is required for production builds so same-chain-id networks cannot be confused.",
     );
@@ -498,9 +501,16 @@ const isCliEntrypoint = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isCliEntrypoint) {
   try {
-    const result = validateFrontendPublicEnv();
+    // `next build` sets NODE_ENV=production internally, but this preflight is
+    // a separate process that runs immediately before Next.js. Treat every
+    // direct CLI invocation as a production build so a missing chain env or
+    // network anchor is reported here, instead of much later while Next is
+    // collecting page data.
+    const result = validateFrontendPublicEnv(process.env, {
+      productionBuild: true,
+    });
     console.log(
-      `Frontend public API build config validated for ${result.chainEnv}: ${result.apiOrigin}`,
+      `Frontend production build config validated for ${result.chainEnv}: ${result.apiOrigin}; block-1 anchor ${process.env.NEXT_PUBLIC_AETHELRED_GENESIS_HASH?.trim()}`,
     );
   } catch (error) {
     if (error instanceof FrontendPublicEnvError) {

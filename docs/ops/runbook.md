@@ -80,6 +80,7 @@ Before starting the API, inject the variables documented in [backend/.env.exampl
 export NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org
 export NEXT_PUBLIC_CHAIN_ENV=testnet
 export NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=https://<operator-rpc>
+export NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7
 npm run build
 
 # API

@@ -119,6 +119,30 @@ describe("frontend public build environment validation", () => {
     ).toThrow("must be a non-zero 32-byte hex block hash");
   });
 
+  it("applies production-only checks in the pre-Next build preflight", () => {
+    expect(() =>
+      validateFrontendPublicEnv(
+        {
+          ...testnetBaseEnv,
+          NODE_ENV: undefined,
+          NEXT_PUBLIC_AETHELRED_GENESIS_HASH: "",
+        },
+        { productionBuild: true },
+      ),
+    ).toThrow("NEXT_PUBLIC_AETHELRED_GENESIS_HASH is required");
+
+    expect(() =>
+      validateFrontendPublicEnv(
+        {
+          ...testnetBaseEnv,
+          NODE_ENV: undefined,
+          NEXT_PUBLIC_CHAIN_ENV: "",
+        },
+        { productionBuild: true },
+      ),
+    ).toThrow("NEXT_PUBLIC_CHAIN_ENV is required for production builds.");
+  });
+
   it("blocks mainnet builds without confirmed network inputs", () => {
     expect(() =>
       validateFrontendPublicEnv({
