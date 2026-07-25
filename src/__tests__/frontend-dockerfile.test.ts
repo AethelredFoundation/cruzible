@@ -43,7 +43,9 @@ describe("frontend Dockerfile hardening", () => {
   });
 
   it("runs the production server behind an init process with a healthcheck", () => {
-    expect(dockerfile).toContain("RUN apk add --no-cache dumb-init");
+    expect(dockerfile).toContain(
+      "RUN apk add --no-cache --upgrade dumb-init libcrypto3 libssl3",
+    );
     expect(dockerfile).toContain('ENTRYPOINT ["dumb-init", "--"]');
     expect(dockerfile).toContain(
       "HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3",
