@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const criticalRoutes = [
   { path: "/vault", heading: /AethelVault/i },
-  { path: "/stablecoins", heading: /Stablecoins/i },
+  { path: "/stablecoins", heading: /^Stablecoins$/i },
   {
     path: "/validators",
     heading: /Canonical validator context/i,

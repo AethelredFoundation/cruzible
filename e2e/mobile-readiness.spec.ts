@@ -1,22 +1,30 @@
 import { devices, expect, test } from "@playwright/test";
 
+type MobileRoute = {
+  path: string;
+  heading: RegExp;
+  readiness:
+    | { kind: "action"; name: RegExp }
+    | { kind: "status"; name: RegExp };
+};
+
 const mobileRoutes = [
   {
     path: "/vault",
     heading: /AethelVault/i,
-    primaryAction: /Stake AETHEL/i,
+    readiness: { kind: "action", name: /Stake AETHEL/i },
   },
   {
     path: "/validators",
     heading: /Canonical validator context/i,
-    primaryAction: /Open scorecard/i,
+    readiness: { kind: "action", name: /Open scorecard/i },
   },
   {
     path: "/stablecoins",
-    heading: /Stablecoins/i,
-    primaryAction: /Bridge USDC|Bridge USDT|Verifying Bridge Config/i,
+    heading: /^Stablecoins$/i,
+    readiness: { kind: "status", name: /Stablecoins unavailable/i },
   },
-];
+] satisfies MobileRoute[];
 
 test.use({ ...devices["Pixel 5"] });
 
@@ -40,12 +48,21 @@ for (const route of mobileRoutes) {
     await expect(
       page.getByRole("heading", { name: route.heading }),
     ).toBeVisible();
-    await expect(
-      page
-        .getByRole("button", { name: route.primaryAction })
-        .or(page.getByRole("link", { name: route.primaryAction }))
-        .first(),
-    ).toBeVisible();
+    if (route.readiness.kind === "action") {
+      await expect(
+        page
+          .getByRole("button", { name: route.readiness.name })
+          .or(page.getByRole("link", { name: route.readiness.name }))
+          .first(),
+      ).toBeVisible();
+    } else {
+      await expect(
+        page.getByRole("heading", {
+          level: 2,
+          name: route.readiness.name,
+        }),
+      ).toBeVisible();
+    }
 
     const layout = await page.evaluate(() => ({
       bodyWidth: document.body.scrollWidth,

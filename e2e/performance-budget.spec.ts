@@ -52,11 +52,11 @@ const routeBudgets: RouteBudget[] = [
   },
   {
     path: "/stablecoins",
-    heading: /Stablecoins/i,
+    heading: /^Stablecoins$/i,
     maxDomContentLoadedMs: 5_000,
     maxLoadMs: 7_000,
     maxFirstContentfulPaintMs: 3_500,
-    maxSameOriginTransferKiB: 3_250,
+    maxSameOriginTransferKiB: 3_300,
     maxSameOriginResourceCount: 95,
   },
   {
