@@ -37,6 +37,10 @@ const artifactsDir = join(
   "artifacts",
 );
 const RPC_URL = process.env.RPC_URL ?? "http://127.0.0.1:8547";
+const RPC_ENV_DISPLAY =
+  process.env.RPC_URL === undefined
+    ? "http://127.0.0.1:8547"
+    : "<reuse the RPC_URL supplied to this script>";
 const E2E_ACCOUNT =
   process.env.E2E_ACCOUNT ?? "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const FUND = parseEther(process.env.FUND_AETHEL ?? "10");
@@ -144,16 +148,16 @@ async function main() {
   });
   await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
   const bal = await publicClient.getBalance({ address: E2E_ACCOUNT });
-  console.log(`funded ${E2E_ACCOUNT}: ${formatEther(bal)} AETHEL`);
+  console.log(`funded E2E account: ${formatEther(bal)} AETHEL`);
 
   console.log("\n== Cruzible dev server env");
   console.log(`NEXT_PUBLIC_CHAIN_ENV=devnet`);
-  console.log(`NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL=${RPC_URL}`);
+  console.log(`NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL=${RPC_ENV_DISPLAY}`);
   console.log(`NEXT_PUBLIC_CRUZIBLE_ADDRESS=${vault.address}`);
   console.log(`NEXT_PUBLIC_STAETHEL_ADDRESS=${token.address}`);
   console.log("\n== spec env (wallet repo)");
   console.log(`THREE_WAY_INTEGRATION=1`);
-  console.log(`CRUZIBLE_RPC=${RPC_URL}`);
+  console.log(`CRUZIBLE_RPC=${RPC_ENV_DISPLAY}`);
   console.log(`CRUZIBLE_STAETHEL_ADDRESS=${token.address}`);
   console.log(`ZEROID_REGISTRY_ADDRESS=${registry.address}`);
 }
