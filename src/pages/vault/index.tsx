@@ -1921,7 +1921,7 @@ function UnstakeTab() {
   const completionDate = useMemo(() => {
     const completionTime = calculateUnbondingCompletionTimeMs(
       unbondingPeriod.seconds,
-      Date.now(),
+      withdrawalClock * 1000,
     );
     if (completionTime == null) return "Unavailable";
 
@@ -1931,7 +1931,7 @@ function UnstakeTab() {
       day: "numeric",
       year: "numeric",
     });
-  }, [unbondingPeriod.seconds]);
+  }, [unbondingPeriod.seconds, withdrawalClock]);
 
   useEffect(() => {
     setWithdrawalClock(Date.now() / 1000);

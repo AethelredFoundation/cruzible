@@ -596,7 +596,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Stable ref for addNotification (used in effects without deps)
   const addNotificationRef = useRef(addNotification);
-  addNotificationRef.current = addNotification;
+  useEffect(() => {
+    addNotificationRef.current = addNotification;
+  }, [addNotification]);
 
   // Clean up timers on unmount
   useEffect(() => {
