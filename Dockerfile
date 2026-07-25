@@ -82,7 +82,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # them with `docker run -e` or orchestrator env without rebuilding the image.
 ENV CRUZIBLE_EXTRA_API_ORIGINS=""
 ENV CRUZIBLE_ALLOW_PLAINTEXT_HTTP="false"
-RUN apk add --no-cache dumb-init && \
+RUN apk add --no-cache --upgrade dumb-init libcrypto3 libssl3 && \
     rm -rf /usr/local/lib/node_modules/npm && \
     rm -f /usr/local/bin/npm /usr/local/bin/npx
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
