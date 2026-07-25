@@ -124,7 +124,7 @@ describe("frontend public build environment validation", () => {
       validateFrontendPublicEnv(
         {
           ...testnetBaseEnv,
-          NODE_ENV: undefined,
+          NODE_ENV: "test",
           NEXT_PUBLIC_AETHELRED_GENESIS_HASH: "",
         },
         { productionBuild: true },
@@ -135,7 +135,7 @@ describe("frontend public build environment validation", () => {
       validateFrontendPublicEnv(
         {
           ...testnetBaseEnv,
-          NODE_ENV: undefined,
+          NODE_ENV: "test",
           NEXT_PUBLIC_CHAIN_ENV: "",
         },
         { productionBuild: true },

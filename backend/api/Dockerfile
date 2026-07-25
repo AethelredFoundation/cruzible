@@ -67,6 +67,12 @@ COPY backend/api/scripts/run-prisma-migrate.mjs ./scripts/run-prisma-migrate.mjs
 
 ENV NODE_ENV=production
 
+# Package managers are build-time tooling. The migration runner invokes the
+# checked-in Prisma binary directly, so removing global npm/npx closes the
+# runtime image findings inherited from the Node base image.
+RUN rm -rf /usr/local/lib/node_modules/npm && \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx
+
 USER nodejs
 
 ENTRYPOINT ["dumb-init", "--"]
@@ -97,8 +103,11 @@ COPY --from=builder /app/backend/api/prisma ./prisma
 COPY --from=builder /app/backend/api/dist ./dist
 COPY --from=builder /app/sdk/typescript/dist /app/sdk/typescript/dist
 
-# Set permissions
-RUN chown -R nodejs:nodejs /app
+# Set permissions and remove build-time package managers from the runtime
+# image. The API and indexer execute their compiled Node entrypoints directly.
+RUN chown -R nodejs:nodejs /app && \
+    rm -rf /usr/local/lib/node_modules/npm && \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 # Switch to non-root user
 USER nodejs
