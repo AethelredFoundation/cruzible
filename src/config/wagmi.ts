@@ -9,6 +9,8 @@ import { http, createConfig, createStorage, injected } from "wagmi";
 import { coinbaseWallet } from "@cruzible/wagmi-connector-coinbase";
 import { walletConnect } from "@cruzible/wagmi-connector-walletconnect";
 import { activeChain, supportedChains } from "./chains";
+import { AETHELRED_CONNECTOR_ID } from "./wallet-picker";
+import type { EIP1193Provider } from "viem";
 
 // ---------------------------------------------------------------------------
 // WalletConnect Project ID
@@ -20,12 +22,29 @@ const APP_ORIGIN = "https://vault.aethelred.org";
 const APP_LOGO_URL = `${APP_ORIGIN}/cruzible-logo.png`;
 const IS_BROWSER = typeof window !== "undefined";
 
+function getAethelredProvider(): EIP1193Provider | undefined {
+  if (!IS_BROWSER) return undefined;
+  return (
+    window as Window & {
+      aethelred?: EIP1193Provider;
+    }
+  ).aethelred;
+}
+
 // ---------------------------------------------------------------------------
 // Connectors
 // ---------------------------------------------------------------------------
 
 const connectors = IS_BROWSER
   ? [
+      injected({
+        shimDisconnect: true,
+        target: {
+          id: AETHELRED_CONNECTOR_ID,
+          name: "Aethelred Wallet",
+          provider: getAethelredProvider,
+        },
+      }),
       injected({
         shimDisconnect: true,
       }),

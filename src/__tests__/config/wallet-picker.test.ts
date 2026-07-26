@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AETHELRED_CONNECTOR_ID,
   AETHELRED_WALLET_RDNS,
   METAMASK_RDNS,
   isAethelredWallet,
@@ -78,13 +79,31 @@ describe("orderWalletConnectors", () => {
     const ordered = orderWalletConnectors([generic, anonymous]);
     expect(ordered.map((c) => c.name)).toEqual(["Browser Wallet", "Injected"]);
   });
+
+  it("deduplicates the explicit and EIP-6963 Aethelred connectors", () => {
+    const explicit = {
+      id: AETHELRED_CONNECTOR_ID,
+      name: "Aethelred Wallet",
+    };
+    const ordered = orderWalletConnectors([explicit, aethelred, metamask]);
+    expect(ordered.map((connector) => connector.name)).toEqual([
+      "Aethelred Wallet",
+      "MetaMask",
+    ]);
+  });
 });
 
 describe("isAethelredWallet", () => {
-  it("matches only the org.aethelred.wallet rdns", () => {
+  it("matches the explicit connector and EIP-6963 rdns", () => {
     expect(
       isAethelredWallet({
         id: AETHELRED_WALLET_RDNS,
+        name: "Aethelred Wallet",
+      }),
+    ).toBe(true);
+    expect(
+      isAethelredWallet({
+        id: AETHELRED_CONNECTOR_ID,
         name: "Aethelred Wallet",
       }),
     ).toBe(true);

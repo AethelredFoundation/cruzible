@@ -16,6 +16,7 @@
  */
 
 export const AETHELRED_WALLET_RDNS = "org.aethelred.wallet";
+export const AETHELRED_CONNECTOR_ID = "aethelred";
 export const METAMASK_RDNS = "io.metamask";
 
 /** The id wagmi assigns to the generic injected() connector. */
@@ -39,7 +40,11 @@ function isDiscoveredWallet(connector: PickerConnector): boolean {
 }
 
 function rank(connector: PickerConnector): number {
-  if (connector.id === AETHELRED_WALLET_RDNS) return 0;
+  if (
+    connector.id === AETHELRED_WALLET_RDNS ||
+    connector.id === AETHELRED_CONNECTOR_ID
+  )
+    return 0;
   if (connector.id === METAMASK_RDNS || /metamask/i.test(connector.name))
     return 1;
   if (connector.id === GENERIC_INJECTED_ID) return 3;
@@ -55,14 +60,24 @@ export function orderWalletConnectors<T extends PickerConnector>(
   connectors: readonly T[],
 ): T[] {
   const hasDiscoveredWallet = connectors.some(isDiscoveredWallet);
+  const seenWallets = new Set<string>();
   return connectors
     .filter((c) => !(hasDiscoveredWallet && c.id === GENERIC_INJECTED_ID))
     .map((c, i) => ({ c, i }))
     .sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i)
-    .map(({ c }) => c);
+    .map(({ c }) => c)
+    .filter((connector) => {
+      const identity = connector.name.trim().toLowerCase();
+      if (seenWallets.has(identity)) return false;
+      seenWallets.add(identity);
+      return true;
+    });
 }
 
 /** True for the first-party wallet — the menu highlights it. */
 export function isAethelredWallet(connector: PickerConnector): boolean {
-  return connector.id === AETHELRED_WALLET_RDNS;
+  return (
+    connector.id === AETHELRED_WALLET_RDNS ||
+    connector.id === AETHELRED_CONNECTOR_ID
+  );
 }
