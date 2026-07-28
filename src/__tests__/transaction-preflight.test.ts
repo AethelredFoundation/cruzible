@@ -78,6 +78,34 @@ describe("transaction preflight", () => {
     );
   });
 
+  it("reports decoded Cruzible custom errors instead of an unknown revert", async () => {
+    const notify = vi.fn();
+    simulateContractMock.mockRejectedValueOnce({
+      shortMessage: "Execution reverted for an unknown reason.",
+      cause: {
+        data: {
+          errorName: "TokenNotSet",
+        },
+      },
+    });
+
+    const ok = await assertContractSimulation({} as never, notify, "Stake", {
+      address: zeroAddress,
+      abi: testAbi,
+      functionName: "stake",
+      args: [1n],
+      account: zeroAddress,
+      chainId: 1,
+    });
+
+    expect(ok).toBe(false);
+    expect(notify).toHaveBeenCalledWith(
+      "error",
+      "Stake Blocked",
+      "Contract simulation failed before wallet signing: The Cruzible vault has not been wired to its stAETHEL token deployment. (TokenNotSet)",
+    );
+  });
+
   it("normalizes and truncates noisy provider errors", () => {
     const noisy = new Error(`first line
 

@@ -44,7 +44,6 @@ NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://<node-host>:8545 \
 NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7 \
 NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x<vault> \
 NEXT_PUBLIC_STAETHEL_ADDRESS=0x<staethel> \
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=<real 32-hex id> \
 npm run build
 
 npm run standalone:prepare
@@ -65,11 +64,17 @@ NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://54.165.44.130:8545 \
 NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7 \
 NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x988215219883cf9efb87f0cbd54a863646d127bf \
 NEXT_PUBLIC_STAETHEL_ADDRESS=0x8f38f80e674b7bc0829df5193d49c4a1ca8e8f83 \
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=7a4f9c2e1b8d43c6a095f2e7d4b1c830 \
 npm run build
 
 npm run start
 ```
+
+The testnet build above deliberately omits
+`NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. Aethelred Wallet and MetaMask remain
+available through their injected EIP-6963 connectors. Add WalletConnect only
+when the operator has a real Reown project ID registered for Cruzible; a
+syntactically valid but unregistered ID causes the relay to close with code
+3000 (`Project not found`) and retry every few seconds.
 
 This command verifies build configuration only. Before transaction retesting,
 deploy the contracts produced by the current branch and replace both addresses;

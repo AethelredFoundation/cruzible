@@ -63,21 +63,22 @@ describe("frontend public build environment validation", () => {
     );
   });
 
-  it("requires WalletConnect configuration for deployed testnet builds", () => {
-    expect(() =>
+  it("allows testnet builds to disable WalletConnect", () => {
+    expect(
       validateFrontendPublicEnv({
         ...testnetBaseEnv,
         NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "",
       }),
-    ).toThrow(
-      "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required when NEXT_PUBLIC_CHAIN_ENV=testnet.",
-    );
+    ).toEqual({
+      apiOrigin: "https://api.testnet.aethelred.org",
+      chainEnv: "testnet",
+    });
   });
 
-  it("rejects malformed WalletConnect project IDs", () => {
+  it("rejects malformed WalletConnect project IDs when configured", () => {
     expect(() =>
       validateFrontendPublicEnv({
-        ...mainnetBaseEnv,
+        ...testnetBaseEnv,
         NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "walletconnect-project",
       }),
     ).toThrow(

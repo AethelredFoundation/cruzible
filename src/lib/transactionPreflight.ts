@@ -17,6 +17,70 @@ export type TransactionPreflightNotification = (
   message: string,
 ) => void;
 
+const CONTRACT_REVERT_MESSAGES: Readonly<Record<string, string>> = {
+  AccountCapExceeded:
+    "This stake would exceed the vault's per-account testnet cap.",
+  AlreadyClaimed: "This withdrawal or reward has already been claimed.",
+  ComplianceGateClosed:
+    "The vault's Digital Seal compliance gate rejected this stake.",
+  DepositsArePaused: "New vault deposits are currently paused.",
+  IdentityGateClosed: "The vault's ZeroID identity gate rejected this wallet.",
+  InsufficientBuffer:
+    "The vault does not have enough free buffer for this immediate exit.",
+  InsufficientPool:
+    "The vault does not have enough unreserved liquidity for this action.",
+  MinimumAethelNotMet:
+    "The live unstake output moved below the confirmed minimum.",
+  MinimumSharesNotMet:
+    "The live stake output moved below the confirmed minimum shares.",
+  NotWithdrawalOwner: "The connected wallet does not own this withdrawal.",
+  NotYetClaimable: "This withdrawal has not reached its claim time.",
+  ProtocolInsolvent:
+    "New deposits are blocked while the vault has an uncovered deficit.",
+  Reentrancy: "The vault rejected a re-entrant transaction.",
+  RewardsProofInvalid: "The supplied rewards proof is invalid.",
+  RootNotSet: "The rewards root for this epoch has not been published.",
+  SealAlreadyUsed: "This Digital Seal has already authorized a stake.",
+  SealNotActive: "The supplied Digital Seal is not active.",
+  SealNotBoundToStaker:
+    "The supplied Digital Seal is not bound to the connected wallet.",
+  SlippageExceeded:
+    "The live output moved beyond the confirmed slippage limit.",
+  StakeTooSmall: "The stake is too small to mint vault shares.",
+  TokenNotSet:
+    "The Cruzible vault has not been wired to its stAETHEL token deployment.",
+  TvlCapExceeded: "This stake would exceed the vault's testnet TVL cap.",
+  UnknownWithdrawal: "The requested withdrawal does not exist.",
+  ZeroAmount: "The transaction amount must be greater than zero.",
+};
+
+function findContractRevertName(error: unknown): string | null {
+  const visited = new Set<object>();
+  let current = error;
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (typeof current !== "object" || current === null) return null;
+    if (visited.has(current)) return null;
+    visited.add(current);
+
+    const candidate = current as {
+      cause?: unknown;
+      data?: unknown;
+      errorName?: unknown;
+    };
+    if (typeof candidate.errorName === "string") return candidate.errorName;
+
+    if (typeof candidate.data === "object" && candidate.data !== null) {
+      const decoded = candidate.data as { errorName?: unknown };
+      if (typeof decoded.errorName === "string") return decoded.errorName;
+    }
+
+    current = candidate.cause;
+  }
+
+  return null;
+}
+
 export function getTransactionFailureMessage(
   error: unknown,
   fallback = "Unknown error",
@@ -25,6 +89,11 @@ export function getTransactionFailureMessage(
 }
 
 export function getPreflightFailureMessage(error: unknown): string {
+  const revertName = findContractRevertName(error);
+  if (revertName && CONTRACT_REVERT_MESSAGES[revertName]) {
+    return `${CONTRACT_REVERT_MESSAGES[revertName]} (${revertName})`;
+  }
+
   return getTransactionFailureMessage(
     error,
     "The contract simulation failed before wallet signing.",
