@@ -106,6 +106,29 @@ describe("transaction preflight", () => {
     );
   });
 
+  it("identifies an undecodable revert as a likely stale vault deployment", async () => {
+    const notify = vi.fn();
+    simulateContractMock.mockRejectedValueOnce({
+      shortMessage: "Execution reverted for an unknown reason.",
+    });
+
+    const ok = await assertContractSimulation({} as never, notify, "Stake", {
+      address: zeroAddress,
+      abi: testAbi,
+      functionName: "stake",
+      args: [1n],
+      account: zeroAddress,
+      chainId: 1,
+    });
+
+    expect(ok).toBe(false);
+    expect(notify).toHaveBeenCalledWith(
+      "error",
+      "Stake Blocked",
+      "Contract simulation failed before wallet signing: The configured Cruzible vault rejected this call without a decodable error. Verify that NEXT_PUBLIC_CRUZIBLE_ADDRESS points to the replacement deployment for this release, then rebuild the frontend.",
+    );
+  });
+
   it("normalizes and truncates noisy provider errors", () => {
     const noisy = new Error(`first line
 

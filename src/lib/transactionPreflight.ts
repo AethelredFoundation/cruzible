@@ -54,6 +54,9 @@ const CONTRACT_REVERT_MESSAGES: Readonly<Record<string, string>> = {
   ZeroAmount: "The transaction amount must be greater than zero.",
 };
 
+const STALE_DEPLOYMENT_MESSAGE =
+  "The configured Cruzible vault rejected this call without a decodable error. Verify that NEXT_PUBLIC_CRUZIBLE_ADDRESS points to the replacement deployment for this release, then rebuild the frontend.";
+
 function findContractRevertName(error: unknown): string | null {
   const visited = new Set<object>();
   let current = error;
@@ -94,10 +97,20 @@ export function getPreflightFailureMessage(error: unknown): string {
     return `${CONTRACT_REVERT_MESSAGES[revertName]} (${revertName})`;
   }
 
-  return getTransactionFailureMessage(
+  const publicMessage = getTransactionFailureMessage(
     error,
     "The contract simulation failed before wallet signing.",
   );
+  const normalizedMessage = publicMessage.toLowerCase();
+  if (
+    normalizedMessage.includes("execution reverted for an unknown reason") ||
+    normalizedMessage === "execution reverted" ||
+    normalizedMessage === "execution reverted."
+  ) {
+    return STALE_DEPLOYMENT_MESSAGE;
+  }
+
+  return publicMessage;
 }
 
 export function isWalletRejectionError(error: unknown): boolean {
