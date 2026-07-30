@@ -43,6 +43,7 @@
     "deployment:validate": "node scripts/validate-deployment-manifests.mjs",
     "deployment:evm:validate": "node scripts/validate-evm-deployment-manifest.mjs",
     "deployment:evm:release-validate": "node scripts/validate-release-evm-deployment.mjs",
+    "deployment:evm:simulate-stake": "node scripts/simulate-public-testnet-stake.mjs",
     "deployment:release-images:validate": "node scripts/validate-release-rollout-images.mjs",
     "standalone:prepare": "node scripts/prepare-next-standalone.mjs",
     "performance:api": "npm --prefix backend/api run benchmark:check",

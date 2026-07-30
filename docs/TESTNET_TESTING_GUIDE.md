@@ -1,170 +1,160 @@
-# Cruzible Testnet Testing Guide
+# Cruzible Public-Testnet Acceptance Checklist
 
-For the testnet operations team. Covers building the frontend against a
-self-hosted node (pre-DNS, pre-TLS), the end-to-end flows to exercise, what is
-intentionally unavailable, and what to report back. Assumes the backend stack
-is already up via `docker compose up --build -d` (see `.env.testnet.example`).
+This checklist starts only after the operator completes
+[TESTNET_DEPLOYMENT.md](TESTNET_DEPLOYMENT.md). That runbook is the sole source
+for source pinning, contract deployment, environment variables, API/indexer
+setup, frontend build, port assignments, precompile checks, and rollback.
 
-## 1. Build & serve the frontend (pre-DNS/pre-TLS profile)
+Do not substitute a branch name, an old contract address, or a previous
+frontend build. Record the approved commit and candidate deployment manifest
+before testing.
 
-Four env vars beyond the addresses matter here:
+## 1. Entry criteria
 
-- `NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL` — **your node's public EVM RPC.**
-  Without it the bundle falls back to the placeholder DNS
-  (`evm-rpc-testnet.aethelred.network`, which does not resolve) and every
-  chain card shows "Unavailable". Compiled in at **build time**.
-- `NEXT_PUBLIC_AETHELRED_GENESIS_HASH` — immutable block-1 network anchor.
-  For the public testnet RPC `http://54.165.44.130:8545`, the verified value
-  is `0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7`
-  (chain ID `7332` / `0x1ca4`). Do not omit or bypass this guard: it prevents a
-  wallet on a different network with the same chain ID from signing writes.
-- `CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true` — omits HSTS and the CSP
-  `upgrade-insecure-requests` directive. Without it, a page served over plain
-  HTTP on a public IP has every asset request auto-upgraded to https →
-  `ERR_SSL_PROTOCOL_ERROR` and an unstyled page. Set it at **build and start**
-  (headers are applied at runtime). Remove it the day real TLS exists.
-- `CRUZIBLE_EXTRA_API_ORIGINS` — same value as at validate time; the CSP
-  middleware admits it into `connect-src` so the browser may call your API.
+Require all of the following:
 
-Topology note: `<node-host>` is the chain-node server (ports 26657/8545) and
-`<dapp-host>` is the machine running the compose backend (:4001) and this
-frontend (:3000) — often the same machine for the frontend and API, and a
-different one for the node. The compose backend serves plain **http**; under
-the plaintext profile the build gate accepts an `http://` API origin, so no
-TLS or certificate step is needed for testing.
+- immutable approved commit checked out with a clean tracked worktree;
+- candidate manifest source SHA equals that commit;
+- live chain ID `7332` and the expected EVM block-1 anchor;
+- new matched Cruzible and StAETHEL addresses from the candidate manifest;
+- release deployment validation passed against live runtime bytecode;
+- frontend served on port `3000` and API served on port `4001`;
+- read-only `stakeWithMinShares` simulation passed;
+- test wallet funded with more than `1 AETHEL`;
+- ZeroID and Digital Seal admission gates disabled for the base lifecycle.
 
-```bash
-git pull   # branch ramesh/production-grade-hardening
+The parameter proposal for `0x0800` and `0x0801` is a separate chain-state
+change. It does not require a chain reset or a software-upgrade handler and
+does not block the base stake lifecycle.
 
-export CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true
-export CRUZIBLE_EXTRA_API_ORIGINS=http://<dapp-host>:4001
-NEXT_PUBLIC_CHAIN_ENV=testnet \
-NEXT_PUBLIC_API_URL=http://<dapp-host>:4001/v1 \
-NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://<node-host>:8545 \
-NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7 \
-NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x<vault> \
-NEXT_PUBLIC_STAETHEL_ADDRESS=0x<staethel> \
-npm run build
+## 2. Network and service checks
 
-npm run standalone:prepare
-node .next/standalone/server.js   # with the two exports still set
-```
+1. Confirm the frontend `/vault` page loads without broken styling.
+2. Confirm the header block height advances.
+3. Confirm the browser uses the operator-approved EVM RPC and chain `7332`.
+4. Confirm `/health/live` succeeds.
+5. Confirm `/health/ready` reports the expected candidate contract identity.
+6. If the indexer is enabled, confirm its WebSocket connection stays healthy,
+   its cursor starts at the candidate deployment block, and reconciliation
+   becomes fresh.
+7. If the indexer is intentionally disabled, confirm reconciliation is shown
+   as unavailable rather than fabricated or stale.
 
-For the current US test topology, the backend container on port `4001`
-terminates plain HTTP itself; it does not terminate TLS. Until an HTTPS reverse
-proxy and trusted certificate are installed, use the following exact scheme
-and keep the two policy variables exported for both build and start:
+Stop on chain-ID, genesis-anchor, contract-address, CORS, CSP, API, or indexer
+identity mismatch.
 
-```bash
-export CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true
-export CRUZIBLE_EXTRA_API_ORIGINS=http://93.127.132.52:4001
-NEXT_PUBLIC_CHAIN_ENV=testnet \
-NEXT_PUBLIC_API_URL=http://93.127.132.52:4001/v1 \
-NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://54.165.44.130:8545 \
-NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7 \
-NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x988215219883cf9efb87f0cbd54a863646d127bf \
-NEXT_PUBLIC_STAETHEL_ADDRESS=0x8f38f80e674b7bc0829df5193d49c4a1ca8e8f83 \
-npm run build
+## 3. Wallet connection
 
-npm run start
-```
+Test Aethelred Wallet and MetaMask separately:
 
-The testnet build above deliberately omits
-`NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. Aethelred Wallet and MetaMask remain
-available through their injected EIP-6963 connectors. Add WalletConnect only
-when the operator has a real Reown project ID registered for Cruzible; a
-syntactically valid but unregistered ID causes the relay to close with code
-3000 (`Project not found`) and retry every few seconds.
+1. configure the operator-approved RPC, chain ID `7332`, and currency
+   `AETHEL`;
+2. connect through the injected wallet path;
+3. confirm the displayed account matches the extension;
+4. confirm native AETHEL and any existing stAETHEL balances come from the
+   candidate network;
+5. disconnect and reconnect once to prove session recovery.
 
-This command verifies build configuration only. Before transaction retesting,
-deploy the contracts produced by the current branch and replace both addresses;
-the prior deployment does not contain the hardened vault/token bytecode in this
-release. Archive the release deployment manifest as described in
-`TESTNET_DEPLOYMENT.md`.
+WalletConnect is outside this test unless a valid operator-owned project ID is
+registered for the frontend origin. An unregistered ID can create periodic
+relay `Project not found` failures and must not be compiled into the candidate.
 
-> **The `export`ed pair is read at RUNTIME, not baked at build.** The
-> `NEXT_PUBLIC_*` values are compiled into the bundle, but
-> `CRUZIBLE_ALLOW_PLAINTEXT_HTTP` and `CRUZIBLE_EXTRA_API_ORIGINS` are
-> evaluated by the CSP middleware on every request. If they are absent from
-> the environment of `node .next/standalone/server.js`, the served CSP still
-> contains `upgrade-insecure-requests` (https upgrade, broken assets) and
-> omits your API origin from `connect-src` (blocked API calls) — **without
-> any rebuild being needed to fix it**: just restart the server with both
-> variables set. Verify from any machine:
-> `curl -sI http://<frontend-host>:3000/ | grep -i content-security` — the
-> policy must NOT contain `upgrade-insecure-requests` and MUST list your API
-> origin in `connect-src`.
+## 4. One-small-stake gate
 
-## 2. Prerequisites outside this repo
+Use the same funded wallet supplied to the read-only simulation:
 
-- **Node RPC reachable from testers' browsers.** The frontend's chain reads
-  come from the browser, not the server — the EVM JSON-RPC (:8545) must be
-  publicly reachable and must allow cross-origin requests from the frontend
-  origin (enable CORS on the node's JSON-RPC config for testing).
-- **API certificate — only if you serve the API over https.** The compose
-  backend is plain http, so under the plaintext profile there is no
-  certificate step. If you later front the API with a self-signed https
-  proxy, each tester's browser must trust it once — open
-  `https://<dapp-host>:4001/health/live`, accept the warning, confirm
-  `{"ok":true}`; until then API calls fail silently in the app.
-- **WalletConnect project ID.** Use a real ID from cloud.walletconnect.com and
-  add your frontend origin to its allowed domains — otherwise the console
-  shows a 403 from `api.web3modal.org` (harmless for injected-wallet testing,
-  blocks WalletConnect QR flows).
+1. open Vault → Stake;
+2. enter exactly `1 AETHEL`;
+3. wait for a fresh exchange-rate quote;
+4. submit once;
+5. require a wallet confirmation prompt;
+6. approve once;
+7. require a successful receipt and `Staked` event;
+8. verify native balance decreased by stake plus gas;
+9. verify stAETHEL balance increased by the emitted share/accounting result.
 
-## 3. End-to-end frontend flow
+If the UI says simulation failed before signing, stop. No wallet prompt is the
+expected consequence of the fail-closed preflight. The likely causes are a
+stale/incompatible vault, mismatched vault/token wiring, a live admission or
+pause gate, insufficient test balance, a stale quote, or the wrong network.
+It is not evidence that MetaMask itself failed.
 
-Run through these in order; each step gates the next.
+Do not retry with a larger amount and do not bypass simulation.
 
-1. **Explorer landing** — the header block pill and the "Latest Block" /
-   "Protocol Epoch" cards populate with live numbers (they read the RPC
-   directly). If they say "Unavailable", stop: the RPC URL/CORS is wrong.
-2. **Connect a wallet** — Aethelred Wallet extension (point its network RPC at
-   your node) or any injected wallet with a custom network: chain id **7332**,
-   currency AETHEL, RPC as above. Fund the account (faucet or a genesis
-   account).
-3. **Stake (native AETHEL)** — Vault page → stake an amount → confirm in the
-   wallet. Expect: AETHEL balance drops, **stAETHEL** balance appears,
-   exchange rate reads 1.0 on a fresh vault. Compliance/seal gating is OFF by
-   default (`complianceRequired=false`), so plain staking works before the
-   ISeal precompile is live.
-4. **Request unstake** — creates a withdrawal-queue entry; your deployment
-   used a **3600 s unbonding period**. The queued amount is reserved at
-   request time (it no longer rebases).
-5. **Claim** — after the window elapses, claim the queued withdrawal; native
-   AETHEL returns. Verify balances reconcile to within gas.
-6. **Reconciliation page** — populates once the backend indexer has processed
-   vault events (compose `--profile indexer`, node WS on :8546 — or accept
-   this stays pending with `INDEXER_ENABLED=false`). Backend
-   `/health/ready` mirrors the same state.
-7. **Validators page** — backend/API-fed; verify against
-   `aethelredd query staking validators` output.
-8. **Automated readiness sweeps** (optional, from a dev machine):
-   `PLAYWRIGHT_BASE_URL=http://<frontend-host>:3000 npx playwright test e2e/`
-   — public-readiness, accessibility, mobile, and performance-budget specs.
+## 5. Exit lifecycle
 
-## 4. Intentionally unavailable on testnet (do not file as bugs)
+After the small stake succeeds:
 
-- **Stablecoins / bridge, governance** — no contracts exist for them yet; the
-  UI feature-gates on their blank addresses.
-- **Seal-gated compliance staking** — until the ISeal precompile (0x0900) is
-  live on the chain build and governance flips `complianceRequired`.
-- **Historical explorer feeds / seeded charts** — gated until indexed
-  provenance is audit-grade (stated on the landing page).
-- **Reconciliation freshness** — CRITICAL until the indexer has data; this is
-  the truth-first posture, not a fault.
+1. request an unstake of a bounded portion of the new stAETHEL balance;
+2. require a wallet prompt and successful `Unstaked` event;
+3. verify the withdrawal entry includes the on-chain completion time;
+4. verify the queued amount is reserved and no longer rebases;
+5. wait for the configured `3600`-second public-testnet window;
+6. claim once;
+7. require a successful `Withdrawn` event;
+8. reconcile native AETHEL and stAETHEL balances, allowing only transaction
+   gas as the unexplained difference.
 
-## 5. Known console noise (non-blockers)
+Do not shorten the deployed unbonding period after the fact. A different
+period requires a separate candidate deployment.
 
-- WalletConnect `metadata.url` mismatch warning (metadata says
-  `vault.aethelred.org`) — cosmetic until real hosting.
-- `api.web3modal.org` 403 — see WalletConnect project ID note above.
-- COOP "origin untrustworthy" warning — inherent to plain-HTTP hosting;
-  disappears with TLS.
+## 6. Validator-yield functions
 
-## 6. Report back
+Plain stake and exit tests do not call the staking or distribution precompiles.
+Test validator delegation, undelegation, reconciliation, and earned rewards
+only after:
 
-Frontend origin + build env used, the tx hashes of one full
-stake → request-unstake → claim cycle, `/health/ready` JSON after the indexer
-has run, any RPC/CORS configuration you had to apply to the node, and console
-errors not listed in §5.
+- the governance proposal is `PROPOSAL_STATUS_PASSED`;
+- the active set contains exactly `0x0800`, `0x0801`, `0x0900`, `0x0901`, and
+  `0x0902`;
+- all validators report matching application state at the same height;
+- the governance signer, validator target, amount, concentration cap, and
+  minimum-buffer policy have separate approval.
+
+A revert from a validator-yield function before those checks is not a failure
+of the base stake lifecycle.
+
+## 7. Optional admission-gate tests
+
+Run these only as separate approved tests after the base lifecycle passes:
+
+- ZeroID: enable the identity gate against the approved registry, prove an
+  unregistered or inactive wallet is rejected, then prove an active identity
+  is accepted.
+- Digital Seal: configure the approved policy and completed, wallet-bound
+  seal evidence, prove plain admission is rejected when required, then prove
+  the bounded seal entrypoint succeeds.
+
+Exits must remain available even when a wallet later fails an admission check.
+
+## 8. Browser and operational observations
+
+Treat these as failures:
+
+- CSP upgrades the temporary HTTP origin to HTTPS and breaks assets;
+- API origin is absent from `connect-src`;
+- repeated WalletConnect code `3000` while no valid project is in scope;
+- contract simulation reports an unknown revert;
+- candidate frontend displays retired contract data;
+- indexer reuses a cursor bound to another vault;
+- a transaction is submitted more than once;
+- UI reports success before a successful receipt.
+
+Record any slow injected-wallet discovery or reconnect time separately from
+contract execution latency.
+
+## 9. Acceptance evidence
+
+Return:
+
+- frontend and API origins;
+- approved source SHA and candidate manifest identifier;
+- non-secret build environment;
+- wallet type and test address;
+- read-only simulation result;
+- stake, unstake, and claim transaction hashes and blocks;
+- emitted event values and before/after balances;
+- API readiness and indexer status;
+- precompile proposal/status evidence for any validator-yield test;
+- browser console errors and relevant server logs;
+- pass/fail decision and any rollback performed.

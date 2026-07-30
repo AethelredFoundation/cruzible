@@ -67,6 +67,7 @@ services:
       DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
       REDIS_URL: redis://redis:6379
       NODE_ENV: ${NODE_ENV:-development}
+      CRUZIBLE_RUNTIME_ROLE: api
       # Keep the published and container API ports aligned for simpler VPS ops.
       PORT: "4001"
     ports:
@@ -90,6 +91,7 @@ services:
       DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
       REDIS_URL: redis://redis:6379
       NODE_ENV: ${NODE_ENV:-development}
+      CRUZIBLE_RUNTIME_ROLE: indexer
     # The indexer is a worker process, not an HTTP server — disable the
     # inherited API healthcheck.
     healthcheck:
