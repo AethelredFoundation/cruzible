@@ -256,7 +256,6 @@ INDEXER_RPC_URL=<EVM_RPC_URL>
 INDEXER_WS_URL=<EVM_WS_URL>
 INDEXER_EXPECTED_CHAIN_ID=7332
 INDEXER_EXPECTED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7
-INDEXER_ENABLED=true
 INDEXER_START_BLOCK=<DEPLOYMENT_BLOCK>
 
 CRUZIBLE_VAULT_ADDRESS=<CRUZIBLE_ADDRESS>
@@ -275,29 +274,108 @@ AUTH_ADMIN_ADDRESSES=<approved-admin-wallets>
 Generate each secret independently and inject it without logging it. Do not use
 the example names, repeated values, or development defaults.
 
-If WebSocket JSON-RPC is not reachable, set `INDEXER_ENABLED=false`, omit
-`INDEXER_WS_URL`, and start without the `indexer` profile. Vault reads and the
-API remain available, but reconciliation freshness must remain explicitly
-unavailable.
+Do not put `INDEXER_ENABLED` in `.env`. The root Compose manifest forces it to
+`false` in the API process and `true` in the one dedicated indexer process.
+That is the only supported topology for this single-box profile. If WebSocket
+JSON-RPC is unavailable, omit `INDEXER_WS_URL`; the worker will use bounded
+HTTP polling through `INDEXER_RPC_URL` and may take longer to catch up.
 
 Validate and start the candidate:
 
 ```bash
-docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" --profile indexer config --quiet
-docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" --profile indexer up --build -d
-docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" --profile indexer ps
-docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" --profile indexer logs \
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" config --quiet
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" up --build -d
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" ps
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" logs \
   --tail 200 api indexer
 
 curl -fsS "$API_ORIGIN/health/live"
-curl -fsS "$API_ORIGIN/health/ready"
+curl -sS -w '\nHTTP %{http_code}\n' "$API_ORIGIN/health/ready"
 ```
+
+`/health/live` must return HTTP 200. `/health/ready` may return HTTP 503 while
+the dedicated indexer rebuilds projections or catches up; it must become 200
+before the candidate is promoted.
 
 The root Compose stack is the single-box public-testnet bring-up profile. It
 uses local PostgreSQL and Redis and is not the production infrastructure
 profile described in `docs/ops/runbook.md`.
 
+### Recover an existing stuck rebuild without resetting data
+
+A response with healthy database/RPC checks, `requiresRebuild: true`, and a
+large positive indexer lag means the durable indexer has not completed its
+automatic projection rebuild. It is not evidence that the chain or contracts
+need to be reset or redeployed. Resolve the exact Compose project that owns the
+API before operating on it:
+
+```bash
+docker ps --filter label=com.docker.compose.service=api \
+  --format 'project={{.Label "com.docker.compose.project"}} container={{.Names}} ports={{.Ports}}'
+docker ps --filter label=com.docker.compose.service=indexer \
+  --format 'project={{.Label "com.docker.compose.project"}} container={{.Names}} status={{.Status}}'
+
+export CRUZIBLE_COMPOSE_PROJECT="replace-with-exact-project-from-the-api-row"
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" config --quiet
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" ps -a
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" exec -T api \
+  sh -c 'printf "API INDEXER_ENABLED=%s\n" "${INDEXER_ENABLED:-unset}"'
+
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" exec -T postgres \
+  psql -U cruzible -d cruzible -c \
+  'SELECT "cursorKey","blockNumber","requiresRebuild","recoveryTargetBlock","pendingBlockNumber","networkChainId","networkVaultAddress","networkStaethelAddress","updatedAt" FROM "IndexerCursor";'
+```
+
+On an older deployment where the API reports `INDEXER_ENABLED=true`, first
+stop any separate worker, recreate only the API from this manifest, verify the
+API-side indexer is disabled, and then start exactly one dedicated worker:
+
+```bash
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" stop indexer
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" up --build -d --no-deps \
+  --force-recreate api
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" exec -T api \
+  sh -c 'test "$INDEXER_ENABLED" = false'
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" up --build -d --no-deps indexer
+```
+
+If the API already reports `INDEXER_ENABLED=false`, do not recreate it; start
+the missing dedicated worker with only the final command above. Then monitor
+the existing cursor and recovery marker:
+
+```bash
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" ps indexer
+docker compose -p "$CRUZIBLE_COMPOSE_PROJECT" logs --tail 200 indexer
+
+curl -fsS "$API_ORIGIN/health/live"
+curl -sS "$API_ORIGIN/health/ready" |
+  jq '.checks | {indexer,reconciliation}'
+curl -sS "$API_ORIGIN/v1/reconciliation/live?validator_limit=50" |
+  jq '{epoch,warnings,discrepancies}'
+```
+
+Require the lag to decrease over successive checks. Recovery is complete when
+`requiresRebuild` is `false`, `pendingBlockNumber` is `null`,
+`networkIdentityValid` is `true`, `cursorAheadOfRpc` and `stale` are `false`,
+and indexer `ready` is `true`. The `INDEXER_GENERATION_UNCOMMITTED`
+discrepancy must disappear. A prior critical alert can remain active for up to
+15 minutes after the next healthy reconciliation; require the protocol status
+to be `OK` or `WARNING` and `activeCriticalAlerts` to be zero before promotion.
+
+Never set `requiresRebuild` manually, edit or delete the cursor, run a Prisma
+reset, remove the PostgreSQL volume, redeploy contracts, or restart the chain.
+The worker owns the rebuild marker and clears it only after the materialized
+state is internally consistent.
+
 ## 7. Bind and start the frontend on port 3000
+
+The current shared public testnet uses these exact pre-TLS browser origins:
+
+```bash
+export DAPP_ORIGIN=http://93.127.132.52:3000
+export API_ORIGIN=http://93.127.132.52:4001
+export EVM_RPC_URL=http://54.165.44.130:8545
+```
 
 Build from the same immutable commit and candidate manifest:
 
@@ -335,11 +413,22 @@ flag when trusted TLS is installed.
 The frontend uses port `3000`; the API uses port `4001`. Confirm the served CSP:
 
 ```bash
-curl -sSI "$DAPP_ORIGIN/vault" | grep -i content-security-policy
+curl -sSI "$DAPP_ORIGIN/vault" | rg -i content-security-policy
 ```
 
 Under the temporary plaintext profile, the policy must include `API_ORIGIN`
-in `connect-src` and must not contain `upgrade-insecure-requests`.
+and `http://54.165.44.130:8545` in `connect-src`, and it must not contain
+`upgrade-insecure-requests`. For the current endpoints, the corresponding
+backend-origin and frontend values are therefore:
+
+```dotenv
+CORS_ORIGINS=http://93.127.132.52:3000
+NEXT_PUBLIC_CHAIN_ENV=testnet
+NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://54.165.44.130:8545
+NEXT_PUBLIC_API_URL=http://93.127.132.52:4001/v1
+CRUZIBLE_EXTRA_API_ORIGINS=http://93.127.132.52:4001
+CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true
+```
 
 Aethelred Wallet and MetaMask use the injected EIP-6963 path and do not need a
 WalletConnect project ID. Set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` only when
