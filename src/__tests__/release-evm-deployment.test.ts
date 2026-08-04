@@ -173,6 +173,7 @@ describe("frontend release EVM deployment binding", () => {
         cruzibleAddress: cruzible,
         stAethelAddress: stAethel,
         expectedGenesisHash: genesisHash,
+        expectedSourceCommit: manifest.source.gitCommit,
         repoRoot: root,
         rpc,
       }),
@@ -199,6 +200,7 @@ describe("frontend release EVM deployment binding", () => {
         cruzibleAddress: cruzible,
         stAethelAddress: stAethel,
         expectedGenesisHash: genesisHash,
+        expectedSourceCommit: manifest.source.gitCommit,
         repoRoot: root,
         rpc,
       }),
@@ -218,10 +220,30 @@ describe("frontend release EVM deployment binding", () => {
         cruzibleAddress: cruzible,
         stAethelAddress: stAethel,
         expectedGenesisHash: genesisHash,
+        expectedSourceCommit: manifest.source.gitCommit,
         repoRoot: root,
         rpc,
       }),
     ).rejects.toThrow("current committed creationBytecodeSha256 artifact");
+  });
+
+  it("rejects a manifest produced from a different source commit", async () => {
+    const { root, manifest, rpc } = fixture();
+
+    await expect(
+      validateReleaseEvmDeployment({
+        manifest,
+        environment: "testnet",
+        chainId: 7332,
+        rpcUrl: "https://rpc.example.org/path",
+        cruzibleAddress: cruzible,
+        stAethelAddress: stAethel,
+        expectedGenesisHash: genesisHash,
+        expectedSourceCommit: "c".repeat(40),
+        repoRoot: root,
+        rpc,
+      }),
+    ).rejects.toThrow("checked-out release commit");
   });
 
   it("rejects runtime drift at the configured release address", async () => {
@@ -237,6 +259,7 @@ describe("frontend release EVM deployment binding", () => {
         cruzibleAddress: cruzible,
         stAethelAddress: stAethel,
         expectedGenesisHash: genesisHash,
+        expectedSourceCommit: manifest.source.gitCommit,
         repoRoot: root,
         rpc,
       }),
@@ -254,6 +277,7 @@ describe("frontend release EVM deployment binding", () => {
         cruzibleAddress: address("9"),
         stAethelAddress: stAethel,
         expectedGenesisHash: genesisHash,
+        expectedSourceCommit: manifest.source.gitCommit,
         repoRoot: root,
         rpc,
       }),

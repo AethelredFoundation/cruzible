@@ -140,6 +140,13 @@ describe("transactionPreflight message helpers", () => {
     expect(getPreflightFailureMessage({ shortMessage: "reverted: X" })).toBe(
       "reverted: X",
     );
+    expect(
+      getPreflightFailureMessage({
+        shortMessage: "Execution reverted for an unknown reason.",
+      }),
+    ).toBe(
+      "The configured Cruzible vault rejected this call without a decodable error. Verify that NEXT_PUBLIC_CRUZIBLE_ADDRESS points to the replacement deployment for this release, then rebuild the frontend.",
+    );
   });
 });
 

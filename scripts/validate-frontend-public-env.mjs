@@ -448,7 +448,12 @@ export function validateFrontendPublicEnv(
 
   assertValidWalletConnectProjectId(env, {
     chainEnv,
-    required: chainEnv !== "devnet",
+    // WalletConnect is an optional transport on testnet. The first-party
+    // Aethelred Wallet and EIP-6963 injected wallets (including MetaMask)
+    // work without it, and omitting the connector is safer than compiling a
+    // borrowed/placeholder Reown project ID that reconnects forever with
+    // "Project not found". Mainnet keeps the explicit release requirement.
+    required: chainEnv === "mainnet",
   });
 
   if (chainEnv === "mainnet") {

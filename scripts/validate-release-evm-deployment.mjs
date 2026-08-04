@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,6 +105,7 @@ function assertStaticBinding({
   rpcUrl,
   addresses,
   artifacts,
+  expectedSourceCommit,
 }) {
   const { errors } = validateEvmDeploymentManifest(manifest);
   if (errors.length > 0) {
@@ -117,6 +119,14 @@ function assertStaticBinding({
   if (manifest.source.clean !== true) {
     throw new Error(
       "release deployment must have been produced from a clean tracked worktree",
+    );
+  }
+  if (
+    expectedSourceCommit &&
+    manifest.source.gitCommit !== expectedSourceCommit
+  ) {
+    throw new Error(
+      "deployment manifest source commit does not match the checked-out release commit",
     );
   }
   if (manifest.chain.chainId !== chainId) {
@@ -235,6 +245,7 @@ export async function validateReleaseEvmDeployment({
   cruzibleAddress,
   stAethelAddress,
   expectedGenesisHash,
+  expectedSourceCommit,
   repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), ".."),
   rpc = defaultRpc,
 }) {
@@ -250,6 +261,7 @@ export async function validateReleaseEvmDeployment({
     rpcUrl,
     addresses,
     artifacts,
+    expectedSourceCommit,
   });
   if (
     String(expectedGenesisHash).toLowerCase() !==
@@ -405,6 +417,11 @@ const isCliEntrypoint = process.argv[1] === fileURLToPath(import.meta.url);
 if (isCliEntrypoint) {
   try {
     const network = releaseNetwork();
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const expectedSourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
     const manifest = JSON.parse(
       requiredEnv("RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON"),
     );
@@ -414,6 +431,8 @@ if (isCliEntrypoint) {
       cruzibleAddress: requiredEnv("NEXT_PUBLIC_CRUZIBLE_ADDRESS"),
       stAethelAddress: requiredEnv("NEXT_PUBLIC_STAETHEL_ADDRESS"),
       expectedGenesisHash: requiredEnv("NEXT_PUBLIC_AETHELRED_GENESIS_HASH"),
+      expectedSourceCommit,
+      repoRoot,
     });
     console.log(
       `Release EVM deployment is live and bound to current artifacts (${result.contracts.join(", ")}; chain ${result.chainId}).`,

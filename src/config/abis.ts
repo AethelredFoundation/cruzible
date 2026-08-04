@@ -210,6 +210,78 @@ export const CruzibleABI = [
     outputs: [],
   },
 
+  // --- Custom Errors ---
+  // Viem can only decode Solidity custom-error revert data when the error is
+  // present in the ABI supplied to simulateContract. Keep the user-action
+  // error surface here so preflight reports an actionable contract condition
+  // instead of "Execution reverted for an unknown reason."
+  { name: "AccountCapExceeded", type: "error", inputs: [] },
+  { name: "AlreadyClaimed", type: "error", inputs: [] },
+  {
+    name: "ComplianceGateClosed",
+    type: "error",
+    inputs: [{ name: "reason", type: "string" }],
+  },
+  { name: "DepositsArePaused", type: "error", inputs: [] },
+  {
+    name: "IdentityGateClosed",
+    type: "error",
+    inputs: [{ name: "reason", type: "string" }],
+  },
+  { name: "InsufficientBuffer", type: "error", inputs: [] },
+  { name: "InsufficientPool", type: "error", inputs: [] },
+  {
+    name: "MinimumAethelNotMet",
+    type: "error",
+    inputs: [
+      { name: "minimumAethel", type: "uint256" },
+      { name: "actualAethel", type: "uint256" },
+    ],
+  },
+  {
+    name: "MinimumSharesNotMet",
+    type: "error",
+    inputs: [
+      { name: "minimumShares", type: "uint256" },
+      { name: "actualShares", type: "uint256" },
+    ],
+  },
+  { name: "NotWithdrawalOwner", type: "error", inputs: [] },
+  { name: "NotYetClaimable", type: "error", inputs: [] },
+  {
+    name: "ProtocolInsolvent",
+    type: "error",
+    inputs: [{ name: "uncoveredDeficit", type: "uint256" }],
+  },
+  { name: "Reentrancy", type: "error", inputs: [] },
+  { name: "RewardsProofInvalid", type: "error", inputs: [] },
+  {
+    name: "RootNotSet",
+    type: "error",
+    inputs: [{ name: "epoch", type: "uint256" }],
+  },
+  {
+    name: "SealAlreadyUsed",
+    type: "error",
+    inputs: [{ name: "sealId", type: "string" }],
+  },
+  {
+    name: "SealNotActive",
+    type: "error",
+    inputs: [{ name: "sealId", type: "string" }],
+  },
+  {
+    name: "SealNotBoundToStaker",
+    type: "error",
+    inputs: [{ name: "expectedPurpose", type: "string" }],
+  },
+  { name: "SlippageExceeded", type: "error", inputs: [] },
+  { name: "StakeTooSmall", type: "error", inputs: [] },
+  { name: "TokenNotSet", type: "error", inputs: [] },
+  { name: "TvlCapExceeded", type: "error", inputs: [] },
+  { name: "UnknownWithdrawal", type: "error", inputs: [] },
+  { name: "ZeroAmount", type: "error", inputs: [] },
+
   // --- Events ---
   {
     name: "Staked",

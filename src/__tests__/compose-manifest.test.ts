@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 const infraDir = resolve(process.cwd(), "backend/infra");
 const composeManifest = readFileSync(
@@ -11,10 +12,28 @@ const testnetComposeManifest = readFileSync(
   resolve(process.cwd(), "docker-compose.yml"),
   "utf8",
 );
+const testnetEnvExample = readFileSync(
+  resolve(process.cwd(), ".env.testnet.example"),
+  "utf8",
+);
+const testnetDeploymentGuide = readFileSync(
+  resolve(process.cwd(), "docs/TESTNET_DEPLOYMENT.md"),
+  "utf8",
+);
 const prometheusConfig = readFileSync(
   resolve(infraDir, "config/prometheus/prometheus.yml"),
   "utf8",
 );
+
+type TestnetComposeService = {
+  environment?: Record<string, string>;
+  profiles?: string[];
+  restart?: string;
+};
+
+const testnetComposeConfig = parseYaml(testnetComposeManifest) as {
+  services: Record<string, TestnetComposeService>;
+};
 
 function expectRequiredVariable(variable: string) {
   expect(composeManifest).toContain(`\${${variable}:?set ${variable}}`);
@@ -258,6 +277,48 @@ describe("Docker Compose production scaffold", () => {
     expect(testnetComposeManifest).toContain(
       '"${CRUZIBLE_API_PORT:-4001}:4001"',
     );
+  });
+
+  it("runs exactly one dedicated indexer in the default testnet topology", () => {
+    const api = testnetComposeConfig.services.api;
+    const indexer = testnetComposeConfig.services.indexer;
+    const indexerWorkers = Object.values(testnetComposeConfig.services).filter(
+      (service) => service.environment?.CRUZIBLE_RUNTIME_ROLE === "indexer",
+    );
+
+    expect(indexerWorkers).toHaveLength(1);
+    expect(api.environment).toMatchObject({
+      CRUZIBLE_RUNTIME_ROLE: "api",
+      INDEXER_ENABLED: "false",
+    });
+    expect(indexer.environment).toMatchObject({
+      CRUZIBLE_RUNTIME_ROLE: "indexer",
+      INDEXER_ENABLED: "true",
+    });
+    expect(indexer.profiles).toBeUndefined();
+    expect(indexer.restart).toBe("unless-stopped");
+    expect(testnetComposeManifest).not.toContain("disable: true");
+  });
+
+  it("keeps indexer ownership out of the shared testnet env file", () => {
+    expect(testnetEnvExample).not.toMatch(/^INDEXER_ENABLED=/mu);
+    expect(testnetDeploymentGuide).not.toContain("--profile indexer");
+    expect(testnetDeploymentGuide).toContain(
+      "The root Compose manifest forces it to",
+    );
+  });
+
+  it("pins the current pre-TLS frontend origins in the testnet operator references", () => {
+    for (const expected of [
+      "CORS_ORIGINS=http://93.127.132.52:3000",
+      "NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=http://54.165.44.130:8545",
+      "NEXT_PUBLIC_API_URL=http://93.127.132.52:4001/v1",
+      "CRUZIBLE_EXTRA_API_ORIGINS=http://93.127.132.52:4001",
+      "CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true",
+    ]) {
+      expect(testnetEnvExample).toContain(expected);
+      expect(testnetDeploymentGuide).toContain(expected);
+    }
   });
 
   it("pins API proxy trust to the nginx hop", () => {
