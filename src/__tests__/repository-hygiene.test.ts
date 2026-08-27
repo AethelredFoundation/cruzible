@@ -1,0 +1,226 @@
+import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { describe, expect, it } from "vitest";
+
+describe("repository hygiene", () => {
+  it("keeps the pre-commit quality gate executable", () => {
+    const indexEntry = execFileSync(
+      "git",
+      ["ls-files", "--stage", ".husky/pre-commit"],
+      { encoding: "utf8" },
+    );
+
+    expect(indexEntry).toMatch(/^100755 /);
+  });
+
+  it("only restores pre-commit stashes created by the hook", () => {
+    const hook = readFileSync(".husky/pre-commit", "utf8");
+
+    expect(hook).toContain("STASH_CREATED=0");
+    expect(hook).toContain("trap restore_stash EXIT");
+    expect(hook).toContain("if ! git diff --quiet; then");
+    expect(hook).toContain(
+      'git stash push -q --keep-index -m "cruzible-pre-commit-unstaged"',
+    );
+    expect(hook).toContain('if [ "$STASH_CREATED" -eq 1 ]; then');
+    expect(hook).not.toContain("git stash -q --keep-index");
+    expect(hook).not.toMatch(/^git stash pop -q$/m);
+  });
+
+  it("passes staged files into the related-test pre-commit gate", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const runner = readFileSync("scripts/run-related-tests.mjs", "utf8");
+
+    expect(packageJson.scripts["test:changed"]).toBe(
+      "node scripts/run-related-tests.mjs",
+    );
+    expect(runner).toContain("git");
+    expect(runner).toContain("--cached");
+    expect(runner).toContain("vitest");
+    expect(runner).toContain("related");
+    expect(runner).toContain("FULL_TEST_TRIGGER_PATHS");
+    expect(runner).toContain('"next-sitemap.config.js"');
+    expect(runner).toContain('"src/pages/"');
+  });
+
+  it("routes staged backend API changes through backend quality gates", () => {
+    const runner = readFileSync("scripts/run-related-tests.mjs", "utf8");
+
+    expect(runner).toContain('const BACKEND_API_PREFIX = "backend/api/"');
+    expect(runner).toContain("BACKEND_API_VALIDATION_STEPS");
+    expect(runner).toContain("runBackendApiValidation");
+    expect(runner).toContain('"format:check"');
+    expect(runner).toContain('"typecheck"');
+    expect(runner).toContain('runInDirectory(command, args, "backend/api")');
+  });
+
+  it("routes staged E2E changes through production smoke tests", () => {
+    const runner = readFileSync("scripts/run-related-tests.mjs", "utf8");
+
+    expect(runner).toContain('const E2E_PREFIX = "e2e/"');
+    expect(runner).toContain("shouldRunE2eSuite");
+    expect(runner).toContain('filePath === "playwright.config.ts"');
+    expect(runner).toContain('"test:e2e"');
+    expect(runner).toContain("!filePath.startsWith(E2E_PREFIX)");
+  });
+
+  it("keeps accessibility readiness checks in the production E2E suite", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const accessibilitySpec = readFileSync(
+      "e2e/accessibility-readiness.spec.ts",
+      "utf8",
+    );
+    const workflow = readFileSync(".github/workflows/ci-cd.yml", "utf8");
+
+    expect(packageJson.scripts["accessibility:check"]).toBe(
+      "playwright test e2e/accessibility-readiness.spec.ts --project=chromium",
+    );
+    expect(packageJson.scripts["test:e2e"]).toBe("playwright test");
+    expect(workflow).toContain("npm run test:e2e");
+    expect(accessibilitySpec).toContain("assertPageAccessibility");
+    expect(accessibilitySpec).toContain(
+      "Visible form fields must be associated with a label or aria label.",
+    );
+    expect(accessibilitySpec).toContain("main#main-content");
+  });
+
+  it("keeps mobile readiness checks in the production E2E suite", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const mobileSpec = readFileSync("e2e/mobile-readiness.spec.ts", "utf8");
+    const workflow = readFileSync(".github/workflows/ci-cd.yml", "utf8");
+
+    expect(packageJson.scripts["mobile:check"]).toBe(
+      "playwright test e2e/mobile-readiness.spec.ts --project=chromium",
+    );
+    expect(packageJson.scripts["test:e2e"]).toBe("playwright test");
+    expect(workflow).toContain("npm run test:e2e");
+    expect(mobileSpec).toContain("Pixel 5");
+    expect(mobileSpec).toContain("mobile-ready during upstream API outage");
+    expect(mobileSpec).toContain("horizontal mobile overflow");
+  });
+
+  it("keeps frontend journey performance budgets in the production E2E suite", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const performanceSpec = readFileSync(
+      "e2e/performance-budget.spec.ts",
+      "utf8",
+    );
+    const workflow = readFileSync(".github/workflows/ci-cd.yml", "utf8");
+
+    expect(packageJson.scripts["performance:journey"]).toBe(
+      "playwright test e2e/performance-budget.spec.ts --project=chromium",
+    );
+    expect(packageJson.scripts["test:e2e"]).toBe("playwright test");
+    expect(workflow).toContain("npm run test:e2e");
+    expect(performanceSpec).toContain("routeBudgets");
+    expect(performanceSpec).toContain("first-contentful-paint");
+    expect(performanceSpec).toContain("same-origin transfer budget");
+    expect(performanceSpec).toContain("runtime errors");
+  });
+
+  it("keeps the production gap register in local and CI quality gates", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const securityWorkflow = readFileSync(
+      ".github/workflows/security-audit.yml",
+      "utf8",
+    );
+
+    expect(packageJson.scripts["readiness:gaps"]).toBe(
+      "node scripts/validate-production-gap-register.mjs",
+    );
+    expect(packageJson.scripts.validate).toContain("npm run readiness:gaps");
+    expect(packageJson.scripts["verify:ci"]).toContain(
+      "npm run readiness:gaps",
+    );
+    expect(securityWorkflow).toContain("Validate production gap register");
+    expect(securityWorkflow).toContain("npm run readiness:gaps");
+  });
+
+  it("keeps the public route inventory in local and CI quality gates", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const securityWorkflow = readFileSync(
+      ".github/workflows/security-audit.yml",
+      "utf8",
+    );
+
+    expect(packageJson.scripts["readiness:routes"]).toBe(
+      "node scripts/validate-public-route-inventory.mjs",
+    );
+    expect(packageJson.scripts.validate).toContain("npm run readiness:routes");
+    expect(packageJson.scripts["verify:ci"]).toContain(
+      "npm run readiness:routes",
+    );
+    expect(securityWorkflow).toContain("Validate public route inventory");
+    expect(securityWorkflow).toContain("npm run readiness:routes");
+  });
+
+  it("keeps the staged launch drill contract in local and CI quality gates", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const securityWorkflow = readFileSync(
+      ".github/workflows/security-audit.yml",
+      "utf8",
+    );
+    const drill = readFileSync("scripts/staged-launch-drill.mjs", "utf8");
+
+    expect(packageJson.scripts["readiness:launch-drill"]).toBe(
+      "node scripts/staged-launch-drill.mjs --dry-run",
+    );
+    expect(packageJson.scripts["launch:drill:staging"]).toBe(
+      "node scripts/staged-launch-drill.mjs",
+    );
+    expect(packageJson.scripts.validate).toContain(
+      "npm run readiness:launch-drill",
+    );
+    expect(packageJson.scripts["verify:ci"]).toContain(
+      "npm run readiness:launch-drill",
+    );
+    expect(securityWorkflow).toContain("Validate staged launch drill contract");
+    expect(securityWorkflow).toContain("npm run readiness:launch-drill");
+    expect(drill).toContain("Do not pass token values as CLI arguments");
+    expect(drill).toContain("api-full-health-rejects-anonymous");
+  });
+
+  it("keeps release SBOM generation in local and CI quality gates", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const securityWorkflow = readFileSync(
+      ".github/workflows/security-audit.yml",
+      "utf8",
+    );
+    const ciWorkflow = readFileSync(".github/workflows/ci-cd.yml", "utf8");
+    const generator = readFileSync("scripts/generate-release-sbom.mjs", "utf8");
+
+    expect(packageJson.scripts["release:sbom"]).toBe(
+      "node scripts/generate-release-sbom.mjs --check",
+    );
+    expect(packageJson.scripts["release:sbom:write"]).toBe(
+      "node scripts/generate-release-sbom.mjs --output .release-evidence/cruzible-release-sbom.spdx.json",
+    );
+    expect(packageJson.scripts.validate).toContain("npm run release:sbom");
+    expect(packageJson.scripts["verify:ci"]).toContain("npm run release:sbom");
+    expect(securityWorkflow).toContain("Validate release SBOM generation");
+    expect(securityWorkflow).toContain("npm run release:sbom");
+    expect(ciWorkflow).toContain("Release SBOM");
+    expect(ciWorkflow).toContain("npm run release:sbom:write");
+    expect(ciWorkflow).toContain(
+      ".release-evidence/cruzible-release-sbom.spdx.json",
+    );
+    expect(generator).toContain("SPDX-2.3");
+    expect(generator).toContain("backend/contracts/Cargo.lock");
+  });
+});

@@ -1,0 +1,86 @@
+{
+  "schema": "cruzible.restore_drill_evidence.v1",
+  "commit": "91c069e8a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "environment": "staging",
+  "incident_scenario": "Primary PostgreSQL volume loss with API redeploy from a clean database restore",
+  "started_at": "2026-06-27T08:00:00.000Z",
+  "recovered_at": "2026-06-27T08:37:00.000Z",
+  "rto_actual_minutes": 37,
+  "rpo_actual_minutes": 12,
+  "database_backup_manifest": {
+    "schema": "cruzible.database_backup.v1",
+    "created_at": "2026-06-27T07:45:00.000Z",
+    "label": "pre-migration",
+    "dry_run": false,
+    "database": {
+      "protocol": "postgresql",
+      "host": "db.staging.internal",
+      "port": "5432",
+      "name": "cruzible",
+      "username": "cruzible_app",
+      "sslmode": "require"
+    },
+    "source": "DATABASE_URL_FILE",
+    "backup": {
+      "format": "postgres_custom",
+      "file": "cruzible-db-pre-migration-20260627T074500Z.dump",
+      "manifest": "cruzible-db-pre-migration-20260627T074500Z.manifest.json",
+      "sha256": "7c4c6f08b43d4e16d3350d560d93374bdb4c9fe23cc9e9c21b919132f0797d12",
+      "size_bytes": 48219341
+    },
+    "verification": {
+      "status": "passed",
+      "checked_at": "2026-06-27T07:48:00.000Z",
+      "duration_ms": 1284,
+      "object_count": 94,
+      "pg_restore": {
+        "version": "pg_restore (PostgreSQL) 16.4",
+        "command": "pg_restore --list <backup>"
+      }
+    },
+    "pg_dump": {
+      "version": "pg_dump (PostgreSQL) 16.4",
+      "command": "pg_dump --format=custom --no-owner --no-privileges --file <backup>"
+    }
+  },
+  "readiness_probe_result": {
+    "status": "passed",
+    "checked_at": "2026-06-27T08:42:00.000Z",
+    "checks": [
+      {
+        "id": "api-live",
+        "target": "api",
+        "status": "passed"
+      },
+      {
+        "id": "api-ready",
+        "target": "api",
+        "status": "ready"
+      },
+      {
+        "id": "frontend-health",
+        "target": "frontend",
+        "status": "passed"
+      },
+      {
+        "id": "reconciliation-live",
+        "target": "api",
+        "status": "passed"
+      }
+    ]
+  },
+  "operator_approvals": [
+    {
+      "approver": "release-manager",
+      "role": "release",
+      "decision": "approved",
+      "approved_at": "2026-06-27T08:45:00.000Z"
+    },
+    {
+      "approver": "security-operator",
+      "role": "security",
+      "decision": "approved",
+      "approved_at": "2026-06-27T08:46:00.000Z"
+    }
+  ]
+}

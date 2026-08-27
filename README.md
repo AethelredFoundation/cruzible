@@ -1,345 +1,198 @@
 <div align="center">
   <img src="README-logo.png" alt="Cruzible" width="200" />
   <h1>Cruzible</h1>
-  <p><strong>TEE-verified liquid staking vault for the Aethelred sovereign L1</strong></p>
+  <p><strong>Frontend, API gateway, and contract workspace for the Aethelred liquid staking stack</strong></p>
   <p>
-    <a href="https://github.com/aethelred-foundation/cruzible/actions/workflows/ci-cd.yml"><img src="https://img.shields.io/github/actions/workflow/status/aethelred-foundation/cruzible/ci-cd.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
-    <a href="https://codecov.io/gh/aethelred-foundation/cruzible"><img src="https://img.shields.io/codecov/c/github/aethelred-foundation/cruzible?style=flat-square&label=coverage" alt="Coverage"></a>
-    <a href="backend/contracts/SECURITY_AUDIT.md"><img src="https://img.shields.io/badge/audit-120_attack_analysis-informational?style=flat-square" alt="Audit"></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License"></a>
-  </p>
-  <p>
-    <a href="https://cruzible.aethelred.io">App</a> &middot;
-    <a href="https://docs.aethelred.io">Docs</a> &middot;
-    <a href="https://api.aethelred.io/docs">API Reference</a> &middot;
-    <a href="https://discord.gg/aethelred">Discord</a> &middot;
-    <a href="docs/architecture/12-public-readiness.md">Public Readiness</a>
+    <a href="docs/ops/runbook.md">Ops Runbook</a> &middot;
+    <a href="docs/ops/environment-reference.md">Environment Reference</a> &middot;
+    <a href="docs/architecture/11-benchmarking-slos.md">Benchmarking &amp; SLOs</a> &middot;
+    <a href="docs/architecture/12-public-readiness.md">Public Readiness</a> &middot;
+    <a href="docs/architecture/13-production-gap-register.md">Production Gap Register</a> &middot;
+    <a href="docs/architecture/public-route-inventory.json">Route Inventory</a>
   </p>
 </div>
 
 ---
 
-## Overview
+## Workspace Status
 
-Cruzible is a full-stack liquid staking application built on **Aethelred** — a sovereign Layer 1 optimised for verifiable AI computation. Users can stake AETHEL, receive stAETHEL as a liquid receipt token, explore on-chain activity, monitor validators, and submit TEE-attested AI inference jobs — all from a single interface.
+Cruzible is a pre-mainnet monorepo for the Aethelred liquid staking experience. This README is intentionally aligned to the current workspace snapshot and avoids describing routes, deployment flows, or automation that are not actually checked in here.
 
-> **Status** &mdash; Pre-mainnet. See the [public readiness checklist](docs/architecture/12-public-readiness.md) for launch progress.
+Runtime UI surfaces are expected to fail closed, show readiness-gated states, or stay empty when live data is unavailable instead of rendering seeded/mock fallback data. Test-only request mocks live under `src/mocks` and are guarded from production imports. The operator-facing source of truth for this repository is:
 
----
+- [docs/ops/runbook.md](docs/ops/runbook.md)
+- [docs/ops/environment-reference.md](docs/ops/environment-reference.md)
+- [docs/architecture/12-public-readiness.md](docs/architecture/12-public-readiness.md)
+- [docs/architecture/13-production-gap-register.md](docs/architecture/13-production-gap-register.md)
+- [docs/architecture/public-route-inventory.json](docs/architecture/public-route-inventory.json)
 
-## Features
+## Current Repo Surface
 
-<table>
-<tr>
-<td width="50%">
+| Area              | What exists in this repository now                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend          | Next.js 15 app under `src/` with machine-checked public route inventory for `/`, `/vault`, `/validators`, `/jobs`, `/models`, `/seals`, `/stablecoins`, `/reconciliation`, `/devtools`, `/governance`, and `/api/health`; vault and stablecoin bridge flows include tested risk, proof, limit, settlement, and withdrawal-liquidity disclosures |
+| API               | Express/TypeScript service under `backend/api` with `/health`, `/health/live`, `/health/ready`, `/docs`, and `/v1/{blocks,jobs,reconciliation,alerts,stablecoins}`                                                                                                                                                                              |
+| Contracts         | CosmWasm workspace under `backend/contracts/contracts/{ai_job_manager,cw20_staking,governance,model_registry,seal_manager,vault}`                                                                                                                                                                                                               |
+| Infra scaffolding | Frontend Dockerfile at repo root, API Dockerfile at `backend/api/Dockerfile`, `backend/infra/docker-compose.yml`, and `k8s/base/frontend.yaml`                                                                                                                                                                                                  |
+| Docs              | README, backend README, ops runbook, env reference, readiness register, benchmarking/SLO notes, and contract audit/test reports                                                                                                                                                                                                                 |
 
-**Blockchain Explorer**
+## Prerequisites
 
-- Real-time block tracking with WebSocket feeds
-- Full transaction history with advanced filtering
-- Validator performance and uptime monitoring
-- Network health metrics dashboard
+| Tool          | Version                                             |
+| ------------- | --------------------------------------------------- |
+| Node.js       | `>=20.0.0`                                          |
+| npm           | `>=10.0.0`                                          |
+| Rust          | Needed for contract builds/tests                    |
+| PostgreSQL    | Needed for API indexing/reconciliation flows        |
+| Aethelred RPC | Needed for API health, indexing, and reconciliation |
 
-</td>
-<td width="50%">
+## Local Development
 
-**AI Job Verification**
-
-- TEE-attested inference job submission
-- Automatic validator assignment
-- ZK proof, TEE attestation, and MPC proof verification
-- Automated payment settlement
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**Liquid Staking (stAETHEL)**
-
-- Stake AETHEL and earn rewards with full liquidity
-- Trade stAETHEL without unbonding periods
-- Manual or auto-delegated validator selection
-- Compound or claim rewards on demand
-
-</td>
-<td width="50%">
-
-**Governance** _(preview — not yet deployed on-chain)_
-
-- Protocol upgrade proposals
-- On-chain voting and delegation
-- Treasury and community fund management
-
-</td>
-</tr>
-</table>
-
----
-
-## Architecture
-
-```mermaid
-graph TB
-    subgraph Frontend
-        A[Next.js 14 / React 18<br/>Tailwind CSS / Wagmi]
-    end
-
-    subgraph API Gateway
-        B[Express / TypeScript<br/>WebSocket / JWT Auth]
-    end
-
-    subgraph Blockchain Node
-        C[Rust / Tendermint<br/>HotStuff BFT]
-    end
-
-    subgraph Storage
-        D[(PostgreSQL 16<br/>Prisma ORM)]
-        E[(Redis 7<br/>Cache & Pub/Sub)]
-    end
-
-    subgraph Smart Contracts
-        F[CosmWasm<br/>AI Job Manager / AethelVault<br/>Governance / Seal Manager<br/>Model Registry / CW20 Staking]
-    end
-
-    A <-->|REST + WS| B
-    B <-->|gRPC| C
-    B --- D
-    B --- E
-    C --- F
-```
-
----
-
-## Quick Start
-
-### Prerequisites
-
-| Tool             | Version   |
-| ---------------- | --------- |
-| Node.js          | >= 20.0.0 |
-| Rust             | >= 1.75.0 |
-| Docker + Compose | latest    |
-| PostgreSQL       | >= 16     |
-| Redis            | >= 7      |
-
-### Installation
+### Frontend
 
 ```bash
-# Clone
-git clone https://github.com/aethelred-foundation/cruzible.git
-cd cruzible
-
-# Install dependencies
 npm ci
-
-# Configure
-cp .env.example .env
-# Edit .env with your configuration
-
-# Start infrastructure
-docker-compose -f backend/infra/docker-compose.yml up -d
-
-# Run database migrations
-cd backend/api && npx prisma migrate dev && cd ../..
-
-# Start development servers
-npm run dev           # Frontend  — http://localhost:3000
-npm run dev:api       # API       — http://localhost:3001
+cp .env.example .env.local
+npm run dev
 ```
 
-<details>
-<summary>Environment variables</summary>
+The frontend uses Next.js environment loading, so `.env.local` is the expected local override file.
+
+### API
 
 ```bash
-# Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/aethelred
-
-# Redis
-REDIS_URL=redis://localhost:6379
-
-# Blockchain
-RPC_URL=http://localhost:26657
-GRPC_URL=http://localhost:9090
-
-# Security
-JWT_SECRET=your-secret-key
-JWT_REFRESH_SECRET=your-refresh-secret
-
-# External Services
-SENTRY_DSN=your-sentry-dsn
-ANALYTICS_ID=your-analytics-id
+cd backend/api
+npm ci
+npm run dev
 ```
 
-</details>
+The API does not currently load `backend/.env.example` or a `.env` file automatically. Inject the variables documented in [backend/.env.example](backend/.env.example) through your shell, process manager, container runtime, or secret store before starting `backend/api`. Production deployments should prefer the supported `*_FILE` variables for high-value settings such as database URLs, JWT secrets, operational endpoint tokens, and alert webhooks.
 
----
+At minimum, plan to provide:
 
-## Project Structure
+- `DATABASE_URL`
+- `RPC_URL`
+- `JWT_SECRET`
+- `JWT_REFRESH_SECRET`
 
-```
-cruzible/
-├── src/                            # Next.js frontend
-│   ├── components/                 # React components
-│   ├── contexts/                   # Global state (AppContext)
-│   ├── hooks/                      # Custom React hooks
-│   ├── lib/                        # Utilities and constants
-│   ├── pages/                      # Routes — blocks, validators, jobs, vault, governance
-│   ├── __tests__/                  # Jest + RTL test suites
-│   └── mocks/                      # MSW request handlers
-│
-├── backend/
-│   ├── api/                        # Express API gateway (TypeScript)
-│   │   ├── src/                    # Routes, services, middleware, auth
-│   │   ├── prisma/                 # Database schema and migrations
-│   │   └── tests/                  # API integration tests
-│   ├── contracts/                  # CosmWasm smart contracts (Rust)
-│   │   └── contracts/              # ai_job_manager, vault, governance, seal_manager, model_registry, cw20_staking
-│   ├── node/                       # Blockchain node (Rust / Tendermint / HotStuff BFT)
-│   └── infra/                      # Docker Compose and K8s configs
-│
-├── sdk/                            # Client SDKs (TypeScript, Python)
-├── docs/                           # Architecture docs and ops runbook
-├── specs/                          # Protocol specifications
-├── k8s/                            # Kubernetes manifests
-├── .github/workflows/ci-cd.yml    # CI/CD pipeline
-└── .env.example                    # Environment template
-```
+When both a direct secret variable and its matching `*_FILE` variable are set,
+startup fails closed to avoid ambiguous secret provenance.
 
----
+## Implemented API Surface
 
-## Testing
+### Public endpoints
+
+- `GET /health`
+- `GET /health/live`
+- `GET /health/ready`
+- `GET /docs`
+- `GET /v1/blocks`
+- `GET /v1/blocks/latest`
+- `GET /v1/blocks/:height`
+- `GET /v1/blocks/:height/transactions`
+- `GET /v1/jobs`
+- `GET /v1/jobs/stats`
+- `GET /v1/jobs/pricing`
+- `GET /v1/jobs/:id`
+- `GET /v1/jobs/:id/verifications`
+- `GET /v1/jobs/queue`
+- `GET /v1/reconciliation/live`
+- `GET /v1/stablecoins`
+- `GET /v1/stablecoins/:assetId`
+- `GET /v1/stablecoins/:assetId/history`
+- `GET /v1/stablecoins/:assetId/status`
+
+### JWT-protected endpoints
+
+- `GET /v1/alerts`
+- `GET /v1/alerts/summary`
+- `GET /v1/audit/privileged-access`
+- `GET /v1/audit/privileged-access/export`
+- `GET /v1/reconciliation/status`
+
+Protected endpoints require bearer JWTs issued through the wallet-backed
+`/v1/auth` nonce/login flow. Operator and admin roles must be present in the
+token and still match the current `AUTH_OPERATOR_ADDRESSES` or
+`AUTH_ADMIN_ADDRESSES` allowlists when the request is made.
+
+### WebSocket note
+
+The API starts a Socket.IO server on the same port as HTTP. Clients receive an
+initial `ready` event after connection middleware succeeds. Production
+handshakes require an allowed origin plus a valid API access token or
+`OPERATIONAL_ENDPOINTS_TOKEN`, and active connections are capped per client IP.
+
+## Common Commands
 
 ```bash
-# Frontend — unit and component tests
+# Frontend
+export NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org
+export NEXT_PUBLIC_CHAIN_ENV=testnet
+export NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=https://<operator-rpc>
+export NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7
+npm run build
+npm run test
+npm run test:coverage
+npm run accessibility:check
+npm run mobile:check
+npm run performance:journey
+npm run readiness:routes
+npm run readiness:launch-drill
+npm run release:sbom
+npm run release:sbom:write
+npm run launch:drill:staging -- --frontend-url https://staging.example --api-url https://api.staging.example --evidence-file .launch-evidence/staging.json
+npm run analyze
+
+# API
+cd backend/api
+npm run build
 npm test
 npm run test:coverage
-npm run test:watch
 
-# Integration tests
-docker-compose -f docker-compose.test.yml up -d
-npm run test:integration
+# Contracts
+npm run contracts:evm:check
 
-# E2E tests (Playwright)
-npx playwright install
-npm run test:e2e
-
-# Smart contracts
-cd backend/contracts
-cargo test --all
-cargo tarpaulin --all          # coverage
+# Earlier Cosmos-native contract track (not deployed by Cruzible)
+cd backend/contracts && cargo test --all
 ```
 
----
+## Known Repo-Reality Gaps
 
-## Security
+- `backend/infra/docker-compose.yml` includes checked-in nginx, Prometheus, Grafana, and PostgreSQL baselines and requires an operator-managed external `rediss://` endpoint; operator secrets, TLS material, immutable image digests, and staging validation are still required before production use.
+- `k8s/base/` includes frontend, API gateway, and indexer manifests with read-only roots, bounded `/tmp` write surfaces, DNS-only backend egress by default, scoped ingress NetworkPolicies, ephemeral-storage budgets, rollout/disruption safeguards, and `0440` backend secret-file projections for non-root `fsGroup` access. The `k8s/overlays/production-egress/` allowlist must be replaced with environment-specific PostgreSQL, Redis, RPC, and alert webhook CIDRs before rollout.
+- Frontend public-data requests require `NEXT_PUBLIC_API_URL` at build time because Next.js public env is compiled into browser bundles; Docker images must pass `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CHAIN_ENV` as build args, and production mainnet/testnet builds accept only the approved chain-specific API origin.
+- `backend/api/src/services/CacheService.ts` uses Redis when `REDIS_URL` is configured and requires TLS Redis URLs in production; local/test runs keep an in-memory fallback.
+- `backend/api/src/services/AlertService.ts` persists alert history in PostgreSQL when `DATABASE_URL` is configured and falls back to an in-memory buffer for local/test operation.
+- The canonical Aethelred node is maintained in [`aethelred-foundation/aethelred`](https://github.com/aethelred-foundation/aethelred). This repository intentionally does not vendor a node binary; Cruzible deployments consume operator-reviewed RPC, WebSocket, and gRPC endpoints from a pinned chain release.
+- Some frontend surfaces remain preview-oriented. Runtime pages fail closed, stay empty, or show readiness gates instead of presenting seeded/mock data as live protocol state.
 
-**Audit reports:**
-[120-Attack Analysis](backend/contracts/SECURITY_AUDIT.md) ·
-[Compliance Report](backend/contracts/SECURITY_COMPLIANCE_REPORT.md) ·
-[Code Review](CODE_REVIEW_REPORT.md)
+## Repository Guide
 
-**Application layer:**
-JWT + refresh-token auth, RBAC, Zod input validation, per-endpoint rate limiting, CORS, Helmet security headers, parameterised queries (Prisma), XSS sanitisation.
-
-**Smart contract layer:**
-Reentrancy guard (checks-effects-interactions), checked arithmetic, role-based access control, emergency pause mechanism, solvency and share-conservation invariants.
-
----
-
-## Performance
-
-| Metric                   | Target   | Current |
-| ------------------------ | -------- | ------- |
-| First Contentful Paint   | < 1.5 s  | 0.9 s   |
-| Largest Contentful Paint | < 2.5 s  | 1.8 s   |
-| Time to Interactive      | < 3.5 s  | 2.2 s   |
-| API Response Time (p95)  | < 200 ms | 120 ms  |
-| Contract Gas — stake     | < 100 k  | 80 k    |
-
-Optimisations: code splitting, Next.js image optimisation, Redis response caching, CDN edge delivery, Gzip/Brotli compression, database indexing.
-
----
-
-## Development
-
-```bash
-npm run lint && npm run lint:fix    # ESLint
-npm run format                      # Prettier
-npm run type-check                  # TypeScript strict mode
-npm run validate                    # All checks
+```text
+cruzible/
+├── src/                      # Next.js frontend
+├── backend/
+│   ├── api/                  # Express / TypeScript API gateway
+│   ├── contracts-evm/        # Canonical Cruzible Solidity contracts
+│   ├── contracts/            # Earlier Cosmos-native contract track
+│   └── infra/                # Infrastructure scaffolding
+├── docs/                     # Ops, readiness, and architecture notes
+├── k8s/                      # Checked-in Kubernetes base manifests
+├── sdk/                      # TypeScript and Python SDKs
+└── specs/                    # Protocol/specification notes
 ```
 
-Pre-commit hooks (Husky) run ESLint, Prettier, TypeScript checks, and unit tests on changed files.
+## Further Reading
 
-### CI/CD Pipeline
-
-**On every PR:** security audit, lint + format, unit tests (frontend, backend, contracts), integration tests, E2E tests, build verification.
-
-**On merge to main:** Docker build, push to registry, deploy to staging, smoke tests, deploy to production.
-
----
-
-## API
-
-### REST
-
-```bash
-GET  /v1/blocks?limit=10
-GET  /v1/blocks/:height
-GET  /v1/transactions?sender=aethelred1...
-GET  /v1/validators/:address
-```
-
-### WebSocket
-
-```javascript
-const ws = new WebSocket("wss://api.aethelred.io/ws");
-
-ws.send(JSON.stringify({ method: "subscribe", channel: "blocks" }));
-ws.send(
-  JSON.stringify({
-    method: "subscribe",
-    channel: "transactions",
-    filter: { address: "aethelred1..." },
-  }),
-);
-```
-
-Full reference: [api.aethelred.io/docs](https://api.aethelred.io/docs)
-
----
-
-## Contributing
-
-We welcome contributions. Please see the [Contributing Guide](CONTRIBUTING.md) before opening a PR.
-
-1. Fork the repository
-2. Create a feature branch — `git checkout -b feature/my-feature`
-3. Run `npm run validate`
-4. Commit with [Conventional Commits](https://www.conventionalcommits.org/)
-5. Open a Pull Request
-
----
+- [backend/README.md](backend/README.md)
+- [docs/ops/runbook.md](docs/ops/runbook.md)
+- [docs/ops/environment-reference.md](docs/ops/environment-reference.md)
+- [docs/architecture/11-benchmarking-slos.md](docs/architecture/11-benchmarking-slos.md)
+- [docs/architecture/12-public-readiness.md](docs/architecture/12-public-readiness.md)
+- [docs/architecture/public-route-inventory.json](docs/architecture/public-route-inventory.json)
+- [backend/contracts/README.md](backend/contracts/README.md)
+- [backend/contracts/SECURITY_AUDIT.md](backend/contracts/SECURITY_AUDIT.md)
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
-
----
-
-## Acknowledgments
-
-[CosmWasm](https://cosmwasm.com/) · [Tendermint](https://tendermint.com/) · [Next.js](https://nextjs.org/) · [Tailwind CSS](https://tailwindcss.com/)
-
----
-
-<p align="center">
-  <a href="https://docs.aethelred.io">Docs</a> &middot;
-  <a href="https://discord.gg/aethelred">Discord</a> &middot;
-  <a href="https://twitter.com/aethelred">Twitter</a> &middot;
-  <a href="mailto:support@aethelred.io">Support</a>
-</p>
-<p align="center">
-  Copyright &copy; 2024–2026 Aethelred Foundation
-</p>
+Apache 2.0. See [LICENSE](LICENSE).

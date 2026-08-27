@@ -29,7 +29,6 @@
     ]
   },
   "expected": {
-    "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes",
-    "validator_set_hash": null
+    "validator_set_hash": "0x1cd11331a257fc58531b19a7fd7151630aa1b38f3512a92983decac8b89ce181"
   }
 }

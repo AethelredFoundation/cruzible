@@ -23,7 +23,7 @@ Excluded from this first cut:
 Example:
 
 ```bash
-PYTHONPATH=./sdk/python/src \
+python3 -m pip install --disable-pip-version-check --no-input ./sdk/python
 python3 ./sdk/python/examples/epoch_reconciliation.py \
   --input ./test-vectors/reconciliation/default.json \
   --json-out /tmp/cruzible-epoch-report.json \

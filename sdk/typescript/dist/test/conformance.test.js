@@ -13,13 +13,6 @@ function readJson(relativePath) {
     const fullPath = node_path_1.default.resolve(VECTORS_ROOT, relativePath);
     return JSON.parse(node_fs_1.default.readFileSync(fullPath, "utf8"));
 }
-function tryReadJson(relativePath) {
-    const fullPath = node_path_1.default.resolve(VECTORS_ROOT, relativePath);
-    if (!node_fs_1.default.existsSync(fullPath)) {
-        return null;
-    }
-    return JSON.parse(node_fs_1.default.readFileSync(fullPath, "utf8"));
-}
 // ─── Default Vectors ──────────────────────────────────────────────────────
 function testDefaultVectors() {
     console.log("  [default] validator-selection/default.json");
@@ -63,11 +56,8 @@ function hasExpectedValues(expected) {
     return Object.entries(expected).some(([key, value]) => key !== "_note" && value !== null && typeof value === "string");
 }
 function testEdgeSingleValidator() {
-    const vector = tryReadJson("test-vectors/edge-cases/single-validator.json");
-    if (!vector || !hasExpectedValues(vector.expected)) {
-        console.log("  [skip] single-validator.json (expected values not yet generated)");
-        return;
-    }
+    const vector = readJson("test-vectors/edge-cases/single-validator.json");
+    strict_1.default.ok(hasExpectedValues(vector.expected), "single-validator.json must contain committed expected values");
     console.log("  [edge] single-validator.json");
     const { epoch, validators, config, eligible_addresses } = vector.input;
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeValidatorSetHash)(epoch, validators)), vector.expected.validator_set_hash);
@@ -76,11 +66,8 @@ function testEdgeSingleValidator() {
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeCanonicalValidatorPayload)(epoch, validators, config, eligible_addresses)), vector.expected.payload_hex);
 }
 function testEdgeZeroStake() {
-    const vector = tryReadJson("test-vectors/edge-cases/zero-stake.json");
-    if (!vector || !hasExpectedValues(vector.expected)) {
-        console.log("  [skip] zero-stake.json (expected values not yet generated)");
-        return;
-    }
+    const vector = readJson("test-vectors/edge-cases/zero-stake.json");
+    strict_1.default.ok(hasExpectedValues(vector.expected), "zero-stake.json must contain committed expected values");
     console.log("  [edge] zero-stake.json");
     const { epoch, staker_stakes } = vector.input;
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeStakeSnapshotHash)(epoch, staker_stakes)), vector.expected.stake_snapshot_hash);
@@ -88,11 +75,8 @@ function testEdgeZeroStake() {
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeDelegationRegistryRoot)(staker_stakes)), vector.expected.delegation_registry_root);
 }
 function testEdgeMaxUint64() {
-    const vector = tryReadJson("test-vectors/edge-cases/max-uint64-values.json");
-    if (!vector || !hasExpectedValues(vector.expected)) {
-        console.log("  [skip] max-uint64-values.json (expected values not yet generated)");
-        return;
-    }
+    const vector = readJson("test-vectors/edge-cases/max-uint64-values.json");
+    strict_1.default.ok(hasExpectedValues(vector.expected), "max-uint64-values.json must contain committed expected values");
     console.log("  [edge] max-uint64-values.json");
     const { epoch, validators, staker_stakes } = vector.input;
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeValidatorSetHash)(epoch, validators)), vector.expected.validator_set_hash);
@@ -101,21 +85,15 @@ function testEdgeMaxUint64() {
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeDelegationRegistryRoot)(staker_stakes)), vector.expected.delegation_registry_root);
 }
 function testEdgeEmptyTeeKey() {
-    const vector = tryReadJson("test-vectors/edge-cases/empty-tee-key.json");
-    if (!vector || !hasExpectedValues(vector.expected)) {
-        console.log("  [skip] empty-tee-key.json (expected values not yet generated)");
-        return;
-    }
+    const vector = readJson("test-vectors/edge-cases/empty-tee-key.json");
+    strict_1.default.ok(hasExpectedValues(vector.expected), "empty-tee-key.json must contain committed expected values");
     console.log("  [edge] empty-tee-key.json");
     const { epoch, validators } = vector.input;
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeValidatorSetHash)(epoch, validators)), vector.expected.validator_set_hash);
 }
 function testEdgeSpecialAddresses() {
-    const vector = tryReadJson("test-vectors/edge-cases/special-addresses.json");
-    if (!vector || !hasExpectedValues(vector.expected)) {
-        console.log("  [skip] special-addresses.json (expected values not yet generated)");
-        return;
-    }
+    const vector = readJson("test-vectors/edge-cases/special-addresses.json");
+    strict_1.default.ok(hasExpectedValues(vector.expected), "special-addresses.json must contain committed expected values");
     console.log("  [edge] special-addresses.json");
     const { epoch, staker_stakes, validators } = vector.input;
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeValidatorSetHash)(epoch, validators)), vector.expected.validator_set_hash);
@@ -124,15 +102,9 @@ function testEdgeSpecialAddresses() {
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeDelegationRegistryRoot)(staker_stakes)), vector.expected.delegation_registry_root);
 }
 function testEdgeMaxValidators() {
-    const vector = tryReadJson("test-vectors/edge-cases/max-validators.json");
-    if (!vector || !hasExpectedValues(vector.expected)) {
-        console.log("  [skip] max-validators.json (expected values not yet generated)");
-        return;
-    }
-    if (!Array.isArray(vector.input.validators)) {
-        console.log("  [skip] max-validators.json (validators not yet generated)");
-        return;
-    }
+    const vector = readJson("test-vectors/edge-cases/max-validators.json");
+    strict_1.default.ok(hasExpectedValues(vector.expected), "max-validators.json must contain committed expected values");
+    strict_1.default.ok(Array.isArray(vector.input.validators), "max-validators.json must contain the committed deterministic validator set");
     console.log("  [edge] max-validators.json");
     strict_1.default.equal((0, utils_1.bytesToHex)((0, src_1.computeValidatorSetHash)(vector.input.epoch, vector.input.validators)), vector.expected.validator_set_hash);
 }

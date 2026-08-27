@@ -1,0 +1,661 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cruzible-api-config
+  namespace: cruzible
+  labels:
+    app.kubernetes.io/name: cruzible
+    app.kubernetes.io/component: api-config
+data:
+  cruzible.network: "mainnet"
+  cruzible.allow.plaintext.http: "false"
+  auth.admin.addresses: ""
+  auth.operator.addresses: "REPLACE_WITH_AUTH_OPERATOR_ADDRESSES"
+  cors.origins: "https://vault.aethelred.org"
+  cruzible.vault.address: "REPLACE_WITH_CRUZIBLE_VAULT_ADDRESS"
+  api.docs.enabled: "false"
+  indexer.expected.chain.id: "REPLACE_WITH_EXPECTED_CHAIN_ID"
+  indexer.expected.genesis.hash: "REPLACE_WITH_EXPECTED_GENESIS_HASH"
+  indexer.rpc.url: "REPLACE_WITH_EVM_RPC_URL"
+  indexer.start.block: "0"
+  indexer.ws.url: "REPLACE_WITH_EVM_WS_URL"
+  metrics.enabled: "true"
+  migration.indexer.quiesced: "false"
+  migration.legacy.schedulers.quiesced: "false"
+  rpc.url: "REPLACE_WITH_AETHELRED_RPC_URL"
+  stablecoin.bridge.address: "REPLACE_WITH_STABLECOIN_BRIDGE_ADDRESS"
+  indexer.require.stablecoin.bridge: "true"
+  staethel.address: "REPLACE_WITH_STAETHEL_ADDRESS"
+  trust.proxy: "1"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cruzible-db-migrate
+  namespace: cruzible
+  annotations:
+    cruzible.io/recreate-before-apply: "required"
+    cruzible.io/requires-indexer-quiescence: "true"
+    cruzible.io/requires-legacy-scheduler-quiescence: "true"
+  labels:
+    app: cruzible-db-migrate
+    tier: backend
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: cruzible-db-migrate
+        tier: backend
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/aethelred/cruzible/api-migration@sha256:REPLACE_WITH_MIGRATION_IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL_FILE
+              value: /var/run/secrets/cruzible-api/database-url
+            - name: CRUZIBLE_MIGRATION_QUIESCED
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: migration.indexer.quiesced
+            - name: CRUZIBLE_LEGACY_SCHEDULERS_QUIESCED
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: migration.legacy.schedulers.quiesced
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+              ephemeral-storage: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: api-secret-files
+              mountPath: /var/run/secrets/cruzible-api
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: api-secret-files
+          secret:
+            secretName: cruzible-api-secrets
+            defaultMode: 0440
+            items:
+              - key: database-url
+                path: database-url
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cruzible-api
+  namespace: cruzible
+  labels:
+    app: cruzible-api
+    tier: backend
+spec:
+  replicas: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: cruzible-api
+  template:
+    metadata:
+      labels:
+        app: cruzible-api
+        tier: backend
+      annotations:
+        cruzible.io/metrics-auth: "bearer-token-required"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "4001"
+        prometheus.io/scrape: "false"
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cruzible-api
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cruzible-api
+      initContainers:
+        - name: schema-ready
+          image: ghcr.io/aethelred/cruzible/api-migration@sha256:REPLACE_WITH_MIGRATION_IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
+          command: ["node", "scripts/run-prisma-migrate.mjs", "status"]
+          env:
+            - name: DATABASE_URL_FILE
+              value: /var/run/secrets/cruzible-api/database-url
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: api-secret-files
+              mountPath: /var/run/secrets/cruzible-api
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: api
+          image: ghcr.io/aethelred/cruzible/api@sha256:REPLACE_WITH_API_IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4001
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: CRUZIBLE_RUNTIME_ROLE
+              value: api
+            - name: CRUZIBLE_NETWORK
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cruzible.network
+            - name: CRUZIBLE_ALLOW_PLAINTEXT_HTTP
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cruzible.allow.plaintext.http
+            - name: PORT
+              value: "4001"
+            - name: INDEXER_ENABLED
+              value: "false"
+            - name: TRUST_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: trust.proxy
+            - name: RPC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: rpc.url
+            - name: INDEXER_RPC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.rpc.url
+            - name: INDEXER_EXPECTED_CHAIN_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.expected.chain.id
+            - name: INDEXER_EXPECTED_GENESIS_HASH
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.expected.genesis.hash
+            - name: CRUZIBLE_VAULT_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cruzible.vault.address
+            - name: STAETHEL_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: staethel.address
+            - name: STABLECOIN_BRIDGE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: stablecoin.bridge.address
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cors.origins
+            - name: METRICS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: metrics.enabled
+            - name: API_DOCS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: api.docs.enabled
+            - name: AUTH_OPERATOR_ADDRESSES
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: auth.operator.addresses
+            - name: AUTH_ADMIN_ADDRESSES
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: auth.admin.addresses
+            - name: DATABASE_URL_FILE
+              value: /var/run/secrets/cruzible-api/database-url
+            - name: REDIS_URL_FILE
+              value: /var/run/secrets/cruzible-api/redis-url
+            - name: JWT_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/jwt-secret
+            - name: JWT_REFRESH_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/jwt-refresh-secret
+            - name: LOG_HASH_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/log-hash-secret
+            - name: OPERATIONAL_ENDPOINTS_TOKEN_FILE
+              value: /var/run/secrets/cruzible-api/operational-endpoints-token
+            - name: ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cruzible-api-secrets
+                  key: alert-webhook-url
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+              ephemeral-storage: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: api-secret-files
+              mountPath: /var/run/secrets/cruzible-api
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: api-secret-files
+          secret:
+            secretName: cruzible-api-secrets
+            defaultMode: 0440
+            items:
+              - key: database-url
+                path: database-url
+              - key: redis-url
+                path: redis-url
+              - key: jwt-secret
+                path: jwt-secret
+              - key: jwt-refresh-secret
+                path: jwt-refresh-secret
+              - key: log-hash-secret
+                path: log-hash-secret
+              - key: operational-endpoints-token
+                path: operational-endpoints-token
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cruzible-api
+  namespace: cruzible
+  labels:
+    app: cruzible-api
+    tier: backend
+  annotations:
+    cruzible.io/metrics-auth: "bearer-token-required"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "80"
+    prometheus.io/scrape: "false"
+spec:
+  selector:
+    app: cruzible-api
+  ports:
+    - port: 80
+      targetPort: 4001
+      protocol: TCP
+      name: http
+  type: ClusterIP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cruzible-api-pdb
+  namespace: cruzible
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: cruzible-api
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: cruzible-api-hpa
+  namespace: cruzible
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cruzible-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cruzible-indexer
+  namespace: cruzible
+  labels:
+    app: cruzible-indexer
+    tier: backend
+spec:
+  replicas: 1
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cruzible-indexer
+  template:
+    metadata:
+      labels:
+        app: cruzible-indexer
+        tier: backend
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: schema-ready
+          image: ghcr.io/aethelred/cruzible/api-migration@sha256:REPLACE_WITH_MIGRATION_IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
+          command: ["node", "scripts/run-prisma-migrate.mjs", "status"]
+          env:
+            - name: DATABASE_URL_FILE
+              value: /var/run/secrets/cruzible-api/database-url
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: api-secret-files
+              mountPath: /var/run/secrets/cruzible-api
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: indexer
+          image: ghcr.io/aethelred/cruzible/api-indexer@sha256:REPLACE_WITH_INDEXER_IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: CRUZIBLE_RUNTIME_ROLE
+              value: indexer
+            - name: CRUZIBLE_NETWORK
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cruzible.network
+            - name: CRUZIBLE_ALLOW_PLAINTEXT_HTTP
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cruzible.allow.plaintext.http
+            - name: INDEXER_ENABLED
+              value: "true"
+            - name: TRUST_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: trust.proxy
+            - name: RPC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: rpc.url
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cors.origins
+            - name: INDEXER_RPC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.rpc.url
+            - name: INDEXER_WS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.ws.url
+            - name: INDEXER_START_BLOCK
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.start.block
+            - name: INDEXER_EXPECTED_CHAIN_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.expected.chain.id
+            - name: INDEXER_EXPECTED_GENESIS_HASH
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.expected.genesis.hash
+            - name: INDEXER_HEARTBEAT_FILE
+              value: /tmp/cruzible-indexer-heartbeat.json
+            - name: INDEXER_HEARTBEAT_MAX_AGE_MS
+              value: "45000"
+            - name: CRUZIBLE_VAULT_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: cruzible.vault.address
+            - name: STAETHEL_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: staethel.address
+            - name: STABLECOIN_BRIDGE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: stablecoin.bridge.address
+            - name: INDEXER_REQUIRE_STABLECOIN_BRIDGE
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-api-config
+                  key: indexer.require.stablecoin.bridge
+            - name: DATABASE_URL_FILE
+              value: /var/run/secrets/cruzible-api/database-url
+            - name: REDIS_URL_FILE
+              value: /var/run/secrets/cruzible-api/redis-url
+            - name: JWT_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/jwt-secret
+            - name: JWT_REFRESH_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/jwt-refresh-secret
+            - name: LOG_HASH_SECRET_FILE
+              value: /var/run/secrets/cruzible-api/log-hash-secret
+          startupProbe:
+            exec:
+              command: ["node", "dist/indexer-healthcheck.js"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          readinessProbe:
+            exec:
+              command: ["node", "dist/indexer-healthcheck.js"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["node", "dist/indexer-healthcheck.js"]
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+              ephemeral-storage: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: api-secret-files
+              mountPath: /var/run/secrets/cruzible-api
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: api-secret-files
+          secret:
+            secretName: cruzible-api-secrets
+            defaultMode: 0440
+            items:
+              - key: database-url
+                path: database-url
+              - key: redis-url
+                path: redis-url
+              - key: jwt-secret
+                path: jwt-secret
+              - key: jwt-refresh-secret
+                path: jwt-refresh-secret
+              - key: log-hash-secret
+                path: log-hash-secret
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cruzible-indexer-pdb
+  namespace: cruzible
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cruzible-indexer

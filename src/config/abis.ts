@@ -29,7 +29,46 @@ export const CruzibleABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
   {
+    // ZeroID identity gate (three-way integration): when true, every stake
+    // entry requires a registered, ACTIVE ZeroID identity for the staker.
+    name: "identityRequired",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    // Single-call verification surface for the UI chip. True when the gate
+    // is off (nothing to verify against).
+    name: "isIdentityVerified",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "staker", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "complianceRequired",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "complianceAdmitted",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "staker", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
     name: "currentEpoch",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "unbondingPeriod",
     type: "function",
     stateMutability: "view",
     inputs: [],
@@ -74,21 +113,52 @@ export const CruzibleABI = [
   },
 
   // --- Write Functions ---
+  // AETHEL is the NATIVE coin on Aethelred: the deployed vault's stake
+  // functions are payable and take the amount as msg.value. There is no
+  // ERC-20 amount argument — the previous nonpayable stake(uint256) shape
+  // matched a token model the shipped contract never had.
   {
+    // Native staking: the deployed vault takes AETHEL as msg.value —
+    // matches backend/contracts-evm/artifacts/Cruzible.abi.
     name: "stake",
     type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "amount", type: "uint256" }],
+    stateMutability: "payable",
+    inputs: [],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+  {
+    // Production entrypoint: enforces the user's minimum shares inside the
+    // transaction, closing the quote-to-inclusion slippage window.
+    name: "stakeWithMinShares",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [{ name: "minShares", type: "uint256" }],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+  {
+    // Compliance-gated entry: verifies the Digital Seal for the given PoUW
+    // job via the ISeal precompile before admitting the stake.
+    name: "stakeWithSeal",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [{ name: "jobId", type: "string" }],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+  {
+    name: "stakeWithSealAndMinShares",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      { name: "jobId", type: "string" },
+      { name: "minShares", type: "uint256" },
+    ],
     outputs: [{ name: "shares", type: "uint256" }],
   },
   {
     name: "stakeWithReferral",
     type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "amount", type: "uint256" },
-      { name: "referralCode", type: "uint256" },
-    ],
+    stateMutability: "payable",
+    inputs: [{ name: "referralCode", type: "uint256" }],
     outputs: [{ name: "shares", type: "uint256" }],
   },
   {
@@ -96,6 +166,19 @@ export const CruzibleABI = [
     type: "function",
     stateMutability: "nonpayable",
     inputs: [{ name: "shares", type: "uint256" }],
+    outputs: [
+      { name: "withdrawalId", type: "uint256" },
+      { name: "aethelAmount", type: "uint256" },
+    ],
+  },
+  {
+    name: "unstakeWithMinAethel",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "shares", type: "uint256" },
+      { name: "minAethel", type: "uint256" },
+    ],
     outputs: [
       { name: "withdrawalId", type: "uint256" },
       { name: "aethelAmount", type: "uint256" },
@@ -127,6 +210,78 @@ export const CruzibleABI = [
     outputs: [],
   },
 
+  // --- Custom Errors ---
+  // Viem can only decode Solidity custom-error revert data when the error is
+  // present in the ABI supplied to simulateContract. Keep the user-action
+  // error surface here so preflight reports an actionable contract condition
+  // instead of "Execution reverted for an unknown reason."
+  { name: "AccountCapExceeded", type: "error", inputs: [] },
+  { name: "AlreadyClaimed", type: "error", inputs: [] },
+  {
+    name: "ComplianceGateClosed",
+    type: "error",
+    inputs: [{ name: "reason", type: "string" }],
+  },
+  { name: "DepositsArePaused", type: "error", inputs: [] },
+  {
+    name: "IdentityGateClosed",
+    type: "error",
+    inputs: [{ name: "reason", type: "string" }],
+  },
+  { name: "InsufficientBuffer", type: "error", inputs: [] },
+  { name: "InsufficientPool", type: "error", inputs: [] },
+  {
+    name: "MinimumAethelNotMet",
+    type: "error",
+    inputs: [
+      { name: "minimumAethel", type: "uint256" },
+      { name: "actualAethel", type: "uint256" },
+    ],
+  },
+  {
+    name: "MinimumSharesNotMet",
+    type: "error",
+    inputs: [
+      { name: "minimumShares", type: "uint256" },
+      { name: "actualShares", type: "uint256" },
+    ],
+  },
+  { name: "NotWithdrawalOwner", type: "error", inputs: [] },
+  { name: "NotYetClaimable", type: "error", inputs: [] },
+  {
+    name: "ProtocolInsolvent",
+    type: "error",
+    inputs: [{ name: "uncoveredDeficit", type: "uint256" }],
+  },
+  { name: "Reentrancy", type: "error", inputs: [] },
+  { name: "RewardsProofInvalid", type: "error", inputs: [] },
+  {
+    name: "RootNotSet",
+    type: "error",
+    inputs: [{ name: "epoch", type: "uint256" }],
+  },
+  {
+    name: "SealAlreadyUsed",
+    type: "error",
+    inputs: [{ name: "sealId", type: "string" }],
+  },
+  {
+    name: "SealNotActive",
+    type: "error",
+    inputs: [{ name: "sealId", type: "string" }],
+  },
+  {
+    name: "SealNotBoundToStaker",
+    type: "error",
+    inputs: [{ name: "expectedPurpose", type: "string" }],
+  },
+  { name: "SlippageExceeded", type: "error", inputs: [] },
+  { name: "StakeTooSmall", type: "error", inputs: [] },
+  { name: "TokenNotSet", type: "error", inputs: [] },
+  { name: "TvlCapExceeded", type: "error", inputs: [] },
+  { name: "UnknownWithdrawal", type: "error", inputs: [] },
+  { name: "ZeroAmount", type: "error", inputs: [] },
+
   // --- Events ---
   {
     name: "Staked",
@@ -145,6 +300,7 @@ export const CruzibleABI = [
       { name: "shares", type: "uint256", indexed: false },
       { name: "amount", type: "uint256", indexed: false },
       { name: "withdrawalId", type: "uint256", indexed: false },
+      { name: "completionTime", type: "uint256", indexed: false },
     ],
   },
   {

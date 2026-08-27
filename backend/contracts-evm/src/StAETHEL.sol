@@ -1,0 +1,267 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.20;
+
+/// @title stAETHEL — Cruzible's rebasing liquid staking token
+/// @notice Lido-style rebasing ERC-20: an account's balance is the AETHEL
+///         value of its underlying shares, so balances grow as staking
+///         rewards accrue to the pool. Shares are the invariant unit;
+///         `balanceOf` = shares × exchange-rate.
+/// @dev    The share ledger lives here; ONLY the Cruzible vault may mint and
+///         burn shares. The vault is the source of truth for
+///         `totalPooledAethel` (pool accounting), queried on every balance
+///         computation — one accounting source, no drift.
+interface ICruziblePool {
+    function totalPooledAethel() external view returns (uint256);
+
+    function governance() external view returns (address);
+
+    /// @dev The vault's admission check (true when its identity gate is off).
+    function isIdentityVerified(address staker) external view returns (bool);
+}
+
+contract StAETHEL {
+    string public constant name = "Staked AETHEL";
+    string public constant symbol = "stAETHEL";
+    uint8 public constant decimals = 18;
+
+    /// @notice The Cruzible vault: exclusive minter/burner and pool oracle.
+    address public immutable vault;
+
+    uint256 private _totalShares;
+    mapping(address => uint256) private _shares;
+    mapping(address => mapping(address => uint256)) private _allowances;
+
+    // ── identity-control boundary (docs/IDENTITY_POLICY.md) ─────────────────
+
+    /// @notice Model B (opt-in): when true, RECIPIENTS of transfers must pass
+    ///         the vault's identity check, so unverified parties cannot
+    ///         ACQUIRE stAETHEL on the secondary market. Default false =
+    ///         Model A (identity gates primary issuance only; the token is
+    ///         freely transferable). SENDERS are deliberately never checked
+    ///         and mint/burn never route through transfers, so a suspended
+    ///         holder can always exit — the gate restricts acquisition, never
+    ///         departure.
+    bool public transferGateEnabled;
+    /// @notice Protocol contracts exempt as transfer RECIPIENTS under Model B
+    ///         (e.g. the wstAETHEL wrapper). Allowlisting the wrapper permits
+    ///         wrapping; unwrap transfers to end users stay recipient-checked,
+    ///         so the wrapper cannot launder stAETHEL to unverified parties.
+    mapping(address => bool) public transferAllowlist;
+
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    /// @notice Emitted alongside Transfer for share-level accounting.
+    event TransferShares(address indexed from, address indexed to, uint256 sharesValue);
+    event TransferGateSet(bool enabled);
+    event TransferAllowlistSet(address indexed account, bool allowed);
+
+    error OnlyVault();
+    error ZeroAddress();
+    error InsufficientShares();
+    error InsufficientAllowance();
+    error NotGovernance();
+    error RecipientNotVerified(address recipient);
+    error AlreadyInitialized();
+    error TransferTooSmall();
+
+    modifier onlyVault() {
+        if (msg.sender != vault) revert OnlyVault();
+        _;
+    }
+
+    /// @dev The token has no admin of its own: Model B controls belong to the
+    ///      VAULT's governance (queried live, so a governance handover on the
+    ///      vault carries over here with no separate rotation).
+    modifier onlyVaultGovernance() {
+        if (msg.sender != ICruziblePool(vault).governance()) revert NotGovernance();
+        _;
+    }
+
+    constructor(address _vault) {
+        if (_vault == address(0)) revert ZeroAddress();
+        vault = _vault;
+    }
+
+    // ── share accounting (vault-only) ────────────────────────────────────────
+
+    /// @notice Mint shares to an account (vault-only, on stake).
+    function mintShares(address to, uint256 sharesAmount) external onlyVault {
+        if (to == address(0)) revert ZeroAddress();
+        _totalShares += sharesAmount;
+        _shares[to] += sharesAmount;
+        emit Transfer(address(0), to, getAethelByShares(sharesAmount));
+        emit TransferShares(address(0), to, sharesAmount);
+    }
+
+    /// @notice Atomically create the permanently locked and user-owned shares
+    ///         for the first deposit. Updating the final denominator before
+    ///         either Transfer event prevents bootstrap mint history from
+    ///         overstating token supply.
+    function mintBootstrapShares(address lockAddress, address to, uint256 lockedShares, uint256 userShares)
+        external
+        onlyVault
+    {
+        if (_totalShares != 0) revert AlreadyInitialized();
+        if (lockAddress == address(0) || to == address(0)) revert ZeroAddress();
+
+        _totalShares = lockedShares + userShares;
+        _shares[lockAddress] = lockedShares;
+        _shares[to] = userShares;
+
+        uint256 lockedAmount = getAethelByShares(lockedShares);
+        uint256 userAmount = getAethelByShares(userShares);
+        emit Transfer(address(0), lockAddress, lockedAmount);
+        emit TransferShares(address(0), lockAddress, lockedShares);
+        emit Transfer(address(0), to, userAmount);
+        emit TransferShares(address(0), to, userShares);
+    }
+
+    /// @notice Burn shares from an account (vault-only, on unstake).
+    function burnShares(address from, uint256 sharesAmount) external onlyVault {
+        uint256 held = _shares[from];
+        if (held < sharesAmount) revert InsufficientShares();
+        // Snapshot the rebasing token value before changing the denominator.
+        // The vault updates totalPooledAethel only after this call returns, so
+        // computing the event value after reducing _totalShares would
+        // overstate the amount burned.
+        uint256 aethelAmount = getAethelByShares(sharesAmount);
+        unchecked {
+            _shares[from] = held - sharesAmount;
+            _totalShares -= sharesAmount;
+        }
+        emit Transfer(from, address(0), aethelAmount);
+        emit TransferShares(from, address(0), sharesAmount);
+    }
+
+    // ── rebasing views ───────────────────────────────────────────────────────
+
+    /// @notice AETHEL value of an account's shares (the rebasing balance).
+    function balanceOf(address account) external view returns (uint256) {
+        return getAethelByShares(_shares[account]);
+    }
+
+    /// @notice Raw share balance of an account.
+    function sharesOf(address account) external view returns (uint256) {
+        return _shares[account];
+    }
+
+    /// @notice Total AETHEL represented by all shares.
+    function totalSupply() external view returns (uint256) {
+        return ICruziblePool(vault).totalPooledAethel();
+    }
+
+    /// @notice Total shares in existence.
+    function getTotalShares() external view returns (uint256) {
+        return _totalShares;
+    }
+
+    /// @notice Convert an AETHEL amount to shares at the current rate.
+    function getSharesByAethel(uint256 aethelAmount) public view returns (uint256) {
+        uint256 pooled = ICruziblePool(vault).totalPooledAethel();
+        if (pooled == 0 || _totalShares == 0) {
+            // Bootstrap: 1 share per aethel.
+            return aethelAmount;
+        }
+        return (aethelAmount * _totalShares) / pooled;
+    }
+
+    /// @notice Convert shares to their AETHEL value at the current rate.
+    function getAethelByShares(uint256 sharesAmount) public view returns (uint256) {
+        if (_totalShares == 0) return 0;
+        return (sharesAmount * ICruziblePool(vault).totalPooledAethel()) / _totalShares;
+    }
+
+    /// @notice AETHEL per 1e18 shares (the exchange rate, 18 decimals).
+    function getExchangeRate() external view returns (uint256) {
+        if (_totalShares == 0) return 1e18;
+        return (ICruziblePool(vault).totalPooledAethel() * 1e18) / _totalShares;
+    }
+
+    // ── ERC-20 transfer surface (share-based under the hood) ────────────────
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        _transfer(msg.sender, to, amount);
+        return true;
+    }
+
+    /// @notice Transfer an exact number of raw shares. Wrappers use this on
+    ///         redemption so shares are neither orphaned nor overdrawn by a
+    ///         shares→AETHEL→shares double-floor conversion at odd rates.
+    ///         Like transfer(), this can move only the caller's own balance
+    ///         and still enforces the recipient identity gate.
+    function transferShares(address to, uint256 sharesAmount) external returns (uint256 aethelAmount) {
+        aethelAmount = getAethelByShares(sharesAmount);
+        _transferShares(msg.sender, to, sharesAmount, aethelAmount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        uint256 allowed = _allowances[from][msg.sender];
+        if (allowed != type(uint256).max) {
+            if (allowed < amount) revert InsufficientAllowance();
+            unchecked {
+                _allowances[from][msg.sender] = allowed - amount;
+            }
+        }
+        _transfer(from, to, amount);
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        if (spender == address(0)) revert ZeroAddress();
+        _allowances[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
+    function allowance(address owner, address spender) external view returns (uint256) {
+        return _allowances[owner][spender];
+    }
+
+    // ── Model B controls (vault-governance only) ─────────────────────────────
+
+    /// @notice Turn the recipient-verification transfer gate on or off.
+    function setTransferGate(bool enabled) external onlyVaultGovernance {
+        transferGateEnabled = enabled;
+        emit TransferGateSet(enabled);
+    }
+
+    /// @notice Exempt (or un-exempt) a protocol contract as a transfer
+    ///         recipient under Model B.
+    function setTransferAllowlist(address account, bool allowed) external onlyVaultGovernance {
+        if (account == address(0)) revert ZeroAddress();
+        transferAllowlist[account] = allowed;
+        emit TransferAllowlistSet(account, allowed);
+    }
+
+    function _transfer(address from, address to, uint256 amount) internal {
+        uint256 sharesToMove = getSharesByAethel(amount);
+        if (amount > 0 && sharesToMove == 0) revert TransferTooSmall();
+        uint256 held = _shares[from];
+        // ERC-20 amounts are AETHEL-denominated rebasing units.  The
+        // conversion to raw shares rounds down, so a share-only comparison
+        // can otherwise let a caller request slightly more than balanceOf
+        // while still producing the same raw-share amount.
+        if (getAethelByShares(held) < amount) revert InsufficientShares();
+        _transferShares(from, to, sharesToMove, amount);
+    }
+
+    function _transferShares(address from, address to, uint256 sharesAmount, uint256 aethelAmount) internal {
+        if (to == address(0)) revert ZeroAddress();
+        // Model B: unverified parties cannot ACQUIRE the token. Recipient-only
+        // by design — checking senders would let an identity suspension trap
+        // value, and exits (vault burns) never pass through here anyway.
+        if (transferGateEnabled && !transferAllowlist[to]) {
+            if (!ICruziblePool(vault).isIdentityVerified(to)) {
+                revert RecipientNotVerified(to);
+            }
+        }
+        uint256 held = _shares[from];
+        if (held < sharesAmount) revert InsufficientShares();
+        unchecked {
+            _shares[from] = held - sharesAmount;
+        }
+        _shares[to] += sharesAmount;
+        emit Transfer(from, to, aethelAmount);
+        emit TransferShares(from, to, sharesAmount);
+    }
+}

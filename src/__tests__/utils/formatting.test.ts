@@ -5,59 +5,11 @@
 import {
   formatFullNumber,
   formatNumber,
-  seededAddress,
-  seededHex,
-  seededInt,
-  seededRandom,
-  seededRange,
+  getSafeExternalUrl,
+  getTrustedModelStorageUrl,
+  isHttpUrl,
   truncateAddress,
 } from "@/lib/utils";
-
-describe("seededRandom", () => {
-  it("is deterministic for the same seed", () => {
-    expect(seededRandom(42)).toBe(seededRandom(42));
-  });
-
-  it("returns a value in the [0, 1) range", () => {
-    const result = seededRandom(42);
-    expect(result).toBeGreaterThanOrEqual(0);
-    expect(result).toBeLessThan(1);
-  });
-});
-
-describe("seededRange", () => {
-  it("stays within the requested range", () => {
-    const result = seededRange(42, 10, 20);
-    expect(result).toBeGreaterThanOrEqual(10);
-    expect(result).toBeLessThan(20);
-  });
-});
-
-describe("seededInt", () => {
-  it("returns a deterministic integer within the inclusive range", () => {
-    const result = seededInt(42, 1, 5);
-    expect(result).toBeGreaterThanOrEqual(1);
-    expect(result).toBeLessThanOrEqual(5);
-    expect(result).toBe(seededInt(42, 1, 5));
-  });
-});
-
-describe("seededHex", () => {
-  it("returns a deterministic hex string of the requested length", () => {
-    const result = seededHex(42, 12);
-    expect(result).toHaveLength(12);
-    expect(result).toMatch(/^[0-9a-f]+$/);
-    expect(result).toBe(seededHex(42, 12));
-  });
-});
-
-describe("seededAddress", () => {
-  it("returns an aethelred-style deterministic address", () => {
-    const result = seededAddress(42);
-    expect(result).toMatch(/^aeth1[a-z0-9]{38}$/);
-    expect(result).toBe(seededAddress(42));
-  });
-});
 
 describe("formatNumber", () => {
   it("formats large numbers with compact suffixes", () => {
@@ -91,5 +43,67 @@ describe("truncateAddress", () => {
 
   it("returns short addresses unchanged", () => {
     expect(truncateAddress("short")).toBe("short");
+  });
+});
+
+describe("isHttpUrl", () => {
+  it("allows only http and https URLs", () => {
+    expect(isHttpUrl("https://validator.example")).toBe(true);
+    expect(isHttpUrl("http://validator.example")).toBe(true);
+    expect(isHttpUrl("javascript:alert(1)")).toBe(false);
+    expect(isHttpUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
+    expect(isHttpUrl("not a url")).toBe(false);
+    expect(isHttpUrl("")).toBe(false);
+  });
+});
+
+describe("getSafeExternalUrl", () => {
+  it("allows only public HTTPS hostname URLs", () => {
+    expect(getSafeExternalUrl("https://validator.cruzible.org")).toBe(
+      "https://validator.cruzible.org/",
+    );
+    expect(getSafeExternalUrl("http://validator.cruzible.org")).toBe(null);
+    expect(getSafeExternalUrl("https://validator.example")).toBe(null);
+    expect(getSafeExternalUrl("https://validator.localhost")).toBe(null);
+    expect(getSafeExternalUrl("https://127.0.0.1/status")).toBe(null);
+    expect(getSafeExternalUrl("https://203.0.113.10/status")).toBe(null);
+    expect(getSafeExternalUrl("https://10.0.0.5/status")).toBe(null);
+    expect(getSafeExternalUrl("https://[::1]/status")).toBe(null);
+    expect(getSafeExternalUrl("https://[fd00::1]/status")).toBe(null);
+    expect(getSafeExternalUrl("https://user:pass@validator.cruzible.org")).toBe(
+      null,
+    );
+    expect(getSafeExternalUrl("javascript:alert(1)")).toBe(null);
+    expect(getSafeExternalUrl("not a url")).toBe(null);
+  });
+});
+
+describe("getTrustedModelStorageUrl", () => {
+  it("allows only trusted model storage gateways", () => {
+    expect(getTrustedModelStorageUrl("https://ipfs.io/ipfs/bafy123")).toBe(
+      "https://ipfs.io/ipfs/bafy123",
+    );
+    expect(getTrustedModelStorageUrl("https://arweave.net/tx123")).toBe(
+      "https://arweave.net/tx123",
+    );
+    expect(getTrustedModelStorageUrl("https://example.com/model.json")).toBe(
+      null,
+    );
+    expect(getTrustedModelStorageUrl("http://ipfs.io/ipfs/bafy123")).toBe(null);
+    expect(getTrustedModelStorageUrl("https://ipfs.io/not-ipfs/bafy123")).toBe(
+      null,
+    );
+    expect(
+      getTrustedModelStorageUrl("https://user:pass@ipfs.io/ipfs/bafy123"),
+    ).toBe(null);
+  });
+
+  it("normalizes decentralized storage schemes to trusted gateways", () => {
+    expect(getTrustedModelStorageUrl("ipfs://bafy123/model.json")).toBe(
+      "https://ipfs.io/ipfs/bafy123/model.json",
+    );
+    expect(getTrustedModelStorageUrl("ar://tx123")).toBe(
+      "https://arweave.net/tx123",
+    );
   });
 });

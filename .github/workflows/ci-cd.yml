@@ -1,91 +1,1035 @@
-name: Cruzible CI/CD
+name: Cruzible CI
 
 permissions:
   contents: read
 
 on:
   push:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
+      - ramesh/**
   pull_request:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a manual release while it may be updating the mutable channel.
+  # A second dispatch waits for the current promotion to finish.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 env:
-  NODE_VERSION: '20'
-  RUST_VERSION: 'stable'
+  CI: "true"
+  NODE_VERSION: "20"
   CARGO_TERM_COLOR: always
+  NEXT_TELEMETRY_DISABLED: "1"
+  CI_FRONTEND_WALLETCONNECT_PROJECT_ID: "7a4f9c2e1b8d43c6a095f2e7d4b1c830"
 
 jobs:
-  # ===========================================================================
-  # LINT & FORMAT
-  # ===========================================================================
-  lint-format:
-    name: Lint & Format
+  frontend-quality:
+    name: Frontend Quality
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install --no-fund --no-audit
+        run: npm ci --ignore-scripts
 
-      - name: Run ESLint
+      - name: Lint frontend
         run: npm run lint
 
       - name: Check formatting
         run: npm run format:check
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Type-check frontend and tests
+        run: npm run type-check
+
+      - name: Run frontend unit tests with coverage
+        run: npm run test:ci
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    needs: frontend-quality
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Reject missing frontend public API build config
+        run: |
+          if node scripts/validate-frontend-public-env.mjs; then
+            echo "Expected frontend public build config validation to fail without NEXT_PUBLIC_API_URL"
+            exit 1
+          fi
+
+      - name: Build frontend
+        env:
+          NEXT_PUBLIC_API_URL: https://api.testnet.aethelred.org
+          NEXT_PUBLIC_CHAIN_ENV: testnet
+          NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: https://rpc.testnet.ci.example.org
+          NEXT_PUBLIC_AETHELRED_GENESIS_HASH: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          NEXT_PUBLIC_CRUZIBLE_ADDRESS: "0x1111111111111111111111111111111111111111"
+          NEXT_PUBLIC_STAETHEL_ADDRESS: "0x2222222222222222222222222222222222222222"
+          NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS: "0x3333333333333333333333333333333333333333"
+          NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS: "0x4444444444444444444444444444444444444444"
+          NEXT_PUBLIC_USDC_TOKEN_ADDRESS: "0x5555555555555555555555555555555555555555"
+          NEXT_PUBLIC_USDT_TOKEN_ADDRESS: "0x6666666666666666666666666666666666666666"
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ env.CI_FRONTEND_WALLETCONNECT_PROJECT_ID }}
+        run: npm run build
+
+      - name: Check frontend bundle budget
+        run: npm run performance:budget
+
+      - name: Build frontend container
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL=https://api.testnet.aethelred.org \
+            --build-arg NEXT_PUBLIC_CHAIN_ENV=testnet \
+            --build-arg NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=https://rpc.testnet.ci.example.org \
+            --build-arg NEXT_PUBLIC_AETHELRED_GENESIS_HASH=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --build-arg NEXT_PUBLIC_APP_VERSION="${GITHUB_SHA}" \
+            --build-arg NEXT_PUBLIC_CRUZIBLE_ADDRESS=0x1111111111111111111111111111111111111111 \
+            --build-arg NEXT_PUBLIC_STAETHEL_ADDRESS=0x2222222222222222222222222222222222222222 \
+            --build-arg NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS=0x3333333333333333333333333333333333333333 \
+            --build-arg NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS=0x4444444444444444444444444444444444444444 \
+            --build-arg NEXT_PUBLIC_USDC_TOKEN_ADDRESS=0x5555555555555555555555555555555555555555 \
+            --build-arg NEXT_PUBLIC_USDT_TOKEN_ADDRESS=0x6666666666666666666666666666666666666666 \
+            --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="${CI_FRONTEND_WALLETCONNECT_PROJECT_ID}" \
+            -t cruzible-frontend:ci .
+
+      - name: Scan frontend container image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: cruzible-frontend:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Verify frontend container runtime metadata
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require("node:child_process");
+
+          const [image] = JSON.parse(
+            execFileSync("docker", ["image", "inspect", "cruzible-frontend:ci"], {
+              encoding: "utf8",
+            }),
+          );
+          const config = image.Config ?? {};
+          const healthcheck = config.Healthcheck?.Test?.join(" ") ?? "";
+
+          if (config.User !== "nextjs") {
+            throw new Error(`Expected non-root frontend user nextjs, got ${config.User || "<empty>"}`);
+          }
+          if (JSON.stringify(config.Entrypoint) !== JSON.stringify(["dumb-init", "--"])) {
+            throw new Error(`Expected dumb-init entrypoint, got ${JSON.stringify(config.Entrypoint)}`);
+          }
+          if (!healthcheck.includes("http://127.0.0.1:3000/api/health")) {
+            throw new Error(`Expected /api/health container healthcheck, got ${healthcheck || "<empty>"}`);
+          }
+          NODE
+
+  frontend-e2e:
+    name: Frontend E2E
+    runs-on: ubuntu-latest
+    needs: frontend-build
+    permissions:
+      contents: read
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run production smoke tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+  deployment-manifests:
+    name: Deployment Manifests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate deployment manifests
+        run: npm run deployment:validate
+
+      - name: Validate release SBOM generation
+        run: npm run release:sbom
+
+      - name: Validate disaster recovery targets
+        run: npm run readiness:dr
+
+      - name: Validate restore drill evidence contract
+        run: npm run readiness:restore-drill
+
+  release-sbom:
+    name: Release SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Generate release SBOM
+        run: npm run release:sbom:write
+
+      - name: Upload release SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-sbom-${{ github.sha }}
+          path: .release-evidence/cruzible-release-sbom.spdx.json
+          if-no-files-found: error
+          retention-days: 90
+
+  backend-api:
+    name: Backend API
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            backend/api/package-lock.json
+            sdk/typescript/package-lock.json
+
+      - name: Install SDK dependencies
+        working-directory: ./sdk/typescript
+        run: npm ci --ignore-scripts
+
+      - name: Build and test SDK
+        working-directory: ./sdk/typescript
+        run: |
+          npm run build
+          npm test
+
+      - name: Install backend dependencies
+        working-directory: ./backend/api
+        run: npm ci --ignore-scripts
+
+      - name: Generate backend ORM client
+        working-directory: ./backend/api
+        run: npm run db:generate
+
+      - name: Lint backend API
+        working-directory: ./backend/api
+        run: npm run lint
+
+      - name: Check backend API formatting
+        working-directory: ./backend/api
+        run: npm run format:check
+
+      - name: Validate backend OpenAPI route coverage
+        working-directory: ./backend/api
+        run: npm run openapi:validate
+
+      - name: Type-check backend API
+        working-directory: ./backend/api
+        run: npm run typecheck
+
+      - name: Run backend API tests with coverage
+        working-directory: ./backend/api
+        run: npm run test:coverage
+
+      - name: Validate API benchmark gate
+        working-directory: ./backend/api
+        run: npm run benchmark:check
+
+  python-sdk:
+    name: Python SDK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.12"
+
+      - name: Install Python SDK
+        run: python -m pip install --disable-pip-version-check --no-input ./sdk/python
+
+      - name: Run Python SDK conformance tests
+        run: python -m unittest discover -s sdk/python/tests -p "test_*.py"
+
+  backend-containers:
+    name: Backend Containers
+    runs-on: ubuntu-latest
+    needs: backend-api
+    permissions:
+      contents: read
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Build backend API production image
+        run: |
+          docker build \
+            --file backend/api/Dockerfile \
+            --target production \
+            --tag cruzible-api:ci .
+
+      - name: Build backend indexer image
+        run: |
+          docker build \
+            --file backend/api/Dockerfile \
+            --target indexer \
+            --tag cruzible-api-indexer:ci .
+
+      - name: Build backend migration image
+        run: |
+          docker build \
+            --file backend/api/Dockerfile \
+            --target migration \
+            --tag cruzible-api-migration:ci .
+
+      - name: Scan backend API production image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: cruzible-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Scan backend indexer image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: cruzible-api-indexer:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Scan backend migration image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: cruzible-api-migration:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+  release-images:
+    name: Build and Verify Release Candidates
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs:
+      - frontend-build
+      - backend-containers
+      - evm-contracts
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: frontend
+            image: ghcr.io/aethelred/cruzible/frontend
+            dockerfile: Dockerfile
+            target: runner
+          - name: api
+            image: ghcr.io/aethelred/cruzible/api
+            dockerfile: backend/api/Dockerfile
+            target: production
+          - name: api-indexer
+            image: ghcr.io/aethelred/cruzible/api-indexer
+            dockerfile: backend/api/Dockerfile
+            target: indexer
+          - name: api-migration
+            image: ghcr.io/aethelred/cruzible/api-migration
+            dockerfile: backend/api/Dockerfile
+            target: migration
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Validate frontend release config
+        if: matrix.name == 'frontend'
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_CHAIN_ENV: ${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}
+          NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID }}
+          NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL }}
+          NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_TESTNET_EXPLORER_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_EXPLORER_URL }}
+          NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_GENESIS_HASH: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_GENESIS_HASH }}
+          NEXT_PUBLIC_CRUZIBLE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}
+          NEXT_PUBLIC_STAETHEL_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}
+          NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_GOVERNANCE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_GOVERNANCE_ADDRESS }}
+          NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS }}
+          NEXT_PUBLIC_USDC_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_USDT_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
+          NEXT_PUBLIC_ZEROID_APP_URL: ${{ vars.RELEASE_NEXT_PUBLIC_ZEROID_APP_URL }}
+          NEXT_PUBLIC_APP_VERSION: ${{ vars.RELEASE_NEXT_PUBLIC_APP_VERSION || github.sha }}
+          CRUZIBLE_EXTRA_API_ORIGINS: ${{ vars.RELEASE_CRUZIBLE_EXTRA_API_ORIGINS }}
+          CRUZIBLE_ALLOW_PLAINTEXT_HTTP: ${{ vars.RELEASE_CRUZIBLE_ALLOW_PLAINTEXT_HTTP }}
+          RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON: ${{ vars.RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON }}
+        run: |
+          test -n "${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}" || (echo "RELEASE_NEXT_PUBLIC_API_URL repository variable is required" && exit 1)
+          case "${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}" in
+            mainnet|testnet|devnet) ;;
+            *) echo "RELEASE_NEXT_PUBLIC_CHAIN_ENV must be mainnet, testnet, or devnet" && exit 1 ;;
+          esac
+          if [ "${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}" = "testnet" ]; then
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL }}" || (echo "RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL repository variable is required for testnet releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}" || (echo "RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID repository variable is required for deployed frontend releases" && exit 1)
+          fi
+          if [ "${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}" = "mainnet" ]; then
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID }}" || (echo "RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID repository variable is required for mainnet releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL }}" || (echo "RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL repository variable is required for mainnet releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL }}" || (echo "RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL repository variable is required for mainnet releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}" || (echo "RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS repository variable is required for deployed frontend releases" && exit 1)
+            test -n "${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}" || (echo "RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID repository variable is required for deployed frontend releases" && exit 1)
+          fi
+          node scripts/validate-frontend-public-env.mjs
+
+      - name: Bind frontend release to the live current EVM deployment
+        if: matrix.name == 'frontend'
+        env:
+          NEXT_PUBLIC_CHAIN_ENV: ${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}
+          NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID }}
+          NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_GENESIS_HASH: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_GENESIS_HASH }}
+          NEXT_PUBLIC_CRUZIBLE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}
+          NEXT_PUBLIC_STAETHEL_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}
+          RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON: ${{ vars.RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON }}
+        run: |
+          test -n "${RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON}" || (echo "RELEASE_EVM_DEPLOYMENT_MANIFEST_JSON repository variable is required" && exit 1)
+          node scripts/validate-release-evm-deployment.mjs
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.name }} image
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: true
+          sbom: true
+          provenance: mode=max
+          tags: ${{ matrix.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/aethelred-foundation/cruzible
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_CHAIN_ENV=${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}
+            NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID=${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID }}
+            NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL=${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL }}
+            NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL=${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL }}
+            NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL=${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL }}
+            NEXT_PUBLIC_AETHELRED_TESTNET_EXPLORER_URL=${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_EXPLORER_URL }}
+            NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL=${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL }}
+            NEXT_PUBLIC_AETHELRED_GENESIS_HASH=${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_GENESIS_HASH }}
+            NEXT_PUBLIC_CRUZIBLE_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}
+            NEXT_PUBLIC_STAETHEL_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}
+            NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS }}
+            NEXT_PUBLIC_GOVERNANCE_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_GOVERNANCE_ADDRESS }}
+            NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS }}
+            NEXT_PUBLIC_USDC_TOKEN_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS }}
+            NEXT_PUBLIC_USDT_TOKEN_ADDRESS=${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}
+            NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
+            NEXT_PUBLIC_ZEROID_APP_URL=${{ vars.RELEASE_NEXT_PUBLIC_ZEROID_APP_URL }}
+            NEXT_PUBLIC_APP_VERSION=${{ vars.RELEASE_NEXT_PUBLIC_APP_VERSION || github.sha }}
+            CRUZIBLE_EXTRA_API_ORIGINS=${{ vars.RELEASE_CRUZIBLE_EXTRA_API_ORIGINS }}
+            CRUZIBLE_ALLOW_PLAINTEXT_HTTP=${{ vars.RELEASE_CRUZIBLE_ALLOW_PLAINTEXT_HTTP }}
+
+      - name: Scan ${{ matrix.name }} release image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: ${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Sign image digest
+        run: cosign sign --yes "${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+
+      - name: Verify keyless image signature
+        run: |
+          cosign verify \
+            --certificate-identity "https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
+        with:
+          subject-name: ${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Create verified release candidate inventory
+        env:
+          IMAGE_KEY: ${{ matrix.name }}
+          IMAGE_NAME: ${{ matrix.image }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DOCKERFILE: ${{ matrix.dockerfile }}
+          IMAGE_TARGET: ${{ matrix.target }}
+          SOURCE_SHA: ${{ github.sha }}
+          CANDIDATE_TAG: ${{ matrix.image }}:${{ github.sha }}
+          NEXT_PUBLIC_API_URL: ${{ vars.RELEASE_NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_CHAIN_ENV: ${{ vars.RELEASE_NEXT_PUBLIC_CHAIN_ENV }}
+          NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_CHAIN_ID }}
+          NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_MAINNET_EXPLORER_URL }}
+          NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_TESTNET_EXPLORER_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_TESTNET_EXPLORER_URL }}
+          NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_DEVNET_RPC_URL }}
+          NEXT_PUBLIC_AETHELRED_GENESIS_HASH: ${{ vars.RELEASE_NEXT_PUBLIC_AETHELRED_GENESIS_HASH }}
+          NEXT_PUBLIC_CRUZIBLE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_CRUZIBLE_ADDRESS }}
+          NEXT_PUBLIC_STAETHEL_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_STAETHEL_ADDRESS }}
+          NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_AETHEL_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_GOVERNANCE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_GOVERNANCE_ADDRESS }}
+          NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_STABLECOIN_BRIDGE_ADDRESS }}
+          NEXT_PUBLIC_USDC_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_USDC_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_USDT_TOKEN_ADDRESS: ${{ vars.RELEASE_NEXT_PUBLIC_USDT_TOKEN_ADDRESS }}
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ vars.RELEASE_NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
+          NEXT_PUBLIC_ZEROID_APP_URL: ${{ vars.RELEASE_NEXT_PUBLIC_ZEROID_APP_URL }}
+          NEXT_PUBLIC_APP_VERSION: ${{ vars.RELEASE_NEXT_PUBLIC_APP_VERSION || github.sha }}
+          CRUZIBLE_EXTRA_API_ORIGINS: ${{ vars.RELEASE_CRUZIBLE_EXTRA_API_ORIGINS }}
+          CRUZIBLE_ALLOW_PLAINTEXT_HTTP: ${{ vars.RELEASE_CRUZIBLE_ALLOW_PLAINTEXT_HTTP }}
+        run: node scripts/create-release-image-candidate.mjs
+
+      - name: Upload verified release candidate inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-image-candidate-${{ matrix.name }}-${{ github.sha }}
+          path: release-image-candidate-${{ matrix.name }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+  release-image-promotion:
+    name: Promote Verified Release Images
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs:
+      - release-images
+      - release-quality-gate
+    environment:
+      name: production
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Download every verified release candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: release-image-candidate-*-${{ github.sha }}
+          path: .release-evidence/release-image-candidates
+          merge-multiple: true
+
+      - name: Require the complete verified candidate set
+        run: |
+          node scripts/prepare-release-image-promotion.mjs \
+            --candidate-directory .release-evidence/release-image-candidates \
+            --source-sha "${{ github.sha }}" \
+            --output .release-evidence/release-image-promotion.json
+
+      - name: Require frontend build and rollout runtime policy parity
+        run: |
+          node scripts/validate-release-runtime-policy.mjs \
+            --promotion-inventory .release-evidence/release-image-promotion.json \
+            --frontend-manifest k8s/base/frontend.yaml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Verify every candidate signature before promotion
+        env:
+          PROMOTION_INVENTORY: .release-evidence/release-image-promotion.json
+        run: |
+          node <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const { spawnSync } = require("node:child_process");
+
+          const plan = JSON.parse(readFileSync(process.env.PROMOTION_INVENTORY, "utf8"));
+          const identity = "https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main";
+          const issuer = "https://token.actions.githubusercontent.com";
+
+          for (const candidate of plan.images) {
+            const result = spawnSync(
+              "cosign",
+              [
+                "verify",
+                "--certificate-identity",
+                identity,
+                "--certificate-oidc-issuer",
+                issuer,
+                candidate.immutable_ref,
+              ],
+              { stdio: "inherit" },
+            );
+            if (result.status !== 0) {
+              throw new Error(`Signature verification failed for ${candidate.image_key}`);
+            }
+          }
+          NODE
+
+      - name: Promote all verified digests to the main channel
+        env:
+          PROMOTION_INVENTORY: .release-evidence/release-image-promotion.json
+          RELEASE_CHANNEL_TAG: main
+        run: |
+          node <<'NODE'
+          const { createHash } = require("node:crypto");
+          const { readFileSync, writeFileSync } = require("node:fs");
+          const { spawnSync } = require("node:child_process");
+
+          const plan = JSON.parse(readFileSync(process.env.PROMOTION_INVENTORY, "utf8"));
+
+          const inspectDigest = (reference, required) => {
+            const inspection = spawnSync(
+              "docker",
+              ["buildx", "imagetools", "inspect", reference, "--raw"],
+              { encoding: null, maxBuffer: 16 * 1024 * 1024 },
+            );
+            if (inspection.status !== 0) {
+              if (!required) return null;
+              process.stderr.write(inspection.stderr ?? Buffer.alloc(0));
+              throw new Error(`Registry inspection failed for ${reference}`);
+            }
+            return `sha256:${createHash("sha256")
+              .update(inspection.stdout)
+              .digest("hex")}`;
+          };
+          const retag = (tag, immutableRef) =>
+            spawnSync(
+              "docker",
+              ["buildx", "imagetools", "create", "--tag", tag, immutableRef],
+              { stdio: "inherit" },
+            );
+
+          // GHCR cannot update tags across four repositories atomically.
+          // Snapshot every prior channel digest first so established tags can
+          // be rolled back if a later retag fails. Deployments never consume
+          // these mutable tags; only the final all-images digest inventory is
+          // authoritative, including on the first release where no old tag
+          // exists to restore.
+          for (const candidate of plan.images) {
+            const expectedPromotedTag = `${candidate.image}:${process.env.RELEASE_CHANNEL_TAG}`;
+            if (candidate.promoted_tag !== expectedPromotedTag) {
+              throw new Error(`Unexpected promotion tag for ${candidate.image_key}`);
+            }
+            const previousDigest = inspectDigest(candidate.promoted_tag, false);
+            candidate.previous_channel_ref = previousDigest
+              ? `${candidate.image}@${previousDigest}`
+              : null;
+          }
+
+          const promoted = [];
+          try {
+            for (const candidate of plan.images) {
+              const promotion = retag(candidate.promoted_tag, candidate.immutable_ref);
+              if (promotion.status !== 0) {
+                throw new Error(`Promotion failed for ${candidate.image_key}`);
+              }
+              promoted.push(candidate);
+              const promotedDigest = inspectDigest(candidate.promoted_tag, true);
+              if (promotedDigest !== candidate.digest) {
+                throw new Error(
+                  `Promoted digest mismatch for ${candidate.image_key}: ${promotedDigest}`,
+                );
+              }
+            }
+          } catch (error) {
+            const rollbackFailures = [];
+            for (const candidate of promoted.reverse()) {
+              if (!candidate.previous_channel_ref) continue;
+              const rollback = retag(
+                candidate.promoted_tag,
+                candidate.previous_channel_ref,
+              );
+              if (rollback.status !== 0) rollbackFailures.push(candidate.image_key);
+            }
+            if (rollbackFailures.length > 0) {
+              throw new Error(
+                `${error.message}; rollback also failed for ${rollbackFailures.join(", ")}`,
+              );
+            }
+            throw error;
+          }
+
+          plan.channel_tags_are_deployment_authority = false;
+          plan.deployment_authority = "completed immutable digest inventory";
+          writeFileSync(
+            process.env.PROMOTION_INVENTORY,
+            `${JSON.stringify(plan, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Finalize promoted digest inventory
+        env:
+          PROMOTION_INVENTORY: .release-evidence/release-image-promotion.json
+        run: |
+          node <<'NODE'
+          const { readFileSync, writeFileSync } = require("node:fs");
+
+          const path = process.env.PROMOTION_INVENTORY;
+          const inventory = JSON.parse(readFileSync(path, "utf8"));
+          inventory.promotion_status = "completed";
+          inventory.promoted_at = new Date().toISOString();
+          if (
+            inventory.channel_tags_are_deployment_authority !== false ||
+            inventory.deployment_authority !== "completed immutable digest inventory"
+          ) {
+            throw new Error("Mutable channel tags must never become deployment authority");
+          }
+          writeFileSync(path, `${JSON.stringify(inventory, null, 2)}\n`);
+          NODE
+
+      - name: Upload promoted release digest inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: promoted-release-images-${{ github.sha }}
+          path: .release-evidence/release-image-promotion.json
+          if-no-files-found: error
+          retention-days: 90
+
+  contracts:
+    name: Contracts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          components: clippy,rustfmt
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae
+        with:
+          workspaces: backend/contracts -> target
 
       - name: Check Rust formatting
         working-directory: ./backend/contracts
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
-  # ===========================================================================
-  # UNIT TESTS
-  # ===========================================================================
-  test-frontend:
-    name: Frontend Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - run: npm install --no-fund --no-audit
-      - run: npm run test:ci
-
-  test-backend:
-    name: Backend Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - name: Build SDK
-        working-directory: ./sdk/typescript
-        run: npm install --ignore-scripts && npm run build
-      - name: Install backend deps
-        working-directory: ./backend/api
-        run: npm install --no-fund --no-audit
-      - name: Generate Prisma client
-        working-directory: ./backend/api
-        run: npx prisma generate
-      - name: Run tests
-        working-directory: ./backend/api
-        run: npm run test
-
-  test-contracts:
-    name: Contract Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run tests
+      - name: Validate release manifest template
         working-directory: ./backend/contracts
-        run: cargo test --all
+        run: |
+          python3 scripts/validate-release-manifest.py deployments/release-manifest.example.json
+          python3 scripts/test-validate-release-manifest.py
+
+      - name: Check audit artifact scripts
+        working-directory: ./backend/contracts
+        run: |
+          bash -n scripts/build-optimized-artifacts.sh
+          bash -n scripts/prepare-audit-artifacts.sh
+          bash -n scripts/sign-audit-artifacts.sh
+          bash -n scripts/verify-audit-artifact-signatures.sh
+
+      - name: Check contracts compile without warnings
+        working-directory: ./backend/contracts
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo check --workspace --all-targets --locked
+
+      - name: Lint contracts with Clippy
+        working-directory: ./backend/contracts
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Run contract tests
+        working-directory: ./backend/contracts
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo test --workspace --locked
+
+      - name: Build optimized CosmWasm artifacts
+        working-directory: ./backend/contracts
+        run: bash scripts/build-optimized-artifacts.sh
+
+      - name: Upload CosmWasm audit artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cosmwasm-contracts-${{ github.sha }}
+          path: backend/contracts/audit-artifacts/contracts
+          if-no-files-found: error
+          retention-days: 30
+
+  evm-contracts:
+    name: EVM Contracts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Foundry toolchain
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.5.1
+
+      - name: Compile canonical EVM contracts
+        run: forge build --root backend/contracts-evm --sizes
+
+      - name: Reject stale committed deployment artifacts
+        run: node scripts/validate-evm-contract-artifacts.mjs
+
+      - name: Run canonical EVM contract tests
+        run: forge test --root backend/contracts-evm -vv
+
+  contract-release-artifacts:
+    name: Canonical EVM and Legacy CosmWasm Release Artifacts
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs:
+      - contracts
+      - evm-contracts
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Install pinned Foundry toolchain
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.5.1
+
+      - name: Build and validate canonical EVM deployment artifacts
+        run: |
+          forge build --root backend/contracts-evm --sizes
+          node scripts/validate-evm-contract-artifacts.mjs
+          SOURCE_SHA="${{ github.sha }}" node scripts/prepare-evm-release-artifacts.mjs
+
+      - name: Sign canonical EVM release checksums
+        run: |
+          cosign sign-blob --yes \
+            --bundle backend/contracts-evm/release-artifacts/SHA256SUMS.sigstore.json \
+            backend/contracts-evm/release-artifacts/SHA256SUMS
+
+      - name: Verify canonical EVM release signature
+        run: |
+          cosign verify-blob \
+            --bundle backend/contracts-evm/release-artifacts/SHA256SUMS.sigstore.json \
+            --certificate-identity https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            backend/contracts-evm/release-artifacts/SHA256SUMS
+
+      - name: Attest canonical EVM release bundle
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
+        with:
+          subject-path: backend/contracts-evm/release-artifacts/*
+
+      - name: Upload canonical EVM release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: canonical-evm-contracts-${{ github.sha }}
+          path: backend/contracts-evm/release-artifacts
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Build legacy CosmWasm artifacts
+        working-directory: ./backend/contracts
+        run: bash scripts/build-optimized-artifacts.sh
+
+      - name: Sign legacy CosmWasm audit artifacts
+        working-directory: ./backend/contracts
+        env:
+          SIGNER_ID: aethelred-contracts-release
+          SIGNING_BACKEND: cosign-keyless
+        run: bash scripts/sign-audit-artifacts.sh
+
+      - name: Verify legacy CosmWasm audit artifact signatures
+        working-directory: ./backend/contracts
+        env:
+          SIGNING_BACKEND: cosign-keyless
+          COSIGN_CERTIFICATE_IDENTITY: https://github.com/aethelred-foundation/cruzible/.github/workflows/ci-cd.yml@refs/heads/main
+          COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
+        run: bash scripts/verify-audit-artifact-signatures.sh
+
+      - name: Attest signed legacy CosmWasm audit artifacts
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
+        with:
+          subject-path: backend/contracts/audit-artifacts/contracts/*
+
+      - name: Upload signed legacy CosmWasm audit artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: signed-cosmwasm-contracts-${{ github.sha }}
+          path: backend/contracts/audit-artifacts/contracts
+          if-no-files-found: error
+          retention-days: 90
+
+  release-quality-gate:
+    name: All Required Release Checks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs:
+      - frontend-e2e
+      - deployment-manifests
+      - release-sbom
+      - python-sdk
+      - release-images
+      - contract-release-artifacts
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Confirm every required release lane passed
+        run: echo "Frontend, backend, SDK, deployment, image, and contract release gates passed."

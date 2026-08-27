@@ -8,7 +8,7 @@ use cosmwasm_std::{
     StdResult, Timestamp,
 };
 use cw2::set_contract_version;
-use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
+use cw_storage_plus::{Index, IndexList, IndexedMap, Item, MultiIndex};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,6 +16,10 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:seal-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_COMMITMENT_LENGTH: usize = 256;
+const MAX_QUERY_LIMIT: usize = 100;
+const MAX_BATCH_VERIFY_IDS: usize = 100;
+const MAX_VALIDATORS: u32 = 64;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -27,6 +31,8 @@ pub enum ContractError {
     SealNotFound {},
     #[error("Invalid seal status")]
     InvalidSealStatus {},
+    #[error("Invalid config: {reason}")]
+    InvalidConfig { reason: String },
     #[error("Seal expired")]
     SealExpired {},
     #[error("Seal already revoked")]
@@ -56,6 +62,14 @@ pub enum AiJobManagerQueryMsg {
 pub struct JobResponse {
     pub id: String,
     pub status: JobStatusResponse,
+    #[serde(default)]
+    pub validator: Option<String>,
+    #[serde(default)]
+    pub model_hash: Option<String>,
+    #[serde(default)]
+    pub input_hash: Option<String>,
+    #[serde(default)]
+    pub output_hash: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -214,6 +228,8 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    validate_validator_bounds(msg.min_validators, msg.max_validators)?;
+    validate_expiration_bounds(msg.default_expiration, msg.max_expiration)?;
 
     let config = Config {
         admin: info.sender,
@@ -290,6 +306,7 @@ pub fn execute(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_create_seal(
     deps: DepsMut,
     env: Env,
@@ -302,50 +319,23 @@ fn execute_create_seal(
     expiration: Option<u64>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    validate_commitment("model_commitment", &model_commitment)?;
+    validate_commitment("input_commitment", &input_commitment)?;
+    validate_commitment("output_commitment", &output_commitment)?;
 
-    // SECURITY: Cross-contract query to verify job exists and is in a valid terminal state.
-    // Prevents seals from being created for non-existent or in-progress jobs.
-    let job_response: JobResponse = deps
-        .querier
-        .query_wasm_smart(
-            config.ai_job_manager.to_string(),
-            &AiJobManagerQueryMsg::Job {
-                job_id: job_id.clone(),
-            },
-        )
-        .map_err(|_| {
-            ContractError::Std(cosmwasm_std::StdError::generic_err(format!(
-                "Job '{}' not found in AI Job Manager",
-                job_id
-            )))
-        })?;
+    let job = ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
+    let validators = validate_unique_validators(deps.api, &config, validator_addresses)?;
+    validate_seal_matches_job(
+        deps.api,
+        &job,
+        &validators,
+        &model_commitment,
+        &input_commitment,
+        &output_commitment,
+    )?;
 
-    // Only allow seals for verified or paid (completed+paid) jobs
-    match job_response.status {
-        JobStatusResponse::Verified | JobStatusResponse::Paid | JobStatusResponse::Completed => {}
-        _ => {
-            return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                format!(
-                    "Job '{}' is not in a valid state for sealing (status: {:?})",
-                    job_id, job_response.status
-                ),
-            )));
-        }
-    }
-
-    let validator_count = validator_addresses.len() as u32;
-    if validator_count < config.min_validators || validator_count > config.max_validators {
-        return Err(ContractError::InvalidSealStatus {});
-    }
-
-    let validators: Result<Vec<Addr>, _> = validator_addresses
-        .into_iter()
-        .map(|v| deps.api.addr_validate(&v))
-        .collect();
-    let validators = validators?;
-
-    let expires_at =
-        expiration.map(|exp| env.block.time.plus_seconds(exp.min(config.max_expiration)));
+    let expiration_seconds = resolve_seal_expiration(&config, expiration)?;
+    let expires_at = Some(env.block.time.plus_seconds(expiration_seconds));
 
     let count = SEAL_COUNT.load(deps.storage)?;
     let seal_id = generate_seal_id(&job_id, &info.sender, count);
@@ -373,6 +363,180 @@ fn execute_create_seal(
         .add_attribute("action", "create_seal")
         .add_attribute("seal_id", seal_id)
         .add_attribute("job_id", job_id))
+}
+
+fn ensure_sealable_job(
+    deps: Deps,
+    config: &Config,
+    job_id: &str,
+) -> Result<JobResponse, ContractError> {
+    let job_response: JobResponse = deps
+        .querier
+        .query_wasm_smart(
+            config.ai_job_manager.to_string(),
+            &AiJobManagerQueryMsg::Job {
+                job_id: job_id.to_string(),
+            },
+        )
+        .map_err(|_| {
+            ContractError::Std(cosmwasm_std::StdError::generic_err(format!(
+                "Job '{}' not found in AI Job Manager",
+                job_id
+            )))
+        })?;
+
+    if job_response.id != job_id {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!(
+                "AI Job Manager returned mismatched job id '{}' for '{}'",
+                job_response.id, job_id
+            ),
+        )));
+    }
+
+    match job_response.status {
+        JobStatusResponse::Verified | JobStatusResponse::Paid => Ok(job_response),
+        _ => Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!(
+                "Job '{}' is not in a valid state for sealing (status: {:?})",
+                job_id, job_response.status
+            ),
+        ))),
+    }
+}
+
+fn validate_commitment(name: &str, value: &str) -> Result<(), ContractError> {
+    if value.trim().is_empty() {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("{} must not be empty", name),
+        });
+    }
+    if value.len() > MAX_COMMITMENT_LENGTH {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "{} cannot exceed {} characters",
+                name, MAX_COMMITMENT_LENGTH
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn validate_seal_matches_job(
+    api: &dyn cosmwasm_std::Api,
+    job: &JobResponse,
+    validators: &[Addr],
+    model_commitment: &str,
+    input_commitment: &str,
+    output_commitment: &str,
+) -> Result<(), ContractError> {
+    if let Some(model_hash) = &job.model_hash {
+        if model_hash != model_commitment {
+            return Err(ContractError::InvalidConfig {
+                reason: "model_commitment must match job model_hash".to_string(),
+            });
+        }
+    }
+    if let Some(input_hash) = &job.input_hash {
+        if input_hash != input_commitment {
+            return Err(ContractError::InvalidConfig {
+                reason: "input_commitment must match job input_hash".to_string(),
+            });
+        }
+    }
+    if let Some(output_hash) = &job.output_hash {
+        if output_hash != output_commitment {
+            return Err(ContractError::InvalidConfig {
+                reason: "output_commitment must match job output_hash".to_string(),
+            });
+        }
+    }
+    if let Some(validator) = &job.validator {
+        let validator = api.addr_validate(validator)?;
+        if !validators.contains(&validator) {
+            return Err(ContractError::InvalidSealStatus {});
+        }
+    }
+    Ok(())
+}
+
+fn validate_unique_validators(
+    api: &dyn cosmwasm_std::Api,
+    config: &Config,
+    validator_addresses: Vec<String>,
+) -> Result<Vec<Addr>, ContractError> {
+    if validator_addresses.len() > config.max_validators as usize {
+        return Err(ContractError::InvalidSealStatus {});
+    }
+
+    let mut validators = Vec::new();
+    for validator in validator_addresses {
+        let validator_addr = api.addr_validate(&validator)?;
+        if !validators.contains(&validator_addr) {
+            validators.push(validator_addr);
+        }
+    }
+
+    let validator_count = validators.len() as u32;
+    if validator_count < config.min_validators || validator_count > config.max_validators {
+        return Err(ContractError::InvalidSealStatus {});
+    }
+
+    Ok(validators)
+}
+
+fn resolve_seal_expiration(config: &Config, expiration: Option<u64>) -> Result<u64, ContractError> {
+    let expiration = expiration.unwrap_or(config.default_expiration);
+    if expiration == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "expiration must be greater than zero".to_string(),
+        });
+    }
+    if expiration > config.max_expiration {
+        return Err(ContractError::InvalidConfig {
+            reason: "expiration cannot exceed max_expiration".to_string(),
+        });
+    }
+    Ok(expiration)
+}
+
+fn validate_validator_bounds(
+    min_validators: u32,
+    max_validators: u32,
+) -> Result<(), ContractError> {
+    if min_validators == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_validators must be greater than zero".to_string(),
+        });
+    }
+    if min_validators > max_validators {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_validators cannot exceed max_validators".to_string(),
+        });
+    }
+    if max_validators > MAX_VALIDATORS {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("max_validators cannot exceed {MAX_VALIDATORS}"),
+        });
+    }
+    Ok(())
+}
+
+fn validate_expiration_bounds(
+    default_expiration: u64,
+    max_expiration: u64,
+) -> Result<(), ContractError> {
+    if default_expiration == 0 || max_expiration == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "expiration values must be greater than zero".to_string(),
+        });
+    }
+    if default_expiration > max_expiration {
+        return Err(ContractError::InvalidConfig {
+            reason: "default_expiration cannot exceed max_expiration".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn execute_revoke_seal(
@@ -439,6 +603,7 @@ fn execute_extend_expiration(
         .add_attribute("seal_id", seal_id))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_supersede_seal(
     deps: DepsMut,
     env: Env,
@@ -456,22 +621,30 @@ fn execute_supersede_seal(
         return Err(ContractError::Unauthorized {});
     }
 
-    let config = CONFIG.load(deps.storage)?;
-
-    // M-08 FIX: Validate validator count before superseding
-    let validator_count = validator_addresses.len() as u32;
-    if validator_count < config.min_validators || validator_count > config.max_validators {
+    if old_seal.status != SealStatus::Active {
         return Err(ContractError::InvalidSealStatus {});
     }
 
-    old_seal.status = SealStatus::Superseded;
-    seals().save(deps.storage, old_seal_id.clone(), &old_seal)?;
+    if old_seal.job_id != job_id {
+        return Err(ContractError::InvalidSealStatus {});
+    }
 
-    let validators: Result<Vec<Addr>, _> = validator_addresses
-        .into_iter()
-        .map(|v| deps.api.addr_validate(&v))
-        .collect();
-    let validators = validators?;
+    let config = CONFIG.load(deps.storage)?;
+    validate_commitment("model_commitment", &model_commitment)?;
+    validate_commitment("input_commitment", &input_commitment)?;
+    validate_commitment("output_commitment", &output_commitment)?;
+
+    let job = ensure_sealable_job(deps.as_ref(), &config, &job_id)?;
+    let validators = validate_unique_validators(deps.api, &config, validator_addresses)?;
+    validate_seal_matches_job(
+        deps.api,
+        &job,
+        &validators,
+        &model_commitment,
+        &input_commitment,
+        &output_commitment,
+    )?;
+
     let count = SEAL_COUNT.load(deps.storage)?;
     let new_seal_id = generate_seal_id(&job_id, &info.sender, count);
 
@@ -491,6 +664,8 @@ fn execute_supersede_seal(
         revocation_reason: None,
     };
 
+    old_seal.status = SealStatus::Superseded;
+    seals().save(deps.storage, old_seal_id.clone(), &old_seal)?;
     seals().save(deps.storage, new_seal_id.clone(), &new_seal)?;
     SEAL_COUNT.save(deps.storage, &(count + 1))?;
 
@@ -528,6 +703,12 @@ fn execute_batch_verify(
     env: Env,
     seal_ids: Vec<String>,
 ) -> Result<Response, ContractError> {
+    if seal_ids.is_empty() || seal_ids.len() > MAX_BATCH_VERIFY_IDS {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("seal_ids must contain 1-{MAX_BATCH_VERIFY_IDS} entries"),
+        });
+    }
+
     let mut verified = 0u64;
     let mut failed = 0u64;
     let mut response = Response::new();
@@ -605,6 +786,7 @@ fn execute_update_config(
     if let Some(max) = max_validators {
         config.max_validators = max;
     }
+    validate_validator_bounds(config.min_validators, config.max_validators)?;
 
     CONFIG.save(deps.storage, &config)?;
     Ok(Response::new().add_attribute("action", "update_config"))
@@ -629,6 +811,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 .job_id
                 .prefix(job_id)
                 .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+                .take(MAX_QUERY_LIMIT)
                 .filter_map(|r| r.ok().map(|(_, s)| s))
                 .collect();
             to_json_binary(&seals_list)
@@ -650,14 +833,14 @@ fn query_list_seals(
     requester: Option<String>,
     limit: Option<u32>,
 ) -> StdResult<Vec<Seal>> {
-    let limit = limit.unwrap_or(50) as usize;
-    let requester_addr = requester.map(|r| Addr::unchecked(r));
+    let limit = limit.unwrap_or(50).min(MAX_QUERY_LIMIT as u32) as usize;
+    let requester_addr = requester.map(Addr::unchecked);
     let seals_list: Vec<Seal> = seals()
         .range(deps.storage, None, None, cosmwasm_std::Order::Descending)
         .filter_map(|r| r.ok().map(|(_, seal)| seal))
         .filter(|seal| {
             if let Some(ref req) = requester_addr {
-                if &seal.requester != req {
+                if seal.requester.as_str() != req.as_str() {
                     return false;
                 }
             }

@@ -1,0 +1,420 @@
+#!/usr/bin/env node
+/**
+ * Cruzible — contract deployment (testnet/devnet).
+ *
+ * Deploys the EVM contract suite from the COMMITTED, reproducible artifacts
+ * (backend/contracts-evm/artifacts — solc 0.8.20, optimizer 200, shanghai;
+ * rebuild with backend/contracts-evm/build.sh only if you change sources):
+ *
+ *   1. Cruzible   — the liquid-staking vault (native AETHEL, payable stake)
+ *   2. StAETHEL   — rebasing receipt token (vault is sole minter/burner)
+ *   3. WstAETHEL  — non-rebasing wrapper (wstETH pattern, EIP-2612 permit)
+ *
+ * Wiring: setStAethel is one-time and governance-only, so the vault is
+ * deployed with the DEPLOYER as governance, wired, then — if GOVERNANCE is
+ * set to a different address — a two-step transfer is STARTED (the new
+ * governance must call acceptGovernance() to take over; nothing changes
+ * until it does). Same admin-separation pattern as the ZeroID deploy.
+ *
+ * Usage:
+ *   RPC_URL=http://54.165.44.130:8545 \
+ *   DEPLOYER_KEY=0x<funded-private-key> \
+ *   node scripts/deploy-contracts.mjs
+ *
+ * Optional env:
+ *   GOVERNANCE                 nominate this address as governance (two-step)
+ *   REWARDER, PAUSER           role addresses (default: deployer)
+ *   UNBONDING_PERIOD_SECONDS   withdrawal-queue delay (default 3600 = 1h for
+ *                              testing; set 1814400 = 21d when delegation to
+ *                              the chain's validators goes live, so the vault
+ *                              queue mirrors the chain's unbonding period)
+ *   SKIP_WSTAETHEL=1           don't deploy the wrapper
+ *   ZEROID_REGISTRY            deployed ZeroID registry address — turns the
+ *                              identity gate ON (staking requires a
+ *                              registered, ACTIVE ZeroID identity; exits are
+ *                              never gated)
+ *   OUT=<path>                 also write the deployment manifest JSON here
+ *
+ * Gas: every tx is estimated on-chain and sent with 2x headroom (the same
+ * safety margin as forge's --gas-estimate-multiplier 200), and receipts are
+ * awaited sequentially (equivalent to forge --slow).
+ */
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
+
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  encodeDeployData,
+  formatEther,
+  http,
+  isAddress,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import {
+  buildEvmDeploymentManifest,
+  sha256Bytes,
+} from "./lib/evm-deployment-manifest.mjs";
+import { assertZeroIdRegistryInterface } from "./lib/evm-deployment-preflight.mjs";
+import { validateEvmContractArtifacts } from "./validate-evm-contract-artifacts.mjs";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const artifactsDir = join(
+  __dirname,
+  "..",
+  "backend",
+  "contracts-evm",
+  "artifacts",
+);
+
+const RPC_URL = process.env.RPC_URL;
+const DEPLOYER_KEY = process.env.DEPLOYER_KEY;
+if (!RPC_URL || !DEPLOYER_KEY) {
+  console.error("RPC_URL and DEPLOYER_KEY are required");
+  console.error(
+    "  RPC_URL=http://54.165.44.130:8545 DEPLOYER_KEY=0x... node scripts/deploy-contracts.mjs",
+  );
+  process.exit(1);
+}
+const UNBONDING = BigInt(process.env.UNBONDING_PERIOD_SECONDS ?? "3600");
+const DEPLOYMENT_ENV = process.env.DEPLOYMENT_ENV?.trim() || "testnet";
+
+const fail = (m) => {
+  console.error(`\nFAIL: ${m}`);
+  process.exit(1);
+};
+
+if (DEPLOYMENT_ENV !== "devnet" && DEPLOYMENT_ENV !== "testnet") {
+  fail(
+    "DEPLOYMENT_ENV must be devnet or testnet; this script has no confirmed mainnet defaults",
+  );
+}
+
+for (const [name, value] of [
+  ["GOVERNANCE", process.env.GOVERNANCE],
+  ["REWARDER", process.env.REWARDER],
+  ["PAUSER", process.env.PAUSER],
+]) {
+  if (value && !isAddress(value))
+    fail(`${name} is not a valid EVM address: ${value}`);
+}
+
+const loadArtifact = (name) => {
+  const abiBytes = readFileSync(join(artifactsDir, `${name}.abi`));
+  const bytecodeBytes = readFileSync(join(artifactsDir, `${name}.bin`));
+  const bytecode = `0x${bytecodeBytes.toString("utf8").trim()}`;
+  return {
+    abi: JSON.parse(abiBytes.toString("utf8")),
+    bytecode,
+    hashes: {
+      abiFileSha256: sha256Bytes(abiBytes),
+      creationBytecodeFileSha256: sha256Bytes(bytecodeBytes),
+      creationBytecodeSha256: sha256Bytes(bytecode),
+    },
+  };
+};
+
+const chain = defineChain({
+  id: 7332,
+  name: "Aethelred",
+  nativeCurrency: { name: "AETHEL", symbol: "AETHEL", decimals: 18 },
+  rpcUrls: { default: { http: [RPC_URL] } },
+});
+
+const account = privateKeyToAccount(DEPLOYER_KEY);
+const publicClient = createPublicClient({ chain, transport: http(RPC_URL) });
+const walletClient = createWalletClient({
+  account,
+  chain,
+  transport: http(RPC_URL),
+});
+
+const headroom = (est, floor) => (est * 2n > floor ? est * 2n : floor);
+
+async function deploy(name, args) {
+  const { abi, bytecode, hashes } = loadArtifact(name);
+  const gas = headroom(
+    await publicClient.estimateGas({
+      account,
+      data: encodeDeployData({ abi, bytecode, args }),
+    }),
+    6_000_000n,
+  );
+  const hash = await walletClient.deployContract({ abi, bytecode, args, gas });
+  const r = await publicClient.waitForTransactionReceipt({
+    hash,
+    timeout: 120_000,
+  });
+  if (r.status !== "success") fail(`${name} deploy reverted (tx ${hash})`);
+  console.log(
+    `  ${name.padEnd(10)} ${r.contractAddress}  (block ${r.blockNumber}, gas ${r.gasUsed})`,
+  );
+  return {
+    address: r.contractAddress,
+    abi,
+    deployTxHash: hash,
+    blockNumber: r.blockNumber,
+    gasUsed: r.gasUsed,
+    hashes,
+  };
+}
+
+async function write(c, fn, args) {
+  const gas = headroom(
+    await publicClient.estimateContractGas({
+      address: c.address,
+      abi: c.abi,
+      functionName: fn,
+      args,
+      account,
+    }),
+    400_000n,
+  );
+  const hash = await walletClient.writeContract({
+    address: c.address,
+    abi: c.abi,
+    functionName: fn,
+    args,
+    gas,
+  });
+  const r = await publicClient.waitForTransactionReceipt({
+    hash,
+    timeout: 120_000,
+  });
+  if (r.status !== "success") fail(`${fn} reverted (tx ${hash})`);
+  return r;
+}
+
+const read = (c, fn, args = []) =>
+  publicClient.readContract({
+    address: c.address,
+    abi: c.abi,
+    functionName: fn,
+    args,
+  });
+
+async function main() {
+  console.log("== preflight");
+  const chainId = await publicClient.getChainId();
+  if (chainId !== 7332)
+    fail(`connected chain id ${chainId}, want 7332 (Aethelred)`);
+  const balance = await publicClient.getBalance({ address: account.address });
+  console.log(
+    `  chain 7332 ✓  deployer ${account.address}  balance ${formatEther(balance)} AETHEL`,
+  );
+  if (balance === 0n)
+    fail("deployer has no AETHEL for gas — fund it first (see the guide)");
+
+  // Aethelred's EVM numbering starts at block 1. Some current RPC nodes alias
+  // a request for block 0 to block 1, but release identity must not depend on
+  // that non-portable behavior.
+  const genesisBlock = await publicClient.getBlock({ blockNumber: 1n });
+  if (!genesisBlock.hash || genesisBlock.number !== 1n) {
+    fail("RPC did not return canonical EVM genesis anchor block 1");
+  }
+
+  const repoRoot = join(__dirname, "..");
+  const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  }).trim();
+  const sourceClean =
+    execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim().length === 0;
+  if (process.env.RELEASE_DEPLOYMENT === "1") {
+    if (!process.env.OUT) fail("OUT is required when RELEASE_DEPLOYMENT=1");
+    if (!sourceClean)
+      fail("release deployments require a clean tracked git worktree");
+    console.log(
+      "  rebuilding and validating committed EVM artifacts against source",
+    );
+    execFileSync(
+      "forge",
+      ["build", "--root", join(repoRoot, "backend", "contracts-evm")],
+      { cwd: repoRoot, stdio: "inherit" },
+    );
+    const artifactValidation = validateEvmContractArtifacts(repoRoot);
+    if (artifactValidation.errors.length > 0) {
+      fail(
+        `release artifact/source parity failed: ${artifactValidation.errors.join("; ")}`,
+      );
+    }
+  }
+
+  const rewarder = process.env.REWARDER ?? account.address;
+  const pauser = process.env.PAUSER ?? account.address;
+
+  console.log(`== deploy (unbonding period ${UNBONDING}s)`);
+  // Governance starts as the deployer so the one-time setStAethel wiring can
+  // run; a different GOVERNANCE is nominated afterwards (two-step).
+  const vault = await deploy("Cruzible", [
+    account.address,
+    rewarder,
+    pauser,
+    UNBONDING,
+  ]);
+  const token = await deploy("StAETHEL", [vault.address]);
+  const wiringReceipt = await write(vault, "setStAethel", [token.address]);
+  const wst = process.env.SKIP_WSTAETHEL
+    ? null
+    : await deploy("WstAETHEL", [token.address]);
+
+  console.log("== sanity");
+  if (
+    (await read(vault, "stAethel")).toLowerCase() !==
+    token.address.toLowerCase()
+  )
+    fail("stAETHEL wiring mismatch");
+  if ((await read(vault, "getExchangeRate")) !== 10n ** 18n)
+    fail("fresh vault exchange rate must be exactly 1.0");
+  if ((await read(vault, "unbondingPeriod")) !== UNBONDING)
+    fail("unbonding period mismatch");
+  console.log("  wiring ✓  exchange rate 1.0 ✓");
+
+  // Optional ZeroID identity gate: point the vault at a deployed ZeroID
+  // registry so staking requires a registered, ACTIVE identity (exits are
+  // never gated). Must run before any governance handover.
+  let identityGateReceipt = null;
+  if (process.env.ZEROID_REGISTRY) {
+    if (!isAddress(process.env.ZEROID_REGISTRY))
+      fail(
+        `ZEROID_REGISTRY is not a valid EVM address: ${process.env.ZEROID_REGISTRY}`,
+      );
+    await assertZeroIdRegistryInterface({
+      publicClient,
+      registry: process.env.ZEROID_REGISTRY,
+      controller: account.address,
+    });
+    identityGateReceipt = await write(vault, "setIdentityGate", [
+      process.env.ZEROID_REGISTRY,
+      true,
+    ]);
+    console.log(
+      `  identity gate ON → ZeroID registry ${process.env.ZEROID_REGISTRY}`,
+    );
+  }
+
+  let governanceNote = `governance: ${account.address} (deployer)`;
+  let governanceTransferReceipt = null;
+  if (
+    process.env.GOVERNANCE &&
+    process.env.GOVERNANCE.toLowerCase() !== account.address.toLowerCase()
+  ) {
+    governanceTransferReceipt = await write(vault, "transferGovernance", [
+      process.env.GOVERNANCE,
+    ]);
+    governanceNote = `governance transfer STARTED to ${process.env.GOVERNANCE} — it must call acceptGovernance() to take over`;
+    console.log(`  ${governanceNote}`);
+  }
+
+  const contractEvidence = async (contract) => {
+    const runtimeBytecode = await publicClient.getBytecode({
+      address: contract.address,
+    });
+    if (!runtimeBytecode || runtimeBytecode === "0x") {
+      fail(`deployed contract ${contract.address} has no runtime bytecode`);
+    }
+    return {
+      address: contract.address,
+      deployTxHash: contract.deployTxHash,
+      blockNumber: String(contract.blockNumber),
+      gasUsed: String(contract.gasUsed),
+      hashes: {
+        ...contract.hashes,
+        runtimeBytecodeSha256: sha256Bytes(runtimeBytecode),
+      },
+    };
+  };
+  const currentGovernance = await read(vault, "governance");
+  const pendingGovernance = await read(vault, "pendingGovernance");
+  const onChainRewarder = await read(vault, "rewarder");
+  const onChainPauser = await read(vault, "pauser");
+  const evidenceHead = await publicClient.getBlock();
+  if (!evidenceHead.hash) fail("RPC did not return an evidence head hash");
+
+  const handoverRequested = Boolean(governanceTransferReceipt);
+  const transactionEvidence = (receipt) => ({
+    txHash: receipt.transactionHash,
+    blockNumber: String(receipt.blockNumber),
+    gasUsed: String(receipt.gasUsed),
+  });
+  const manifest = buildEvmDeploymentManifest({
+    environment: DEPLOYMENT_ENV,
+    deployedAt: new Date().toISOString(),
+    sourceCommit,
+    sourceClean,
+    chainId,
+    rpcUrl: RPC_URL,
+    genesisBlockHash: genesisBlock.hash,
+    headBlockNumber: evidenceHead.number,
+    headBlockHash: evidenceHead.hash,
+    deployer: account.address,
+    contracts: {
+      Cruzible: await contractEvidence(vault),
+      StAETHEL: await contractEvidence(token),
+      ...(wst ? { WstAETHEL: await contractEvidence(wst) } : {}),
+    },
+    configurationTransactions: {
+      setStAethel: transactionEvidence(wiringReceipt),
+      ...(identityGateReceipt
+        ? { setIdentityGate: transactionEvidence(identityGateReceipt) }
+        : {}),
+      ...(governanceTransferReceipt
+        ? {
+            transferGovernance: transactionEvidence(governanceTransferReceipt),
+          }
+        : {}),
+    },
+    roles: {
+      currentGovernance,
+      pendingGovernance:
+        pendingGovernance === "0x0000000000000000000000000000000000000000"
+          ? null
+          : pendingGovernance,
+      rewarder: onChainRewarder,
+      pauser: onChainPauser,
+    },
+    governanceHandover: {
+      requested: handoverRequested,
+      acceptanceRequired: handoverRequested,
+      accepted: !handoverRequested,
+      ...(governanceTransferReceipt
+        ? { transferTxHash: governanceTransferReceipt.transactionHash }
+        : {}),
+    },
+    unbondingPeriodSeconds: Number(UNBONDING),
+    ...(process.env.ZEROID_REGISTRY
+      ? {
+          identityGate: {
+            registry: process.env.ZEROID_REGISTRY,
+            required: true,
+            configurationTxHash: identityGateReceipt.transactionHash,
+          },
+        }
+      : {}),
+  });
+  if (process.env.OUT) {
+    mkdirSync(dirname(process.env.OUT), { recursive: true });
+    writeFileSync(process.env.OUT, `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`== manifest written to ${process.env.OUT}`);
+  }
+
+  console.log("\n== paste into .env.local (frontend)");
+  console.log(`NEXT_PUBLIC_CRUZIBLE_ADDRESS=${vault.address}`);
+  console.log(`NEXT_PUBLIC_STAETHEL_ADDRESS=${token.address}`);
+  console.log("\n== backend/api env (only if you run the API)");
+  console.log(`CRUZIBLE_VAULT_ADDRESS=${vault.address}`);
+  console.log(`STAETHEL_ADDRESS=${token.address}`);
+  if (wst)
+    console.log(
+      `\n== wstAETHEL (integrations/AMMs; no frontend env var)\nWSTAETHEL_ADDRESS=${wst.address}`,
+    );
+  console.log(`\n${governanceNote}`);
+}
+
+main().catch((e) => fail(e.shortMessage ?? e.message ?? String(e)));

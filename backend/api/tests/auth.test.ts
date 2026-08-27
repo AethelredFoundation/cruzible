@@ -1,19 +1,26 @@
-import express from 'express';
-import { afterEach, describe, expect, it } from 'vitest';
-import { authenticate } from '../src/auth/middleware';
-import { rateLimiter } from '../src/middleware/rateLimiter';
-import { generateTokens } from '../src/auth/service';
-import { withHttpServer } from './helpers/http';
+import express from "express";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { authenticate, requireRoles } from "../src/auth/middleware";
+import { rateLimiter } from "../src/middleware/rateLimiter";
+import {
+  generateTokens,
+  revokeRefreshSessionsForAddress,
+} from "../src/auth/service";
+import { config } from "../src/config";
+import { withHttpServer } from "./helpers/http";
 
-describe('auth middleware', () => {
+const originalEnv = { ...process.env };
+
+describe("auth middleware", () => {
   afterEach(() => {
-    process.env.ALLOW_MOCK_SIGNATURES = 'false';
+    process.env = { ...originalEnv };
+    vi.resetModules();
   });
 
-  it('rejects requests without a bearer token', async () => {
+  it("rejects requests without a bearer token", async () => {
     const app = express();
     app.use(rateLimiter);
-    app.get('/protected', authenticate, (req, res) => {
+    app.get("/protected", authenticate, (req, res) => {
       res.json({ address: req.user?.address });
     });
 
@@ -22,20 +29,51 @@ describe('auth middleware', () => {
       const body = await response.json();
 
       expect(response.status).toBe(401);
-      expect(body.message).toContain('Authorization header missing');
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("www-authenticate")).toContain(
+        'Bearer realm="cruzible"',
+      );
+      expect(body.requestId).toBe("unknown");
+      expect(body.message).toContain("Authorization header missing");
     });
   });
 
-  it('accepts requests with a valid access token', async () => {
+  it("rejects malformed bearer headers with no-store auth metadata", async () => {
     const app = express();
     app.use(rateLimiter);
-    app.get('/protected', authenticate, (req, res) => {
+    app.get("/protected", authenticate, (req, res) => {
+      res.json({ address: req.user?.address });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: "Token abc" },
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("www-authenticate")).toContain(
+        'error="invalid_request"',
+      );
+      expect(body).toMatchObject({
+        error: "Unauthorized",
+        message: "Invalid authorization format. Use: Bearer <token>",
+        requestId: "unknown",
+      });
+    });
+  });
+
+  it("accepts requests with a valid access token", async () => {
+    const app = express();
+    app.use(rateLimiter);
+    app.get("/protected", authenticate, (req, res) => {
       res.json({ address: req.user?.address, roles: req.user?.roles });
     });
 
     const { accessToken } = generateTokens({
-      address: 'aeth1validuser',
-      roles: ['user', 'operator'],
+      address: "aeth1validuser",
+      roles: ["user", "operator"],
     });
 
     await withHttpServer(app, async (baseUrl) => {
@@ -48,9 +86,865 @@ describe('auth middleware', () => {
 
       expect(response.status).toBe(200);
       expect(body).toEqual({
-        address: 'aeth1validuser',
-        roles: ['user', 'operator'],
+        address: "aeth1validuser",
+        roles: ["user", "operator"],
       });
+    });
+  });
+
+  it("rejects revoked access tokens on authentication-only routes", async () => {
+    const app = express();
+    app.use(rateLimiter);
+    app.get("/protected", authenticate, (req, res) => {
+      res.json({ address: req.user?.address });
+    });
+
+    const { accessToken } = generateTokens({
+      address: "aeth1revokeduser",
+      roles: ["user"],
+    });
+    await revokeRefreshSessionsForAddress("aeth1revokeduser", {
+      actorAddress: "aeth1operator",
+      requestId: "test-revocation",
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/protected`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("www-authenticate")).toContain(
+        'error="invalid_token"',
+      );
+      expect(body.message).toContain("Access token revoked");
+    });
+  });
+
+  it("rejects authenticated users without the required role", async () => {
+    const app = express();
+    app.use(rateLimiter);
+    app.get("/ops", authenticate, requireRoles("operator"), (_req, res) => {
+      res.json({ ok: true });
+    });
+
+    const { accessToken } = generateTokens({
+      address: "aeth1validuser",
+      roles: ["user"],
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/ops`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("www-authenticate")).toBeNull();
+      expect(body.message).toContain("Insufficient permissions");
+    });
+  });
+
+  it("rejects stale privileged role claims after current role assignment changes", async () => {
+    const originalOperatorAddresses = [...config.authOperatorAddresses];
+    const originalAdminAddresses = [...config.authAdminAddresses];
+
+    try {
+      (config as any).authOperatorAddresses = [];
+      (config as any).authAdminAddresses = [];
+
+      const app = express();
+      app.use(rateLimiter);
+      app.get("/ops", authenticate, requireRoles("operator"), (_req, res) => {
+        res.json({ ok: true });
+      });
+
+      const { accessToken } = generateTokens({
+        address: "aeth1staleoperator",
+        roles: ["user", "operator"],
+      });
+
+      await withHttpServer(app, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/ops`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const body = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(body.message).toContain("Insufficient permissions");
+      });
+    } finally {
+      (config as any).authOperatorAddresses = originalOperatorAddresses;
+      (config as any).authAdminAddresses = originalAdminAddresses;
+    }
+  });
+});
+
+describe("auth routes", () => {
+  const refreshCookieName = "cruzible_refresh";
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.resetModules();
+  });
+
+  async function withAuthRoutes(
+    fn: (baseUrl: string) => Promise<void>,
+    envOverrides: NodeJS.ProcessEnv = {},
+  ): Promise<void> {
+    vi.resetModules();
+    process.env = {
+      ...originalEnv,
+      NODE_ENV: "test",
+      CRUZIBLE_NETWORK: "testnet",
+      INDEXER_EXPECTED_CHAIN_ID: "7332",
+      INDEXER_EXPECTED_GENESIS_HASH:
+        "0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7",
+      ALLOW_MOCK_SIGNATURES: "true",
+      AUTH_OPERATOR_ADDRESSES: "aeth1operator",
+      AUTH_RATE_LIMIT_MAX: "100",
+      ...envOverrides,
+    };
+    delete process.env.DATABASE_URL;
+
+    const { authRouter } = await import("../src/routes/v1/auth");
+    const { authenticate: routeAuthenticate } =
+      await import("../src/auth/middleware");
+    const { rateLimiter: routeRateLimiter } =
+      await import("../src/middleware/rateLimiter");
+    const { errorHandler } = await import("../src/middleware/errorHandler");
+
+    const app = express();
+    app.use(express.json());
+    app.use("/v1/auth", authRouter);
+    app.get("/protected", routeRateLimiter, routeAuthenticate, (req, res) => {
+      res.json({ address: req.user?.address });
+    });
+    app.use(errorHandler);
+
+    await withHttpServer(app, fn);
+  }
+
+  function getRefreshSetCookie(response: Response): string {
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toEqual(expect.any(String));
+    return setCookie ?? "";
+  }
+
+  function getRefreshCookie(response: Response): string {
+    return getRefreshSetCookie(response).split(";")[0];
+  }
+
+  function expectRefreshCookieHardening(response: Response): void {
+    const setCookie = getRefreshSetCookie(response);
+
+    expect(setCookie).toContain(`${refreshCookieName}=`);
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("SameSite=Strict");
+    expect(setCookie).toContain("Path=/");
+    expect(setCookie).toContain("Max-Age=604800");
+  }
+
+  it("issues operator tokens from a one-time login challenge", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challengeResponse = await fetch(`${baseUrl}/v1/auth/nonce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: "aeth1operator" }),
+      });
+      const challenge = await challengeResponse.json();
+
+      const loginResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: "aeth1operator",
+          message: challenge.message,
+          signature: "test-signature",
+        }),
+      });
+      const tokens = await loginResponse.json();
+
+      expect(challengeResponse.status).toBe(200);
+      expect(challengeResponse.headers.get("cache-control")).toBe("no-store");
+      expect(challenge.message).toContain("Network: testnet");
+      expect(challenge.message).toContain("EVM Chain ID: 7332");
+      expect(challenge.message).toContain(
+        "Network Anchor: 0xf4b43647f4d3255a7e9321ea4b32057101ed143623390bc30d59e69a91ceafa7",
+      );
+      expect(loginResponse.headers.get("cache-control")).toBe("no-store");
+      expect(loginResponse.status).toBe(200);
+      expectRefreshCookieHardening(loginResponse);
+      expect(tokens.accessToken).toEqual(expect.any(String));
+      expect(tokens.refreshToken).toEqual(expect.any(String));
+      expect(tokens.expiresIn).toBe(900);
+
+      const replayResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: "aeth1operator",
+          message: challenge.message,
+          signature: "test-signature",
+        }),
+      });
+
+      expect(replayResponse.status).toBe(401);
+    });
+  });
+
+  it("rejects a signed challenge replayed under a different network binding", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1operator" }),
+        })
+      ).json();
+      const { config: routeConfig } = await import("../src/config");
+      const originalNetwork = routeConfig.network;
+
+      try {
+        (routeConfig as any).network = "devnet";
+        const replayResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        });
+
+        expect(replayResponse.status).toBe(401);
+      } finally {
+        (routeConfig as any).network = originalNetwork;
+      }
+    });
+  });
+
+  it("rejects GET nonce issuance because challenges mutate auth state", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/v1/auth/nonce?address=aeth1operator`,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(405);
+      expect(response.headers.get("allow")).toBe("POST");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(body.message).toContain("Use POST /v1/auth/nonce");
+    });
+  });
+
+  it("can rotate refresh tokens from the HttpOnly cookie without a JSON token body", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1operator" }),
+        })
+      ).json();
+      const loginResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: "aeth1operator",
+          message: challenge.message,
+          signature: "test-signature",
+        }),
+      });
+      const loginTokens = await loginResponse.json();
+      const loginRefreshCookie = getRefreshCookie(loginResponse);
+
+      const refreshResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: { Cookie: loginRefreshCookie },
+      });
+      const refreshedTokens = await refreshResponse.json();
+      const rotatedRefreshCookie = getRefreshCookie(refreshResponse);
+
+      const replayResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: { Cookie: loginRefreshCookie },
+      });
+
+      expect(refreshResponse.status).toBe(200);
+      expect(refreshedTokens.refreshToken).not.toBe(loginTokens.refreshToken);
+      expect(rotatedRefreshCookie).not.toBe(loginRefreshCookie);
+      expect(replayResponse.status).toBe(401);
+    });
+  });
+
+  it("rejects production cookie refresh requests from untrusted origins", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const { config } = await import("../src/config");
+      const originalIsProduction = config.isProduction;
+      const originalCorsOrigins = [...config.corsOrigins];
+
+      try {
+        (config as any).isProduction = true;
+        (config as any).corsOrigins = ["https://app.example"];
+
+        const challenge = await (
+          await fetch(`${baseUrl}/v1/auth/nonce`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: "aeth1operator" }),
+          })
+        ).json();
+        const loginResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://app.example",
+          },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        });
+        const loginRefreshCookie = getRefreshCookie(loginResponse);
+
+        const rejectedOrigin = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: {
+            Cookie: loginRefreshCookie,
+            Origin: "https://evil.example",
+          },
+        });
+        const missingOrigin = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: { Cookie: loginRefreshCookie },
+        });
+        const acceptedOrigin = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: {
+            Cookie: loginRefreshCookie,
+            Origin: "https://app.example",
+          },
+        });
+
+        expect(rejectedOrigin.status).toBe(403);
+        expect(missingOrigin.status).toBe(403);
+        expect(acceptedOrigin.status).toBe(200);
+      } finally {
+        (config as any).isProduction = originalIsProduction;
+        (config as any).corsOrigins = originalCorsOrigins;
+      }
+    });
+  });
+
+  it("rejects production login cookie issuance from missing or untrusted origins", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const { config } = await import("../src/config");
+      const originalIsProduction = config.isProduction;
+      const originalCorsOrigins = [...config.corsOrigins];
+
+      try {
+        (config as any).isProduction = true;
+        (config as any).corsOrigins = ["https://app.example"];
+
+        const challenge = await (
+          await fetch(`${baseUrl}/v1/auth/nonce`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: "aeth1operator" }),
+          })
+        ).json();
+        const missingOrigin = await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        });
+        const acceptedOrigin = await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://app.example",
+          },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        });
+        const rejectedChallenge = await (
+          await fetch(`${baseUrl}/v1/auth/nonce`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: "aeth1operator" }),
+          })
+        ).json();
+        const rejectedOrigin = await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://evil.example",
+          },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: rejectedChallenge.message,
+            signature: "test-signature",
+          }),
+        });
+
+        expect(missingOrigin.status).toBe(403);
+        expect(missingOrigin.headers.get("set-cookie")).toBeNull();
+        expect(acceptedOrigin.status).toBe(200);
+        expect(acceptedOrigin.headers.get("set-cookie")).toContain(
+          "__Host-cruzible_refresh=",
+        );
+        expect(rejectedOrigin.status).toBe(403);
+        expect(rejectedOrigin.headers.get("set-cookie")).toBeNull();
+      } finally {
+        (config as any).isProduction = originalIsProduction;
+        (config as any).corsOrigins = originalCorsOrigins;
+      }
+    });
+  });
+
+  it("keeps refresh tokens out of JSON bodies when response exposure is disabled", async () => {
+    await withAuthRoutes(
+      async (baseUrl) => {
+        const challenge = await (
+          await fetch(`${baseUrl}/v1/auth/nonce`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: "aeth1operator" }),
+          })
+        ).json();
+        const loginResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        });
+        const loginBody = await loginResponse.json();
+        const loginRefreshCookie = getRefreshCookie(loginResponse);
+
+        const refreshResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: { Cookie: loginRefreshCookie },
+        });
+        const refreshBody = await refreshResponse.json();
+
+        expect(loginResponse.status).toBe(200);
+        expect(loginBody.accessToken).toEqual(expect.any(String));
+        expect(loginBody.refreshToken).toBeUndefined();
+        expect(refreshResponse.status).toBe(200);
+        expect(refreshBody.accessToken).toEqual(expect.any(String));
+        expect(refreshBody.refreshToken).toBeUndefined();
+        expectRefreshCookieHardening(refreshResponse);
+      },
+      { AUTH_EXPOSE_REFRESH_TOKEN_IN_BODY: "false" },
+    );
+  });
+
+  it("rejects production request-body refresh tokens for refresh and logout", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const { config } = await import("../src/config");
+      const originalIsProduction = config.isProduction;
+      const originalCorsOrigins = [...config.corsOrigins];
+
+      try {
+        const challenge = await (
+          await fetch(`${baseUrl}/v1/auth/nonce`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: "aeth1operator" }),
+          })
+        ).json();
+        const loginTokens = await (
+          await fetch(`${baseUrl}/v1/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              address: "aeth1operator",
+              message: challenge.message,
+              signature: "test-signature",
+            }),
+          })
+        ).json();
+
+        (config as any).isProduction = true;
+        (config as any).corsOrigins = ["https://app.example"];
+
+        const refreshResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://app.example",
+          },
+          body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+        });
+        const refreshBody = await refreshResponse.json();
+        const logoutResponse = await fetch(`${baseUrl}/v1/auth/logout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://app.example",
+          },
+          body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+        });
+        const logoutBody = await logoutResponse.json();
+
+        expect(refreshResponse.status).toBe(400);
+        expect(refreshBody.message).toBe(
+          "Refresh tokens must be sent via HttpOnly cookies in production",
+        );
+        expect(refreshResponse.headers.get("set-cookie")).toBeNull();
+        expect(logoutResponse.status).toBe(400);
+        expect(logoutBody.message).toBe(
+          "Refresh tokens must be sent via HttpOnly cookies in production",
+        );
+        expect(logoutResponse.headers.get("set-cookie")).toBeNull();
+      } finally {
+        (config as any).isProduction = originalIsProduction;
+        (config as any).corsOrigins = originalCorsOrigins;
+      }
+    });
+  });
+
+  it("revokes the wallet session family after refresh token replay", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1operator" }),
+        })
+      ).json();
+      const loginTokens = await (
+        await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        })
+      ).json();
+
+      const refreshResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+      const refreshedTokens = await refreshResponse.json();
+
+      const replayResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+      const refreshWithRotatedToken = await fetch(
+        `${baseUrl}/v1/auth/refresh`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            refresh_token: refreshedTokens.refreshToken,
+          }),
+        },
+      );
+      const accessAfterReplay = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: `Bearer ${refreshedTokens.accessToken}` },
+      });
+      const accessAfterReplayBody = await accessAfterReplay.json();
+
+      expect(refreshResponse.status).toBe(200);
+      expect(refreshedTokens.refreshToken).not.toBe(loginTokens.refreshToken);
+      expect(replayResponse.status).toBe(401);
+      expect(refreshWithRotatedToken.status).toBe(401);
+      expect(accessAfterReplay.status).toBe(401);
+      expect(accessAfterReplayBody.message).toContain("Access token revoked");
+    });
+  });
+
+  it("recomputes roles when refresh tokens rotate", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1operator" }),
+        })
+      ).json();
+      const loginTokens = await (
+        await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        })
+      ).json();
+      const { config } = await import("../src/config");
+      const { verifyAccessToken } = await import("../src/auth/service");
+
+      expect(verifyAccessToken(loginTokens.accessToken).roles).toContain(
+        "operator",
+      );
+
+      (config as any).authOperatorAddresses = [];
+      (config as any).authAdminAddresses = [];
+
+      const refreshResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+      const refreshedTokens = await refreshResponse.json();
+      const refreshedPayload = verifyAccessToken(refreshedTokens.accessToken);
+
+      expect(refreshResponse.status).toBe(200);
+      expect(refreshedPayload.address).toBe("aeth1operator");
+      expect(refreshedPayload.roles).toEqual(["user"]);
+    });
+  });
+
+  it("revokes the refresh session family after a user-agent context mismatch", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1operator" }),
+        })
+      ).json();
+      const loginTokens = await (
+        await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "CruzibleWallet/1.0",
+          },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        })
+      ).json();
+
+      const mismatchedRefresh = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "UnexpectedClient/9.9",
+        },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+      const matchedRefresh = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "CruzibleWallet/1.0",
+        },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+      const accessAfterMismatch = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+      });
+      const accessAfterMismatchBody = await accessAfterMismatch.json();
+
+      expect(mismatchedRefresh.status).toBe(401);
+      expect(matchedRefresh.status).toBe(401);
+      expect(accessAfterMismatch.status).toBe(401);
+      expect(accessAfterMismatchBody.message).toContain("Access token revoked");
+    });
+  });
+
+  it("lets operators list and revoke active wallet refresh sessions", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1operator" }),
+        })
+      ).json();
+      const loginTokens = await (
+        await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "CruzibleWallet/1.0",
+          },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        })
+      ).json();
+
+      const listResponse = await fetch(
+        `${baseUrl}/v1/auth/sessions/aeth1operator`,
+        {
+          headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+        },
+      );
+      const listBody = await listResponse.json();
+      const serializedListBody = JSON.stringify(listBody);
+
+      const revokeResponse = await fetch(
+        `${baseUrl}/v1/auth/sessions/aeth1operator/revoke`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+        },
+      );
+      const revokeBody = await revokeResponse.json();
+
+      const refreshAfterRevoke = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "CruzibleWallet/1.0",
+        },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+
+      const accessAfterRevokeResponse = await fetch(
+        `${baseUrl}/v1/auth/sessions/aeth1operator`,
+        {
+          headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+        },
+      );
+      const accessAfterRevokeBody = await accessAfterRevokeResponse.json();
+
+      expect(listResponse.status).toBe(200);
+      expect(listBody.address).toBe("aeth1operator");
+      expect(listBody.sessions).toHaveLength(1);
+      expect(listBody.sessions[0]).toMatchObject({
+        address: "aeth1operator",
+        roles: ["user", "operator"],
+        status: "active",
+        hasUserAgentBinding: true,
+      });
+      expect(serializedListBody).not.toContain("tokenHash");
+      expect(serializedListBody).not.toContain("refreshToken");
+
+      expect(revokeResponse.status).toBe(200);
+      expect(revokeBody).toEqual({
+        address: "aeth1operator",
+        revokedCount: 1,
+      });
+      expect(refreshAfterRevoke.status).toBe(401);
+      expect(accessAfterRevokeResponse.status).toBe(401);
+      expect(accessAfterRevokeBody.message).toContain("Access token revoked");
+    });
+  });
+
+  it("rejects refresh-session incident endpoints for non-operators", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1user" }),
+        })
+      ).json();
+      const loginTokens = await (
+        await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1user",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        })
+      ).json();
+
+      const listResponse = await fetch(
+        `${baseUrl}/v1/auth/sessions/aeth1user`,
+        {
+          headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+        },
+      );
+      const revokeResponse = await fetch(
+        `${baseUrl}/v1/auth/sessions/aeth1user/revoke`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+        },
+      );
+
+      expect(listResponse.status).toBe(403);
+      expect(revokeResponse.status).toBe(403);
+    });
+  });
+
+  it("revokes refresh and access tokens on logout", async () => {
+    await withAuthRoutes(async (baseUrl) => {
+      const challenge = await (
+        await fetch(`${baseUrl}/v1/auth/nonce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: "aeth1operator" }),
+        })
+      ).json();
+      const loginTokens = await (
+        await fetch(`${baseUrl}/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: "aeth1operator",
+            message: challenge.message,
+            signature: "test-signature",
+          }),
+        })
+      ).json();
+
+      const accessBeforeLogout = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+      });
+      const logoutResponse = await fetch(`${baseUrl}/v1/auth/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+      const refreshResponse = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: loginTokens.refreshToken }),
+      });
+      const accessAfterLogout = await fetch(`${baseUrl}/protected`, {
+        headers: { Authorization: `Bearer ${loginTokens.accessToken}` },
+      });
+      const accessAfterLogoutBody = await accessAfterLogout.json();
+
+      expect(accessBeforeLogout.status).toBe(200);
+      expect(logoutResponse.status).toBe(204);
+      expect(getRefreshSetCookie(logoutResponse)).toContain("Max-Age=0");
+      expect(refreshResponse.status).toBe(401);
+      expect(accessAfterLogout.status).toBe(401);
+      expect(accessAfterLogoutBody.message).toContain("Access token revoked");
     });
   });
 });

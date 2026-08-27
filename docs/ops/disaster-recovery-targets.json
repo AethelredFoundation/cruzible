@@ -1,0 +1,79 @@
+{
+  "schema": "cruzible.disaster_recovery_targets.v1",
+  "last_reviewed": "2026-06-27",
+  "objectives": {
+    "rto_minutes": 240,
+    "rpo_minutes": 60,
+    "restore_drill_required_before_public_traffic": true,
+    "backup_required_before_migrations": true,
+    "privileged_audit_chain_must_be_preserved": true
+  },
+  "critical_services": [
+    {
+      "name": "postgres",
+      "recovery_priority": 1,
+      "stateful": true,
+      "evidence_required": [
+        "pre-migration backup manifest",
+        "restore duration",
+        "migration status",
+        "privileged audit chain continuity"
+      ]
+    },
+    {
+      "name": "redis",
+      "recovery_priority": 2,
+      "stateful": true,
+      "evidence_required": [
+        "cache connection check",
+        "rate-limit store health",
+        "session cache behavior"
+      ]
+    },
+    {
+      "name": "api",
+      "recovery_priority": 3,
+      "stateful": false,
+      "evidence_required": [
+        "liveness probe",
+        "readiness probe",
+        "operational health with token",
+        "protected route auth smoke"
+      ]
+    },
+    {
+      "name": "frontend",
+      "recovery_priority": 4,
+      "stateful": false,
+      "evidence_required": [
+        "frontend health",
+        "landing route",
+        "vault route",
+        "validators route"
+      ]
+    },
+    {
+      "name": "contracts",
+      "recovery_priority": 5,
+      "stateful": true,
+      "evidence_required": [
+        "release manifest",
+        "wasm checksums",
+        "role owner policy",
+        "pause or rollback decision record"
+      ]
+    }
+  ],
+  "required_drill_evidence": [
+    "commit",
+    "environment",
+    "incident scenario",
+    "started_at",
+    "recovered_at",
+    "rto_actual_minutes",
+    "rpo_actual_minutes",
+    "database_backup_manifest",
+    "readiness_probe_result",
+    "operator_approvals"
+  ]
+}

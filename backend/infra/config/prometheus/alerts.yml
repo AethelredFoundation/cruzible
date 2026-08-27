@@ -1,0 +1,37 @@
+groups:
+  - name: cruzible-api
+    rules:
+      - alert: CruzibleApiDown
+        expr: up{job="cruzible-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Cruzible API metrics target is down
+          description: Prometheus has been unable to scrape the Cruzible API for at least two minutes.
+
+      - alert: CruzibleApiHighErrorRate
+        expr: |
+          sum(rate(cruzible_api_http_requests_total{job="cruzible-api",status_code=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(cruzible_api_http_requests_total{job="cruzible-api"}[5m])), 1)
+          > 0.02
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Cruzible API 5xx rate is above 2%
+          description: The API is returning elevated server errors over a ten minute window.
+
+      - alert: CruzibleApiP95LatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(cruzible_api_http_request_duration_seconds_bucket{job="cruzible-api"}[5m])) by (le)
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Cruzible API p95 latency is above one second
+          description: Public API latency has exceeded the launch SLO threshold.

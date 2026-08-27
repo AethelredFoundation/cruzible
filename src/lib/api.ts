@@ -3,10 +3,22 @@
  * Type-safe API client with automatic error handling and caching
  */
 
-import { BRAND } from "./constants";
+import { apiRequest, parseApiJsonResponse } from "@/lib/api-request";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
+let apiAccessToken: string | null = null;
+
+export function setApiAccessToken(token: string | null) {
+  const normalizedToken = token?.trim();
+  apiAccessToken = normalizedToken || null;
+}
+
+export function clearApiAccessToken() {
+  apiAccessToken = null;
+}
+
+function encodePathSegment(value: string | number): string {
+  return encodeURIComponent(String(value));
+}
 
 // =============================================================================
 // TYPES
@@ -54,7 +66,7 @@ export async function getBlocks(
 }
 
 export async function getBlock(height: number): Promise<ApiResponse<Block>> {
-  return fetchApi(`/blocks/${height}`);
+  return fetchApi(`/blocks/${encodePathSegment(height)}`);
 }
 
 export async function getLatestBlock(): Promise<ApiResponse<Block>> {
@@ -105,7 +117,7 @@ export async function getTransactions(
 export async function getTransaction(
   hash: string,
 ): Promise<ApiResponse<Transaction>> {
-  return fetchApi(`/transactions/${hash}`);
+  return fetchApi(`/transactions/${encodePathSegment(hash)}`);
 }
 
 // =============================================================================
@@ -143,7 +155,7 @@ export async function getValidators(
 export async function getValidator(
   address: string,
 ): Promise<ApiResponse<Validator>> {
-  return fetchApi(`/validators/${address}`);
+  return fetchApi(`/validators/${encodePathSegment(address)}`);
 }
 
 // =============================================================================
@@ -192,7 +204,7 @@ export async function getJobs(
 }
 
 export async function getJob(id: string): Promise<ApiResponse<AIJob>> {
-  return fetchApi(`/jobs/${id}`);
+  return fetchApi(`/jobs/${encodePathSegment(id)}`);
 }
 
 export async function submitJob(jobData: {
@@ -227,7 +239,7 @@ export interface StakingInfo {
 export async function getStakingInfo(
   address: string,
 ): Promise<ApiResponse<StakingInfo>> {
-  return fetchApi(`/staking/${address}`);
+  return fetchApi(`/staking/${encodePathSegment(address)}`);
 }
 
 export async function getStakingValidators(): Promise<
@@ -263,30 +275,21 @@ async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<ApiResponse<T>> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
   const defaultOptions: RequestInit = {
     headers: {
       "Content-Type": "application/json",
-      Accept: "application/json",
-      "X-Client-Name": BRAND.NAME,
-      "X-Client-Version": process.env.NEXT_PUBLIC_APP_VERSION || "1.0.0",
     },
   };
 
-  // Add auth token if available
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("auth_token");
-    if (token) {
-      defaultOptions.headers = {
-        ...defaultOptions.headers,
-        Authorization: `Bearer ${token}`,
-      };
-    }
+  if (apiAccessToken) {
+    defaultOptions.headers = {
+      ...defaultOptions.headers,
+      Authorization: `Bearer ${apiAccessToken}`,
+    };
   }
 
   try {
-    const response = await fetch(url, {
+    const response = await apiRequest(endpoint, {
       ...defaultOptions,
       ...options,
       headers: {
@@ -295,17 +298,19 @@ async function fetchApi<T>(
       },
     });
 
-    const data = await response.json();
+    const data = await parseApiJsonResponse<ApiResponse<T> | ApiError>(
+      response,
+    );
 
     if (!response.ok) {
       throw new ApiClientError(
-        data.message || "API request failed",
+        data?.message || "API request failed",
         response.status,
         data,
       );
     }
 
-    return data;
+    return data as ApiResponse<T>;
   } catch (error) {
     if (error instanceof ApiClientError) {
       throw error;

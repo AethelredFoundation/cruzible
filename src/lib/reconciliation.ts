@@ -1,3 +1,22 @@
+import { apiJson } from "@/lib/api-request";
+
+export const RECONCILIATION_CONTROL_PLANE_QUERY_KEY = [
+  "reconciliation-control-plane",
+] as const;
+
+export type ReconciliationCheckStatus =
+  | "PASS"
+  | "WARNING"
+  | "CRITICAL"
+  | "SKIPPED"
+  | "UNKNOWN";
+
+export type ReconciliationOverallStatus =
+  | "OK"
+  | "WARNING"
+  | "CRITICAL"
+  | "UNKNOWN";
+
 export type LiveReconciliationDocument = {
   epoch: number;
   network: string;
@@ -5,12 +24,36 @@ export type LiveReconciliationDocument = {
   captured_at: string;
   source?: Record<string, string | number | boolean | null>;
   warnings?: string[];
+  discrepancies?: Array<{
+    code: string;
+    severity: "INFO" | "WARNING" | "CRITICAL";
+    status: "ACTIVE";
+    title: string;
+    message: string;
+    affected_accounts: number;
+    affected_shares?: string;
+    impact_bps?: number;
+    sample_addresses: string[];
+    evidence?: Record<string, unknown>;
+    remediation?: string;
+  }>;
   validator_selection?: {
     observed?: {
       universe_hash?: string;
     };
     meta?: {
       validator_count?: number;
+      total_eligible_validators?: number;
+    };
+  };
+  stake_supply?: {
+    observed?: {
+      holder_total_shares?: string;
+      vault_total_shares?: string;
+    };
+    meta?: {
+      holder_count?: number;
+      matches_vault_total?: boolean | null;
     };
   };
   stake_snapshot?: {
@@ -31,20 +74,127 @@ export type LiveReconciliationDocument = {
   };
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
+export type ReconciliationControlPlaneSummary = {
+  epoch: number;
+  epoch_source: string;
+  captured_at: string;
+  chain_height: number;
+  validator_count: number;
+  total_eligible_validators: number;
+  validator_universe_hash: string;
+  stake_snapshot_hash?: string;
+  stake_snapshot_complete: boolean | null;
+  warning_count: number;
+  discrepancy_count: number;
+  critical_discrepancy_count: number;
+  warning_discrepancy_count: number;
+  info_discrepancy_count: number;
+  warnings: string[];
+};
+
+export type ReconciliationHistoryEntry = {
+  snapshot_id: string;
+  snapshot_key: string;
+  epoch: number;
+  captured_at: string;
+  validator_universe_hash: string;
+  stake_snapshot_hash?: string;
+  warning_count: number;
+  discrepancy_count: number;
+  status: "OK" | "WARNING" | "CRITICAL";
+  epoch_source: string;
+  chain_height: number;
+  stake_snapshot_complete: boolean | null;
+};
+
+export type HistoricalReconciliationSnapshot = {
+  snapshot_id: string;
+  snapshot_key: string;
+  status: "OK" | "WARNING" | "CRITICAL";
+  created_at: string;
+  document: LiveReconciliationDocument;
+  discrepancies: NonNullable<LiveReconciliationDocument["discrepancies"]>;
+};
+
+export type ReconciliationScorecard = {
+  generated_at: string;
+  status: ReconciliationOverallStatus;
+  epoch: number | null;
+  epoch_source: string | null;
+  snapshot_age_seconds: number | null;
+  validator_coverage_percent: number | null;
+  stake_snapshot_status: "complete" | "partial" | "unavailable";
+  freshness: {
+    status: ReconciliationCheckStatus;
+    message: string;
+    indexed_epoch: number | null;
+    protocol_epoch: number | null;
+    epoch_lag: number | null;
+    indexed_state_age_seconds: number | null;
+    stale_limit_seconds: number | null;
+  };
+  pillars: Array<{
+    key: string;
+    label: string;
+    status: ReconciliationCheckStatus;
+    message: string;
+    value?: string;
+  }>;
+  checks: Array<{
+    name: string;
+    status: ReconciliationCheckStatus;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  evidence: {
+    captured_at: string;
+    chain_height: number;
+    validator_count: number;
+    total_eligible_validators: number;
+    validator_universe_hash: string;
+    stake_snapshot_hash?: string;
+    stake_snapshot_complete: boolean | null;
+    warning_count: number;
+    discrepancy_count: number;
+    critical_discrepancy_count: number;
+    warning_discrepancy_count: number;
+    info_discrepancy_count: number;
+    warnings: string[];
+    scheduler_timestamp: string | null;
+    scheduler_duration_ms: number | null;
+  };
+};
 
 export async function fetchLiveReconciliation(
   validatorLimit = 200,
 ): Promise<LiveReconciliationDocument> {
-  const response = await fetch(
-    `${API_URL}/reconciliation/live?validator_limit=${validatorLimit}`,
+  return apiJson<LiveReconciliationDocument>(
+    `/reconciliation/live?validator_limit=${validatorLimit}`,
   );
-  if (!response.ok) {
-    throw new Error(
-      `Failed to load live reconciliation: HTTP ${response.status}`,
-    );
-  }
-  return response.json();
+}
+
+export async function fetchReconciliationControlPlane(): Promise<ReconciliationControlPlaneSummary> {
+  return apiJson<ReconciliationControlPlaneSummary>(
+    "/reconciliation/control-plane",
+  );
+}
+
+export async function fetchReconciliationScorecard(): Promise<ReconciliationScorecard> {
+  return apiJson<ReconciliationScorecard>("/reconciliation/scorecard");
+}
+
+export async function fetchReconciliationHistory(
+  limit = 10,
+): Promise<ReconciliationHistoryEntry[]> {
+  return apiJson<ReconciliationHistoryEntry[]>(
+    `/reconciliation/history?limit=${limit}`,
+  );
+}
+
+export async function fetchHistoricalReconciliationSnapshot(
+  epoch: number,
+): Promise<HistoricalReconciliationSnapshot> {
+  return apiJson<HistoricalReconciliationSnapshot>(`/reconciliation/${epoch}`);
 }
 
 export function renderLiveReconciliationMarkdown(
@@ -53,7 +203,11 @@ export function renderLiveReconciliationMarkdown(
   const warningCount = document.warnings?.length ?? 0;
   const validatorCount =
     document.validator_selection?.meta?.validator_count ?? "n/a";
+  const totalEligibleValidators =
+    document.validator_selection?.meta?.total_eligible_validators ?? "n/a";
   const stakeMeta = document.stake_snapshot?.meta;
+  const supplyObserved = document.stake_supply?.observed;
+  const supplyMeta = document.stake_supply?.meta;
   const sourceLines = Object.entries(document.source ?? {}).map(
     ([key, value]) => `- \`${key}\`: \`${String(value)}\``,
   );
@@ -65,9 +219,15 @@ export function renderLiveReconciliationMarkdown(
     `- Network: \`${document.network}\``,
     `- Mode: \`${document.mode}\``,
     `- Captured At: \`${document.captured_at}\``,
-    `- Validators: \`${validatorCount}\``,
-    `- Included Stakers: \`${stakeMeta?.included_stakers ?? "n/a"}\``,
+    `- Displayed Validators: \`${validatorCount}\``,
+    `- Hashed Validator Universe: \`${totalEligibleValidators}\``,
+    `- Indexed Share Holders: \`${supplyMeta?.holder_count ?? stakeMeta?.included_stakers ?? "n/a"}\``,
+    `- Holder Total Shares: \`${supplyObserved?.holder_total_shares ?? "n/a"}\``,
+    `- Vault Total Shares: \`${supplyObserved?.vault_total_shares ?? "n/a"}\``,
+    `- Share Supply Matches: \`${supplyMeta?.matches_vault_total == null ? "n/a" : supplyMeta.matches_vault_total ? "yes" : "no"}\``,
+    `- Per-holder Validator Attribution: \`${document.stake_snapshot ? "published" : "unavailable — pooled vault allocation is not holder-owned"}\``,
     `- Warning Count: \`${warningCount}\``,
+    `- Discrepancy Count: \`${document.discrepancies?.length ?? 0}\``,
     "",
     "## Observed Hashes",
     "",
@@ -75,6 +235,7 @@ export function renderLiveReconciliationMarkdown(
     `- Stake Snapshot Hash: \`${document.stake_snapshot?.observed?.stake_snapshot_hash ?? "n/a"}\``,
     `- Staker Registry Root: \`${document.stake_snapshot?.observed?.staker_registry_root ?? "n/a"}\``,
     `- Delegation Registry Root: \`${document.stake_snapshot?.observed?.delegation_registry_root ?? "n/a"}\``,
+    `- Delegation Payload: \`${document.stake_snapshot?.observed?.delegation_payload_hex ?? "n/a"}\``,
     "",
   ];
 
@@ -105,6 +266,16 @@ export function renderLiveReconciliationMarkdown(
       ...(document.warnings ?? []).map((warning) => `- ${warning}`),
       "",
     );
+  }
+
+  if ((document.discrepancies?.length ?? 0) > 0) {
+    lines.push("## Discrepancies", "");
+    for (const discrepancy of document.discrepancies ?? []) {
+      lines.push(
+        `- [${discrepancy.severity}] \`${discrepancy.code}\`: ${discrepancy.message}`,
+      );
+    }
+    lines.push("");
   }
 
   return lines.join("\n").trimEnd() + "\n";

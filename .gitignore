@@ -4,16 +4,34 @@ node_modules/
 # Next.js
 .next/
 out/
+*.tsbuildinfo
 
 # Environment
-.env
-.env.local
-.env.production.local
+.env*
+!.env.example
+!.env.testnet.example
+!backend/.env.example
+
+# Secrets and local TLS material
+secrets/
+**/secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.csr
 
 # Debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pytest_cache/
+__pycache__/
+*.py[cod]
+backend/api/dist/
+build/
+*.egg-info/
 
 # IDE
 .vscode/
@@ -24,7 +42,10 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
-.claude/
 target/
 backend/contracts/target/
 coverage/
+playwright-report/
+test-results/
+.launch-evidence/
+.release-evidence/

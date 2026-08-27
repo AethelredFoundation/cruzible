@@ -6,19 +6,29 @@
  * JWT authentication.
  */
 
-import { Router, Request, Response } from 'express';
-import { query } from 'express-validator';
-import { container } from 'tsyringe';
-import { AlertService, AlertSeverity, AlertType } from '../../services/AlertService';
-import { ReconciliationScheduler } from '../../services/ReconciliationScheduler';
-import { authenticate } from '../../auth/middleware';
-import { validate } from '../../middleware/validate';
-import { asyncHandler } from '../../utils/asyncHandler';
+import { Router, Request, Response } from "express";
+import { query } from "express-validator";
+import { container } from "tsyringe";
+import {
+  AlertService,
+  AlertSeverity,
+  AlertType,
+} from "../../services/AlertService";
+import { ReconciliationScheduler } from "../../services/ReconciliationScheduler";
+import { authenticate, requireRoles } from "../../auth/middleware";
+import { opsRateLimiter } from "../../middleware/rateLimiter";
+import { noStore } from "../../middleware/noStore";
+import { validate } from "../../middleware/validate";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { MAX_PUBLIC_PAGINATION_OFFSET } from "../../validation/schemas";
 
 const router = Router();
 
-// All alert routes require authentication
+// All alert routes require authenticated operators or admins.
 router.use(authenticate);
+router.use(opsRateLimiter);
+router.use(requireRoles("operator", "admin"));
+router.use(noStore);
 
 const alertService = container.resolve(AlertService);
 const reconciliationScheduler = container.resolve(ReconciliationScheduler);
@@ -63,7 +73,7 @@ const TYPE_VALUES = Object.values(AlertType);
  *         name: type
  *         schema:
  *           type: string
- *           enum: [RECONCILIATION_MISMATCH, EXCHANGE_RATE_DRIFT, TVL_ANOMALY, EPOCH_STALE, VALIDATOR_COUNT_DROP]
+ *           enum: [RECONCILIATION_MISMATCH, EXCHANGE_RATE_DRIFT, TVL_ANOMALY, EPOCH_STALE, VALIDATOR_COUNT_DROP, STABLECOIN_CIRCUIT_BREAKER, STABLECOIN_RESERVE_DRIFT, STABLECOIN_CONFIG_MISMATCH, PRIVILEGED_ACCESS_REJECTED, PRIVILEGED_AUDIT_PERSISTENCE_FAILURE]
  *     responses:
  *       200:
  *         description: Paginated list of alerts
@@ -71,12 +81,15 @@ const TYPE_VALUES = Object.values(AlertType);
  *         description: Unauthorized
  */
 router.get(
-  '/',
+  "/",
   [
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
-    query('severity').optional().isIn(SEVERITY_VALUES),
-    query('type').optional().isIn(TYPE_VALUES),
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset")
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
+    query("severity").optional().isIn(SEVERITY_VALUES),
+    query("type").optional().isIn(TYPE_VALUES),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -85,7 +98,7 @@ router.get(
     const severity = req.query.severity as AlertSeverity | undefined;
     const type = req.query.type as AlertType | undefined;
 
-    const result = alertService.getAlertHistory({
+    const result = await alertService.getAlertHistory({
       severity,
       type,
       limit,
@@ -123,9 +136,9 @@ router.get(
  *         description: Unauthorized
  */
 router.get(
-  '/summary',
+  "/summary",
   asyncHandler(async (_req: Request, res: Response) => {
-    const summary = alertService.getAlertSummary();
+    const summary = await alertService.getAlertSummary();
     res.json(summary);
   }),
 );
@@ -140,6 +153,9 @@ router.get(
 
 const reconciliationStatusRouter = Router();
 reconciliationStatusRouter.use(authenticate);
+reconciliationStatusRouter.use(opsRateLimiter);
+reconciliationStatusRouter.use(requireRoles("operator", "admin"));
+reconciliationStatusRouter.use(noStore);
 
 /**
  * @swagger
@@ -158,14 +174,15 @@ reconciliationStatusRouter.use(authenticate);
  *         description: No reconciliation has run yet
  */
 reconciliationStatusRouter.get(
-  '/status',
+  "/status",
   asyncHandler(async (_req: Request, res: Response) => {
     const result = reconciliationScheduler.getLatestResult();
 
     if (!result) {
       res.status(404).json({
-        error: 'Not Found',
-        message: 'No reconciliation result available yet. The scheduler may not have run.',
+        error: "Not Found",
+        message:
+          "No reconciliation result available yet. The scheduler may not have run.",
       });
       return;
     }

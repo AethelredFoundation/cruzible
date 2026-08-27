@@ -4,12 +4,17 @@
   "private": true,
   "description": "TypeScript utilities for Cruzible canonical payloads",
   "main": "dist/src/index.js",
+  "packageManager": "npm@10.9.4",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node dist/test/conformance.test.js"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^20.19.37",
     "typescript": "^6.0.2"
   }
 }

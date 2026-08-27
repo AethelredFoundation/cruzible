@@ -1,30 +1,32 @@
-import express from 'express';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { withHttpServer } from './helpers/http';
+import express from "express";
+import { readFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withHttpServer } from "./helpers/http";
 
 const originalEnv = { ...process.env };
 
-describe('rate limiter', () => {
+describe("rate limiter", () => {
   beforeEach(() => {
     vi.resetModules();
     process.env = {
       ...originalEnv,
-      RATE_LIMIT_WINDOW_MS: '60000',
-      RATE_LIMIT_MAX: '2',
+      RATE_LIMIT_WINDOW_MS: "60000",
+      RATE_LIMIT_MAX: "2",
     };
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    vi.doUnmock("ioredis");
     vi.resetModules();
   });
 
-  it('returns 429 after the configured request budget is exhausted', async () => {
-    const { rateLimiter } = await import('../src/middleware/rateLimiter');
+  it("returns 429 after the configured request budget is exhausted", async () => {
+    const { rateLimiter } = await import("../src/middleware/rateLimiter");
 
     const app = express();
     app.use(rateLimiter);
-    app.get('/limited', (_req, res) => {
+    app.get("/limited", (_req, res) => {
       res.json({ ok: true });
     });
 
@@ -37,24 +39,267 @@ describe('rate limiter', () => {
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
       expect(third.status).toBe(429);
-      expect(body.error).toBe('TooManyRequests');
+      expect(body.error).toBe("TooManyRequests");
     });
   });
 
-  it('skips /health from rate limiting', async () => {
-    const { rateLimiter } = await import('../src/middleware/rateLimiter');
+  it("skips only cheap liveness probes from rate limiting", async () => {
+    const { rateLimiter } = await import("../src/middleware/rateLimiter");
 
     const app = express();
     app.use(rateLimiter);
-    app.get('/health', (_req, res) => {
+    app.get("/health/live", (_req, res) => {
+      res.json({ ok: true });
+    });
+    app.get("/health/ready", (_req, res) => {
       res.json({ ok: true });
     });
 
     await withHttpServer(app, async (baseUrl) => {
       for (let i = 0; i < 4; i += 1) {
-        const response = await fetch(`${baseUrl}/health`);
-        expect(response.status).toBe(200);
+        const live = await fetch(`${baseUrl}/health/live`);
+        expect(live.status).toBe(200);
       }
+
+      const firstReady = await fetch(`${baseUrl}/health/ready`);
+      const secondReady = await fetch(`${baseUrl}/health/ready`);
+      const thirdReady = await fetch(`${baseUrl}/health/ready`);
+
+      expect(firstReady.status).toBe(200);
+      expect(secondReady.status).toBe(200);
+      expect(thirdReady.status).toBe(429);
     });
+  });
+
+  it("rate limits comprehensive health checks", async () => {
+    const { rateLimiter } = await import("../src/middleware/rateLimiter");
+
+    const app = express();
+    app.use(rateLimiter);
+    app.get("/health", (_req, res) => {
+      res.json({ ok: true });
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const firstHealth = await fetch(`${baseUrl}/health`);
+      const secondHealth = await fetch(`${baseUrl}/health`);
+      const thirdHealth = await fetch(`${baseUrl}/health`);
+
+      expect(firstHealth.status).toBe(200);
+      expect(secondHealth.status).toBe(200);
+      expect(thirdHealth.status).toBe(429);
+    });
+  });
+
+  it("rate limits metrics surfaces", async () => {
+    const { rateLimiter } = await import("../src/middleware/rateLimiter");
+
+    const app = express();
+    app.use(rateLimiter);
+    app.get("/metrics", (_req, res) => {
+      res.type("text/plain").send("ok");
+    });
+
+    await withHttpServer(app, async (baseUrl) => {
+      const firstMetrics = await fetch(`${baseUrl}/metrics`);
+      const secondMetrics = await fetch(`${baseUrl}/metrics`);
+      const thirdMetrics = await fetch(`${baseUrl}/metrics`);
+
+      expect(firstMetrics.status).toBe(200);
+      expect(secondMetrics.status).toBe(200);
+      expect(thirdMetrics.status).toBe(429);
+    });
+  });
+
+  it("applies a tighter limiter to public expensive endpoints", async () => {
+    process.env.PUBLIC_EXPENSIVE_RATE_LIMIT_WINDOW_MS = "60000";
+    process.env.PUBLIC_EXPENSIVE_RATE_LIMIT_MAX = "2";
+    const { publicExpensiveRateLimiter } =
+      await import("../src/middleware/rateLimiter");
+
+    const app = express();
+    app.get(
+      "/v1/reconciliation/live",
+      publicExpensiveRateLimiter,
+      (_req, res) => {
+        res.json({ ok: true });
+      },
+    );
+
+    await withHttpServer(app, async (baseUrl) => {
+      const first = await fetch(`${baseUrl}/v1/reconciliation/live`);
+      const second = await fetch(`${baseUrl}/v1/reconciliation/live`);
+      const third = await fetch(`${baseUrl}/v1/reconciliation/live`);
+      const body = await third.json();
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(third.status).toBe(429);
+      expect(body.message).toBe(
+        "Public expensive endpoint rate limit exceeded",
+      );
+    });
+  });
+
+  it("keys ops rate limits by authenticated wallet address before IP", async () => {
+    const { getOpsRateLimitKey } =
+      await import("../src/middleware/rateLimiter");
+
+    expect(
+      getOpsRateLimitKey({
+        ip: "203.0.113.10",
+        user: { address: "AETH1OPERATOR", roles: ["operator"] },
+      } as any),
+    ).toBe("wallet:aeth1operator");
+    expect(getOpsRateLimitKey({ ip: "203.0.113.10" } as any)).toBe(
+      "ip:203.0.113.10",
+    );
+  });
+
+  it("applies ops limiters after authentication on protected operator routes", () => {
+    const authRoute = readFileSync("src/routes/v1/auth.ts", "utf8");
+    const auditRoute = readFileSync("src/routes/v1/audit.ts", "utf8");
+    const alertsRoute = readFileSync("src/routes/v1/alerts.ts", "utf8");
+    const reconciliationRoute = readFileSync(
+      "src/routes/v1/reconciliation.ts",
+      "utf8",
+    );
+
+    expect(authRoute).toMatch(
+      /const requireOperatorAccess = \[\s*authenticate,\s*opsRateLimiter,\s*requireRoles\("operator", "admin"\),\s*\] as const;/s,
+    );
+    expect(auditRoute).toMatch(
+      /router\.use\(authenticate\);\s*router\.use\(opsRateLimiter\);/s,
+    );
+    expect(alertsRoute).toMatch(
+      /router\.use\(authenticate\);\s*router\.use\(opsRateLimiter\);/s,
+    );
+    expect(alertsRoute).toMatch(
+      /reconciliationStatusRouter\.use\(authenticate\);\s*reconciliationStatusRouter\.use\(opsRateLimiter\);/s,
+    );
+    expect(reconciliationRoute).toMatch(
+      /router\.post\(\s*"\/capture",\s*authenticate,\s*opsRateLimiter,/s,
+    );
+  });
+
+  it("wires expensive public limiters onto fan-out routes", () => {
+    const validatorsRoute = readFileSync("src/routes/v1/validators.ts", "utf8");
+    const stablecoinsRoute = readFileSync(
+      "src/routes/v1/stablecoins.ts",
+      "utf8",
+    );
+
+    expect(validatorsRoute).toMatch(
+      /router\.get\(\s*"\/:address",\s*publicExpensiveRateLimiter,/s,
+    );
+    expect(stablecoinsRoute).toMatch(
+      /router\.get\(\s*"\/:assetId\/history",\s*publicExpensiveRateLimiter,/s,
+    );
+    expect(stablecoinsRoute).toMatch(
+      /router\.get\(\s*"\/:assetId\/status",\s*publicExpensiveRateLimiter,/s,
+    );
+  });
+
+  it("uses Redis-backed counters when configured with a Redis URL", async () => {
+    vi.resetModules();
+    const counters = new Map<string, { hits: number; resetAt: number }>();
+    const redisInstances: Array<{
+      url: string;
+      options: Record<string, unknown>;
+      quit: ReturnType<typeof vi.fn>;
+      disconnect: ReturnType<typeof vi.fn>;
+    }> = [];
+
+    vi.doMock("ioredis", () => ({
+      default: class MockRedis {
+        quit = vi.fn().mockResolvedValue("OK");
+        disconnect = vi.fn();
+
+        constructor(url: string, options: Record<string, unknown>) {
+          redisInstances.push({
+            url,
+            options,
+            quit: this.quit,
+            disconnect: this.disconnect,
+          });
+        }
+
+        on() {
+          return this;
+        }
+
+        async eval(
+          script: string,
+          _keyCount: number,
+          key: string,
+          windowMs?: string,
+        ) {
+          if (script.includes("INCR")) {
+            const now = Date.now();
+            const current = counters.get(key);
+            const resetAt =
+              current && current.resetAt > now
+                ? current.resetAt
+                : now + Number(windowMs);
+            const hits = (current?.resetAt ?? 0) > now ? current.hits + 1 : 1;
+            counters.set(key, { hits, resetAt });
+
+            return [hits, Math.max(1, resetAt - now)];
+          }
+
+          if (script.includes("DECR")) {
+            const current = counters.get(key);
+            const hits = Math.max(0, (current?.hits ?? 0) - 1);
+            if (hits === 0) {
+              counters.delete(key);
+            } else if (current) {
+              counters.set(key, { ...current, hits });
+            }
+            return hits;
+          }
+
+          return null;
+        }
+
+        async del(key: string) {
+          counters.delete(key);
+        }
+      },
+    }));
+
+    const {
+      createRedisRateLimitStore,
+      getRateLimitRedisClientCount,
+      shutdownRateLimitStores,
+    } = await import("../src/middleware/rateLimiter");
+
+    const store = createRedisRateLimitStore({
+      prefix: "global",
+      redisUrl: "redis://localhost:6379",
+      windowMs: 60_000,
+    });
+
+    expect(store).toBeDefined();
+
+    const first = await store!.increment("client-ip");
+    const second = await store!.increment("client-ip");
+
+    await store!.decrement("client-ip");
+    await store!.resetKey("client-ip");
+
+    expect(first.totalHits).toBe(1);
+    expect(second.totalHits).toBe(2);
+    expect(redisInstances).toHaveLength(1);
+    expect(redisInstances[0]).toMatchObject({
+      url: "redis://localhost:6379",
+    });
+    expect([...counters.keys()]).toHaveLength(0);
+    expect(getRateLimitRedisClientCount()).toBe(1);
+
+    await shutdownRateLimitStores();
+
+    expect(getRateLimitRedisClientCount()).toBe(0);
+    expect(redisInstances[0].quit).toHaveBeenCalledTimes(1);
+    expect(redisInstances[0].disconnect).not.toHaveBeenCalled();
   });
 });

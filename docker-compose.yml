@@ -1,0 +1,108 @@
+# Cruzible backend stack — single-box testnet bring-up.
+#
+#   cp .env.testnet.example .env    # then edit: chain endpoints + deployed addresses
+#   docker compose up --build       # Postgres + Redis + migrations + API + one indexer
+#
+# The process roles are deliberately fixed here: the API never starts an
+# in-process indexer, and the dedicated indexer service is part of the default
+# topology. This prevents two workers from writing the same durable cursor.
+#
+# The API waits for healthy Postgres/Redis and for migrations to complete,
+# then serves (health probes: /health/live, /health/ready). This is the
+# bring-up profile: NODE_ENV defaults to development because the hardened
+# production config path additionally requires real 32+ character secrets
+# and a TLS (rediss://) Redis — see backend/api/src/config/index.ts.
+# Production-grade deployment goes through k8s/.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cruzible
+      POSTGRES_PASSWORD: cruzible
+      POSTGRES_DB: cruzible
+    volumes:
+      - cruzible-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cruzible -d cruzible"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # One-shot: applies backend/api/prisma/migrations against the compose
+  # database. Runs from the builder stage because the prisma CLI is a dev
+  # dependency and is pruned from the production image.
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+      target: builder
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+      target: production
+    env_file: .env
+    # Lets .env reference a node running on the SAME machine as
+    # host.docker.internal (Docker Desktop provides this name; on plain Linux
+    # it only exists because of this mapping).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Compose-internal endpoints; override any host-oriented values in .env.
+      DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV:-development}
+      CRUZIBLE_RUNTIME_ROLE: api
+      # The dedicated `indexer` service is the only cursor writer.
+      INDEXER_ENABLED: "false"
+      # Keep the published and container API ports aligned for simpler VPS ops.
+      PORT: "4001"
+    ports:
+      - "${CRUZIBLE_API_PORT:-4001}:4001"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  indexer:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+      target: indexer
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DATABASE_URL: postgresql://cruzible:cruzible@postgres:5432/cruzible
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV:-development}
+      CRUZIBLE_RUNTIME_ROLE: indexer
+      INDEXER_ENABLED: "true"
+    # The indexer image supplies a process-heartbeat healthcheck. Keep the
+    # worker running across ordinary process or host restarts.
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  cruzible-pg:

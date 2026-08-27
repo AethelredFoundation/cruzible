@@ -1,12 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cruzible-frontend-runtime-config
+  namespace: cruzible
+data:
+  # Server-side CSP/HSTS policy. Keep false/empty for TLS deployments. A
+  # pre-TLS testnet overlay must set both values to exactly the origins used
+  # during frontend image validation.
+  CRUZIBLE_EXTRA_API_ORIGINS: ""
+  CRUZIBLE_ALLOW_PLAINTEXT_HTTP: "false"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cruzible-frontend
+  namespace: cruzible
   labels:
     app: cruzible-frontend
     tier: frontend
 spec:
   replicas: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 5
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -21,68 +37,120 @@ spec:
         app: cruzible-frontend
         tier: frontend
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cruzible-frontend
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cruzible-frontend
       containers:
-      - name: frontend
-        image: ghcr.io/aethelred/cruzible/frontend:latest
-        ports:
-        - containerPort: 3000
-          name: http
-        env:
-        - name: NODE_ENV
-          value: "production"
-        - name: NEXT_PUBLIC_API_URL
-          valueFrom:
-            configMapKeyRef:
-              name: cruzible-config
-              key: api.url
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /api/health
-            port: 3000
-          initialDelaySeconds: 10
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /api/health
-            port: 3000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-        securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-          capabilities:
-            drop:
-            - ALL
+        - name: frontend
+          # Public frontend API config is baked into this image at docker build
+          # time with NEXT_PUBLIC_API_URL/NEXT_PUBLIC_CHAIN_ENV build args.
+          image: ghcr.io/aethelred/cruzible/frontend@sha256:REPLACE_WITH_FRONTEND_IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: CRUZIBLE_EXTRA_API_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-frontend-runtime-config
+                  key: CRUZIBLE_EXTRA_API_ORIGINS
+            - name: CRUZIBLE_ALLOW_PLAINTEXT_HTTP
+              valueFrom:
+                configMapKeyRef:
+                  name: cruzible-frontend-runtime-config
+                  key: CRUZIBLE_ALLOW_PLAINTEXT_HTTP
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+              ephemeral-storage: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: cruzible-frontend
+  namespace: cruzible
   labels:
     app: cruzible-frontend
 spec:
   selector:
     app: cruzible-frontend
   ports:
-  - port: 80
-    targetPort: 3000
-    protocol: TCP
-    name: http
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
   type: ClusterIP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cruzible-frontend-pdb
+  namespace: cruzible
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: cruzible-frontend
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: cruzible-frontend-hpa
+  namespace: cruzible
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -91,22 +159,22 @@ spec:
   minReplicas: 3
   maxReplicas: 10
   metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300
       policies:
-      - type: Percent
-        value: 50
-        periodSeconds: 60
+        - type: Percent
+          value: 50
+          periodSeconds: 60

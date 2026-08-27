@@ -10,14 +10,35 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from "react";
-import { useAccount, useConnect } from "wagmi";
+import { useConnect } from "wagmi";
 import { useApp } from "@/contexts/AppContext";
 import { truncateAddress, formatNumber } from "@/lib/utils";
 import { activeChain } from "@/config/wagmi";
+import {
+  isAethelredWallet,
+  orderWalletConnectors,
+} from "@/config/wallet-picker";
 
 export function WalletButton() {
   const { wallet, connectWallet, disconnectWallet, switchNetwork } = useApp();
+  const aethelBalanceLabel =
+    wallet.balanceSnapshots?.aethel.status === "available"
+      ? formatNumber(wallet.balanceSnapshots.aethel.value ?? 0, 4)
+      : wallet.balanceSnapshots?.aethel.status === "loading"
+        ? "Loading"
+        : wallet.balanceSnapshots?.aethel.status === "stale"
+          ? "Stale"
+          : "Unavailable";
+  const stAethelBalanceLabel =
+    wallet.balanceSnapshots?.stAethel.status === "available"
+      ? formatNumber(wallet.balanceSnapshots.stAethel.value ?? 0, 4)
+      : wallet.balanceSnapshots?.stAethel.status === "loading"
+        ? "Loading"
+        : wallet.balanceSnapshots?.stAethel.status === "stale"
+          ? "Stale"
+          : "Unavailable";
   const { connectors } = useConnect();
+  const walletOptions = orderWalletConnectors(connectors);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showConnectorModal, setShowConnectorModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -115,13 +136,13 @@ export function WalletButton() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">AETHEL</span>
                 <span className="text-sm font-medium text-gray-200">
-                  {formatNumber(wallet.balance, 4)}
+                  {aethelBalanceLabel}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">stAETHEL</span>
                 <span className="text-sm font-medium text-gray-200">
-                  {formatNumber(wallet.stBalance, 4)}
+                  {stAethelBalanceLabel}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -153,8 +174,8 @@ export function WalletButton() {
       <button
         onClick={() => {
           // If only one connector available, connect directly
-          if (connectors.length <= 1) {
-            connectWallet();
+          if (walletOptions.length <= 1) {
+            connectWallet(walletOptions[0]);
           } else {
             setShowConnectorModal(!showConnectorModal);
           }
@@ -181,19 +202,36 @@ export function WalletButton() {
             Choose Wallet
           </p>
           <div className="space-y-1.5">
-            {connectors.map((connector) => (
+            {walletOptions.map((connector) => (
               <button
                 key={connector.uid}
                 onClick={() => {
-                  connectWallet();
+                  connectWallet(connector);
                   setShowConnectorModal(false);
                 }}
                 className="w-full flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-800/50 px-3 py-2.5 text-sm text-gray-200 hover:bg-gray-700/50 hover:border-gray-600 transition-colors"
               >
-                <span className="h-6 w-6 rounded-full bg-gray-700 flex items-center justify-center text-xs">
-                  {connector.name.charAt(0)}
-                </span>
+                {connector.icon ? (
+                  // EIP-6963 wallet icons are data: URIs announced by the
+                  // wallet itself.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={connector.icon}
+                    alt=""
+                    aria-hidden
+                    className="h-6 w-6 rounded-full"
+                  />
+                ) : (
+                  <span className="h-6 w-6 rounded-full bg-gray-700 flex items-center justify-center text-xs">
+                    {connector.name.charAt(0)}
+                  </span>
+                )}
                 {connector.name}
+                {isAethelredWallet(connector) && (
+                  <span className="ml-auto text-[10px] uppercase tracking-widest text-red-400">
+                    Recommended
+                  </span>
+                )}
               </button>
             ))}
           </div>

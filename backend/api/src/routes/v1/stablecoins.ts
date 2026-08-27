@@ -5,13 +5,16 @@
  * from the indexed InstitutionalStablecoinBridge contract events.
  */
 
-import { Router, Request, Response, NextFunction } from 'express';
-import { param, query, validationResult } from 'express-validator';
-import { container } from 'tsyringe';
-import { StablecoinBridgeService } from '../../services/StablecoinBridgeService';
-import { CacheService } from '../../services/CacheService';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { ApiError } from '../../utils/ApiError';
+import { Router, Request, Response } from "express";
+import { param, query } from "express-validator";
+import { container } from "tsyringe";
+import { StablecoinBridgeService } from "../../services/StablecoinBridgeService";
+import { CacheService, buildCacheKey } from "../../services/CacheService";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { ApiError } from "../../utils/ApiError";
+import { validate } from "../../middleware/validate";
+import { publicExpensiveRateLimiter } from "../../middleware/rateLimiter";
+import { MAX_PUBLIC_PAGINATION_OFFSET } from "../../validation/schemas";
 
 const router = Router();
 const stablecoinService = container.resolve(StablecoinBridgeService);
@@ -22,10 +25,12 @@ const cacheService = container.resolve(CacheService);
 // ---------------------------------------------------------------------------
 
 /** bytes32 hex string: 0x + 64 hex chars */
-const assetIdValidator = param('assetId')
+const assetIdValidator = param("assetId")
   .trim()
   .matches(/^0x[a-fA-F0-9]{64}$/)
-  .withMessage('assetId must be a valid bytes32 hex string (0x + 64 hex chars)');
+  .withMessage(
+    "assetId must be a valid bytes32 hex string (0x + 64 hex chars)",
+  );
 
 /**
  * Allowed bridge event types — must exactly match the events the IndexerService
@@ -33,19 +38,11 @@ const assetIdValidator = param('assetId')
  * causes the API to accept filters that always return empty results.
  */
 const BRIDGE_EVENT_TYPES = [
-  'StablecoinConfigured',
-  'CCTPBurnInitiated',
-  'MintExecuted',
-  'CircuitBreakerTriggered',
+  "StablecoinConfigured",
+  "CCTPBurnInitiated",
+  "MintExecuted",
+  "CircuitBreakerTriggered",
 ] as const;
-
-const validate = (req: Request, _res: Response, next: NextFunction) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ApiError(400, 'Validation failed', errors.array());
-  }
-  next();
-};
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -56,9 +53,9 @@ const validate = (req: Request, _res: Response, next: NextFunction) => {
  * List all stablecoin configurations.
  */
 router.get(
-  '/',
+  "/",
   asyncHandler(async (_req: Request, res: Response) => {
-    const cacheKey = 'stablecoins:configs';
+    const cacheKey = buildCacheKey("stablecoins", "configs");
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -80,12 +77,12 @@ router.get(
  * Get a single stablecoin configuration.
  */
 router.get(
-  '/:assetId',
+  "/:assetId",
   [assetIdValidator, validate],
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.params;
 
-    const cacheKey = `stablecoins:config:${assetId}`;
+    const cacheKey = buildCacheKey("stablecoins", "config", assetId);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -95,7 +92,10 @@ router.get(
     const config = await stablecoinService.getConfig(assetId);
 
     if (!config) {
-      throw new ApiError(404, `Stablecoin config not found for assetId: ${assetId}`);
+      throw new ApiError(
+        404,
+        `Stablecoin config not found for assetId: ${assetId}`,
+      );
     }
 
     const result = { data: config };
@@ -110,15 +110,21 @@ router.get(
  * Get paginated bridge events for a stablecoin.
  */
 router.get(
-  '/:assetId/history',
+  "/:assetId/history",
+  publicExpensiveRateLimiter,
   [
     assetIdValidator,
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-    query('offset').optional().isInt({ min: 0 }).toInt(),
-    query('event_type')
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("offset")
+      .optional()
+      .isInt({ min: 0, max: MAX_PUBLIC_PAGINATION_OFFSET })
+      .toInt(),
+    query("event_type")
       .optional()
       .isIn(BRIDGE_EVENT_TYPES)
-      .withMessage(`event_type must be one of: ${BRIDGE_EVENT_TYPES.join(', ')}`),
+      .withMessage(
+        `event_type must be one of: ${BRIDGE_EVENT_TYPES.join(", ")}`,
+      ),
     validate,
   ],
   asyncHandler(async (req: Request, res: Response) => {
@@ -133,7 +139,14 @@ router.get(
       event_type?: string;
     };
 
-    const cacheKey = `stablecoins:history:${assetId}:${limit}:${offset}:${event_type || 'all'}`;
+    const cacheKey = buildCacheKey(
+      "stablecoins",
+      "history",
+      assetId,
+      limit,
+      offset,
+      event_type || "all",
+    );
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {
@@ -158,12 +171,13 @@ router.get(
  * Get circuit breaker and daily usage status for a stablecoin.
  */
 router.get(
-  '/:assetId/status',
+  "/:assetId/status",
+  publicExpensiveRateLimiter,
   [assetIdValidator, validate],
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.params;
 
-    const cacheKey = `stablecoins:status:${assetId}`;
+    const cacheKey = buildCacheKey("stablecoins", "status", assetId);
     const cached = await cacheService.get(cacheKey);
 
     if (cached) {

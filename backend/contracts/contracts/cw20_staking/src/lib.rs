@@ -6,7 +6,7 @@
  */
 use cosmwasm_std::{
     entry_point, to_json_binary, Addr, Binary, Deps, DepsMut, Env, Event, MessageInfo, Response,
-    StdError, StdResult, Uint128, WasmMsg,
+    StdError, StdResult, Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Bound, Item, Map};
@@ -16,6 +16,9 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:cw20-staking";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_NAME_LENGTH: usize = 64;
+const MAX_SYMBOL_LENGTH: usize = 16;
+const MAX_DECIMALS: u8 = 18;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -33,8 +36,12 @@ pub enum ContractError {
     NoAllowance {},
     #[error("Cannot exceed max supply")]
     CannotExceedCap {},
+    #[error("Overflow")]
+    Overflow {},
     #[error("Cannot transfer to self")]
     CannotTransferToSelf {},
+    #[error("Invalid token metadata: {reason}")]
+    InvalidTokenMetadata { reason: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -82,6 +89,7 @@ pub enum Expiration {
 const TOKEN_INFO: Item<TokenInfo> = Item::new("token_info");
 const BALANCES: Map<&Addr, Uint128> = Map::new("balances");
 const ALLOWANCES: Map<(&Addr, &Addr), AllowanceInfo> = Map::new("allowances");
+const TRANSFER_HOOK: Item<Option<Addr>> = Item::new("transfer_hook");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct AllowanceInfo {
@@ -106,6 +114,8 @@ pub struct InstantiateMsg {
     pub initial_supply: Uint128,
     pub minter: String,
     pub cap: Option<Uint128>,
+    #[serde(default)]
+    pub transfer_hook: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -145,6 +155,18 @@ pub enum ExecuteMsg {
     },
     /// Update marketing info
     UpdateMinter { new_minter: Option<String> },
+    /// Update the vault accounting hook (minter only)
+    UpdateTransferHook { hook: Option<String> },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum TransferHookExecuteMsg {
+    SyncStakingTokenTransfer {
+        from: String,
+        to: String,
+        amount: Uint128,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -179,8 +201,15 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    validate_token_metadata(&msg)?;
+    validate_initial_supply_cap(msg.initial_supply, msg.cap)?;
 
     let minter = deps.api.addr_validate(&msg.minter)?;
+    let transfer_hook = msg
+        .transfer_hook
+        .as_deref()
+        .map(|hook| deps.api.addr_validate(hook))
+        .transpose()?;
 
     let token_info = TokenInfo {
         name: msg.name.clone(),
@@ -194,6 +223,7 @@ pub fn instantiate(
     };
 
     TOKEN_INFO.save(deps.storage, &token_info)?;
+    TRANSFER_HOOK.save(deps.storage, &transfer_hook)?;
 
     // Set initial supply to minter
     if !msg.initial_supply.is_zero() {
@@ -206,6 +236,58 @@ pub fn instantiate(
         .add_attribute("symbol", msg.symbol)
         .add_attribute("decimals", msg.decimals.to_string())
         .add_attribute("total_supply", msg.initial_supply))
+}
+
+fn validate_token_metadata(msg: &InstantiateMsg) -> Result<(), ContractError> {
+    if msg.name.trim().is_empty() {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: "name must not be empty".to_string(),
+        });
+    }
+    if msg.name.len() > MAX_NAME_LENGTH || msg.name.chars().any(char::is_control) {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: format!(
+                "name must be at most {} bytes and contain no control characters",
+                MAX_NAME_LENGTH
+            ),
+        });
+    }
+    if msg.symbol.trim().is_empty() {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: "symbol must not be empty".to_string(),
+        });
+    }
+    if msg.symbol.len() > MAX_SYMBOL_LENGTH
+        || msg
+            .symbol
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
+    {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: format!(
+                "symbol must be at most {} bytes and contain no whitespace or control characters",
+                MAX_SYMBOL_LENGTH
+            ),
+        });
+    }
+    if msg.decimals > MAX_DECIMALS {
+        return Err(ContractError::InvalidTokenMetadata {
+            reason: format!("decimals cannot exceed {}", MAX_DECIMALS),
+        });
+    }
+    Ok(())
+}
+
+fn validate_initial_supply_cap(
+    initial_supply: Uint128,
+    cap: Option<Uint128>,
+) -> Result<(), ContractError> {
+    if let Some(cap) = cap {
+        if initial_supply > cap {
+            return Err(ContractError::CannotExceedCap {});
+        }
+    }
+    Ok(())
 }
 
 #[entry_point]
@@ -243,6 +325,7 @@ pub fn execute(
             msg,
         } => execute_send(deps, env, info, contract, amount, msg),
         ExecuteMsg::UpdateMinter { new_minter } => execute_update_minter(deps, info, new_minter),
+        ExecuteMsg::UpdateTransferHook { hook } => execute_update_transfer_hook(deps, info, hook),
     }
 }
 
@@ -271,21 +354,31 @@ fn execute_transfer(
     })?;
 
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
-        Ok(balance.unwrap_or_default() + amount)
+        Ok(balance.unwrap_or_default().checked_add(amount)?)
     })?;
+
+    let sender = info.sender.clone();
 
     // MONITORING: Emit structured transfer event for indexers
     let transfer_event = Event::new("cw20_transfer")
-        .add_attribute("from", info.sender.as_str())
+        .add_attribute("from", sender.as_str())
         .add_attribute("to", recipient.as_str())
         .add_attribute("amount", amount.to_string());
 
-    Ok(Response::new()
+    let mut response = Response::new()
         .add_event(transfer_event)
         .add_attribute("action", "transfer")
-        .add_attribute("from", info.sender)
-        .add_attribute("to", recipient)
-        .add_attribute("amount", amount))
+        .add_attribute("from", sender.as_str())
+        .add_attribute("to", recipient.clone())
+        .add_attribute("amount", amount);
+
+    if let Some(hook_msg) =
+        staking_transfer_hook_message(deps.storage, &sender, &recipient, amount)?
+    {
+        response = response.add_message(hook_msg);
+    }
+
+    Ok(response)
 }
 
 fn execute_burn(
@@ -332,20 +425,25 @@ fn execute_mint(
         return Err(ContractError::Unauthorized {});
     }
 
+    let new_total_supply = config
+        .total_supply
+        .checked_add(amount)
+        .map_err(|_| ContractError::Overflow {})?;
+
     // Check cap
     if let Some(cap) = mint_data.cap {
-        if config.total_supply + amount > cap {
+        if new_total_supply > cap {
             return Err(ContractError::CannotExceedCap {});
         }
     }
 
     let recipient = deps.api.addr_validate(&recipient)?;
 
-    config.total_supply += amount;
+    config.total_supply = new_total_supply;
     TOKEN_INFO.save(deps.storage, &config)?;
 
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
-        Ok(balance.unwrap_or_default() + amount)
+        Ok(balance.unwrap_or_default().checked_add(amount)?)
     })?;
 
     // MONITORING: Mint event for supply tracking
@@ -385,7 +483,7 @@ fn execute_increase_allowance(
             if let Some(exp) = expires {
                 allow.expires = exp;
             }
-            allow.allowance += amount;
+            allow.allowance = allow.allowance.checked_add(amount)?;
             Ok(allow)
         },
     )?;
@@ -473,15 +571,22 @@ fn execute_transfer_from(
     })?;
 
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
-        Ok(balance.unwrap_or_default() + amount)
+        Ok(balance.unwrap_or_default().checked_add(amount)?)
     })?;
 
-    Ok(Response::new()
+    let mut response = Response::new()
         .add_attribute("action", "transfer_from")
-        .add_attribute("from", owner)
-        .add_attribute("to", recipient)
+        .add_attribute("from", owner.as_str())
+        .add_attribute("to", recipient.as_str())
         .add_attribute("by", info.sender)
-        .add_attribute("amount", amount))
+        .add_attribute("amount", amount);
+
+    if let Some(hook_msg) = staking_transfer_hook_message(deps.storage, &owner, &recipient, amount)?
+    {
+        response = response.add_message(hook_msg);
+    }
+
+    Ok(response)
 }
 
 fn execute_burn_from(
@@ -496,21 +601,27 @@ fn execute_burn_from(
     }
 
     let owner = deps.api.addr_validate(&owner)?;
+    let token_info = TOKEN_INFO.load(deps.storage)?;
+    let is_minter = token_info
+        .mint
+        .as_ref()
+        .is_some_and(|mint| mint.minter == info.sender);
 
-    // Deduct allowance
-    ALLOWANCES.update(
-        deps.storage,
-        (&owner, &info.sender),
-        |allow| -> StdResult<_> {
-            let mut allow =
-                allow.ok_or_else(|| StdError::generic_err("No allowance for this spender"))?;
-            if allow.expires.is_expired(&env.block) {
-                return Err(StdError::generic_err("Allowance expired"));
-            }
-            allow.allowance = allow.allowance.checked_sub(amount)?;
-            Ok(allow)
-        },
-    )?;
+    if !is_minter {
+        ALLOWANCES.update(
+            deps.storage,
+            (&owner, &info.sender),
+            |allow| -> StdResult<_> {
+                let mut allow =
+                    allow.ok_or_else(|| StdError::generic_err("No allowance for this spender"))?;
+                if allow.expires.is_expired(&env.block) {
+                    return Err(StdError::generic_err("Allowance expired"));
+                }
+                allow.allowance = allow.allowance.checked_sub(amount)?;
+                Ok(allow)
+            },
+        )?;
+    }
 
     BALANCES.update(deps.storage, &owner, |balance| -> StdResult<_> {
         Ok(balance.unwrap_or_default().checked_sub(amount)?)
@@ -554,26 +665,35 @@ fn execute_send(
     })?;
 
     BALANCES.update(deps.storage, &recipient, |balance| -> StdResult<_> {
-        Ok(balance.unwrap_or_default() + amount)
+        Ok(balance.unwrap_or_default().checked_add(amount)?)
     })?;
+
+    let sender = info.sender.clone();
 
     // Send message to contract
     let send_msg = WasmMsg::Execute {
         contract_addr: contract.clone(),
         msg: to_json_binary(&ReceiveMsg::Receive {
-            sender: info.sender.to_string(),
+            sender: sender.to_string(),
             amount,
             msg,
         })?,
         funds: vec![],
     };
 
-    Ok(Response::new()
-        .add_message(send_msg)
+    let mut response = Response::new()
         .add_attribute("action", "send")
-        .add_attribute("from", info.sender)
+        .add_attribute("from", sender.as_str())
         .add_attribute("to", contract)
-        .add_attribute("amount", amount))
+        .add_attribute("amount", amount);
+
+    if let Some(hook_msg) =
+        staking_transfer_hook_message(deps.storage, &sender, &recipient, amount)?
+    {
+        response = response.add_message(hook_msg);
+    }
+
+    Ok(response.add_message(send_msg))
 }
 
 /// HIGH-5 FIX: Replace all unwrap() calls with proper error propagation
@@ -605,6 +725,54 @@ fn execute_update_minter(
     TOKEN_INFO.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attribute("action", "update_minter"))
+}
+
+fn execute_update_transfer_hook(
+    deps: DepsMut,
+    info: MessageInfo,
+    hook: Option<String>,
+) -> Result<Response, ContractError> {
+    let config = TOKEN_INFO.load(deps.storage)?;
+    let current_mint = config.mint.as_ref().ok_or(ContractError::Unauthorized {})?;
+    if current_mint.minter != info.sender {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let transfer_hook = hook
+        .as_deref()
+        .map(|hook| deps.api.addr_validate(hook))
+        .transpose()?;
+    TRANSFER_HOOK.save(deps.storage, &transfer_hook)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "update_transfer_hook")
+        .add_attribute(
+            "hook",
+            transfer_hook
+                .map(|addr| addr.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        ))
+}
+
+fn staking_transfer_hook_message(
+    storage: &dyn Storage,
+    from: &Addr,
+    to: &Addr,
+    amount: Uint128,
+) -> Result<Option<WasmMsg>, ContractError> {
+    let Some(hook) = TRANSFER_HOOK.may_load(storage)?.flatten() else {
+        return Ok(None);
+    };
+
+    Ok(Some(WasmMsg::Execute {
+        contract_addr: hook.to_string(),
+        msg: to_json_binary(&TransferHookExecuteMsg::SyncStakingTokenTransfer {
+            from: from.to_string(),
+            to: to.to_string(),
+            amount,
+        })?,
+        funds: vec![],
+    }))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

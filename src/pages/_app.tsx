@@ -9,6 +9,7 @@
  */
 
 import type { AppProps } from "next/app";
+import NextApp, { type AppContext, type AppInitialProps } from "next/app";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { WagmiProvider } from "wagmi";
@@ -72,3 +73,10 @@ export default function App(props: AppProps) {
     </WagmiProvider>
   );
 }
+
+App.getInitialProps = async (
+  appContext: AppContext,
+): Promise<AppInitialProps> => {
+  // Strict nonce-based CSP needs per-request rendering so framework scripts receive the nonce.
+  return NextApp.getInitialProps(appContext);
+};

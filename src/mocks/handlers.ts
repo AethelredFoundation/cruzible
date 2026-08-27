@@ -5,7 +5,7 @@
 
 import { http, HttpResponse } from "msw";
 
-const API_BASE = "http://localhost:3000/v1";
+const API_BASE = "http://localhost:4001/v1";
 
 export const handlers = [
   // =============================================================================

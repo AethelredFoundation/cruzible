@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "npm run build",
+  "buildCommand": "node scripts/vercel-build.mjs",
   "installCommand": "npm ci --no-fund",
-  "regions": ["iad1", "sfo1", "lhr1"],
+  "regions": ["iad1"],
   "headers": [
     {
       "source": "/api/(.*)",

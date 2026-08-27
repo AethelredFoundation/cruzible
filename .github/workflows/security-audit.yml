@@ -1,0 +1,162 @@
+name: Security Audit
+
+permissions:
+  contents: read
+  pull-requests: read
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - ramesh/**
+  pull_request:
+    branches:
+      - main
+      - develop
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  repository-hygiene:
+    name: Repository Hygiene
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run repository hygiene scan
+        run: npm run security:hygiene
+
+      - name: Validate dependency policy
+        run: npm run security:dependencies
+
+      - name: Validate dependency advisory remediation register
+        run: npm run security:advisories
+
+      - name: Validate production gap register
+        run: npm run readiness:gaps
+
+      - name: Validate public route inventory
+        run: npm run readiness:routes
+
+      - name: Validate staged launch drill contract
+        run: npm run readiness:launch-drill
+
+      - name: Validate disaster recovery targets
+        run: npm run readiness:dr
+
+      - name: Validate restore drill evidence contract
+        run: npm run readiness:restore-drill
+
+      - name: Validate release SBOM generation
+        run: npm run release:sbom
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
+
+  node-audit:
+    name: Node Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/api/package-lock.json
+            sdk/typescript/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Audit root production dependencies
+        run: npm run security:audit
+
+      - name: Audit root build and development dependencies
+        run: npm audit --audit-level=high
+
+      - name: Install backend API dependencies
+        working-directory: ./backend/api
+        run: npm ci --ignore-scripts
+
+      - name: Audit backend API production dependencies
+        working-directory: ./backend/api
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit backend API build and development dependencies
+        working-directory: ./backend/api
+        run: npm audit --audit-level=high
+
+      - name: Install TypeScript SDK dependencies
+        working-directory: ./sdk/typescript
+        run: npm ci --ignore-scripts
+
+      - name: Audit TypeScript SDK dependencies
+        working-directory: ./sdk/typescript
+        run: npm audit --audit-level=high
+
+  cargo-audit:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae
+        with:
+          workspaces: backend/contracts -> target
+
+      - name: Audit Rust dependencies
+        uses: actions-rust-lang/audit@72c09e02f132669d52284a3323acdb503cfc1a24
+        with:
+          createIssues: false
+          denyWarnings: true
+          file: Cargo.lock
+          workingDirectory: backend/contracts

@@ -19,6 +19,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   useAccount,
@@ -26,17 +27,26 @@ import {
   useChainId,
   useConnect,
   useDisconnect,
+  useReadContracts,
   useSwitchChain,
   useBlockNumber,
+  type Connector,
 } from "wagmi";
 
-import { formatUnits } from "viem";
+import { formatUnits, zeroAddress } from "viem";
 import { activeChain } from "@/config/wagmi";
+import { ERC20ABI } from "@/config/abis";
+import { getContractAddress } from "@/config/contracts";
 import {
-  CONTRACT_ADDRESSES,
-  STABLECOIN_TOKEN_ADDRESS_KEYS,
-} from "@/config/chains";
-import { getAllStablecoins } from "@/lib/constants";
+  RECONCILIATION_CONTROL_PLANE_QUERY_KEY,
+  fetchReconciliationControlPlane,
+  type ReconciliationControlPlaneSummary,
+} from "@/lib/reconciliation";
+import { isQuerySnapshotFresh } from "@/lib/homeTruth";
+import {
+  classifyBalanceRead,
+  type BalanceReadStatus,
+} from "@/lib/balanceTruth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,18 +57,41 @@ export interface WalletState {
   connected: boolean;
   /** The connected EVM address (checksummed) */
   address: string;
-  /** Native AETHEL balance (human-readable units) */
+  /** Native network-token balance used for gas display (human-readable units) */
   balance: number;
+  /** Native network-token balance in base units */
+  balanceWei: bigint;
+  /** ERC20 AETHEL token balance (human-readable units) used for staking */
+  aethelBalance: number;
+  /** ERC20 AETHEL token balance in base units used for staking safety checks */
+  aethelBalanceWei: bigint;
   /** stAETHEL token balance (human-readable units) */
   stBalance: number;
+  /** stAETHEL token balance in base units for transaction safety checks */
+  stBalanceWei: bigint;
   /** Stablecoin balances keyed by symbol (human-readable units) */
   stablecoinBalances: Record<string, number>;
+  /** Stablecoin balances keyed by symbol in native token base units */
+  stablecoinBalanceUnits: Record<string, bigint>;
   /** Whether we're currently connecting */
   isConnecting: boolean;
   /** Whether we're on the wrong network */
   isWrongNetwork: boolean;
   /** The connected chain ID (0 if disconnected) */
   chainId: number;
+  balanceSnapshots: {
+    native: WalletBalanceSnapshot;
+    aethel: WalletBalanceSnapshot;
+    stAethel: WalletBalanceSnapshot;
+    stablecoins: Record<string, WalletBalanceSnapshot>;
+  };
+}
+
+export interface WalletBalanceSnapshot {
+  value: number | null;
+  valueUnits: bigint | null;
+  status: BalanceReadStatus;
+  updatedAt: number | null;
 }
 
 export interface RealTimeState {
@@ -66,9 +99,16 @@ export interface RealTimeState {
   tps: number;
   gasPrice: number;
   epoch: number;
+  epochSource: string;
   networkLoad: number;
   aethelPrice: number;
   lastBlockTime: number;
+  protocolCapturedAt: string | null;
+  validatorUniverseHash: string;
+  reconciliationWarnings: number;
+  reconciliationComplete: boolean | null;
+  blockStatus: "live" | "stale" | "unavailable";
+  controlPlaneStatus: "live" | "stale" | "unavailable";
 }
 
 export interface Notification {
@@ -82,7 +122,7 @@ export interface Notification {
 export interface AppContextValue {
   // Wallet (real blockchain state)
   wallet: WalletState;
-  connectWallet: () => void;
+  connectWallet: (connector?: Connector) => void;
   disconnectWallet: () => void;
   switchNetwork: () => void;
 
@@ -121,11 +161,37 @@ const DEFAULT_WALLET: WalletState = {
   connected: false,
   address: "",
   balance: 0,
+  balanceWei: 0n,
+  aethelBalance: 0,
+  aethelBalanceWei: 0n,
   stBalance: 0,
+  stBalanceWei: 0n,
   stablecoinBalances: {},
+  stablecoinBalanceUnits: {},
   isConnecting: false,
   isWrongNetwork: false,
   chainId: 0,
+  balanceSnapshots: {
+    native: {
+      value: null,
+      valueUnits: null,
+      status: "unavailable",
+      updatedAt: null,
+    },
+    aethel: {
+      value: null,
+      valueUnits: null,
+      status: "unavailable",
+      updatedAt: null,
+    },
+    stAethel: {
+      value: null,
+      valueUnits: null,
+      status: "unavailable",
+      updatedAt: null,
+    },
+    stablecoins: {},
+  },
 };
 
 const DEFAULT_REALTIME: RealTimeState = {
@@ -133,10 +199,49 @@ const DEFAULT_REALTIME: RealTimeState = {
   tps: 0,
   gasPrice: 0,
   epoch: 0,
+  epochSource: "rpc/block-height-estimate",
   networkLoad: 0,
   aethelPrice: 0,
   lastBlockTime: 0,
+  protocolCapturedAt: null,
+  validatorUniverseHash: "",
+  reconciliationWarnings: 0,
+  reconciliationComplete: null,
+  blockStatus: "unavailable",
+  controlPlaneStatus: "unavailable",
 };
+
+// ERC-20 balances only. AETHEL is deliberately NOT here: it is the NATIVE
+// coin on Aethelred, and its balance comes from the native useBalance query —
+// reading it as an ERC-20 (via the optional aethelToken wrapper address,
+// blank on testnet) reported 0 for funded accounts.
+const TRACKED_TOKEN_CONTRACTS = [
+  {
+    symbol: "stAETHEL",
+    address: getContractAddress("stAethel"),
+    decimals: 18,
+  },
+  {
+    symbol: "USDC",
+    address: getContractAddress("usdcToken"),
+    decimals: 6,
+  },
+  {
+    symbol: "USDT",
+    address: getContractAddress("usdtToken"),
+    decimals: 6,
+  },
+] as const;
+
+/**
+ * Only tokens with a configured contract address can be read. Filtering here
+ * (instead of gating the whole batch on `every(address)`) means one unset
+ * env var — e.g. no bridged-AETHEL ERC-20 on a chain where AETHEL is native —
+ * no longer silently disables every other token read (stAETHEL included).
+ */
+const CONFIGURED_TOKEN_CONTRACTS = TRACKED_TOKEN_CONTRACTS.filter((token) =>
+  Boolean(token.address),
+);
 
 // ---------------------------------------------------------------------------
 // Context
@@ -156,47 +261,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
 
-  // Query native AETHEL balance
-  const { data: nativeBalance } = useBalance({
+  // Query native network-token balance for gas/context display.
+  const nativeBalanceQuery = useBalance({
     address: address,
+    chainId: activeChain.id,
     query: { enabled: isConnected, refetchInterval: 12_000 },
   });
 
-  // Query stAETHEL token balance (ERC-20)
-  const { data: stAethelBalance } = useBalance({
-    address: address,
-    token: CONTRACT_ADDRESSES.stAethel
-      ? (CONTRACT_ADDRESSES.stAethel as `0x${string}`)
-      : undefined,
+  const tokenBalancesQuery = useReadContracts({
+    contracts: CONFIGURED_TOKEN_CONTRACTS.map((token) => ({
+      address: token.address ?? zeroAddress,
+      abi: ERC20ABI,
+      functionName: "balanceOf",
+      args: [address ?? "0x0000000000000000000000000000000000000000"],
+      chainId: activeChain.id,
+    })),
     query: {
-      enabled: isConnected && !!CONTRACT_ADDRESSES.stAethel,
-      refetchInterval: 12_000,
-    },
-  });
-
-  // --- Stablecoin balances ---------------------------------------------------
-  // Build balance queries for every registered stablecoin.
-  // Each useBalance call is keyed by the token address from CONTRACT_ADDRESSES.
-  const stablecoins = getAllStablecoins();
-
-  const { data: usdcBalance } = useBalance({
-    address: address,
-    token: CONTRACT_ADDRESSES.usdcToken
-      ? (CONTRACT_ADDRESSES.usdcToken as `0x${string}`)
-      : undefined,
-    query: {
-      enabled: isConnected && !!CONTRACT_ADDRESSES.usdcToken,
-      refetchInterval: 15_000,
-    },
-  });
-
-  const { data: usdtBalance } = useBalance({
-    address: address,
-    token: CONTRACT_ADDRESSES.usdtToken
-      ? (CONTRACT_ADDRESSES.usdtToken as `0x${string}`)
-      : undefined,
-    query: {
-      enabled: isConnected && !!CONTRACT_ADDRESSES.usdtToken,
+      enabled:
+        isConnected && !!address && CONFIGURED_TOKEN_CONTRACTS.length > 0,
       refetchInterval: 15_000,
     },
   });
@@ -213,55 +295,147 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Build stablecoin balance map from wagmi query results.
     // Each balance entry uses the token's native decimals (6 for USDC/USDT).
     const stablecoinBalances: Record<string, number> = {};
-    if (usdcBalance) {
-      stablecoinBalances.USDC = parseFloat(
-        formatUnits(usdcBalance.value, usdcBalance.decimals),
-      );
+    const stablecoinBalanceUnits: Record<string, bigint> = {};
+    const tokenBalanceUnits = new Map<string, bigint>();
+    const tokenSnapshots = new Map<string, WalletBalanceSnapshot>();
+
+    CONFIGURED_TOKEN_CONTRACTS.forEach((token, index) => {
+      const read = tokenBalancesQuery.data?.[index];
+      const balance = read?.result as bigint | undefined;
+      const hasValue = typeof read?.result === "bigint";
+      const status = classifyBalanceRead({
+        hasValue,
+        isLoading: tokenBalancesQuery.isLoading,
+        isError: tokenBalancesQuery.isError || read?.status === "failure",
+        dataUpdatedAt: tokenBalancesQuery.dataUpdatedAt,
+      });
+      tokenSnapshots.set(token.symbol, {
+        value:
+          hasValue && balance !== undefined
+            ? parseFloat(formatUnits(balance, token.decimals))
+            : null,
+        valueUnits: hasValue && balance !== undefined ? balance : null,
+        status,
+        updatedAt:
+          tokenBalancesQuery.dataUpdatedAt > 0
+            ? tokenBalancesQuery.dataUpdatedAt
+            : null,
+      });
+      if (balance !== undefined) {
+        tokenBalanceUnits.set(token.symbol, balance);
+      }
+    });
+
+    // AETHEL is the NATIVE coin on Aethelred (x/precisebank bridges the
+    // 6-decimal bank denom to the 18-decimal EVM face) — there is no ERC-20
+    // to read, so the stakeable balance comes from the native query. A
+    // configured bridged-AETHEL ERC-20 (other chains) still takes priority.
+    const aethelBalance =
+      tokenBalanceUnits.get("AETHEL") ?? nativeBalanceQuery.data?.value;
+    const stAethelBalance = tokenBalanceUnits.get("stAETHEL");
+    const usdcBalance = tokenBalanceUnits.get("USDC");
+    const usdtBalance = tokenBalanceUnits.get("USDT");
+    const nativeHasValue = nativeBalanceQuery.data?.value !== undefined;
+    const nativeStatus = classifyBalanceRead({
+      hasValue: nativeHasValue,
+      isLoading: nativeBalanceQuery.isLoading,
+      isError: nativeBalanceQuery.isError,
+      dataUpdatedAt: nativeBalanceQuery.dataUpdatedAt,
+    });
+    const nativeSnapshot: WalletBalanceSnapshot = {
+      value: nativeHasValue
+        ? parseFloat(
+            formatUnits(
+              nativeBalanceQuery.data!.value,
+              nativeBalanceQuery.data!.decimals,
+            ),
+          )
+        : null,
+      valueUnits: nativeBalanceQuery.data?.value ?? null,
+      status: nativeStatus,
+      updatedAt:
+        nativeBalanceQuery.dataUpdatedAt > 0
+          ? nativeBalanceQuery.dataUpdatedAt
+          : null,
+    };
+    const stAethelSnapshot =
+      tokenSnapshots.get("stAETHEL") ??
+      DEFAULT_WALLET.balanceSnapshots.stAethel;
+    const usdcSnapshot = tokenSnapshots.get("USDC") ?? {
+      ...DEFAULT_WALLET.balanceSnapshots.native,
+    };
+    const usdtSnapshot = tokenSnapshots.get("USDT") ?? {
+      ...DEFAULT_WALLET.balanceSnapshots.native,
+    };
+
+    if (usdcBalance !== undefined) {
+      stablecoinBalances.USDC = parseFloat(formatUnits(usdcBalance, 6));
+      stablecoinBalanceUnits.USDC = usdcBalance;
     }
-    if (usdtBalance) {
-      stablecoinBalances.USDT = parseFloat(
-        formatUnits(usdtBalance.value, usdtBalance.decimals),
-      );
+    if (usdtBalance !== undefined) {
+      stablecoinBalances.USDT = parseFloat(formatUnits(usdtBalance, 6));
+      stablecoinBalanceUnits.USDT = usdtBalance;
     }
 
     return {
       connected: true,
       address: address,
-      balance: nativeBalance
-        ? parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals))
-        : 0,
-      stBalance: stAethelBalance
-        ? parseFloat(
-            formatUnits(stAethelBalance.value, stAethelBalance.decimals),
-          )
-        : 0,
+      balance: nativeSnapshot.value ?? 0,
+      balanceWei: nativeSnapshot.valueUnits ?? 0n,
+      aethelBalance:
+        aethelBalance !== undefined
+          ? parseFloat(formatUnits(aethelBalance, 18))
+          : 0,
+      aethelBalanceWei: aethelBalance ?? 0n,
+      stBalance:
+        stAethelBalance !== undefined
+          ? parseFloat(formatUnits(stAethelBalance, 18))
+          : 0,
+      stBalanceWei: stAethelBalance ?? 0n,
       stablecoinBalances,
+      stablecoinBalanceUnits,
       isConnecting: false,
       isWrongNetwork,
       chainId,
+      balanceSnapshots: {
+        native: nativeSnapshot,
+        aethel: nativeSnapshot,
+        stAethel: stAethelSnapshot,
+        stablecoins: {
+          USDC: usdcSnapshot,
+          USDT: usdtSnapshot,
+        },
+      },
     };
   }, [
     isConnected,
     address,
-    nativeBalance,
-    stAethelBalance,
-    usdcBalance,
-    usdtBalance,
+    nativeBalanceQuery.data,
+    nativeBalanceQuery.dataUpdatedAt,
+    nativeBalanceQuery.isError,
+    nativeBalanceQuery.isLoading,
+    tokenBalancesQuery.data,
+    tokenBalancesQuery.dataUpdatedAt,
+    tokenBalancesQuery.isError,
+    tokenBalancesQuery.isLoading,
     wagmiConnecting,
     isWrongNetwork,
     chainId,
   ]);
 
-  // Connect: use the first available connector (MetaMask/injected preferred)
-  const connectWallet = useCallback(() => {
-    const injectedConnector = connectors.find(
-      (c) => c.id === "injected" || c.id === "metaMask",
-    );
-    const connector = injectedConnector || connectors[0];
-    if (connector) {
-      connect({ connector, chainId: activeChain.id });
-    }
-  }, [connect, connectors]);
+  // Connect: honor explicit user choice, otherwise prefer injected wallets.
+  const connectWallet = useCallback(
+    (selectedConnector?: Connector) => {
+      const injectedConnector = connectors.find(
+        (c) => c.id === "injected" || c.id === "metaMask",
+      );
+      const connector = selectedConnector || injectedConnector || connectors[0];
+      if (connector) {
+        connect({ connector, chainId: activeChain.id });
+      }
+    },
+    [connect, connectors],
+  );
 
   const disconnectWallet = useCallback(() => {
     disconnect();
@@ -287,24 +461,105 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [isWrongNetwork]);
 
   // --- Real-time block data via wagmi --------------------------------------
-  const { data: blockNumber } = useBlockNumber({
-    watch: true,
-    query: { refetchInterval: 3_000 },
+  const blockQuery = useBlockNumber({
+    chainId: activeChain.id,
+    watch: false,
+    query: { refetchInterval: 30_000, staleTime: 10_000 },
   });
+  const blockNumber = blockQuery.data;
 
   const [realTime, setRealTime] = useState<RealTimeState>(DEFAULT_REALTIME);
+  const controlPlaneQuery = useQuery<ReconciliationControlPlaneSummary | null>({
+    queryKey: RECONCILIATION_CONTROL_PLANE_QUERY_KEY,
+    queryFn: fetchReconciliationControlPlane,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+    retry: 1,
+  });
+  const controlPlane = controlPlaneQuery.data ?? null;
+  const blockIsFresh = isQuerySnapshotFresh({
+    hasData: blockNumber !== undefined,
+    isError: blockQuery.isError,
+    dataUpdatedAt: blockQuery.dataUpdatedAt,
+  });
+  const controlPlaneIsFresh = isQuerySnapshotFresh({
+    hasData: controlPlane !== null,
+    isError: controlPlaneQuery.isError,
+    dataUpdatedAt: controlPlaneQuery.dataUpdatedAt,
+  });
+  const blockStatus = blockIsFresh
+    ? "live"
+    : blockNumber !== undefined
+      ? "stale"
+      : "unavailable";
+  const controlPlaneStatus = controlPlaneIsFresh
+    ? "live"
+    : controlPlane !== null
+      ? "stale"
+      : "unavailable";
 
   useEffect(() => {
-    if (blockNumber !== undefined) {
-      setRealTime((prev) => ({
+    setRealTime((prev) => {
+      const nextBlockHeight =
+        blockIsFresh && blockNumber !== undefined
+          ? Number(blockNumber)
+          : controlPlaneIsFresh && controlPlane
+            ? controlPlane.chain_height
+            : prev.blockHeight;
+      const fallbackEpoch =
+        blockIsFresh && blockNumber !== undefined
+          ? Math.floor(Number(blockNumber) / 1000)
+          : prev.epoch;
+      const controlPlaneCapturedAt =
+        controlPlaneIsFresh && controlPlane
+          ? Date.parse(controlPlane.captured_at)
+          : Number.NaN;
+      const lastBlockTime = blockIsFresh
+        ? blockQuery.dataUpdatedAt
+        : Number.isFinite(controlPlaneCapturedAt)
+          ? controlPlaneCapturedAt
+          : prev.lastBlockTime;
+
+      return {
         ...prev,
-        blockHeight: Number(blockNumber),
-        lastBlockTime: Date.now(),
-        // Epoch estimate: blockHeight / 1000 (actual epoch should come from contract)
-        epoch: Math.floor(Number(blockNumber) / 1000),
-      }));
-    }
-  }, [blockNumber]);
+        blockHeight: nextBlockHeight,
+        lastBlockTime,
+        epoch:
+          controlPlaneIsFresh && controlPlane
+            ? controlPlane.epoch
+            : fallbackEpoch,
+        epochSource:
+          (controlPlaneIsFresh ? controlPlane?.epoch_source : undefined) ??
+          (blockIsFresh && blockNumber !== undefined
+            ? "rpc/block-height-estimate"
+            : prev.epochSource),
+        protocolCapturedAt:
+          (controlPlaneIsFresh ? controlPlane?.captured_at : undefined) ??
+          prev.protocolCapturedAt,
+        validatorUniverseHash:
+          (controlPlaneIsFresh
+            ? controlPlane?.validator_universe_hash
+            : undefined) ?? prev.validatorUniverseHash,
+        reconciliationWarnings:
+          (controlPlaneIsFresh ? controlPlane?.warning_count : undefined) ??
+          prev.reconciliationWarnings,
+        reconciliationComplete:
+          (controlPlaneIsFresh
+            ? controlPlane?.stake_snapshot_complete
+            : undefined) ?? prev.reconciliationComplete,
+        blockStatus,
+        controlPlaneStatus,
+      };
+    });
+  }, [
+    blockIsFresh,
+    blockNumber,
+    blockQuery.dataUpdatedAt,
+    blockStatus,
+    controlPlane,
+    controlPlaneIsFresh,
+    controlPlaneStatus,
+  ]);
 
   // --- Notifications --------------------------------------------------------
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -341,7 +596,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Stable ref for addNotification (used in effects without deps)
   const addNotificationRef = useRef(addNotification);
-  addNotificationRef.current = addNotification;
+  useEffect(() => {
+    addNotificationRef.current = addNotification;
+  }, [addNotification]);
 
   // Clean up timers on unmount
   useEffect(() => {

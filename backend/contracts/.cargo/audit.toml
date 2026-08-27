@@ -1,0 +1,19 @@
+# Cargo audit reads project-local policy from .cargo/audit.toml.
+#
+# These RustSec entries are tracked exceptions for upstream CosmWasm/Sylvia
+# dependency constraints. They are informational warnings, not exploitable
+# vulnerabilities in the Cruzible contracts as used here.
+
+[advisories]
+ignore = [
+    # curve25519-dalek v3 has timing variability (RUSTSEC-2024-0344).
+    # It is pulled through cosmwasm-crypto. Direct upgrade requires a
+    # compatible CosmWasm release; keep this exception visible until then.
+    "RUSTSEC-2024-0344",
+
+    # derivative is unmaintained (RUSTSEC-2024-0388) and pulled through
+    # cw-orch/sylvia test tooling rather than deployed contract code.
+    "RUSTSEC-2024-0388",
+]
+
+informational_warnings = ["unmaintained", "unsound", "yanked"]

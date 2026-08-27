@@ -10,29 +10,102 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============ AUTH STATE ============
+
+model AuthNonce {
+  id         String    @id @default(uuid())
+  address    String    @db.VarChar(64)
+  nonceHash  String    @unique @db.VarChar(64)
+  message    String    @db.VarChar(1000)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([address])
+  @@index([expiresAt])
+}
+
+model AuthRefreshSession {
+  id              String    @id @default(uuid())
+  address         String    @db.VarChar(64)
+  roles           String[]
+  tokenHash       String    @unique @db.VarChar(64)
+  parentSessionId String?   @db.VarChar(36)
+  userAgentHash   String?   @db.VarChar(64)
+  ipHash          String?   @db.VarChar(64)
+  expiresAt       DateTime
+  rotatedAt       DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([address])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
+model AuthAccessRevocation {
+  address      String   @id @db.VarChar(64)
+  notBefore    DateTime
+  reason       String?  @db.VarChar(120)
+  actorAddress String?  @db.VarChar(64)
+  requestId    String?  @db.VarChar(128)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([notBefore])
+}
+
+model PrivilegedAuditEvent {
+  id                String   @id @default(uuid())
+  requestId         String   @db.VarChar(128)
+  method            String   @db.VarChar(16)
+  path              String   @db.VarChar(512)
+  principalType     String   @db.VarChar(32)
+  actorAddress      String?  @db.VarChar(64)
+  requiredRoles     String[]
+  tokenRoles        String[]
+  currentRoles      String[]
+  decision          String   @db.VarChar(16)
+  reason            String?  @db.VarChar(120)
+  outcome           String   @db.VarChar(16)
+  statusCode        Int
+  responseTimeMs    Float
+  ipHash            String   @db.VarChar(64)
+  userAgentHash     String   @db.VarChar(64)
+  eventHash         String   @unique @db.VarChar(64)
+  previousEventHash String?  @db.VarChar(64)
+  createdAt         DateTime @default(now())
+
+  @@index([requestId])
+  @@index([actorAddress])
+  @@index([decision])
+  @@index([outcome])
+  @@index([createdAt])
+}
+
 // ============ BLOCKS ============
 
 model Block {
-  id              String   @id @default(uuid())
-  height          BigInt   @unique
-  hash            String   @unique @db.VarChar(66)
-  parentHash      String   @db.VarChar(66)
-  timestamp       DateTime
-  proposer        String   @db.VarChar(50)
-  txCount         Int      @default(0)
-  gasUsed         BigInt   @default(0)
-  gasLimit        BigInt   @default(0)
-  size            Int
-  appHash         String   @db.VarChar(66)
-  stateRoot       String?  @db.VarChar(66)
-  txRoot          String?  @db.VarChar(66)
-  evidenceRoot    String?  @db.VarChar(66)
-  validatorsHash  String?  @db.VarChar(66)
+  id             String   @id @default(uuid())
+  height         BigInt   @unique
+  hash           String   @unique @db.VarChar(66)
+  parentHash     String   @db.VarChar(66)
+  timestamp      DateTime
+  proposer       String   @db.VarChar(50)
+  txCount        Int      @default(0)
+  gasUsed        BigInt   @default(0)
+  gasLimit       BigInt   @default(0)
+  size           Int
+  appHash        String   @db.VarChar(66)
+  stateRoot      String?  @db.VarChar(66)
+  txRoot         String?  @db.VarChar(66)
+  evidenceRoot   String?  @db.VarChar(66)
+  validatorsHash String?  @db.VarChar(66)
 
-  transactions    Transaction[]
-  events          Event[]
+  transactions Transaction[]
+  events       Event[]
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([height])
   @@index([timestamp])
@@ -42,32 +115,32 @@ model Block {
 // ============ TRANSACTIONS ============
 
 model Transaction {
-  id            String   @id @default(uuid())
-  hash          String   @unique @db.VarChar(66)
-  height        BigInt
-  blockIndex    Int
-  status        TxStatus @default(PENDING)
-  gasUsed       BigInt   @default(0)
-  gasWanted     BigInt   @default(0)
-  gasPrice      String?  // Stored as string for precision
-  fee           String?  // Stored as string for precision
-  memo          String?
-  code          Int      @default(0)
-  log           String?
-  fromAddress   String?  @db.VarChar(50) // EVM sender
-  toAddress     String?  @db.VarChar(50) // EVM recipient
+  id          String   @id @default(uuid())
+  hash        String   @unique @db.VarChar(66)
+  height      BigInt
+  blockIndex  Int
+  status      TxStatus @default(PENDING)
+  gasUsed     BigInt   @default(0)
+  gasWanted   BigInt   @default(0)
+  gasPrice    String? // Stored as string for precision
+  fee         String? // Stored as string for precision
+  memo        String?
+  code        Int      @default(0)
+  log         String?
+  fromAddress String?  @db.VarChar(50) // EVM sender
+  toAddress   String?  @db.VarChar(50) // EVM recipient
 
   // Relations
-  block         Block    @relation(fields: [blockHeight], references: [height])
-  blockHeight   BigInt
+  block       Block  @relation(fields: [blockHeight], references: [height])
+  blockHeight BigInt
 
-  messages      Message[]
-  events        Event[]
+  messages Message[]
+  events   Event[]
 
   // Signers
-  signers       String[] // Array of addresses
+  signers String[] // Array of addresses
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([hash])
   @@index([height])
@@ -85,21 +158,21 @@ enum TxStatus {
 }
 
 model Message {
-  id              String   @id @default(uuid())
-  typeUrl         String   @db.VarChar(200)
-  
-  transaction     Transaction @relation(fields: [transactionId], references: [id])
-  transactionId   String
-  
+  id      String @id @default(uuid())
+  typeUrl String @db.VarChar(200)
+
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+  transactionId String
+
   // JSON payload
-  payload         Json
-  
+  payload Json
+
   // Message-specific fields (indexed)
-  sender          String?  @db.VarChar(50)
-  recipient       String?  @db.VarChar(50)
-  amount          String?  // For transfer messages
-  validator       String?  @db.VarChar(50) // For staking messages
-  
+  sender    String? @db.VarChar(50)
+  recipient String? @db.VarChar(50)
+  amount    String? // For transfer messages
+  validator String? @db.VarChar(50) // For staking messages
+
   @@index([typeUrl])
   @@index([sender])
   @@index([recipient])
@@ -109,38 +182,38 @@ model Message {
 // ============ ACCOUNTS ============
 
 model Account {
-  id              String   @id @default(uuid())
-  address         String   @unique @db.VarChar(50)
-  
+  id      String @id @default(uuid())
+  address String @unique @db.VarChar(50)
+
   // Balances
-  balances        Balance[]
-  
+  balances Balance[]
+
   // Staking
-  delegations     Delegation[]
+  delegations          Delegation[]
   unbondingDelegations UnbondingDelegation[]
-  
+
   // AI Jobs
-  jobsCreated     AIJob[]  @relation("JobCreator")
-  jobsValidated   AIJob[]  @relation("JobValidator")
-  
+  jobsCreated   AIJob[] @relation("JobCreator")
+  jobsValidated AIJob[] @relation("JobValidator")
+
   // Activity
-  sequence        BigInt   @default(0)
-  txCount         BigInt   @default(0)
-  
-  firstSeenAt     DateTime
-  lastSeenAt      DateTime
-  
+  sequence BigInt @default(0)
+  txCount  BigInt @default(0)
+
+  firstSeenAt DateTime
+  lastSeenAt  DateTime
+
   @@index([address])
   @@index([lastSeenAt])
 }
 
 model Balance {
-  id          String   @id @default(uuid())
-  account     Account  @relation(fields: [accountId], references: [id])
-  accountId   String
-  denom       String   @db.VarChar(50)
-  amount      String   // Stored as string for precision
-  
+  id        String  @id @default(uuid())
+  account   Account @relation(fields: [accountId], references: [id])
+  accountId String
+  denom     String  @db.VarChar(50)
+  amount    String // Stored as string for precision
+
   @@unique([accountId, denom])
   @@index([denom])
 }
@@ -148,54 +221,54 @@ model Balance {
 // ============ VALIDATORS ============
 
 model Validator {
-  id                  String   @id @default(uuid())
-  operatorAddress     String   @unique @db.VarChar(50)
-  consensusAddress    String?  @unique @db.VarChar(50)
-  
+  id               String  @id @default(uuid())
+  operatorAddress  String  @unique @db.VarChar(50)
+  consensusAddress String? @unique @db.VarChar(50)
+
   // Description
-  moniker             String   @db.VarChar(100)
-  identity            String?  @db.VarChar(50)
-  website             String?  @db.VarChar(100)
-  securityContact     String?  @db.VarChar(100)
-  details             String?
-  
+  moniker         String  @db.VarChar(100)
+  identity        String? @db.VarChar(50)
+  website         String? @db.VarChar(100)
+  securityContact String? @db.VarChar(100)
+  details         String?
+
   // Staking
-  tokens              String   // Total stake
-  delegatorShares     String   
-  selfDelegation      String?
-  
+  tokens          String // Total stake
+  delegatorShares String
+  selfDelegation  String?
+
   // Commission
-  commissionRate      String
-  commissionMaxRate   String
+  commissionRate          String
+  commissionMaxRate       String
   commissionMaxChangeRate String
-  
+
   // Status
-  status              ValidatorStatus @default(UNBONDED)
-  jailed              Boolean @default(false)
-  
+  status ValidatorStatus @default(UNBONDED)
+  jailed Boolean         @default(false)
+
   // TEE
-  teeAttested         Boolean @default(false)
-  teeType             TEEType?
-  teeMeasurement      String?  @db.VarChar(64)
-  
+  teeAttested    Boolean  @default(false)
+  teeType        TEEType?
+  teeMeasurement String?  @db.VarChar(64)
+
   // Performance
-  missedBlocks        BigInt   @default(0)
-  blocksProduced      BigInt   @default(0)
-  aiJobsCompleted     BigInt   @default(0)
-  aiJobsFailed        BigInt   @default(0)
-  uptime              Float    @default(0) // Percentage
-  
+  missedBlocks    BigInt @default(0)
+  blocksProduced  BigInt @default(0)
+  aiJobsCompleted BigInt @default(0)
+  aiJobsFailed    BigInt @default(0)
+  uptime          Float  @default(0) // Percentage
+
   // Unbonding
-  unbondingHeight     BigInt?
-  unbondingTime       DateTime?
-  
+  unbondingHeight BigInt?
+  unbondingTime   DateTime?
+
   // Relations
-  delegations         Delegation[]
-  commissions         Commission[]
-  
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  
+  delegations Delegation[]
+  commissions Commission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([status])
   @@index([teeAttested])
   @@index([tokens])
@@ -209,30 +282,30 @@ enum ValidatorStatus {
 }
 
 model Delegation {
-  id              String    @id @default(uuid())
-  delegator       Account   @relation(fields: [delegatorId], references: [id])
-  delegatorId     String
-  validator       Validator @relation(fields: [validatorId], references: [id])
-  validatorId     String
-  shares          String
-  
+  id          String    @id @default(uuid())
+  delegator   Account   @relation(fields: [delegatorId], references: [id])
+  delegatorId String
+  validator   Validator @relation(fields: [validatorId], references: [id])
+  validatorId String
+  shares      String
+
   @@unique([delegatorId, validatorId])
 }
 
 model UnbondingDelegation {
-  id              String   @id @default(uuid())
-  delegator       Account  @relation(fields: [delegatorId], references: [id])
-  delegatorId     String
-  validator       String   @db.VarChar(50)
-  amount          String
-  completionTime  DateTime
-  
+  id             String   @id @default(uuid())
+  delegator      Account  @relation(fields: [delegatorId], references: [id])
+  delegatorId    String
+  validator      String   @db.VarChar(50)
+  amount         String
+  completionTime DateTime
+
   @@index([delegatorId])
   @@index([completionTime])
 }
 
 model Commission {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   validator   Validator @relation(fields: [validatorId], references: [id])
   validatorId String
   amount      String
@@ -243,41 +316,41 @@ model Commission {
 // ============ AI JOBS ============
 
 model AIJob {
-  id                  String   @id @default(uuid())
-  status              JobStatus @default(PENDING)
-  
+  id     String    @id @default(uuid())
+  status JobStatus @default(PENDING)
+
   // Model & Input
-  modelHash           String   @db.VarChar(64)
-  inputHash           String   @db.VarChar(64)
-  outputHash          String?  @db.VarChar(64)
-  
+  modelHash  String  @db.VarChar(64)
+  inputHash  String  @db.VarChar(64)
+  outputHash String? @db.VarChar(64)
+
   // Participants
-  creator             Account  @relation("JobCreator", fields: [creatorId], references: [id])
-  creatorId           String
-  validator           Account? @relation("JobValidator", fields: [validatorId], references: [id])
-  validatorId         String?
-  
+  creator     Account  @relation("JobCreator", fields: [creatorId], references: [id])
+  creatorId   String
+  validator   Account? @relation("JobValidator", fields: [validatorId], references: [id])
+  validatorId String?
+
   // Configuration
-  proofType           ProofType
-  priority            Int      @default(0)
-  maxCost             String
-  actualCost          String?
-  timeout             BigInt
-  
+  proofType  ProofType
+  priority   Int       @default(0)
+  maxCost    String
+  actualCost String?
+  timeout    BigInt
+
   // Timing
-  createdAtBlock      BigInt
-  completedAtBlock    BigInt?
-  createdAt           DateTime @default(now())
-  completedAt         DateTime?
-  
+  createdAtBlock   BigInt
+  completedAtBlock BigInt?
+  createdAt        DateTime  @default(now())
+  completedAt      DateTime?
+
   // Results
-  verificationScore   Int?     // 0-10000 (represents 0.00-100.00%)
-  
+  verificationScore Int? // 0-10000 (represents 0.00-100.00%)
+
   // Relations
-  teeAttestation      TEEAttestation?
-  verificationProof   VerificationProof?
-  computeMetrics      ComputeMetrics?
-  
+  teeAttestation    TEEAttestation?
+  verificationProof VerificationProof?
+  computeMetrics    ComputeMetrics?
+
   @@index([status])
   @@index([modelHash])
   @@index([creatorId])
@@ -305,17 +378,17 @@ enum ProofType {
 }
 
 model TEEAttestation {
-  id              String   @id @default(uuid())
-  job             AIJob    @relation(fields: [jobId], references: [id])
-  jobId           String   @unique
-  
-  teeType         TEEType
-  quoteVersion    Int
-  quote           Bytes
-  reportData      Bytes
-  measurement     String   @db.VarChar(64)
-  timestamp       DateTime
-  enclaveKey      Bytes
+  id    String @id @default(uuid())
+  job   AIJob  @relation(fields: [jobId], references: [id])
+  jobId String @unique
+
+  teeType      TEEType
+  quoteVersion Int
+  quote        Bytes
+  reportData   Bytes
+  measurement  String   @db.VarChar(64)
+  timestamp    DateTime
+  enclaveKey   Bytes
 }
 
 enum TEEType {
@@ -327,69 +400,69 @@ enum TEEType {
 }
 
 model VerificationProof {
-  id                  String   @id @default(uuid())
-  job                 AIJob    @relation(fields: [jobId], references: [id])
-  jobId               String   @unique
-  
-  proofType           ProofType
-  zkProof             Bytes?
-  mpcCommitment       String?  @db.VarChar(64)
-  challengeStart      BigInt?
-  merkleRoot          String?  @db.VarChar(64)
-  merklePath          String[]
-  merkleIndex         BigInt?
-  
+  id    String @id @default(uuid())
+  job   AIJob  @relation(fields: [jobId], references: [id])
+  jobId String @unique
+
+  proofType      ProofType
+  zkProof        Bytes?
+  mpcCommitment  String?   @db.VarChar(64)
+  challengeStart BigInt?
+  merkleRoot     String?   @db.VarChar(64)
+  merklePath     String[]
+  merkleIndex    BigInt?
+
   validatorSignatures ValidatorSignature[]
 }
 
 model ValidatorSignature {
-  id              String            @id @default(uuid())
-  proof           VerificationProof @relation(fields: [proofId], references: [id])
-  proofId         String
-  validatorAddress String           @db.VarChar(50)
-  signature       Bytes
-  timestamp       DateTime
+  id               String            @id @default(uuid())
+  proof            VerificationProof @relation(fields: [proofId], references: [id])
+  proofId          String
+  validatorAddress String            @db.VarChar(50)
+  signature        Bytes
+  timestamp        DateTime
 }
 
 model ComputeMetrics {
-  id              String   @id @default(uuid())
-  job             AIJob    @relation(fields: [jobId], references: [id])
-  jobId           String   @unique
-  
-  cpuCycles       BigInt
-  memoryUsed      BigInt   // MB
-  computeTimeMs   BigInt
-  energyMj        BigInt   // millijoules
+  id    String @id @default(uuid())
+  job   AIJob  @relation(fields: [jobId], references: [id])
+  jobId String @unique
+
+  cpuCycles     BigInt
+  memoryUsed    BigInt // MB
+  computeTimeMs BigInt
+  energyMj      BigInt // millijoules
 }
 
 // ============ MODELS ============
 
 model Model {
-  id              String   @id @default(uuid())
-  modelHash       String   @unique @db.VarChar(64)
-  name            String   @db.VarChar(200)
-  owner           String   @db.VarChar(50)
-  
+  id        String @id @default(uuid())
+  modelHash String @unique @db.VarChar(64)
+  name      String @db.VarChar(200)
+  owner     String @db.VarChar(50)
+
   // Model info
-  architecture    String   @db.VarChar(50)
-  version         String   @db.VarChar(20)
-  category        ModelCategory
-  
+  architecture String        @db.VarChar(50)
+  version      String        @db.VarChar(20)
+  category     ModelCategory
+
   // Schemas
-  inputSchema     String
-  outputSchema    String
-  
+  inputSchema  String
+  outputSchema String
+
   // Storage
-  storageUri      String
-  sizeBytes       BigInt?
-  
+  storageUri String
+  sizeBytes  BigInt?
+
   // Status
-  verified        Boolean  @default(false)
-  totalJobs       BigInt   @default(0)
-  
-  registeredAt    DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+  verified  Boolean @default(false)
+  totalJobs BigInt  @default(0)
+
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
   @@index([category])
   @@index([verified])
   @@index([owner])
@@ -408,28 +481,28 @@ enum ModelCategory {
 // ============ SEALS ============
 
 model Seal {
-  id                  String      @id @default(uuid())
-  status              SealStatus  @default(ACTIVE)
-  
+  id     String     @id @default(uuid())
+  status SealStatus @default(ACTIVE)
+
   // Commitments
-  jobId               String      @db.VarChar(64)
-  modelCommitment     String      @db.VarChar(64)
-  inputCommitment     String      @db.VarChar(64)
-  outputCommitment    String      @db.VarChar(64)
-  
+  jobId            String @db.VarChar(64)
+  modelCommitment  String @db.VarChar(64)
+  inputCommitment  String @db.VarChar(64)
+  outputCommitment String @db.VarChar(64)
+
   // Participants
-  requester           String      @db.VarChar(50)
-  validators          String[]    // Array of validator addresses
-  
+  requester  String   @db.VarChar(50)
+  validators String[] // Array of validator addresses
+
   // Timing
-  createdAt           DateTime    @default(now())
-  expiresAt           DateTime?
-  revokedAt           DateTime?
-  
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+  revokedAt DateTime?
+
   // Revocation
-  revokedBy           String?     @db.VarChar(50)
-  revocationReason    String?
-  
+  revokedBy        String? @db.VarChar(50)
+  revocationReason String?
+
   @@index([status])
   @@index([jobId])
   @@index([requester])
@@ -446,37 +519,37 @@ enum SealStatus {
 // ============ GOVERNANCE ============
 
 model Proposal {
-  id                  String          @id @default(uuid())
-  proposalId          BigInt          @unique
-  title               String          @db.VarChar(500)
-  description         String
-  status              ProposalStatus
-  category            ProposalCategory
-  
+  id          String           @id @default(uuid())
+  proposalId  BigInt           @unique
+  title       String           @db.VarChar(500)
+  description String
+  status      ProposalStatus
+  category    ProposalCategory
+
   // Proposer
-  proposer            String          @db.VarChar(50)
-  proposerAddress     String          @db.VarChar(50)
-  
+  proposer        String @db.VarChar(50)
+  proposerAddress String @db.VarChar(50)
+
   // Voting
-  votesFor            String          // Amount
-  votesAgainst        String
-  votesAbstain        String
-  turnout             Float           // Percentage
-  quorumPct           Float           // Percentage
-  
+  votesFor     String // Amount
+  votesAgainst String
+  votesAbstain String
+  turnout      Float // Percentage
+  quorumPct    Float // Percentage
+
   // Timing
-  submitTime          DateTime
-  depositEndTime      DateTime
-  votingStartTime     DateTime?
-  votingEndTime       DateTime?
-  
+  submitTime      DateTime
+  depositEndTime  DateTime
+  votingStartTime DateTime?
+  votingEndTime   DateTime?
+
   // Deposit
-  totalDeposit        String
-  
+  totalDeposit String
+
   // Relations
-  votes               Vote[]
-  deposits            ProposalDeposit[]
-  
+  votes    Vote[]
+  deposits ProposalDeposit[]
+
   @@index([status])
   @@index([category])
   @@index([submitTime])
@@ -499,15 +572,15 @@ enum ProposalCategory {
 }
 
 model Vote {
-  id            String   @id @default(uuid())
-  proposal      Proposal @relation(fields: [proposalId], references: [id])
-  proposalId    String
-  voter         String   @db.VarChar(50)
-  option        VoteOption
-  weight        Float    @default(1.0)
-  metadata      String?
-  timestamp     DateTime @default(now())
-  
+  id         String     @id @default(uuid())
+  proposal   Proposal   @relation(fields: [proposalId], references: [id])
+  proposalId String
+  voter      String     @db.VarChar(50)
+  option     VoteOption
+  weight     Float      @default(1.0)
+  metadata   String?
+  timestamp  DateTime   @default(now())
+
   @@unique([proposalId, voter])
 }
 
@@ -520,58 +593,62 @@ enum VoteOption {
 }
 
 model ProposalDeposit {
-  id            String   @id @default(uuid())
-  proposal      Proposal @relation(fields: [proposalId], references: [id])
-  proposalId    String
-  depositor     String   @db.VarChar(50)
-  amount        String
-  timestamp     DateTime @default(now())
+  id         String   @id @default(uuid())
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+  proposalId String
+  depositor  String   @db.VarChar(50)
+  amount     String
+  timestamp  DateTime @default(now())
 }
 
 // ============ VAULT (LIQUID STAKING) ============
 
 model VaultState {
-  id                  String   @id @default(uuid())
-  totalStaked         String   // Total AETHEL staked
-  totalShares         String   // Total stAETHEL shares
-  exchangeRate        String   // AETHEL per stAETHEL
-  currentApy          Float
-  totalStakers        BigInt   @default(0)
-  validatorsBacking   Int
-  unbondingPeriod     Int      // days
+  id                String  @id @default(uuid())
+  blockNumber       BigInt?
+  totalStaked       String // Total AETHEL staked
+  totalShares       String // Total stAETHEL shares
+  exchangeRate      String // AETHEL per stAETHEL
+  currentEpoch      BigInt  @default(0)
+  currentApy        Float
+  totalStakers      BigInt  @default(0)
+  validatorsBacking Int
+  unbondingPeriod   Int // days
 
-  updatedAt           DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 }
 
 model VaultStake {
-  id              String   @id @default(uuid())
-  delegator       String   @db.VarChar(50)
-  amount          String   // AETHEL amount
-  shares          String   // stAETHEL shares received
-  timestamp       DateTime @default(now())
-  txHash          String   @unique @db.VarChar(66)
-  blockNumber     BigInt?
-  logIndex        Int?
+  id          String   @id @default(uuid())
+  delegator   String   @db.VarChar(50)
+  amount      String // AETHEL amount
+  shares      String // stAETHEL shares received
+  timestamp   DateTime @default(now())
+  txHash      String   @db.VarChar(66)
+  blockNumber BigInt?
+  logIndex    Int
 
+  @@unique([txHash, logIndex])
   @@index([delegator])
   @@index([blockNumber])
   @@index([timestamp])
 }
 
 model VaultUnstake {
-  id                  String          @id @default(uuid())
-  withdrawalId        BigInt          @unique  // on-chain withdrawal identity
-  delegator           String          @db.VarChar(50)
-  shares              String          // stAETHEL shares burned
-  amount              String          // AETHEL to receive
-  startTime           DateTime        @default(now())
-  completionTime      DateTime
-  status              UnstakeStatus   @default(PENDING)
-  txHash              String          @db.VarChar(66)
-  claimTxHash         String?         @db.VarChar(66)
-  claimedAt           DateTime?
-  blockNumber         BigInt?
-  logIndex            Int?
+  id               String                    @id @default(uuid())
+  withdrawalId     BigInt                    @unique // on-chain withdrawal identity
+  delegator        String                    @db.VarChar(50)
+  shares           String // stAETHEL shares burned
+  amount           String // AETHEL to receive
+  startTime        DateTime                  @default(now())
+  completionTime   DateTime? // Null when an exact legacy deadline cannot be replay-verified
+  sourceProvenance VaultProjectionProvenance @default(LEGACY_UNVERIFIED)
+  status           UnstakeStatus             @default(PENDING)
+  txHash           String                    @db.VarChar(66)
+  claimTxHash      String?                   @db.VarChar(66)
+  claimedAt        DateTime?
+  blockNumber      BigInt?
+  logIndex         Int?
 
   @@index([delegator])
   @@index([status])
@@ -587,16 +664,17 @@ enum UnstakeStatus {
 }
 
 model VaultReward {
-  id              String   @id @default(uuid())
-  delegator       String   @db.VarChar(50)
-  amount          String
-  epoch           BigInt
-  timestamp       DateTime @default(now())
-  claimed         Boolean  @default(false)
-  claimedAt       DateTime?
-  txHash          String?  @db.VarChar(66)
-  blockNumber     BigInt?
-  logIndex        Int?
+  id               String                    @id @default(uuid())
+  delegator        String                    @db.VarChar(50)
+  amount           String
+  epoch            BigInt
+  timestamp        DateTime                  @default(now())
+  claimed          Boolean                   @default(false)
+  claimedAt        DateTime?
+  txHash           String?                   @db.VarChar(66)
+  blockNumber      BigInt?
+  logIndex         Int?
+  sourceProvenance VaultProjectionProvenance @default(LEGACY_UNVERIFIED)
 
   @@unique([delegator, epoch])
   @@index([delegator])
@@ -607,14 +685,15 @@ model VaultReward {
 // ============ VAULT WITHDRAWAL ============
 
 model VaultWithdrawal {
-  id              String   @id @default(uuid())
-  withdrawalId    BigInt   @unique  // on-chain withdrawal identity
-  delegator       String   @db.VarChar(50)
-  amount          String   // AETHEL amount withdrawn
-  timestamp       DateTime @default(now())
-  txHash          String   @db.VarChar(66)
-  blockNumber     BigInt?
-  logIndex        Int?
+  id               String                    @id @default(uuid())
+  withdrawalId     BigInt                    @unique // on-chain withdrawal identity
+  delegator        String                    @db.VarChar(50)
+  amount           String // AETHEL amount withdrawn
+  timestamp        DateTime                  @default(now())
+  txHash           String                    @db.VarChar(66)
+  blockNumber      BigInt?
+  logIndex         Int?
+  sourceProvenance VaultProjectionProvenance @default(LEGACY_UNVERIFIED)
 
   @@index([delegator])
   @@index([blockNumber])
@@ -624,14 +703,14 @@ model VaultWithdrawal {
 // ============ StAETHEL TRANSFERS ============
 
 model StAethelTransfer {
-  id              String   @id @default(uuid())
-  from            String   @db.VarChar(50)
-  to              String   @db.VarChar(50)
-  amount          String
-  txHash          String   @db.VarChar(66)
-  blockNumber     BigInt
-  logIndex        Int
-  timestamp       DateTime
+  id          String   @id @default(uuid())
+  from        String   @db.VarChar(50)
+  to          String   @db.VarChar(50)
+  shares      String   @map("amount")
+  txHash      String   @db.VarChar(66)
+  blockNumber BigInt
+  logIndex    Int
+  timestamp   DateTime
 
   @@unique([txHash, logIndex])
   @@index([from])
@@ -645,38 +724,51 @@ model StAethelTransfer {
 model StAethelBalance {
   id              String   @id @default(uuid())
   holder          String   @unique @db.VarChar(50)
-  balance         String   // Current balance as string for precision
+  shares          String   @map("balance") // Current invariant share balance
   lastUpdatedAt   DateTime @updatedAt
   lastTxHash      String?  @db.VarChar(66)
   lastBlockNumber BigInt?
 
-  @@index([balance])
+  @@index([shares], map: "StAethelBalance_balance_idx")
 }
 
 // ============ INDEXER CURSOR ============
 
 model IndexerCursor {
-  id              String   @id @default(uuid())
-  cursorKey       String   @unique @db.VarChar(100)
-  blockNumber     BigInt
-  blockHash       String   @db.VarChar(66)
-  timestamp       DateTime
-  updatedAt       DateTime @updatedAt
+  id                             String   @id @default(uuid())
+  cursorKey                      String   @unique @db.VarChar(100)
+  blockNumber                    BigInt
+  blockHash                      String   @db.VarChar(66)
+  timestamp                      DateTime
+  requiresRebuild                Boolean  @default(false)
+  recoveryTargetBlock            BigInt?
+  pendingBlockNumber             BigInt? // Durable visibility barrier for an uncommitted projection generation
+  networkChainId                 String?  @db.VarChar(78)
+  networkAnchorHash              String?  @db.VarChar(66)
+  networkVaultAddress            String?  @db.VarChar(42)
+  networkStaethelAddress         String?  @db.VarChar(42)
+  networkStablecoinBridgeAddress String?  @db.VarChar(42)
+  updatedAt                      DateTime @updatedAt
 
   @@index([cursorKey])
+}
+
+enum VaultProjectionProvenance {
+  LEGACY_UNVERIFIED
+  CANONICAL_EVENT
 }
 
 // ============ REORG LOG ============
 
 model ReorgEvent {
-  id              String   @id @default(uuid())
-  detectedAt      DateTime @default(now())
-  fromBlock       BigInt
-  toBlock         BigInt
-  expectedHash    String   @db.VarChar(66)
-  actualHash      String   @db.VarChar(66)
-  depth           Int      // How many blocks were reorged
-  resolvedAt      DateTime?
+  id           String    @id @default(uuid())
+  detectedAt   DateTime  @default(now())
+  fromBlock    BigInt
+  toBlock      BigInt
+  expectedHash String    @db.VarChar(66)
+  actualHash   String    @db.VarChar(66)
+  depth        Int // How many blocks were reorged
+  resolvedAt   DateTime?
 
   @@index([detectedAt])
   @@index([fromBlock])
@@ -685,25 +777,28 @@ model ReorgEvent {
 // ============ EVENTS ============
 
 model Event {
-  id              String   @id @default(uuid())
-  type            String   @db.VarChar(100)
-  
+  id   String @id @default(uuid())
+  type String @db.VarChar(100)
+
   // Source
-  block           Block?   @relation(fields: [blockHeight], references: [height])
+  block           Block?       @relation(fields: [blockHeight], references: [height])
   blockHeight     BigInt?
   transaction     Transaction? @relation(fields: [transactionId], references: [id])
   transactionId   String?
-  
+  transactionHash String?      @db.VarChar(66)
+  logIndex        Int?
+
   // Attributes
-  attributes      Json
-  
+  attributes Json
+
   // Indexed attributes (common)
-  sender          String?  @db.VarChar(50)
-  recipient       String?  @db.VarChar(50)
-  amount          String?
-  
-  timestamp       DateTime
-  
+  sender    String? @db.VarChar(50)
+  recipient String? @db.VarChar(50)
+  amount    String?
+
+  timestamp DateTime
+
+  @@unique([transactionHash, logIndex])
   @@index([type])
   @@index([blockHeight])
   @@index([transactionId])
@@ -719,34 +814,34 @@ model StablecoinConfig {
   assetId               String    @unique @db.VarChar(66) // bytes32 hex
   symbol                String    @db.VarChar(20)
   tokenAddress          String    @db.VarChar(42)
-  routingType           Int       // 0=Unsupported, 1=CCTP_V2, 2=TEE_ISSUER_MINT
+  routingType           Int // 0=Unsupported, 1=CCTP_V2, 2=TEE_ISSUER_MINT
   cctpDomain            Int?
-  maxBridgeAmount       String    // BigInt stored as string for precision
+  maxBridgeAmount       String // BigInt stored as string for precision
   dailyLimit            String
   dailyUsed             String    @default("0")
   lastResetTimestamp    DateTime?
   circuitBreakerTripped Boolean   @default(false)
   active                Boolean   @default(true)
-  blockNumber           BigInt    // Block at which config was last updated
+  blockNumber           BigInt // Block at which config was last updated
 
-  updatedAt             DateTime  @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@index([assetId])
   @@index([active])
 }
 
 model StablecoinBridgeEvent {
-  id            String    @id @default(uuid())
-  assetId       String    @db.VarChar(66)  // bytes32 hex
-  eventType     String    @db.VarChar(50)  // CCTPBurnInitiated, MintExecuted, etc.
-  sender        String    @db.VarChar(42)  // EVM address
-  amount        String                      // BigInt stored as string
-  destDomain    Int?                        // CCTP destination domain (nullable for non-CCTP events)
-  txHash        String    @db.VarChar(66)
-  blockNumber   BigInt
-  logIndex      Int
-  timestamp     DateTime
-  metadata      Json?                       // Event-specific extra fields
+  id          String   @id @default(uuid())
+  assetId     String   @db.VarChar(66) // bytes32 hex
+  eventType   String   @db.VarChar(50) // CCTPBurnInitiated, MintExecuted, etc.
+  sender      String   @db.VarChar(42) // EVM address
+  amount      String // BigInt stored as string
+  destDomain  Int? // CCTP destination domain (nullable for non-CCTP events)
+  txHash      String   @db.VarChar(66)
+  blockNumber BigInt
+  logIndex    Int
+  timestamp   DateTime
+  metadata    Json? // Event-specific extra fields
 
   @@unique([txHash, logIndex])
   @@index([assetId])
@@ -754,6 +849,85 @@ model StablecoinBridgeEvent {
   @@index([sender])
   @@index([blockNumber])
   @@index([timestamp])
+}
+
+// ============ RECONCILIATION ============
+
+model ReconciliationSnapshot {
+  id                      String                      @id @default(uuid())
+  snapshotKey             String                      @unique @db.VarChar(191)
+  epoch                   BigInt
+  network                 String                      @db.VarChar(50)
+  mode                    String                      @db.VarChar(50)
+  capturedAt              DateTime
+  epochSource             String                      @db.VarChar(120)
+  chainHeight             BigInt
+  validatorLimit          Int
+  validatorCount          Int
+  totalEligibleValidators Int
+  validatorUniverseHash   String                      @db.VarChar(66)
+  stakeSnapshotHash       String?                     @db.VarChar(66)
+  stakeSnapshotComplete   Boolean?
+  warningCount            Int                         @default(0)
+  discrepancyCount        Int                         @default(0)
+  warnings                Json
+  document                Json
+  discrepancies           ReconciliationDiscrepancy[]
+  createdAt               DateTime                    @default(now())
+
+  @@index([epoch])
+  @@index([capturedAt])
+  @@index([validatorUniverseHash])
+}
+
+model ReconciliationDiscrepancy {
+  id               String                            @id @default(uuid())
+  snapshot         ReconciliationSnapshot            @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  snapshotId       String
+  code             String                            @db.VarChar(100)
+  severity         ReconciliationDiscrepancySeverity
+  status           String                            @db.VarChar(32)
+  title            String                            @db.VarChar(160)
+  message          String
+  affectedAccounts Int                               @default(0)
+  affectedShares   String?
+  impactBps        Int?
+  sampleAddresses  String[]
+  evidence         Json?
+  remediation      String?
+  createdAt        DateTime                          @default(now())
+
+  @@index([snapshotId])
+  @@index([code])
+  @@index([severity])
+}
+
+enum ReconciliationDiscrepancySeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// ============ ALERTS ============
+
+model AlertEvent {
+  id             String    @id @db.VarChar(80)
+  severity       String    @db.VarChar(16)
+  type           String    @db.VarChar(80)
+  message        String
+  metadata       Json
+  delivered      Boolean   @default(false)
+  attemptCount   Int       @default(0)
+  lastAttemptAt  DateTime?
+  nextAttemptAt  DateTime?
+  deadLetteredAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([severity])
+  @@index([type])
+  @@index([createdAt])
+  @@index([delivered, deadLetteredAt, nextAttemptAt])
 }
 
 // ============ SYNC STATE ============
@@ -770,16 +944,16 @@ model SyncState {
 // ============ API KEYS & RATE LIMITING ============
 
 model ApiKey {
-  id              String   @id @default(uuid())
-  key             String   @unique
-  name            String
-  owner           String   @db.VarChar(50)
-  permissions     String[] // Array of permission strings
-  
-  rateLimit       Int      @default(1000) // requests per minute
-  
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  lastUsedAt      DateTime?
-  expiresAt       DateTime?
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  owner       String   @db.VarChar(50)
+  permissions String[] // Array of permission strings
+
+  rateLimit Int @default(1000) // requests per minute
+
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
 }

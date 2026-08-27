@@ -1,4 +1,4 @@
-/**
+/*
  * Model Registry Contract — Comprehensive Test Suite
  *
  * Enterprise-grade tests covering:
@@ -14,14 +14,16 @@
  * - Multi-step scenario tests
  * - Monitoring events
  */
-
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::needless_borrows_for_generic_args)]
+
     use crate::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{from_json, Coin, Env, Uint128};
 
     // ============ TEST HELPERS ============
+    const REGISTRATION_FEE_DENOM: &str = "uaethel";
 
     fn default_instantiate() -> (
         cosmwasm_std::OwnedDeps<
@@ -36,6 +38,7 @@ mod tests {
         let info = mock_info("admin", &[]);
         let msg = InstantiateMsg {
             registration_fee: Uint128::from(1000u128),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
             verification_required: true,
             verifiers: vec!["verifier1".to_string(), "verifier2".to_string()],
         };
@@ -56,6 +59,7 @@ mod tests {
         let info = mock_info("admin", &[]);
         let msg = InstantiateMsg {
             registration_fee: Uint128::zero(),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
             verification_required: false,
             verifiers: vec!["verifier1".to_string()],
         };
@@ -64,12 +68,16 @@ mod tests {
     }
 
     fn register_msg(hash: &str) -> ExecuteMsg {
+        register_msg_with_category(hash, ModelCategory::General)
+    }
+
+    fn register_msg_with_category(hash: &str, category: ModelCategory) -> ExecuteMsg {
         ExecuteMsg::RegisterModel {
             name: format!("Model {}", hash),
             model_hash: hash.to_string(),
             architecture: "transformer".to_string(),
             version: "1.0.0".to_string(),
-            category: ModelCategory::General,
+            category,
             input_schema: r#"{"type":"string"}"#.to_string(),
             output_schema: r#"{"type":"string"}"#.to_string(),
             storage_uri: "ipfs://QmTest123".to_string(),
@@ -92,6 +100,7 @@ mod tests {
         let config: Config = from_json(&res).unwrap();
         assert_eq!(config.admin, Addr::unchecked("admin"));
         assert_eq!(config.registration_fee, Uint128::from(1000u128));
+        assert_eq!(config.registration_fee_denom, REGISTRATION_FEE_DENOM);
         assert!(config.verification_required);
         assert_eq!(config.verifiers.len(), 2);
         assert!(config.ai_job_manager.is_none());
@@ -112,6 +121,110 @@ mod tests {
         let config: Config = from_json(&res).unwrap();
         assert!(!config.verification_required);
         assert_eq!(config.registration_fee, Uint128::zero());
+        assert_eq!(config.registration_fee_denom, REGISTRATION_FEE_DENOM);
+    }
+
+    #[test]
+    fn test_instantiate_rejects_empty_registration_fee_denom() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::from(1000u128),
+            registration_fee_denom: " ".to_string(),
+            verification_required: true,
+            verifiers: vec!["verifier1".to_string()],
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(err.to_string().contains("registration_fee_denom"));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_oversized_registration_fee_denom() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::from(1000u128),
+            registration_fee_denom: "u".repeat(MAX_REGISTRATION_FEE_DENOM_LENGTH + 1),
+            verification_required: true,
+            verifiers: vec!["verifier1".to_string()],
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(err.to_string().contains("registration_fee_denom"));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_required_verification_without_verifiers() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::from(1000u128),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            verification_required: true,
+            verifiers: vec![],
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidVerifierSet {});
+    }
+
+    #[test]
+    fn test_instantiate_rejects_oversized_verifier_set() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::from(1000u128),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            verification_required: true,
+            verifiers: (0..=MAX_VERIFIERS)
+                .map(|index| format!("verifier{index}"))
+                .collect(),
+        };
+
+        let err = instantiate(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::InvalidVerifierSet {});
+    }
+
+    #[test]
+    fn test_instantiate_allows_empty_verifiers_when_verification_not_required() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::zero(),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            verification_required: false,
+            verifiers: vec![],
+        };
+
+        instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let res = query(deps.as_ref(), env, QueryMsg::Config {}).unwrap();
+        let config: Config = from_json(&res).unwrap();
+        assert!(!config.verification_required);
+        assert!(config.verifiers.is_empty());
+    }
+
+    #[test]
+    fn test_instantiate_deduplicates_verifiers() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+        let msg = InstantiateMsg {
+            registration_fee: Uint128::from(1000u128),
+            registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            verification_required: true,
+            verifiers: vec!["verifier1".to_string(), "verifier1".to_string()],
+        };
+
+        instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let res = query(deps.as_ref(), env, QueryMsg::Config {}).unwrap();
+        let config: Config = from_json(&res).unwrap();
+        assert_eq!(config.verifiers, vec![Addr::unchecked("verifier1")]);
     }
 
     // ============ REGISTRATION TESTS ============
@@ -119,7 +232,7 @@ mod tests {
     #[test]
     fn test_register_model_success() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(1000u128, "uaeth")];
+        let fee = vec![Coin::new(1000u128, REGISTRATION_FEE_DENOM)];
         let info = mock_info("user1", &fee);
         // Use a high block height to avoid rate limiting from any previous action
         let env = env_at_block(&env, 100);
@@ -174,7 +287,7 @@ mod tests {
     #[test]
     fn test_register_model_duplicate_rejected() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(1000u128, "uaeth")];
+        let fee = vec![Coin::new(1000u128, REGISTRATION_FEE_DENOM)];
         let info = mock_info("user1", &fee);
         let env_100 = env_at_block(&env, 100);
 
@@ -195,12 +308,23 @@ mod tests {
     #[test]
     fn test_register_model_insufficient_fee() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(500u128, "uaeth")]; // fee is 1000, paying only 500
+        let fee = vec![Coin::new(500u128, REGISTRATION_FEE_DENOM)];
         let info = mock_info("user1", &fee);
         let env = env_at_block(&env, 100);
 
         let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
-        assert!(err.to_string().contains("Insufficient registration fee"));
+        assert!(err.to_string().contains("Invalid registration fee"));
+    }
+
+    #[test]
+    fn test_register_model_wrong_fee_denom_rejected() {
+        let (mut deps, env) = default_instantiate();
+        let fee = vec![Coin::new(1000u128, "wrongdenom")];
+        let info = mock_info("user1", &fee);
+        let env = env_at_block(&env, 100);
+
+        let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
+        assert_eq!(err, ContractError::UnexpectedFunds {});
     }
 
     #[test]
@@ -210,7 +334,29 @@ mod tests {
         let env = env_at_block(&env, 100);
 
         let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
-        assert!(err.to_string().contains("Insufficient registration fee"));
+        assert!(err.to_string().contains("Invalid registration fee"));
+    }
+
+    #[test]
+    fn test_register_model_overpayment_rejected() {
+        let (mut deps, env) = default_instantiate();
+        let fee = vec![Coin::new(1001u128, REGISTRATION_FEE_DENOM)];
+        let info = mock_info("user1", &fee);
+        let env = env_at_block(&env, 100);
+
+        let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
+        assert!(err.to_string().contains("Invalid registration fee"));
+    }
+
+    #[test]
+    fn test_register_model_no_fee_mode_rejects_unexpected_funds() {
+        let (mut deps, env) = instantiate_no_fee();
+        let fee = vec![Coin::new(1u128, REGISTRATION_FEE_DENOM)];
+        let info = mock_info("user1", &fee);
+        let env = env_at_block(&env, 100);
+
+        let err = execute(deps.as_mut(), env, info, register_msg("hash1")).unwrap_err();
+        assert!(err.to_string().contains("Invalid registration fee"));
     }
 
     // ============ INPUT VALIDATION TESTS ============
@@ -305,6 +451,71 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Storage URI must be 1-2048 characters"));
+    }
+
+    #[test]
+    fn test_register_untrusted_storage_uri_rejected() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env = env_at_block(&env, 100);
+        let mut msg = register_msg("hash1");
+
+        if let ExecuteMsg::RegisterModel { storage_uri, .. } = &mut msg {
+            *storage_uri = "javascript:alert(1)".to_string();
+        }
+
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Storage URI must use ipfs://, ar://, or a trusted content gateway"));
+    }
+
+    #[test]
+    fn test_register_trusted_gateway_storage_uri_works() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env = env_at_block(&env, 100);
+        let mut msg = register_msg("hash1");
+
+        if let ExecuteMsg::RegisterModel { storage_uri, .. } = &mut msg {
+            *storage_uri = "https://ipfs.io/ipfs/QmTest123".to_string();
+        }
+
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let model_res = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::Model {
+                model_hash: "hash1".to_string(),
+            },
+        )
+        .unwrap();
+        let model: Model = from_json(&model_res).unwrap();
+        assert_eq!(model.storage_uri, "https://ipfs.io/ipfs/QmTest123");
+    }
+
+    #[test]
+    fn test_register_trusted_arweave_gateway_storage_uri_works() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env = env_at_block(&env, 100);
+        let mut msg = register_msg("hash1");
+
+        if let ExecuteMsg::RegisterModel { storage_uri, .. } = &mut msg {
+            *storage_uri = "https://arweave.net/abc123".to_string();
+        }
+
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let model_res = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::Model {
+                model_hash: "hash1".to_string(),
+            },
+        )
+        .unwrap();
+        let model: Model = from_json(&model_res).unwrap();
+        assert_eq!(model.storage_uri, "https://arweave.net/abc123");
     }
 
     #[test]
@@ -459,6 +670,75 @@ mod tests {
     }
 
     #[test]
+    fn test_update_model_rejects_empty_name() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env_100 = env_at_block(&env, 100);
+
+        execute(
+            deps.as_mut(),
+            env_100.clone(),
+            info.clone(),
+            register_msg("hash1"),
+        )
+        .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env_100,
+            info,
+            ExecuteMsg::UpdateModel {
+                model_hash: "hash1".to_string(),
+                name: Some("".to_string()),
+                storage_uri: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("Name must be 1-256 characters"));
+    }
+
+    #[test]
+    fn test_update_model_rejects_untrusted_storage_uri() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+        let env_100 = env_at_block(&env, 100);
+
+        execute(
+            deps.as_mut(),
+            env_100.clone(),
+            info.clone(),
+            register_msg("hash1"),
+        )
+        .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env_100.clone(),
+            info,
+            ExecuteMsg::UpdateModel {
+                model_hash: "hash1".to_string(),
+                name: None,
+                storage_uri: Some("https://evil.example/model.json".to_string()),
+            },
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Storage URI must use ipfs://, ar://, or a trusted content gateway"));
+
+        let model_res = query(
+            deps.as_ref(),
+            env_100,
+            QueryMsg::Model {
+                model_hash: "hash1".to_string(),
+            },
+        )
+        .unwrap();
+        let model: Model = from_json(&model_res).unwrap();
+        assert_eq!(model.storage_uri, "ipfs://QmTest123");
+    }
+
+    #[test]
     fn test_update_model_unauthorized() {
         let (mut deps, env) = instantiate_no_fee();
         let info = mock_info("user1", &[]);
@@ -588,7 +868,7 @@ mod tests {
     #[test]
     fn test_verify_model_by_verifier() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(1000u128, "uaeth")];
+        let fee = vec![Coin::new(1000u128, REGISTRATION_FEE_DENOM)];
         let env_100 = env_at_block(&env, 100);
 
         let info = mock_info("user1", &fee);
@@ -623,7 +903,7 @@ mod tests {
     #[test]
     fn test_verify_model_by_admin() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(1000u128, "uaeth")];
+        let fee = vec![Coin::new(1000u128, REGISTRATION_FEE_DENOM)];
         let env_100 = env_at_block(&env, 100);
 
         let info = mock_info("user1", &fee);
@@ -657,7 +937,7 @@ mod tests {
     #[test]
     fn test_verify_model_unauthorized() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(1000u128, "uaeth")];
+        let fee = vec![Coin::new(1000u128, REGISTRATION_FEE_DENOM)];
         let env_100 = env_at_block(&env, 100);
 
         let info = mock_info("user1", &fee);
@@ -754,6 +1034,7 @@ mod tests {
             admin_info,
             ExecuteMsg::UpdateConfig {
                 registration_fee: None,
+                registration_fee_denom: None,
                 ai_job_manager: Some("job_manager".to_string()),
             },
         )
@@ -818,6 +1099,7 @@ mod tests {
             admin_info,
             ExecuteMsg::UpdateConfig {
                 registration_fee: Some(Uint128::from(5000u128)),
+                registration_fee_denom: Some("uupdated".to_string()),
                 ai_job_manager: Some("new_job_manager".to_string()),
             },
         )
@@ -827,6 +1109,7 @@ mod tests {
         let config_res = query(deps.as_ref(), env, QueryMsg::Config {}).unwrap();
         let config: Config = from_json(&config_res).unwrap();
         assert_eq!(config.registration_fee, Uint128::from(5000u128));
+        assert_eq!(config.registration_fee_denom, "uupdated");
         assert_eq!(
             config.ai_job_manager,
             Some(Addr::unchecked("new_job_manager"))
@@ -844,6 +1127,7 @@ mod tests {
             random_info,
             ExecuteMsg::UpdateConfig {
                 registration_fee: Some(Uint128::from(0u128)),
+                registration_fee_denom: None,
                 ai_job_manager: None,
             },
         )
@@ -863,6 +1147,7 @@ mod tests {
             admin_info,
             ExecuteMsg::UpdateConfig {
                 registration_fee: Some(Uint128::from(1_000_000_000_001u128)),
+                registration_fee_denom: None,
                 ai_job_manager: None,
             },
         )
@@ -884,6 +1169,7 @@ mod tests {
             admin_info,
             ExecuteMsg::UpdateConfig {
                 registration_fee: Some(Uint128::from(1_000_000_000_000u128)),
+                registration_fee_denom: None,
                 ai_job_manager: None,
             },
         )
@@ -895,6 +1181,44 @@ mod tests {
             config.registration_fee,
             Uint128::from(1_000_000_000_000u128)
         );
+    }
+
+    #[test]
+    fn test_update_config_rejects_invalid_registration_fee_denom() {
+        let (mut deps, env) = default_instantiate();
+        let admin_info = mock_info("admin", &[]);
+
+        let err = execute(
+            deps.as_mut(),
+            env,
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                registration_fee: None,
+                registration_fee_denom: Some("bad denom".to_string()),
+                ai_job_manager: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("registration_fee_denom"));
+    }
+
+    #[test]
+    fn test_update_config_rejects_oversized_registration_fee_denom() {
+        let (mut deps, env) = default_instantiate();
+        let admin_info = mock_info("admin", &[]);
+
+        let err = execute(
+            deps.as_mut(),
+            env,
+            admin_info,
+            ExecuteMsg::UpdateConfig {
+                registration_fee: None,
+                registration_fee_denom: Some("u".repeat(MAX_REGISTRATION_FEE_DENOM_LENGTH + 1)),
+                ai_job_manager: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("registration_fee_denom"));
     }
 
     // ============ QUERY TESTS ============
@@ -934,6 +1258,35 @@ mod tests {
     }
 
     #[test]
+    fn test_query_models_by_owner_caps_limit() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+
+        for index in 0..(MAX_QUERY_LIMIT + 5) {
+            let env_i = env_at_block(&env, 100 + index as u64 * 10);
+            execute(
+                deps.as_mut(),
+                env_i,
+                info.clone(),
+                register_msg(&format!("hash{}", index)),
+            )
+            .unwrap();
+        }
+
+        let res = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::ModelsByOwner {
+                owner: "user1".to_string(),
+            },
+        )
+        .unwrap();
+        let models: Vec<Model> = from_json(&res).unwrap();
+        assert_eq!(models.len(), MAX_QUERY_LIMIT);
+        assert!(models.iter().all(|m| m.owner == Addr::unchecked("user1")));
+    }
+
+    #[test]
     fn test_query_list_models_all() {
         let (mut deps, env) = instantiate_no_fee();
         let env_100 = env_at_block(&env, 100);
@@ -965,9 +1318,102 @@ mod tests {
     }
 
     #[test]
+    fn test_query_list_models_filters_owner() {
+        let (mut deps, env) = instantiate_no_fee();
+        let env_100 = env_at_block(&env, 100);
+        let env_110 = env_at_block(&env, 110);
+
+        let user1 = mock_info("user1", &[]);
+        execute(
+            deps.as_mut(),
+            env_100.clone(),
+            user1.clone(),
+            register_msg("hash1"),
+        )
+        .unwrap();
+        execute(deps.as_mut(), env_110.clone(), user1, register_msg("hash2")).unwrap();
+
+        let user2 = mock_info("user2", &[]);
+        execute(deps.as_mut(), env_100.clone(), user2, register_msg("hash3")).unwrap();
+
+        let res = query(
+            deps.as_ref(),
+            env_100,
+            QueryMsg::ListModels {
+                category: None,
+                owner: Some("user1".to_string()),
+                verified: None,
+                limit: None,
+            },
+        )
+        .unwrap();
+        let models: Vec<Model> = from_json(&res).unwrap();
+        assert_eq!(models.len(), 2);
+        assert!(models
+            .iter()
+            .all(|model| model.owner == Addr::unchecked("user1")));
+    }
+
+    #[test]
+    fn test_query_list_models_filters_category() {
+        let (mut deps, env) = instantiate_no_fee();
+        let env_100 = env_at_block(&env, 100);
+        let env_110 = env_at_block(&env, 110);
+
+        let info = mock_info("user1", &[]);
+        execute(
+            deps.as_mut(),
+            env_100.clone(),
+            info.clone(),
+            register_msg_with_category("medical", ModelCategory::Medical),
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            env_110.clone(),
+            info,
+            register_msg_with_category("legal", ModelCategory::Legal),
+        )
+        .unwrap();
+
+        let res = query(
+            deps.as_ref(),
+            env_100,
+            QueryMsg::ListModels {
+                category: Some("medical".to_string()),
+                owner: None,
+                verified: None,
+                limit: None,
+            },
+        )
+        .unwrap();
+        let models: Vec<Model> = from_json(&res).unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].category, ModelCategory::Medical);
+    }
+
+    #[test]
+    fn test_query_list_models_rejects_invalid_category_filter() {
+        let (deps, env) = instantiate_no_fee();
+
+        let err = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::ListModels {
+                category: Some("unknown".to_string()),
+                owner: None,
+                verified: None,
+                limit: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("invalid model category"));
+    }
+
+    #[test]
     fn test_query_list_models_verified_filter() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(1000u128, "uaeth")];
+        let fee = vec![Coin::new(1000u128, REGISTRATION_FEE_DENOM)];
         let env_100 = env_at_block(&env, 100);
         let env_110 = env_at_block(&env, 110);
 
@@ -1060,6 +1506,37 @@ mod tests {
     }
 
     #[test]
+    fn test_query_list_models_caps_limit() {
+        let (mut deps, env) = instantiate_no_fee();
+        let info = mock_info("user1", &[]);
+
+        for index in 0..(MAX_QUERY_LIMIT + 5) {
+            let env_i = env_at_block(&env, 100 + index as u64 * 10);
+            execute(
+                deps.as_mut(),
+                env_i,
+                info.clone(),
+                register_msg(&format!("hash{}", index)),
+            )
+            .unwrap();
+        }
+
+        let res = query(
+            deps.as_ref(),
+            env,
+            QueryMsg::ListModels {
+                category: None,
+                owner: None,
+                verified: None,
+                limit: Some(u32::MAX),
+            },
+        )
+        .unwrap();
+        let models: Vec<Model> = from_json(&res).unwrap();
+        assert_eq!(models.len(), MAX_QUERY_LIMIT);
+    }
+
+    #[test]
     fn test_query_stats() {
         let (mut deps, env) = instantiate_no_fee();
         let env_100 = env_at_block(&env, 100);
@@ -1085,8 +1562,19 @@ mod tests {
     #[test]
     fn test_migration_success() {
         let (mut deps, env) = default_instantiate();
-        let res = migrate(deps.as_mut(), env, MigrateMsg {}).unwrap();
+        let res = migrate(
+            deps.as_mut(),
+            env.clone(),
+            MigrateMsg {
+                registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            },
+        )
+        .unwrap();
         assert_eq!(res.attributes[0].value, "migrate");
+
+        let config_res = query(deps.as_ref(), env, QueryMsg::Config {}).unwrap();
+        let config: Config = from_json(&config_res).unwrap();
+        assert_eq!(config.registration_fee_denom, REGISTRATION_FEE_DENOM);
     }
 
     #[test]
@@ -1094,8 +1582,89 @@ mod tests {
         let mut deps = mock_dependencies();
         let env = mock_env();
         cw2::set_contract_version(deps.as_mut().storage, "wrong-contract", "0.1.0").unwrap();
-        let err = migrate(deps.as_mut(), env, MigrateMsg {}).unwrap_err();
+        let err = migrate(
+            deps.as_mut(),
+            env,
+            MigrateMsg {
+                registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            },
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("Cannot migrate"));
+    }
+
+    #[test]
+    fn test_migration_rejects_oversized_registration_fee_denom() {
+        let (mut deps, env) = default_instantiate();
+        let err = migrate(
+            deps.as_mut(),
+            env,
+            MigrateMsg {
+                registration_fee_denom: "u".repeat(MAX_REGISTRATION_FEE_DENOM_LENGTH + 1),
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("registration_fee_denom"));
+    }
+
+    #[test]
+    fn test_migration_rejects_required_verification_without_verifiers() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        cw2::set_contract_version(deps.as_mut().storage, CONTRACT_NAME, "0.1.0").unwrap();
+        LEGACY_CONFIG
+            .save(
+                deps.as_mut().storage,
+                &LegacyConfig {
+                    admin: Addr::unchecked("admin"),
+                    ai_job_manager: None,
+                    registration_fee: Uint128::from(1000u128),
+                    verification_required: true,
+                    verifiers: vec![],
+                },
+            )
+            .unwrap();
+
+        let err = migrate(
+            deps.as_mut(),
+            env,
+            MigrateMsg {
+                registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::InvalidVerifierSet {});
+    }
+
+    #[test]
+    fn test_migration_rejects_oversized_legacy_verifier_set() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        cw2::set_contract_version(deps.as_mut().storage, CONTRACT_NAME, "0.1.0").unwrap();
+        LEGACY_CONFIG
+            .save(
+                deps.as_mut().storage,
+                &LegacyConfig {
+                    admin: Addr::unchecked("admin"),
+                    ai_job_manager: None,
+                    registration_fee: Uint128::from(1000u128),
+                    verification_required: true,
+                    verifiers: (0..=MAX_VERIFIERS)
+                        .map(|index| Addr::unchecked(format!("verifier{index}")))
+                        .collect(),
+                },
+            )
+            .unwrap();
+
+        let err = migrate(
+            deps.as_mut(),
+            env,
+            MigrateMsg {
+                registration_fee_denom: REGISTRATION_FEE_DENOM.to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::InvalidVerifierSet {});
     }
 
     // ============ MONITORING EVENT TESTS ============
@@ -1169,7 +1738,7 @@ mod tests {
     #[test]
     fn test_verify_model_emits_monitoring_event() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(1000u128, "uaeth")];
+        let fee = vec![Coin::new(1000u128, REGISTRATION_FEE_DENOM)];
         let env_100 = env_at_block(&env, 100);
 
         let info = mock_info("user1", &fee);
@@ -1210,6 +1779,7 @@ mod tests {
             admin_info,
             ExecuteMsg::UpdateConfig {
                 registration_fee: Some(Uint128::from(2000u128)),
+                registration_fee_denom: Some("uevents".to_string()),
                 ai_job_manager: Some("job_mgr".to_string()),
             },
         )
@@ -1226,6 +1796,10 @@ mod tests {
             .attributes
             .iter()
             .any(|a| a.key == "registration_fee" && a.value == "2000"));
+        assert!(ev
+            .attributes
+            .iter()
+            .any(|a| a.key == "registration_fee_denom" && a.value == "uevents"));
     }
 
     // ============ MULTI-STEP SCENARIO TESTS ============
@@ -1233,7 +1807,7 @@ mod tests {
     #[test]
     fn test_full_lifecycle_register_verify_use_deregister() {
         let (mut deps, env) = default_instantiate();
-        let fee = vec![Coin::new(1000u128, "uaeth")];
+        let fee = vec![Coin::new(1000u128, REGISTRATION_FEE_DENOM)];
         let env_100 = env_at_block(&env, 100);
 
         // Step 1: Register

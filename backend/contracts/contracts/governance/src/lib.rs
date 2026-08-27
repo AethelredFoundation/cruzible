@@ -5,8 +5,8 @@
  * Supports proposal creation, voting, and execution.
  */
 use cosmwasm_std::{
-    entry_point, to_json_binary, Addr, Binary, CosmosMsg, Deps, DepsMut, Empty, Env, MessageInfo,
-    Response, StdResult, Timestamp, Uint128,
+    entry_point, to_json_binary, Addr, Binary, Coin, CosmosMsg, Deps, DepsMut, Empty, Env,
+    MessageInfo, Response, StdResult, Timestamp, Uint128,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Item, Map};
@@ -16,6 +16,13 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:aethelred-governance";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const BASIS_POINTS_DENOMINATOR: u64 = 10_000;
+const MAX_FEEDERS: usize = 50;
+const MAX_DEPOSIT_DENOM_LENGTH: usize = 128;
+const MAX_PROPOSAL_TITLE_LENGTH: usize = 140;
+const MAX_PROPOSAL_DESCRIPTION_LENGTH: usize = 10_000;
+const MAX_PROPOSAL_MESSAGES: usize = 16;
+const MAX_PROPOSAL_MESSAGES_BYTES: usize = 32_768;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -50,10 +57,10 @@ pub enum ContractError {
     #[error("Voting has not started yet (snapshot window still open)")]
     VotingNotOpenYet {},
     #[error(
-        "Total bonded value is stale: admin must call UpdateTotalBonded before proposal activation"
+        "Total bonded value is stale: feeder consensus must refresh UpdateTotalBonded before proposal activation"
     )]
     StaleTotalBonded {},
-    #[error("Total bonded inconsistency: participating voter weights exceed admin-reported total bonded")]
+    #[error("Total bonded inconsistency: participating voter weights exceed oracle-reported total bonded")]
     TotalBondedInconsistency {},
     #[error("Total bonded delta exceeded: value deviates too far from last accepted anchor")]
     TotalBondedDeltaExceeded {},
@@ -79,6 +86,16 @@ pub enum ContractError {
     FeederMutationCooldownNotElapsed {},
     #[error("Timelock not elapsed: proposal must wait for execution_delay after voting ends")]
     TimelockNotElapsed {},
+    #[error("Invalid config: {reason}")]
+    InvalidConfig { reason: String },
+    #[error("Cannot add feeder: maximum feeder set size reached")]
+    FeederSetFull {},
+    #[error("Proposal timing fields are not initialized")]
+    ProposalTimingNotInitialized {},
+    #[error("Arithmetic overflow")]
+    ArithmeticOverflow {},
+    #[error("Unexpected funds")]
+    UnexpectedFunds {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -105,18 +122,18 @@ pub struct Config {
     /// narrow time range rather than taken lazily at vote time.
     pub snapshot_period: u64,
     /// Maximum age (in seconds) of the TOTAL_BONDED value at proposal activation.
-    /// If the admin's last UpdateTotalBonded call is older than this, the
-    /// proposal cannot activate, constraining the window in which the admin
-    /// could pre-position a favourable quorum denominator.
+    /// If the last feeder-consensus UpdateTotalBonded is older than this, the
+    /// proposal cannot activate, constraining the window in which governance
+    /// could rely on a stale quorum denominator.
     pub max_staleness: u64,
     /// Maximum allowed deviation (basis points) of the current TOTAL_BONDED
-    /// from the last accepted anchor value at proposal activation. Prevents the
-    /// admin from making large jumps to overstate (censor) or understate (ease
+    /// from the last accepted anchor value at proposal activation. Prevents
+    /// large oracle jumps that overstate (censor) or understate (ease
     /// quorum) the denominator. E.g. 1000 = ±10% max drift per activation.
     /// The anchor moves only at activation, not at every UpdateTotalBonded call.
     pub max_delta_bps: u64,
     /// Minimum time (seconds) between successive proposal activations.
-    /// Prevents the admin from "walking" the anchor in rapid bounded steps
+    /// Prevents the quorum anchor from walking in rapid bounded steps
     /// across multiple proposals. E.g. 86400 = 1 day minimum gap.
     pub min_activation_gap: u64,
     /// Minimum number of independent feeder submissions required for the
@@ -129,12 +146,26 @@ pub struct Config {
     /// E.g. 500 = 5% tolerance between feeders.
     pub feeder_tolerance_bps: u64,
     /// Minimum time (seconds) between successive feeder add/remove operations.
-    /// Prevents the admin from rapidly reshaping the oracle cohort. E.g. 86400 = 1 day.
+    /// Prevents rapid reshaping of the oracle cohort. E.g. 86400 = 1 day.
     pub feeder_mutation_cooldown: u64,
     /// Quarantine period (seconds) for newly added feeders. During this time,
-    /// the feeder's submissions are excluded from consensus. Prevents the admin
-    /// from adding aligned feeders for immediate influence. E.g. 3600 = 1 hour.
+    /// the feeder's submissions are excluded from consensus. Prevents aligned
+    /// feeders from being added for immediate influence. E.g. 3600 = 1 hour.
     pub feeder_quarantine_period: u64,
+    /// Authority allowed to mutate oracle feeder membership.
+    /// Production deployments should use `Governance`, which requires a passed
+    /// proposal to execute a self-call back into this contract.
+    pub feeder_mutation_authority: FeederMutationAuthority,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FeederMutationAuthority {
+    /// Bootstrap/test mode: the configured admin can add or remove feeders.
+    Admin,
+    /// Production mode: feeder mutations must be executed by this contract
+    /// itself, normally through a passed governance proposal self-call.
+    Governance,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -205,21 +236,22 @@ const CONFIG: Item<Config> = Item::new("config");
 const PROPOSAL_COUNT: Item<u64> = Item::new("proposal_count");
 const PROPOSALS: Map<u64, Proposal> = Map::new("proposals");
 const VOTES: Map<(u64, &Addr), Vote> = Map::new("votes");
-/// Total bonded tokens across the network, updated by admin.
-/// Used as the denominator for quorum calculations.
+/// Canonical total bonded tokens across the network, updated only after
+/// registered feeders reach oracle consensus. Used as the denominator for
+/// quorum calculations.
 const TOTAL_BONDED: Item<Uint128> = Item::new("total_bonded");
-/// Timestamp of the last UpdateTotalBonded call.
+/// Timestamp of the last consensus-accepted UpdateTotalBonded call.
 /// Used to enforce a freshness constraint at proposal activation.
 const TOTAL_BONDED_UPDATED_AT: Item<Timestamp> = Item::new("total_bonded_updated_at");
 /// The last total_bonded value accepted at a proposal activation.
 /// Used as the reference point for rate-limiting: each new activation can
 /// only accept a value within ±max_delta_bps of this anchor. The anchor
 /// moves only at activation — not at every UpdateTotalBonded call — so
-/// rapid-fire admin updates cannot accumulate unbounded drift.
+/// rapid-fire oracle updates cannot accumulate unbounded drift.
 const TOTAL_BONDED_ANCHOR: Item<Uint128> = Item::new("total_bonded_anchor");
 /// Timestamp of the last proposal activation.
 /// Used to enforce `min_activation_gap` — the minimum time between successive
-/// activations. This rate-limits how fast the admin can walk the anchor via
+/// activations. This rate-limits how fast governance can walk the anchor via
 /// repeated bounded-step updates across multiple proposal activations.
 const LAST_ACTIVATION_TIME: Item<Timestamp> = Item::new("last_activation_time");
 /// Per-proposal stake snapshots: (proposal_id, voter) → delegated stake.
@@ -240,14 +272,14 @@ pub struct FeederSubmission {
     pub submitted_at: Timestamp,
     /// The oracle epoch at which this submission was made. Only submissions
     /// from the current epoch participate in consensus. Epoch increments on
-    /// every feeder removal, forcing a full re-consensus from the new set.
+    /// every feeder membership change, forcing a full re-consensus.
     pub epoch: u64,
 }
 const FEEDER_SUBMISSIONS: Map<&Addr, FeederSubmission> = Map::new("feeder_submissions");
 
 /// Timestamp of the last feeder add/remove operation.
 /// Used to enforce `feeder_mutation_cooldown` — rate-limits how fast
-/// the admin can reshape the oracle cohort.
+/// the oracle cohort can be reshaped.
 const LAST_FEEDER_MUTATION_TIME: Item<Timestamp> = Item::new("last_feeder_mutation_time");
 
 /// Per-feeder registration timestamp. Used to enforce a quarantine period:
@@ -255,11 +287,10 @@ const LAST_FEEDER_MUTATION_TIME: Item<Timestamp> = Item::new("last_feeder_mutati
 /// `feeder_quarantine_period` has elapsed since registration.
 const FEEDER_REGISTERED_AT: Map<&Addr, Timestamp> = Map::new("feeder_registered_at");
 
-/// Oracle epoch counter. Incremented on every feeder removal. Submissions
-/// carry the epoch at which they were made, and `check_oracle_consensus`
-/// only considers submissions from the current epoch. This forces a full
-/// re-consensus from the post-mutation feeder set whenever a feeder is
-/// removed, preventing the admin from steering by pruning dissenters.
+/// Oracle epoch counter. Incremented on every feeder membership change.
+/// Submissions carry the epoch at which they were made, and
+/// `check_oracle_consensus` only considers submissions from the current epoch.
+/// This forces a full re-consensus from the post-mutation feeder set.
 const ORACLE_EPOCH: Item<u64> = Item::new("oracle_epoch");
 
 /// Response for the OracleStatus query.
@@ -306,6 +337,11 @@ pub struct InstantiateMsg {
     pub feeder_mutation_cooldown: u64,
     /// Quarantine period (seconds) before a newly added feeder's submissions count.
     pub feeder_quarantine_period: u64,
+    /// Initial feeder set. If empty, the instantiator is registered as the
+    /// sole bootstrap feeder.
+    pub initial_feeders: Vec<String>,
+    /// Feeder mutation authority. Production manifests must use `governance`.
+    pub feeder_mutation_authority: FeederMutationAuthority,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -326,8 +362,8 @@ pub enum ExecuteMsg {
     ExecuteProposal {
         proposal_id: u64,
     },
-    /// Admin-only: update the total bonded tokens used for quorum calculation.
-    /// Must be refreshed periodically from the staking module.
+    /// Feeder-only: submit a total bonded observation used for quorum
+    /// calculation. Canonical total_bonded updates only after feeder consensus.
     UpdateTotalBonded {
         total_bonded: Uint128,
     },
@@ -344,12 +380,14 @@ pub enum ExecuteMsg {
     /// with an explicit, auditable admin action. Fails if the anchor has
     /// already been seeded (non-zero).
     SeedAnchor {},
-    /// Admin-only: register a new oracle feeder. Multiple independent feeders
-    /// distribute the trust assumption for the total_bonded oracle.
+    /// Register a new oracle feeder. Authorization depends on
+    /// `feeder_mutation_authority`: admin in bootstrap mode, contract self-call
+    /// in governance mode.
     AddFeeder {
         address: String,
     },
-    /// Admin-only: remove an oracle feeder.
+    /// Remove an oracle feeder. Authorization depends on
+    /// `feeder_mutation_authority`.
     RemoveFeeder {
         address: String,
     },
@@ -386,6 +424,8 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+    validate_instantiate_msg(&msg)?;
+    let initial_feeders = validate_initial_feeders(deps.api, &info.sender, &msg)?;
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
     let config = Config {
@@ -405,13 +445,14 @@ pub fn instantiate(
         feeder_tolerance_bps: msg.feeder_tolerance_bps,
         feeder_mutation_cooldown: msg.feeder_mutation_cooldown,
         feeder_quarantine_period: msg.feeder_quarantine_period,
+        feeder_mutation_authority: msg.feeder_mutation_authority,
     };
 
     CONFIG.save(deps.storage, &config)?;
     PROPOSAL_COUNT.save(deps.storage, &0)?;
     TOTAL_BONDED.save(deps.storage, &Uint128::zero())?;
     // Initialize to epoch zero so the first activation will always require
-    // the admin to call UpdateTotalBonded at least once.
+    // feeders to reach UpdateTotalBonded consensus at least once.
     TOTAL_BONDED_UPDATED_AT.save(deps.storage, &Timestamp::from_seconds(0))?;
     // Initialize anchor to zero. Admin must call SeedAnchor to set the
     // initial value before any proposal can activate. This ensures the
@@ -423,13 +464,166 @@ pub fn instantiate(
     LAST_ACTIVATION_TIME.save(deps.storage, &Timestamp::from_seconds(0))?;
     // Initialize to epoch zero so the first feeder mutation is not blocked.
     LAST_FEEDER_MUTATION_TIME.save(deps.storage, &Timestamp::from_seconds(0))?;
-    // Register the admin as the first oracle feeder with epoch-zero
-    // registration (no quarantine — admin is immediately active).
-    FEEDERS.save(deps.storage, &vec![info.sender.clone()])?;
-    FEEDER_REGISTERED_AT.save(deps.storage, &info.sender, &Timestamp::from_seconds(0))?;
+    // Initial feeders are trusted bootstrap inputs and are active from epoch 0
+    // without quarantine. Later additions follow the configured authority,
+    // cooldown, quarantine, and epoch invalidation rules.
+    FEEDERS.save(deps.storage, &initial_feeders)?;
+    for feeder in &initial_feeders {
+        FEEDER_REGISTERED_AT.save(deps.storage, feeder, &Timestamp::from_seconds(0))?;
+    }
     ORACLE_EPOCH.save(deps.storage, &0u64)?;
 
     Ok(Response::new().add_attribute("action", "instantiate"))
+}
+
+fn validate_instantiate_msg(msg: &InstantiateMsg) -> Result<(), ContractError> {
+    if msg.voting_period == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "voting_period must be greater than zero".to_string(),
+        });
+    }
+    validate_deposit_denom(&msg.deposit_denom)?;
+    if msg.snapshot_period == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "snapshot_period must be greater than zero".to_string(),
+        });
+    }
+    if msg.threshold == 0 || msg.threshold > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "threshold must be between 1 and 10000 basis points".to_string(),
+        });
+    }
+    if msg.quorum == 0 || msg.quorum > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "quorum must be between 1 and 10000 basis points".to_string(),
+        });
+    }
+    if msg.veto_threshold > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "veto_threshold cannot exceed 10000 basis points".to_string(),
+        });
+    }
+    if msg.max_delta_bps > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "max_delta_bps cannot exceed 10000 basis points".to_string(),
+        });
+    }
+    if msg.min_feeder_quorum == 0 {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_feeder_quorum must be at least 1".to_string(),
+        });
+    }
+    if msg.min_feeder_quorum as usize > MAX_FEEDERS {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_feeder_quorum exceeds max feeder capacity".to_string(),
+        });
+    }
+    if msg.feeder_tolerance_bps > BASIS_POINTS_DENOMINATOR {
+        return Err(ContractError::InvalidConfig {
+            reason: "feeder_tolerance_bps cannot exceed 10000 basis points".to_string(),
+        });
+    }
+    let initial_feeder_count = if msg.initial_feeders.is_empty() {
+        1
+    } else {
+        msg.initial_feeders.len()
+    };
+    if initial_feeder_count > MAX_FEEDERS {
+        return Err(ContractError::InvalidConfig {
+            reason: "initial_feeders exceeds max feeder capacity".to_string(),
+        });
+    }
+    if msg.feeder_mutation_authority == FeederMutationAuthority::Governance
+        && initial_feeder_count < msg.min_feeder_quorum as usize
+    {
+        return Err(ContractError::InvalidConfig {
+            reason:
+                "governance-managed feeders require initial_feeders to satisfy min_feeder_quorum"
+                    .to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_deposit_denom(denom: &str) -> Result<(), ContractError> {
+    if denom.trim().is_empty()
+        || denom.len() > MAX_DEPOSIT_DENOM_LENGTH
+        || denom
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
+    {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "deposit_denom must be 1-{MAX_DEPOSIT_DENOM_LENGTH} characters without whitespace or control characters"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_non_empty_bounded_text(
+    field: &str,
+    value: &str,
+    max_len: usize,
+) -> Result<(), ContractError> {
+    if value.trim().is_empty() || value.len() > max_len {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("{field} must be 1-{max_len} characters"),
+        });
+    }
+    Ok(())
+}
+
+fn validate_proposal_payload(
+    title: &str,
+    description: &str,
+    messages: &[CosmosMsg<Empty>],
+) -> Result<(), ContractError> {
+    ensure_non_empty_bounded_text("title", title, MAX_PROPOSAL_TITLE_LENGTH)?;
+    ensure_non_empty_bounded_text("description", description, MAX_PROPOSAL_DESCRIPTION_LENGTH)?;
+
+    if messages.len() > MAX_PROPOSAL_MESSAGES {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("messages cannot exceed {MAX_PROPOSAL_MESSAGES} entries"),
+        });
+    }
+
+    let serialized = to_json_binary(messages)?;
+    if serialized.len() > MAX_PROPOSAL_MESSAGES_BYTES {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "messages payload cannot exceed {MAX_PROPOSAL_MESSAGES_BYTES} serialized bytes"
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_initial_feeders(
+    api: &dyn cosmwasm_std::Api,
+    admin: &Addr,
+    msg: &InstantiateMsg,
+) -> Result<Vec<Addr>, ContractError> {
+    let raw_feeders = if msg.initial_feeders.is_empty() {
+        vec![admin.to_string()]
+    } else {
+        msg.initial_feeders.clone()
+    };
+
+    let mut feeders: Vec<Addr> = Vec::with_capacity(raw_feeders.len());
+    for raw in raw_feeders {
+        let feeder = api.addr_validate(&raw)?;
+        if feeders.contains(&feeder) {
+            return Err(ContractError::InvalidConfig {
+                reason: format!("duplicate initial feeder: {feeder}"),
+            });
+        }
+        feeders.push(feeder);
+    }
+
+    Ok(feeders)
 }
 
 #[entry_point]
@@ -474,14 +668,14 @@ fn execute_submit_proposal(
     messages: Vec<CosmosMsg<Empty>>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    validate_proposal_payload(&title, &description, &messages)?;
 
-    // Check deposit
-    let deposit = info
-        .funds
-        .iter()
-        .find(|c| c.denom == config.deposit_denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
+    // Require the configured anti-spam deposit before creating durable state,
+    // and reject unrelated denoms so deposits cannot strand assets.
+    let deposit = validated_deposit_funds(&info.funds, &config.deposit_denom)?;
+    if deposit < config.min_deposit {
+        return Err(ContractError::InsufficientDeposit {});
+    }
 
     let id = PROPOSAL_COUNT.load(deps.storage)? + 1;
 
@@ -534,22 +728,15 @@ fn execute_deposit(
         return Err(ContractError::VotingEnded {});
     }
 
-    let deposit = info
-        .funds
-        .iter()
-        .find(|c| c.denom == config.deposit_denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
-
-    proposal.deposit += deposit;
+    let deposit = validated_deposit_funds(&info.funds, &config.deposit_denom)?;
+    proposal.deposit = checked_add_uint128(proposal.deposit, deposit)?;
 
     // Activate if min deposit reached
     if proposal.deposit >= config.min_deposit && proposal.status == ProposalStatus::Pending {
-        // ── P2 fix: enforce freshness of the admin-supplied total_bonded ──
-        // The admin can still pre-position the value, but it must have been
-        // refreshed within `max_staleness` seconds of activation. This shrinks
-        // the manipulation window from "any time before activation" to a narrow
-        // band the community can audit.
+        // ── P2 fix: enforce freshness of the feeder-consensus total_bonded ──
+        // The oracle value must have been refreshed within `max_staleness`
+        // seconds of activation. This shrinks the stale-denominator window from
+        // "any time before activation" to a narrow band the community can audit.
         let updated_at = TOTAL_BONDED_UPDATED_AT.load(deps.storage)?;
         if env
             .block
@@ -573,7 +760,7 @@ fn execute_deposit(
 
         // ── Activation cooldown ──
         // Enforce a minimum time gap between successive proposal activations.
-        // This prevents the admin from walking the anchor in rapid bounded
+        // This prevents governance from walking the anchor in rapid bounded
         // steps across back-to-back proposals — each step is bounded by
         // max_delta_bps, and each step requires min_activation_gap to elapse.
         let last_activation = LAST_ACTIVATION_TIME.load(deps.storage)?;
@@ -589,7 +776,7 @@ fn execute_deposit(
         }
 
         // ── Anchor-relative rate limit ──
-        // Prevent the admin from making a large jump (up or down) in the
+        // Prevent the oracle from making a large jump (up or down) in the
         // quorum denominator between proposal activations. The anchor is the
         // value accepted at the *previous* activation; the current value must
         // be within ±max_delta_bps of that anchor.
@@ -643,8 +830,8 @@ fn execute_update_total_bonded(
     let config = CONFIG.load(deps.storage)?;
 
     // ── Multi-feeder authorization ──
-    // Any registered feeder can submit — not just the admin. This distributes
-    // the trust assumption from a single party to N independent oracle feeders.
+    // Any registered feeder can submit. This distributes the trust assumption
+    // from a single party to N independent oracle feeders.
     let feeders = FEEDERS.load(deps.storage)?;
     if !feeders.contains(&info.sender) {
         return Err(ContractError::NotAFeeder {});
@@ -701,13 +888,12 @@ fn execute_update_total_bonded(
 ///
 /// **Quarantine**: feeders whose registration is more recent than
 /// `feeder_quarantine_period` are excluded from consensus. This prevents
-/// the admin from adding aligned feeders for immediate influence.
+/// aligned feeders from being added for immediate influence.
 ///
 /// **Epoch filtering**: only submissions from the current `ORACLE_EPOCH`
-/// participate in consensus. When a feeder is removed, the epoch increments,
-/// invalidating ALL pre-removal submissions. The entire current feeder set
-/// must re-submit, preventing the admin from steering by pruning a dissenter
-/// and resubmitting an aligned value.
+/// participate in consensus. When feeder membership changes, the epoch
+/// increments and invalidates prior submissions. The current feeder set must
+/// re-submit before canonical state can move again.
 fn check_oracle_consensus(
     storage: &dyn cosmwasm_std::Storage,
     env: &Env,
@@ -851,8 +1037,28 @@ fn execute_seed_anchor(
         .add_attribute("anchor", current_bonded))
 }
 
-/// Admin-only: register a new oracle feeder.
-/// Enforces mutation cooldown and records quarantine timestamp.
+fn ensure_feeder_mutation_authorized(
+    config: &Config,
+    env: &Env,
+    info: &MessageInfo,
+) -> Result<(), ContractError> {
+    match config.feeder_mutation_authority {
+        FeederMutationAuthority::Admin => {
+            if info.sender != config.admin {
+                return Err(ContractError::Unauthorized {});
+            }
+        }
+        FeederMutationAuthority::Governance => {
+            if info.sender != env.contract.address {
+                return Err(ContractError::Unauthorized {});
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Register a new oracle feeder.
+/// Enforces configured authority, mutation cooldown, and quarantine timestamp.
 fn execute_add_feeder(
     deps: DepsMut,
     env: Env,
@@ -860,9 +1066,7 @@ fn execute_add_feeder(
     address: String,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    if info.sender != config.admin {
-        return Err(ContractError::Unauthorized {});
-    }
+    ensure_feeder_mutation_authorized(&config, &env, &info)?;
 
     // Enforce mutation cooldown — prevent rapid feeder set reshaping
     let last_mutation = LAST_FEEDER_MUTATION_TIME.load(deps.storage)?;
@@ -882,11 +1086,19 @@ fn execute_add_feeder(
     if feeders.contains(&feeder_addr) {
         return Err(ContractError::FeederAlreadyRegistered {});
     }
+    if feeders.len() >= MAX_FEEDERS {
+        return Err(ContractError::FeederSetFull {});
+    }
 
     feeders.push(feeder_addr.clone());
     FEEDERS.save(deps.storage, &feeders)?;
     // Record registration time — feeder is quarantined until this + quarantine_period
     FEEDER_REGISTERED_AT.save(deps.storage, &feeder_addr, &env.block.time)?;
+    // Increment oracle epoch on every membership change. This prevents
+    // pre-addition submissions from mixing with observations from the expanded
+    // feeder set; all eligible feeders must re-submit for fresh consensus.
+    let epoch = ORACLE_EPOCH.load(deps.storage)?;
+    ORACLE_EPOCH.save(deps.storage, &(epoch + 1))?;
     // Record mutation time for cooldown enforcement
     LAST_FEEDER_MUTATION_TIME.save(deps.storage, &env.block.time)?;
 
@@ -896,8 +1108,8 @@ fn execute_add_feeder(
         .add_attribute("total_feeders", feeders.len().to_string()))
 }
 
-/// Admin-only: remove an oracle feeder.
-/// Enforces mutation cooldown and minimum feeder floor.
+/// Remove an oracle feeder.
+/// Enforces configured authority, mutation cooldown, and minimum feeder floor.
 fn execute_remove_feeder(
     deps: DepsMut,
     env: Env,
@@ -905,9 +1117,7 @@ fn execute_remove_feeder(
     address: String,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    if info.sender != config.admin {
-        return Err(ContractError::Unauthorized {});
-    }
+    ensure_feeder_mutation_authorized(&config, &env, &info)?;
 
     // Enforce mutation cooldown — prevent rapid feeder set reshaping
     let last_mutation = LAST_FEEDER_MUTATION_TIME.load(deps.storage)?;
@@ -927,7 +1137,7 @@ fn execute_remove_feeder(
     // Check feeder exists before evaluating floor constraint
     let pos = feeders
         .iter()
-        .position(|f| f == &feeder_addr)
+        .position(|f| f.as_str() == feeder_addr.as_str())
         .ok_or(ContractError::FeederNotFound {})?;
 
     // Cannot remove below min_feeder_quorum — ensures the feeder set
@@ -975,7 +1185,7 @@ fn execute_snapshot_stake(
     // (activation → snapshot_end_time). This ensures all voter weights are
     // anchored to a narrow, pre-determined time range — not lazily taken
     // whenever a voter happens to cast.
-    let snapshot_end = proposal.snapshot_end_time.unwrap();
+    let snapshot_end = require_proposal_time(proposal.snapshot_end_time)?;
     if env.block.time > snapshot_end {
         return Err(ContractError::SnapshotWindowEnded {});
     }
@@ -991,7 +1201,7 @@ fn execute_snapshot_stake(
     let total: Uint128 = delegations
         .iter()
         .map(|d| d.amount.amount)
-        .fold(Uint128::zero(), |acc, a| acc + a);
+        .try_fold(Uint128::zero(), checked_add_uint128)?;
 
     STAKE_SNAPSHOTS.save(deps.storage, (proposal_id, &info.sender), &total)?;
 
@@ -1018,12 +1228,12 @@ fn execute_vote(
     // ── P1 fix: voting only opens after the snapshot window closes ──
     // This guarantees that all voter weights were locked during a narrow,
     // predetermined window — not lazily taken at an attacker-chosen time.
-    let snapshot_end = proposal.snapshot_end_time.unwrap();
+    let snapshot_end = require_proposal_time(proposal.snapshot_end_time)?;
     if env.block.time <= snapshot_end {
         return Err(ContractError::VotingNotOpenYet {});
     }
 
-    let voting_end = proposal.voting_end_time.unwrap();
+    let voting_end = require_proposal_time(proposal.voting_end_time)?;
     if env.block.time > voting_end {
         return Err(ContractError::VotingEnded {});
     }
@@ -1056,10 +1266,14 @@ fn execute_vote(
 
     // Update tallies
     match option {
-        VoteOption::Yes => proposal.votes_yes += weight,
-        VoteOption::No => proposal.votes_no += weight,
-        VoteOption::Abstain => proposal.votes_abstain += weight,
-        VoteOption::NoWithVeto => proposal.votes_no_with_veto += weight,
+        VoteOption::Yes => proposal.votes_yes = checked_add_uint128(proposal.votes_yes, weight)?,
+        VoteOption::No => proposal.votes_no = checked_add_uint128(proposal.votes_no, weight)?,
+        VoteOption::Abstain => {
+            proposal.votes_abstain = checked_add_uint128(proposal.votes_abstain, weight)?
+        }
+        VoteOption::NoWithVeto => {
+            proposal.votes_no_with_veto = checked_add_uint128(proposal.votes_no_with_veto, weight)?
+        }
     }
 
     PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
@@ -1088,8 +1302,7 @@ fn execute_execute_proposal(
         return Err(ContractError::InvalidStatus {});
     }
 
-    // Safe to unwrap: Active proposals always have voting_end_time set.
-    let voting_end = proposal.voting_end_time.unwrap();
+    let voting_end = require_proposal_time(proposal.voting_end_time)?;
     if env.block.time <= voting_end {
         return Err(ContractError::VotingNotStarted {});
     }
@@ -1103,59 +1316,81 @@ fn execute_execute_proposal(
     }
 
     // Calculate results
-    let total_votes = proposal.votes_yes
-        + proposal.votes_no
-        + proposal.votes_abstain
-        + proposal.votes_no_with_veto;
+    let non_abstain_votes = checked_add_uint128(
+        checked_add_uint128(proposal.votes_yes, proposal.votes_no)?,
+        proposal.votes_no_with_veto,
+    )?;
+    let total_votes = checked_add_uint128(non_abstain_votes, proposal.votes_abstain)?;
 
     // Enforce quorum against the total_bonded snapshot taken at proposal activation,
-    // NOT the live TOTAL_BONDED value. This prevents the admin from steering quorum
+    // NOT the live TOTAL_BONDED value. This prevents quorum from being steered
     // by rewriting total_bonded after voting has already begun.
     let snapshot_bonded = proposal.snapshot_total_bonded;
     if snapshot_bonded.is_zero() {
         // Snapshot was zero at activation — cannot verify quorum.
-        return Err(ContractError::QuorumNotMet {});
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "snapshot_total_bonded_zero",
+        );
     }
 
     // ── On-chain consistency bound ──
     // The sum of all voter-snapshotted weights can never legitimately exceed
-    // the total bonded tokens on the network. If it does, the admin understated
-    // the denominator — making quorum artificially easy to reach. This check
+    // the total bonded tokens on the network. If it does, the oracle understated
+    // the denominator, making quorum artificially easy to reach. This check
     // catches the *dangerous* direction of manipulation (lowering the bar).
     //
-    // The admin can still *overstate* total_bonded, which makes quorum harder
+    // The oracle can still *overstate* total_bonded, which makes quorum harder
     // to reach and could block proposals — but that is a liveness issue, not a
     // safety issue, and is detectable off-chain via standard staking queries.
     if total_votes > snapshot_bonded {
-        proposal.status = ProposalStatus::Rejected;
-        PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-        return Err(ContractError::TotalBondedInconsistency {});
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "total_bonded_inconsistency",
+        );
     }
 
     let quorum_threshold =
         snapshot_bonded * Uint128::from(config.quorum) / Uint128::from(10000u128);
     if total_votes < quorum_threshold {
-        proposal.status = ProposalStatus::Rejected;
-        PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-        return Err(ContractError::QuorumNotMet {});
+        return reject_proposal(deps.storage, proposal_id, &mut proposal, "quorum_not_met");
+    }
+
+    if non_abstain_votes.is_zero() || proposal.votes_yes.is_zero() {
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "no_affirmative_non_abstain_votes",
+        );
     }
 
     // Check veto
     let veto_threshold =
         total_votes * Uint128::from(config.veto_threshold) / Uint128::from(10000u128);
     if proposal.votes_no_with_veto > veto_threshold {
-        proposal.status = ProposalStatus::Rejected;
-        PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-        return Err(ContractError::NotPassed {});
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "veto_threshold_met",
+        );
     }
 
     // Check pass threshold
-    let pass_threshold = (proposal.votes_yes + proposal.votes_no) * Uint128::from(config.threshold)
-        / Uint128::from(10000u128);
+    let pass_threshold =
+        non_abstain_votes * Uint128::from(config.threshold) / Uint128::from(10000u128);
     if proposal.votes_yes < pass_threshold {
-        proposal.status = ProposalStatus::Rejected;
-        PROPOSALS.save(deps.storage, proposal_id, &proposal)?;
-        return Err(ContractError::NotPassed {});
+        return reject_proposal(
+            deps.storage,
+            proposal_id,
+            &mut proposal,
+            "threshold_not_met",
+        );
     }
 
     proposal.status = ProposalStatus::Passed;
@@ -1173,6 +1408,45 @@ fn execute_execute_proposal(
     }
 
     Ok(response)
+}
+
+fn require_proposal_time(value: Option<Timestamp>) -> Result<Timestamp, ContractError> {
+    value.ok_or(ContractError::ProposalTimingNotInitialized {})
+}
+
+fn checked_add_uint128(left: Uint128, right: Uint128) -> Result<Uint128, ContractError> {
+    left.checked_add(right)
+        .map_err(|_| ContractError::ArithmeticOverflow {})
+}
+
+fn validated_deposit_funds(funds: &[Coin], deposit_denom: &str) -> Result<Uint128, ContractError> {
+    let mut deposit = Uint128::zero();
+
+    for coin in funds {
+        if coin.denom != deposit_denom {
+            return Err(ContractError::UnexpectedFunds {});
+        }
+
+        deposit = checked_add_uint128(deposit, coin.amount)?;
+    }
+
+    Ok(deposit)
+}
+
+fn reject_proposal(
+    storage: &mut dyn cosmwasm_std::Storage,
+    proposal_id: u64,
+    proposal: &mut Proposal,
+    reason: &str,
+) -> Result<Response, ContractError> {
+    proposal.status = ProposalStatus::Rejected;
+    PROPOSALS.save(storage, proposal_id, proposal)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "execute_proposal")
+        .add_attribute("proposal_id", proposal_id.to_string())
+        .add_attribute("status", "rejected")
+        .add_attribute("reason", reason))
 }
 
 #[entry_point]
@@ -1248,7 +1522,7 @@ fn query_oracle_status(deps: Deps, env: Env) -> StdResult<OracleStatusResponse> 
     let mut feeder_infos: Vec<FeederInfo> = Vec::new();
     for feeder in &feeders {
         let submission = FEEDER_SUBMISSIONS.may_load(deps.storage, feeder)?;
-        let is_fresh = submission.as_ref().map_or(false, |s| {
+        let is_fresh = submission.as_ref().is_some_and(|s| {
             env.block
                 .time
                 .seconds()
@@ -1333,6 +1607,8 @@ mod tests {
             feeder_tolerance_bps: 500,   // 5% tolerance between feeders
             feeder_mutation_cooldown: 0, // no cooldown for single-feeder tests
             feeder_quarantine_period: 0, // no quarantine for single-feeder tests
+            initial_feeders: vec![],     // empty means instantiator-only bootstrap set
+            feeder_mutation_authority: FeederMutationAuthority::Admin,
         }
     }
 
@@ -1346,6 +1622,280 @@ mod tests {
         let msg = default_init_msg();
         let info = mock_info(ADMIN, &[]);
         instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    }
+
+    #[test]
+    fn test_instantiate_rejects_zero_feeder_quorum() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            min_feeder_quorum: 0,
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_invalid_basis_points() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            feeder_tolerance_bps: BASIS_POINTS_DENOMINATOR + 1,
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_zero_quorum() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            quorum: 0,
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_invalid_deposit_denom() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            deposit_denom: "bad denom".to_string(),
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("deposit_denom"));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_oversized_deposit_denom() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            deposit_denom: "u".repeat(MAX_DEPOSIT_DENOM_LENGTH + 1),
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("deposit_denom"));
+    }
+
+    #[test]
+    fn test_governance_managed_feeders_require_initial_quorum() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            min_feeder_quorum: 3,
+            feeder_mutation_authority: FeederMutationAuthority::Governance,
+            initial_feeders: vec![ADMIN.to_string(), "feeder_1".to_string()],
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn test_instantiate_rejects_duplicate_initial_feeders() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            initial_feeders: vec![ADMIN.to_string(), ADMIN.to_string()],
+            ..default_init_msg()
+        };
+
+        let err = instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap_err();
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn test_feeder_set_has_capacity_limit() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        for index in 1..MAX_FEEDERS {
+            execute(
+                deps.as_mut(),
+                mock_env(),
+                mock_info(ADMIN, &[]),
+                ExecuteMsg::AddFeeder {
+                    address: format!("feeder_{index}"),
+                },
+            )
+            .unwrap();
+        }
+
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::AddFeeder {
+                address: "feeder_overflow".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::FeederSetFull {});
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_below_min_deposit() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(999_999, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: "Underfunded proposal".to_string(),
+                description: "must not create durable proposal state".to_string(),
+                messages: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, ContractError::InsufficientDeposit {});
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_unexpected_deposit_funds() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        let funds = vec![Coin::new(1_000_000, DENOM), Coin::new(1, "uatom")];
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &funds),
+            ExecuteMsg::SubmitProposal {
+                title: "Unexpected funds".to_string(),
+                description: "must not create durable proposal state".to_string(),
+                messages: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, ContractError::UnexpectedFunds {});
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_empty_title() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(1_000_000, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: " ".to_string(),
+                description: "valid description".to_string(),
+                messages: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("title"));
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_oversized_description() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(1_000_000, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: "Bounded proposal".to_string(),
+                description: "a".repeat(MAX_PROPOSAL_DESCRIPTION_LENGTH + 1),
+                messages: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("description"));
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_too_many_messages() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(1_000_000, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: "Too many messages".to_string(),
+                description: "message count must be bounded".to_string(),
+                messages: (0..=MAX_PROPOSAL_MESSAGES)
+                    .map(|_| CosmosMsg::Custom(Empty {}))
+                    .collect(),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("messages"));
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_submit_proposal_rejects_oversized_message_payload() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_000),
+            mock_info(VOTER_A, &coins(1_000_000, DENOM)),
+            ExecuteMsg::SubmitProposal {
+                title: "Oversized message".to_string(),
+                description: "serialized message bytes must be bounded".to_string(),
+                messages: vec![CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+                    contract_addr: "target_contract".to_string(),
+                    msg: Binary::from(vec![0u8; MAX_PROPOSAL_MESSAGES_BYTES + 1]),
+                    funds: vec![],
+                })],
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ContractError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("messages payload"));
+        assert_eq!(PROPOSAL_COUNT.load(deps.as_ref().storage).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_deposit_rejects_unexpected_funds() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        submit_proposal(&mut deps, env_at(1_000_000));
+        let funds = vec![Coin::new(1_000_000, DENOM), Coin::new(1, "uatom")];
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(1_000_010),
+            mock_info(VOTER_A, &funds),
+            ExecuteMsg::Deposit { proposal_id: 1 },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, ContractError::UnexpectedFunds {});
+        let prop = PROPOSALS.load(deps.as_ref().storage, 1).unwrap();
+        assert_eq!(prop.deposit, Uint128::from(1_000_000u128));
     }
 
     /// Configure mock staking state: one validator with delegations.
@@ -1401,7 +1951,7 @@ mod tests {
         >,
         env: Env,
     ) -> u64 {
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env,
@@ -1461,7 +2011,7 @@ mod tests {
         env: Env,
         proposal_id: u64,
     ) {
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env,
@@ -1485,10 +2035,10 @@ mod tests {
         refresh_total_bonded(&mut deps, env_at(t0), 10_000_000);
         seed_anchor(&mut deps, env_at(t0));
 
-        // Submit proposal (partial deposit)
+        // Submit proposal with the anti-spam deposit.
         submit_proposal(&mut deps, env_at(t0 + 10));
 
-        // Deposit remaining to activate
+        // Deposit again to trigger activation.
         activate_proposal(&mut deps, env_at(t0 + 20), 1);
 
         // Verify proposal is Active
@@ -1683,7 +2233,7 @@ mod tests {
         seed_anchor(&mut deps, env_at(t0));
         submit_proposal(&mut deps, env_at(t0 + 10));
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let err = execute(
             deps.as_mut(),
             env_at(t0 + 400),
@@ -1707,7 +2257,7 @@ mod tests {
         submit_proposal(&mut deps, env_at(t0 + 10));
 
         // Activate within freshness window (200s < 300s max_staleness)
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let res = execute(
             deps.as_mut(),
             env_at(t0 + 200),
@@ -1776,15 +2326,19 @@ mod tests {
         )
         .unwrap();
 
-        // Execute — should fail with TotalBondedInconsistency
-        let err = execute(
+        // Execute — should persist terminal rejection instead of returning an
+        // error that would roll back state on-chain.
+        let res = execute(
             deps.as_mut(),
             env_at(t0 + 800),
             mock_info(VOTER_A, &[]),
             ExecuteMsg::ExecuteProposal { proposal_id: 1 },
         )
-        .unwrap_err();
-        assert_eq!(err, ContractError::TotalBondedInconsistency {});
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "reason" && a.value == "total_bonded_inconsistency"));
 
         // Verify proposal was rejected
         let prop: Proposal = from_json(
@@ -1875,14 +2429,87 @@ mod tests {
         )
         .unwrap();
 
-        let err = execute(
+        let res = execute(
             deps.as_mut(),
             env_at(t0 + 800),
             mock_info(VOTER_A, &[]),
             ExecuteMsg::ExecuteProposal { proposal_id: 1 },
         )
-        .unwrap_err();
-        assert_eq!(err, ContractError::QuorumNotMet {});
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "reason" && a.value == "quorum_not_met"));
+
+        let prop: Proposal = from_json(
+            query(
+                deps.as_ref(),
+                env_at(t0 + 800),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(prop.status, ProposalStatus::Rejected);
+    }
+
+    #[test]
+    fn test_all_abstain_votes_reject_proposal() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        set_delegations(&mut deps, &[(VOTER_A, 5_000_000), (VOTER_B, 3_000_000)]);
+
+        let t0 = 1_000_000u64;
+        refresh_total_bonded(&mut deps, env_at(t0), 10_000_000);
+        seed_anchor(&mut deps, env_at(t0));
+        submit_proposal(&mut deps, env_at(t0 + 10));
+        activate_proposal(&mut deps, env_at(t0 + 20), 1);
+
+        for voter in [VOTER_A, VOTER_B] {
+            execute(
+                deps.as_mut(),
+                env_at(t0 + 50),
+                mock_info(voter, &[]),
+                ExecuteMsg::SnapshotStake { proposal_id: 1 },
+            )
+            .unwrap();
+
+            execute(
+                deps.as_mut(),
+                env_at(t0 + 200),
+                mock_info(voter, &[]),
+                ExecuteMsg::Vote {
+                    proposal_id: 1,
+                    option: VoteOption::Abstain,
+                },
+            )
+            .unwrap();
+        }
+
+        let res = execute(
+            deps.as_mut(),
+            env_at(t0 + 800),
+            mock_info(VOTER_A, &[]),
+            ExecuteMsg::ExecuteProposal { proposal_id: 1 },
+        )
+        .unwrap();
+
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| { a.key == "reason" && a.value == "no_affirmative_non_abstain_votes" }));
+
+        let prop: Proposal = from_json(
+            query(
+                deps.as_ref(),
+                env_at(t0 + 800),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(prop.status, ProposalStatus::Rejected);
+        assert!(!prop.executed);
     }
 
     // ── Test: double vote rejected ───────────────────────────────────────
@@ -2016,6 +2643,54 @@ mod tests {
         assert_eq!(err, ContractError::InvalidStatus {});
     }
 
+    #[test]
+    fn test_malformed_active_proposal_timing_rejected_without_panic() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        set_delegations(&mut deps, &[(VOTER_A, 5_000_000)]);
+
+        let t0 = 1_000_000u64;
+        refresh_total_bonded(&mut deps, env_at(t0), 10_000_000);
+        seed_anchor(&mut deps, env_at(t0));
+        submit_proposal(&mut deps, env_at(t0 + 10));
+        activate_proposal(&mut deps, env_at(t0 + 20), 1);
+
+        PROPOSALS
+            .update(deps.as_mut().storage, 1, |proposal| -> StdResult<_> {
+                let mut proposal = proposal.unwrap();
+                proposal.snapshot_end_time = None;
+                Ok(proposal)
+            })
+            .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(t0 + 50),
+            mock_info(VOTER_A, &[]),
+            ExecuteMsg::SnapshotStake { proposal_id: 1 },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::ProposalTimingNotInitialized {});
+
+        PROPOSALS
+            .update(deps.as_mut().storage, 1, |proposal| -> StdResult<_> {
+                let mut proposal = proposal.unwrap();
+                proposal.snapshot_end_time = Some(Timestamp::from_seconds(t0 + 140));
+                proposal.voting_end_time = None;
+                Ok(proposal)
+            })
+            .unwrap();
+
+        let err = execute(
+            deps.as_mut(),
+            env_at(t0 + 800),
+            mock_info(VOTER_A, &[]),
+            ExecuteMsg::ExecuteProposal { proposal_id: 1 },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::ProposalTimingNotInitialized {});
+    }
+
     // ── Test: query_proposals status filter and pagination ────────────────
 
     #[test]
@@ -2026,7 +2701,7 @@ mod tests {
         let t0 = 1_000_000u64;
         // Create 3 proposals (all Pending)
         for i in 0..3 {
-            let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+            let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
             execute(
                 deps.as_mut(),
                 env_at(t0 + i * 10),
@@ -2142,14 +2817,28 @@ mod tests {
         )
         .unwrap();
 
-        let err = execute(
+        let res = execute(
             deps.as_mut(),
             env_at(t0 + 800),
             mock_info(VOTER_A, &[]),
             ExecuteMsg::ExecuteProposal { proposal_id: 1 },
         )
-        .unwrap_err();
-        assert_eq!(err, ContractError::NotPassed {});
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "reason" && a.value == "veto_threshold_met"));
+
+        let prop: Proposal = from_json(
+            query(
+                deps.as_ref(),
+                env_at(t0 + 800),
+                QueryMsg::Proposal { proposal_id: 1 },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(prop.status, ProposalStatus::Rejected);
     }
 
     // ── Test: seed anchor enables first activation ──────────────────────
@@ -2192,7 +2881,7 @@ mod tests {
         // Do NOT seed anchor
         submit_proposal(&mut deps, env_at(t0 + 10));
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let err = execute(
             deps.as_mut(),
             env_at(t0 + 20),
@@ -2246,7 +2935,7 @@ mod tests {
         refresh_total_bonded(&mut deps, env_at(t0 + 100), 15_000_000);
 
         // Submit and try to activate second proposal (after 60s cooldown)
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env_at(t0 + 100),
@@ -2259,7 +2948,7 @@ mod tests {
         )
         .unwrap();
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let err = execute(
             deps.as_mut(),
             env_at(t0 + 100), // refresh is fresh; cooldown: 100-20=80 > 60 ✓
@@ -2288,7 +2977,7 @@ mod tests {
         // Admin understates to 5M (-50%, exceeds ±10%)
         refresh_total_bonded(&mut deps, env_at(t0 + 100), 5_000_000);
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env_at(t0 + 100),
@@ -2301,7 +2990,7 @@ mod tests {
         )
         .unwrap();
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let err = execute(
             deps.as_mut(),
             env_at(t0 + 100), // cooldown: 100-20=80 > 60 ✓
@@ -2331,7 +3020,7 @@ mod tests {
         // Admin updates to 10.5M (+5%, within ±10%)
         refresh_total_bonded(&mut deps, env_at(t0 + 100), 10_500_000);
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env_at(t0 + 100),
@@ -2344,7 +3033,7 @@ mod tests {
         )
         .unwrap();
 
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         let res = execute(
             deps.as_mut(),
             env_at(t0 + 100), // cooldown: 100-20=80 > 60 ✓; fresh: 0s < 300s ✓
@@ -2387,7 +3076,7 @@ mod tests {
         refresh_total_bonded(&mut deps, env_at(t0 + 30), 10_000_000);
 
         // Submit second proposal
-        let info = mock_info(VOTER_A, &coins(500_000, DENOM));
+        let info = mock_info(VOTER_A, &coins(1_000_000, DENOM));
         execute(
             deps.as_mut(),
             env_at(t0 + 30),
@@ -2509,6 +3198,86 @@ mod tests {
             )
             .unwrap();
         }
+    }
+
+    fn setup_governance_managed_feeder_contract(
+        deps: &mut cosmwasm_std::OwnedDeps<
+            cosmwasm_std::MemoryStorage,
+            cosmwasm_std::testing::MockApi,
+            cosmwasm_std::testing::MockQuerier,
+        >,
+    ) -> Env {
+        let env = mock_env();
+        let msg = InstantiateMsg {
+            min_feeder_quorum: 3,
+            feeder_tolerance_bps: 500,
+            initial_feeders: vec![
+                ADMIN.to_string(),
+                FEEDER_1.to_string(),
+                FEEDER_2.to_string(),
+            ],
+            feeder_mutation_authority: FeederMutationAuthority::Governance,
+            ..default_init_msg()
+        };
+        instantiate(deps.as_mut(), env.clone(), mock_info(ADMIN, &[]), msg).unwrap();
+        env
+    }
+
+    #[test]
+    fn test_governance_mode_blocks_direct_admin_feeder_mutation() {
+        let mut deps = mock_dependencies();
+        let env = setup_governance_managed_feeder_contract(&mut deps);
+
+        let err = execute(
+            deps.as_mut(),
+            env,
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_3.to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, ContractError::Unauthorized {});
+    }
+
+    #[test]
+    fn test_governance_mode_allows_contract_self_feeder_mutation() {
+        let mut deps = mock_dependencies();
+        let env = setup_governance_managed_feeder_contract(&mut deps);
+        let contract = env.contract.address.to_string();
+
+        let epoch_before_add = ORACLE_EPOCH.load(deps.as_ref().storage).unwrap();
+        let res = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info(&contract, &[]),
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_3.to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(res.attributes[0].value, "add_feeder");
+        assert_eq!(
+            ORACLE_EPOCH.load(deps.as_ref().storage).unwrap(),
+            epoch_before_add + 1
+        );
+        assert_eq!(FEEDERS.load(deps.as_ref().storage).unwrap().len(), 4);
+
+        let epoch_before_remove = ORACLE_EPOCH.load(deps.as_ref().storage).unwrap();
+        execute(
+            deps.as_mut(),
+            env,
+            mock_info(&contract, &[]),
+            ExecuteMsg::RemoveFeeder {
+                address: FEEDER_3.to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ORACLE_EPOCH.load(deps.as_ref().storage).unwrap(),
+            epoch_before_remove + 1
+        );
+        assert_eq!(FEEDERS.load(deps.as_ref().storage).unwrap().len(), 3);
     }
 
     // ── Test: non-feeder cannot submit total_bonded ──────────────────────
@@ -3130,7 +3899,9 @@ mod tests {
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
         assert_eq!(bonded, Uint128::from(10_050_000u128));
 
-        // Admin removes FEEDER_1 (the dissenter) → epoch increments to 1
+        let epoch_before_remove = ORACLE_EPOCH.load(deps.as_ref().storage).unwrap();
+
+        // Admin removes FEEDER_1 (the dissenter) → epoch increments
         let info = mock_info(ADMIN, &[]);
         execute(
             deps.as_mut(),
@@ -3144,7 +3915,7 @@ mod tests {
 
         // Verify epoch incremented
         let epoch = ORACLE_EPOCH.load(deps.as_ref().storage).unwrap();
-        assert_eq!(epoch, 1);
+        assert_eq!(epoch, epoch_before_remove + 1);
 
         // Admin resubmits 20.1M at epoch 1 (to align with FEEDER_2)
         let info = mock_info(ADMIN, &[]);
@@ -3200,6 +3971,107 @@ mod tests {
         );
         let bonded = TOTAL_BONDED.load(deps.as_ref().storage).unwrap();
         assert_eq!(bonded, Uint128::from(20_050_000u128));
+    }
+
+    #[test]
+    fn test_add_feeder_invalidates_prior_oracle_submissions() {
+        let mut deps = mock_dependencies();
+
+        let msg = InstantiateMsg {
+            min_feeder_quorum: 2,
+            feeder_tolerance_bps: 500,
+            ..default_init_msg()
+        };
+        instantiate(deps.as_mut(), mock_env(), mock_info(ADMIN, &[]), msg).unwrap();
+
+        // Add FEEDER_1 so the initial two-feeder set can reach consensus.
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_1.to_string(),
+            },
+        )
+        .unwrap();
+
+        let t0 = 1_000_000u64;
+        execute(
+            deps.as_mut(),
+            env_at(t0),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::UpdateTotalBonded {
+                total_bonded: Uint128::from(10_000_000u128),
+            },
+        )
+        .unwrap();
+        execute(
+            deps.as_mut(),
+            env_at(t0 + 1),
+            mock_info(FEEDER_1, &[]),
+            ExecuteMsg::UpdateTotalBonded {
+                total_bonded: Uint128::from(10_100_000u128),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            TOTAL_BONDED.load(deps.as_ref().storage).unwrap(),
+            Uint128::from(10_050_000u128)
+        );
+
+        // Adding FEEDER_2 changes membership and increments the oracle epoch.
+        let epoch_before_add = ORACLE_EPOCH.load(deps.as_ref().storage).unwrap();
+        execute(
+            deps.as_mut(),
+            env_at(t0 + 2),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::AddFeeder {
+                address: FEEDER_2.to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ORACLE_EPOCH.load(deps.as_ref().storage).unwrap(),
+            epoch_before_add + 1
+        );
+
+        // A new feeder submission cannot combine with pre-addition submissions.
+        let res = execute(
+            deps.as_mut(),
+            env_at(t0 + 3),
+            mock_info(FEEDER_2, &[]),
+            ExecuteMsg::UpdateTotalBonded {
+                total_bonded: Uint128::from(20_000_000u128),
+            },
+        )
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "false"));
+        assert_eq!(
+            TOTAL_BONDED.load(deps.as_ref().storage).unwrap(),
+            Uint128::from(10_050_000u128)
+        );
+
+        // Current-epoch submissions from enough feeders are required.
+        let res = execute(
+            deps.as_mut(),
+            env_at(t0 + 4),
+            mock_info(ADMIN, &[]),
+            ExecuteMsg::UpdateTotalBonded {
+                total_bonded: Uint128::from(20_100_000u128),
+            },
+        )
+        .unwrap();
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "consensus_reached" && a.value == "true"));
+        assert_eq!(
+            TOTAL_BONDED.load(deps.as_ref().storage).unwrap(),
+            Uint128::from(20_050_000u128)
+        );
     }
 
     // ── Test: oracle status query ────────────────────────────────────────

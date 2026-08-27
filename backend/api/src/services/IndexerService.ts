@@ -18,8 +18,8 @@
  *  - Graceful shutdown with in-flight work completion
  */
 
-import { injectable } from 'tsyringe';
-import { PrismaClient } from '@prisma/client';
+import { singleton } from "tsyringe";
+import { Prisma, PrismaClient } from "@prisma/client";
 import {
   WebSocketProvider,
   JsonRpcProvider,
@@ -28,9 +28,17 @@ import {
   Log,
   Interface,
   Contract,
-} from 'ethers';
-import { logger } from '../utils/logger';
-import { BlockchainService } from './BlockchainService';
+} from "ethers";
+import { logger } from "../utils/logger";
+import { BlockchainService } from "./BlockchainService";
+import { config } from "../config";
+import { errorContext } from "../utils/errorContext";
+import { redactUrlForLogs } from "../utils/urlRedaction";
+import {
+  buildIndexerNetworkKeys,
+  LEGACY_INDEXER_CURSOR_KEY,
+  type IndexerNetworkKeys,
+} from "../lib/indexerNetworkIdentity";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,7 +69,7 @@ const CONFIRMATION_DEPTH = 2;
 const MAX_REORG_DEPTH = 64;
 
 /** Cursor key used in the IndexerCursor table. */
-const CURSOR_KEY = 'evm-indexer';
+const CURSOR_KEY = LEGACY_INDEXER_CURSOR_KEY;
 
 /** WebSocket reconnect delay (ms). */
 const WS_RECONNECT_DELAY_MS = 3_000;
@@ -69,21 +77,37 @@ const WS_RECONNECT_DELAY_MS = 3_000;
 /** Maximum WebSocket reconnect attempts before falling back to polling. */
 const WS_MAX_RECONNECT_ATTEMPTS = 20;
 
+/**
+ * Upper bound on waiting for the WebSocket provider to become ready.
+ * connectWebSocket() is awaited on the server-boot path, and ethers v6's
+ * getNetwork() never settles against a dead endpoint — without this bound a
+ * misconfigured WS URL would keep the API from ever listening.
+ */
+const WS_READY_TIMEOUT_MS = 15_000;
+
+/** Public Aethelred EVM deployments use block 1 as the immutable anchor. */
+const NETWORK_ANCHOR_BLOCK = 1;
+
 /** Fixed primary key for the singleton VaultState row. */
-const VAULT_STATE_ID = 'cruzible-vault-state';
+const VAULT_STATE_ID = "cruzible-vault-state";
 
 /** Default unbonding period (days) — matches the Cosmos SDK default. */
-const DEFAULT_UNBONDING_PERIOD_DAYS = 21;
 
 /**
  * Cruzible Vault view functions used to materialize VaultState.
  * These must match the canonical ICruzible.sol interface.
  */
+// Getter names must match the DEPLOYED backend/contracts-evm/src/Cruzible.sol:
+// totalPooledAethel/currentEpoch/unbondingPeriod are public variables,
+// totalShares/getExchangeRate are explicit views. There is no validator-count
+// getter on the vault (validator selection lives off-vault on this line).
 const VAULT_VIEW_ABI = [
-  'function getTotalPooledAethel() view returns (uint256)',
-  'function getTotalShares() view returns (uint256)',
-  'function getExchangeRate() view returns (uint256)',
-  'function getActiveValidatorCount() view returns (uint256)',
+  "function totalPooledAethel() view returns (uint256)",
+  "function totalShares() view returns (uint256)",
+  "function getExchangeRate() view returns (uint256)",
+  "function currentEpoch() view returns (uint256)",
+  "function unbondingPeriod() view returns (uint256)",
+  "function effectiveAPY() view returns (uint256)",
 ];
 
 /**
@@ -107,12 +131,15 @@ const VAULT_VIEW_ABI = [
  * they are resolved from the frontend STABLECOIN_ASSETS registry.
  */
 const BRIDGE_VIEW_ABI = [
-  'function stablecoins(bytes32 assetId) view returns (bool enabled, bool mintPaused, uint8 routingType, address token, address tokenMessengerV2, address messageTransmitterV2, address proofOfReserveFeed, uint256 mintCeilingPerEpoch, uint256 dailyTxLimit, uint16 hourlyOutflowBps, uint16 dailyOutflowBps, uint16 porDeviationBps, uint48 porHeartbeatSeconds)',
-  'function epochUsage(bytes32 assetId) view returns (uint64 epochId, uint256 mintedAmount, uint256 txVolume)',
+  "function stablecoins(bytes32 assetId) view returns (bool enabled, bool mintPaused, uint8 routingType, address token, address tokenMessengerV2, address messageTransmitterV2, address proofOfReserveFeed, uint256 mintCeilingPerEpoch, uint256 dailyTxLimit, uint16 hourlyOutflowBps, uint16 dailyOutflowBps, uint16 porDeviationBps, uint48 porHeartbeatSeconds)",
+  "function epochUsage(bytes32 assetId) view returns (uint64 epochId, uint256 mintedAmount, uint256 txVolume)",
 ];
 
 /** 1e18 as a bigint constant for fixed-point arithmetic. */
 const FIXED_POINT_SCALE = 10n ** 18n;
+
+/** Largest Unix-second value representable by JavaScript Date. */
+const MAX_DATE_UNIX_SECONDS = 8_640_000_000_000n;
 
 /**
  * Convert a 1e18 fixed-point bigint to a lossless decimal string.
@@ -127,8 +154,8 @@ function formatFixedPoint18(value: bigint): string {
   const abs = isNegative ? -value : value;
   const integerPart = abs / FIXED_POINT_SCALE;
   const fractionalPart = abs % FIXED_POINT_SCALE;
-  const sign = isNegative ? '-' : '';
-  return `${sign}${integerPart}.${fractionalPart.toString().padStart(18, '0')}`;
+  const sign = isNegative ? "-" : "";
+  return `${sign}${integerPart}.${fractionalPart.toString().padStart(18, "0")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,28 +163,34 @@ function formatFixedPoint18(value: bigint): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Cruzible Vault contract events — must match the canonical ICruzible.sol
- * interface.  The signatures below determine topic hashes; any drift means
- * the indexer silently misses or misparses on-chain events.
+ * Cruzible Vault contract events — must match the DEPLOYED
+ * backend/contracts-evm/src/Cruzible.sol.  The signatures below determine
+ * topic hashes; any drift means the indexer silently misses or misparses
+ * on-chain events.  (An earlier revision of this file described a different
+ * contract line — UnstakeRequested/RewardsDistributed with extra fields —
+ * and indexed nothing against the shipped vault; verified live 2026-07-14.)
  *
- *   event Staked(address indexed user, uint256 aethelAmount, uint256 sharesIssued, uint256 referralCode)
- *   event UnstakeRequested(address indexed user, uint256 shares, uint256 aethelAmount, uint256 indexed withdrawalId, uint256 completionTime)
- *   event Withdrawn(address indexed user, uint256 indexed withdrawalId, uint256 aethelAmount)
- *   event RewardsDistributed(uint256 indexed epoch, uint256 totalRewards, uint256 protocolFee, bytes32 rewardsMerkleRoot, bytes32 teeAttestationHash)
+ *   event Staked(address indexed user, uint256 amount, uint256 shares)
+ *   event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId, uint256 completionTime)
+ *   event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount)
+ *   event RewardsAdded(uint256 amount, uint256 newTotalPooled)
+ *   event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount)
  */
-const CRUZIBLE_VAULT_ABI = [
-  'event Staked(address indexed user, uint256 aethelAmount, uint256 sharesIssued, uint256 referralCode)',
-  'event UnstakeRequested(address indexed user, uint256 shares, uint256 aethelAmount, uint256 indexed withdrawalId, uint256 completionTime)',
-  'event Withdrawn(address indexed user, uint256 indexed withdrawalId, uint256 aethelAmount)',
-  'event RewardsDistributed(uint256 indexed epoch, uint256 totalRewards, uint256 protocolFee, bytes32 rewardsMerkleRoot, bytes32 teeAttestationHash)',
+export const CRUZIBLE_VAULT_ABI = [
+  "event Staked(address indexed user, uint256 amount, uint256 shares)",
+  "event Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId, uint256 completionTime)",
+  "event Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount)",
+  "event RewardsAdded(uint256 amount, uint256 newTotalPooled)",
+  "event RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount)",
 ];
 
 /**
- * StAETHEL ERC-20 Transfer event:
- *   event Transfer(address indexed from, address indexed to, uint256 value)
+ * stAETHEL emits both the rebasing AETHEL-denominated Transfer value and the
+ * invariant share movement. TransferShares is the canonical accounting unit.
  */
 const STAETHEL_ABI = [
-  'event Transfer(address indexed from, address indexed to, uint256 value)',
+  "event Transfer(address indexed from, address indexed to, uint256 value)",
+  "event TransferShares(address indexed from, address indexed to, uint256 sharesValue)",
 ];
 
 /**
@@ -169,10 +202,10 @@ const STAETHEL_ABI = [
  *   event CircuitBreakerTriggered(bytes32 indexed assetId, bytes32 indexed reasonCode, uint256 observed, uint256 threshold)
  */
 const STABLECOIN_BRIDGE_ABI = [
-  'event StablecoinConfigured(bytes32 indexed assetId, address indexed token, uint8 routingType, bool enabled)',
-  'event CCTPBurnInitiated(bytes32 indexed assetId, address indexed sender, uint32 indexed destinationDomain, uint256 amount, uint64 cctpNonce)',
-  'event MintExecuted(bytes32 indexed assetId, bytes32 indexed mintOperationId, address indexed recipient, uint256 amount)',
-  'event CircuitBreakerTriggered(bytes32 indexed assetId, bytes32 indexed reasonCode, uint256 observed, uint256 threshold)',
+  "event StablecoinConfigured(bytes32 indexed assetId, address indexed token, uint8 routingType, bool enabled)",
+  "event CCTPBurnInitiated(bytes32 indexed assetId, address indexed sender, uint32 indexed destinationDomain, uint256 amount, uint64 cctpNonce)",
+  "event MintExecuted(bytes32 indexed assetId, bytes32 indexed mintOperationId, address indexed recipient, uint256 amount)",
+  "event CircuitBreakerTriggered(bytes32 indexed assetId, bytes32 indexed reasonCode, uint256 observed, uint256 threshold)",
 ];
 
 const cruzibleIface = new Interface(CRUZIBLE_VAULT_ABI);
@@ -180,17 +213,26 @@ const staethelIface = new Interface(STAETHEL_ABI);
 const bridgeIface = new Interface(STABLECOIN_BRIDGE_ABI);
 
 // Topic hashes for fast log filtering
-const TOPIC_STAKED = cruzibleIface.getEvent('Staked')!.topicHash;
-const TOPIC_UNSTAKE_REQUESTED = cruzibleIface.getEvent('UnstakeRequested')!.topicHash;
-const TOPIC_WITHDRAWN = cruzibleIface.getEvent('Withdrawn')!.topicHash;
-const TOPIC_REWARDS_DISTRIBUTED = cruzibleIface.getEvent('RewardsDistributed')!.topicHash;
-const TOPIC_TRANSFER = staethelIface.getEvent('Transfer')!.topicHash;
+const TOPIC_STAKED = cruzibleIface.getEvent("Staked")!.topicHash;
+const TOPIC_UNSTAKED = cruzibleIface.getEvent("Unstaked")!.topicHash;
+const TOPIC_WITHDRAWN = cruzibleIface.getEvent("Withdrawn")!.topicHash;
+const TOPIC_REWARDS_ADDED = cruzibleIface.getEvent("RewardsAdded")!.topicHash;
+const TOPIC_REWARDS_CLAIMED =
+  cruzibleIface.getEvent("RewardsClaimed")!.topicHash;
+const TOPIC_TRANSFER = staethelIface.getEvent("Transfer")!.topicHash;
+const TOPIC_TRANSFER_SHARES =
+  staethelIface.getEvent("TransferShares")!.topicHash;
 
 // Stablecoin bridge event topics
-const TOPIC_STABLECOIN_CONFIGURED = bridgeIface.getEvent('StablecoinConfigured')!.topicHash;
-const TOPIC_CCTP_BURN_INITIATED = bridgeIface.getEvent('CCTPBurnInitiated')!.topicHash;
-const TOPIC_MINT_EXECUTED = bridgeIface.getEvent('MintExecuted')!.topicHash;
-const TOPIC_CIRCUIT_BREAKER_TRIGGERED = bridgeIface.getEvent('CircuitBreakerTriggered')!.topicHash;
+const TOPIC_STABLECOIN_CONFIGURED = bridgeIface.getEvent(
+  "StablecoinConfigured",
+)!.topicHash;
+const TOPIC_CCTP_BURN_INITIATED =
+  bridgeIface.getEvent("CCTPBurnInitiated")!.topicHash;
+const TOPIC_MINT_EXECUTED = bridgeIface.getEvent("MintExecuted")!.topicHash;
+const TOPIC_CIRCUIT_BREAKER_TRIGGERED = bridgeIface.getEvent(
+  "CircuitBreakerTriggered",
+)!.topicHash;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -203,13 +245,15 @@ interface IndexerConfig {
   staethelAddress: string;
   stablecoinBridgeAddress: string;
   startBlock: number;
+  expectedChainId?: string;
+  expectedGenesisHash?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
-@injectable()
+@singleton()
 export class IndexerService {
   private prisma: PrismaClient;
   private wsProvider: WebSocketProvider | null = null;
@@ -217,17 +261,30 @@ export class IndexerService {
   private running = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private wsReconnectAttempts = 0;
+  private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private wsConnectPromise: Promise<void> | null = null;
+  private wsDisconnectHandledProvider: WebSocketProvider | null = null;
   private shutdownPromiseResolve: (() => void) | null = null;
   private processingLock = false;
+  private materializedStateRebuildRequired = false;
+  private materializedStateRebuildCompleted = false;
+  private materializedStateRecoveryTarget: number | null = null;
+  private pendingBlockNumber: number | null = null;
+  private verifiedHttpChainId: string | null = null;
+  private verifiedHttpAnchorHash: string | null = null;
+  private networkKeys: IndexerNetworkKeys | null = null;
+  private wsChainRejected = false;
 
   // Config — populated from env in initialize()
   private cfg: IndexerConfig = {
-    wsUrl: '',
-    rpcUrl: '',
-    cruzibleVaultAddress: '',
-    staethelAddress: '',
-    stablecoinBridgeAddress: '',
+    wsUrl: "",
+    rpcUrl: "",
+    cruzibleVaultAddress: "",
+    staethelAddress: "",
+    stablecoinBridgeAddress: "",
     startBlock: 0,
+    expectedChainId: undefined,
+    expectedGenesisHash: undefined,
   };
 
   // Metrics (in-memory, exposed via getMetrics())
@@ -250,42 +307,54 @@ export class IndexerService {
   // -----------------------------------------------------------------------
 
   async initialize(): Promise<void> {
-    logger.info('IndexerService initializing...');
+    logger.info("IndexerService initializing...");
 
-    // Load config from environment
     this.cfg = {
-      wsUrl: process.env.INDEXER_WS_URL || process.env.WS_URL || 'ws://127.0.0.1:8546',
-      rpcUrl: process.env.INDEXER_RPC_URL || process.env.RPC_URL || 'http://127.0.0.1:8545',
-      cruzibleVaultAddress: process.env.CRUZIBLE_VAULT_ADDRESS || '',
-      staethelAddress: process.env.STAETHEL_ADDRESS || '',
-      stablecoinBridgeAddress: process.env.STABLECOIN_BRIDGE_ADDRESS || '',
-      startBlock: parseInt(process.env.INDEXER_START_BLOCK || '0', 10),
+      wsUrl: config.indexerWsUrl,
+      rpcUrl: config.indexerRpcUrl,
+      cruzibleVaultAddress: config.cruzibleVaultAddress,
+      staethelAddress: config.staethelAddress,
+      stablecoinBridgeAddress: config.stablecoinBridgeAddress,
+      startBlock: config.indexerStartBlock,
+      expectedChainId: config.indexerExpectedChainId,
+      expectedGenesisHash: config.indexerExpectedGenesisHash,
     };
 
     if (!this.cfg.cruzibleVaultAddress) {
       logger.warn(
-        'CRUZIBLE_VAULT_ADDRESS not set — vault event indexing disabled. ' +
-        'Set this env var to enable Staked/Unstaked/Withdrawn/RewardsClaimed indexing.',
+        "CRUZIBLE_VAULT_ADDRESS not set — vault event indexing disabled. " +
+          "Set this env var to enable Staked/Unstaked/Withdrawn/RewardsClaimed indexing.",
       );
     }
     if (!this.cfg.staethelAddress) {
       logger.warn(
-        'STAETHEL_ADDRESS not set — StAETHEL transfer indexing disabled. ' +
-        'Set this env var to enable Transfer event indexing.',
+        "STAETHEL_ADDRESS not set — StAETHEL transfer indexing disabled. " +
+          "Set this env var to enable Transfer event indexing.",
       );
     }
     if (!this.cfg.stablecoinBridgeAddress) {
       logger.warn(
-        'STABLECOIN_BRIDGE_ADDRESS not set — stablecoin bridge event indexing disabled. ' +
-        'Set this env var to enable CCTPBurnInitiated/StablecoinConfigured/MintExecuted indexing.',
+        "STABLECOIN_BRIDGE_ADDRESS not set — stablecoin bridge event indexing disabled. " +
+          "Set this env var to enable CCTPBurnInitiated/StablecoinConfigured/MintExecuted indexing.",
       );
     }
 
     // Create HTTP provider (always available as fallback)
     this.httpProvider = new JsonRpcProvider(this.cfg.rpcUrl);
+    await this.assertExpectedChainId();
 
     // Recover sync state
     await this.ensureCursor();
+
+    // A process may have stopped after atomically rolling back a reorg but
+    // before rebuilding derived projections. Repair those projections before
+    // the indexer can accept another block.
+    if (this.materializedStateRebuildRequired) {
+      logger.warn(
+        "Resuming an incomplete materialized-state rebuild from a prior reorg",
+      );
+      await this.rebuildMaterializedState();
+    }
 
     // Start the indexer
     this.running = true;
@@ -295,27 +364,122 @@ export class IndexerService {
 
     // If WS failed, fall back to polling immediately
     if (!this._wsConnected) {
-      logger.info('WebSocket not available, starting in polling mode');
+      logger.info("WebSocket not available, starting in polling mode");
       this.schedulePollTick(0);
     }
 
-    logger.info('IndexerService started', {
-      wsUrl: this.cfg.wsUrl,
-      rpcUrl: this.cfg.rpcUrl,
-      cruzibleVault: this.cfg.cruzibleVaultAddress || '(disabled)',
-      staethel: this.cfg.staethelAddress || '(disabled)',
-      stablecoinBridge: this.cfg.stablecoinBridgeAddress || '(disabled)',
+    logger.info("IndexerService started", {
+      wsUrl: redactUrlForLogs(this.cfg.wsUrl),
+      rpcUrl: redactUrlForLogs(this.cfg.rpcUrl),
+      cruzibleVault: this.cfg.cruzibleVaultAddress || "(disabled)",
+      staethel: this.cfg.staethelAddress || "(disabled)",
+      stablecoinBridge: this.cfg.stablecoinBridgeAddress || "(disabled)",
       indexedHead: this._indexedHead,
+      expectedChainId: this.cfg.expectedChainId ?? "(not enforced)",
+      expectedGenesisHash: this.cfg.expectedGenesisHash ?? "(not enforced)",
     });
   }
 
+  private async assertExpectedChainId(): Promise<void> {
+    if (!this.httpProvider) {
+      throw new Error(
+        "Cannot verify indexer chain ID without an HTTP provider",
+      );
+    }
+
+    const [network, anchorBlock] = await Promise.all([
+      this.httpProvider.getNetwork(),
+      this.httpProvider.getBlock(NETWORK_ANCHOR_BLOCK),
+    ]);
+    const actualChainId = network.chainId.toString();
+    const actualAnchorHash = anchorBlock?.hash?.toLowerCase();
+    if (!actualAnchorHash || anchorBlock?.number !== NETWORK_ANCHOR_BLOCK) {
+      throw new Error(
+        `Refusing to start indexer without an exact canonical block ${NETWORK_ANCHOR_BLOCK} response`,
+      );
+    }
+    if (
+      this.cfg.expectedChainId &&
+      actualChainId !== this.cfg.expectedChainId
+    ) {
+      throw new Error(
+        `Refusing to start indexer on chain ${actualChainId}; expected ${this.cfg.expectedChainId}`,
+      );
+    }
+    if (
+      this.cfg.expectedGenesisHash &&
+      actualAnchorHash !== this.cfg.expectedGenesisHash.toLowerCase()
+    ) {
+      throw new Error(
+        `Refusing to start indexer on network anchor ${actualAnchorHash}; expected ${this.cfg.expectedGenesisHash.toLowerCase()}`,
+      );
+    }
+    this.verifiedHttpChainId = actualChainId;
+    this.verifiedHttpAnchorHash = actualAnchorHash;
+    // Read-side consumers can only derive a namespace from configured
+    // identity. Keep the legacy key when that identity is incomplete (the
+    // normal local-development case) so the writer and readers never select
+    // different cursors. Production validation requires the complete source
+    // identity used below.
+    this.networkKeys =
+      this.cfg.expectedChainId &&
+      this.cfg.expectedGenesisHash &&
+      this.cfg.cruzibleVaultAddress
+        ? buildIndexerNetworkKeys({
+            chainId: actualChainId,
+            anchorHash: actualAnchorHash,
+            vaultAddress: this.cfg.cruzibleVaultAddress,
+            staethelAddress: this.cfg.staethelAddress,
+            stablecoinBridgeAddress: this.cfg.stablecoinBridgeAddress,
+          })
+        : null;
+
+    logger.info("Indexer HTTP network identity verified", {
+      expectedChainId: this.cfg.expectedChainId ?? "(not configured)",
+      actualChainId,
+      expectedAnchorHash: this.cfg.expectedGenesisHash ?? "(not configured)",
+      actualAnchorHash,
+      anchorBlock: NETWORK_ANCHOR_BLOCK,
+    });
+  }
+
+  private assertWebSocketNetwork(
+    actualChainId: string,
+    actualAnchorHash: string,
+  ): void {
+    if (!this.verifiedHttpChainId || !this.verifiedHttpAnchorHash) {
+      this.wsChainRejected = true;
+      throw new Error(
+        "Refusing WebSocket provider before the HTTP network identity is verified",
+      );
+    }
+
+    if (actualChainId !== this.verifiedHttpChainId) {
+      this.wsChainRejected = true;
+      throw new Error(
+        `Refusing WebSocket provider on chain ${actualChainId}; verified HTTP provider is chain ${this.verifiedHttpChainId}`,
+      );
+    }
+
+    if (actualAnchorHash.toLowerCase() !== this.verifiedHttpAnchorHash) {
+      this.wsChainRejected = true;
+      throw new Error(
+        `Refusing WebSocket provider on network anchor ${actualAnchorHash.toLowerCase()}; verified HTTP provider anchor is ${this.verifiedHttpAnchorHash}`,
+      );
+    }
+  }
+
   async shutdown(): Promise<void> {
-    logger.info('IndexerService shutting down...');
+    logger.info("IndexerService shutting down...");
     this.running = false;
 
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
+    }
+    if (this.wsReconnectTimer) {
+      clearTimeout(this.wsReconnectTimer);
+      this.wsReconnectTimer = null;
     }
 
     // Wait for in-flight processing to complete (up to 10s)
@@ -328,17 +492,11 @@ export class IndexerService {
 
     // Disconnect providers
     if (this.wsProvider) {
-      try {
-        this.wsProvider.removeAllListeners();
-        await this.wsProvider.destroy();
-      } catch {
-        // Ignore cleanup errors
-      }
-      this.wsProvider = null;
+      await this.disposeWebSocketProvider(this.wsProvider);
     }
 
     await this.prisma.$disconnect();
-    logger.info('IndexerService stopped');
+    logger.info("IndexerService stopped");
   }
 
   // -----------------------------------------------------------------------
@@ -379,6 +537,13 @@ export class IndexerService {
       eventsIndexedTotal: this._eventsIndexedTotal,
       reorgsDetected: this._reorgsDetected,
       consecutiveErrors: this._consecutiveErrors,
+      requiresRebuild: this.materializedStateRebuildRequired,
+      rebuildCompleted: this.materializedStateRebuildCompleted,
+      recoveryTargetBlock: this.materializedStateRecoveryTarget,
+      pendingBlockNumber: this.pendingBlockNumber,
+      networkChainId: this.verifiedHttpChainId,
+      networkAnchorHash: this.verifiedHttpAnchorHash,
+      networkNamespace: this.networkKeys?.cacheNamespace ?? null,
       wsConnected: this._wsConnected,
       lastIndexedAt: this._lastIndexedAt?.toISOString() ?? null,
     };
@@ -396,6 +561,13 @@ export class IndexerService {
   async backfill(fromBlock: number, toBlock: number): Promise<void> {
     logger.info(`Backfill requested: blocks ${fromBlock}..${toBlock}`);
 
+    if (
+      this.materializedStateRebuildRequired &&
+      !this.materializedStateRebuildCompleted
+    ) {
+      await this.rebuildMaterializedState();
+    }
+
     for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
       await this.indexBlockWithRetry(blockNum);
 
@@ -411,66 +583,191 @@ export class IndexerService {
   // WebSocket Connection
   // -----------------------------------------------------------------------
 
-  private async connectWebSocket(): Promise<void> {
-    if (!this.cfg.wsUrl || !this.running) return;
+  private connectWebSocket(): Promise<void> {
+    if (
+      !this.cfg.wsUrl ||
+      !this.running ||
+      this.wsChainRejected ||
+      this._wsConnected
+    ) {
+      return Promise.resolve();
+    }
+    if (this.wsConnectPromise) {
+      return this.wsConnectPromise;
+    }
+
+    const connection = this.connectWebSocketOnce();
+    this.wsConnectPromise = connection;
+    connection.then(
+      () => {
+        if (this.wsConnectPromise === connection) {
+          this.wsConnectPromise = null;
+        }
+      },
+      () => {
+        if (this.wsConnectPromise === connection) {
+          this.wsConnectPromise = null;
+        }
+      },
+    );
+    return connection;
+  }
+
+  private async connectWebSocketOnce(): Promise<void> {
+    let readyTimeout: NodeJS.Timeout | undefined;
+    let provider: WebSocketProvider | null = null;
 
     try {
-      this.wsProvider = new WebSocketProvider(this.cfg.wsUrl);
+      if (this.wsProvider) {
+        const previousProvider = this.wsProvider;
+        this.wsDisconnectHandledProvider = previousProvider;
+        await this.disposeWebSocketProvider(previousProvider);
+      }
+      if (!this.running || this.wsChainRejected) return;
 
-      // Wait for the provider to be ready (ethers v6)
-      const network = await this.wsProvider.getNetwork();
+      provider = new WebSocketProvider(this.cfg.wsUrl);
+      this.wsProvider = provider;
+      this.wsDisconnectHandledProvider = null;
+
+      // Attach transport-level handlers BEFORE any await: the raw ws socket
+      // starts connecting in the constructor, and a refused connection
+      // (ECONNREFUSED) emits 'error' on it on the next tick — with no
+      // listener attached yet, Node treats that as an unhandled 'error'
+      // event and kills the WHOLE process, before getNetwork() ever rejects.
+      let failBeforeReady: ((err: Error) => void) | undefined;
+      const transportFailure = new Promise<never>((_, reject) => {
+        failBeforeReady = reject;
+      });
+      // Register a no-op handler so a transport failure AFTER readiness (when
+      // the race below has already settled) is not an unhandled rejection.
+      transportFailure.catch(() => {});
+
+      const ws = (provider as any)._websocket ?? (provider as any).websocket;
+      if (ws && typeof ws.on === "function") {
+        ws.on("close", () => {
+          logger.warn("WebSocket connection closed");
+          failBeforeReady?.(new Error("WebSocket closed before ready"));
+          this.handleWsDisconnect(provider!);
+        });
+        ws.on("error", (err: Error) => {
+          logger.error("WebSocket transport error", errorContext(err));
+          failBeforeReady?.(
+            err instanceof Error ? err : new Error(String(err)),
+          );
+          this.handleWsDisconnect(provider!);
+        });
+      }
+
+      // Wait for the provider to be ready (ethers v6) — with a bound. On a
+      // dead endpoint getNetwork() never settles, and connectWebSocket() is
+      // awaited on the server-boot path: an unbounded wait here keeps the
+      // whole API from ever listening. WS is best-effort; failing this race
+      // lands in the catch below while reconnects/polling proceed.
+      const [network, anchorBlock] = await Promise.race([
+        Promise.all([
+          provider.getNetwork(),
+          provider.getBlock(NETWORK_ANCHOR_BLOCK),
+        ]),
+        transportFailure,
+        new Promise<never>((_, reject) => {
+          readyTimeout = setTimeout(
+            () => reject(new Error("WebSocket ready timeout")),
+            WS_READY_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      const anchorHash = anchorBlock?.hash?.toLowerCase();
+      if (!anchorHash || anchorBlock?.number !== NETWORK_ANCHOR_BLOCK) {
+        throw new Error(
+          `Refusing WebSocket provider without an exact canonical block ${NETWORK_ANCHOR_BLOCK} response`,
+        );
+      }
+      this.assertWebSocketNetwork(network.chainId.toString(), anchorHash);
+      if (!this.running || this.wsProvider !== provider) {
+        await this.disposeWebSocketProvider(provider);
+        return;
+      }
+      failBeforeReady = undefined;
       this._wsConnected = true;
       this.wsReconnectAttempts = 0;
 
-      logger.info('WebSocket connected', {
-        url: this.cfg.wsUrl,
+      logger.info("WebSocket connected", {
+        url: redactUrlForLogs(this.cfg.wsUrl),
         chainId: network.chainId.toString(),
+        anchorHash,
+        anchorBlock: NETWORK_ANCHOR_BLOCK,
       });
 
       // Subscribe to new blocks
-      this.wsProvider.on('block', (blockNumber: number) => {
+      provider.on("block", (blockNumber: number) => {
         this.onNewBlock(blockNumber).catch((err) => {
-          logger.error('Error processing new block from WebSocket:', err);
+          logger.error(
+            "Error processing new block from WebSocket",
+            errorContext(err),
+          );
         });
       });
 
       // Handle provider errors (ethers v6 uses 'error' event on the provider)
-      this.wsProvider.on('error', (err: Error) => {
-        logger.error('WebSocket provider error:', err.message);
-        this.handleWsDisconnect();
+      provider.on("error", (err: Error) => {
+        logger.error("WebSocket provider error", errorContext(err));
+        this.handleWsDisconnect(provider!);
       });
-
-      // In ethers v6, detect disconnection via the websocket property
-      const ws = (this.wsProvider as any)._websocket ?? (this.wsProvider as any).websocket;
-      if (ws && typeof ws.on === 'function') {
-        ws.on('close', () => {
-          logger.warn('WebSocket connection closed');
-          this.handleWsDisconnect();
-        });
-        ws.on('error', (err: Error) => {
-          logger.error('WebSocket transport error:', err.message);
-          this.handleWsDisconnect();
-        });
-      }
     } catch (error) {
-      logger.error('Failed to connect WebSocket:', error);
-      this._wsConnected = false;
+      logger.error("Failed to connect WebSocket", errorContext(error));
+      if (provider) {
+        this.handleWsDisconnect(provider);
+      } else {
+        this._wsConnected = false;
+        this.schedulePollTick(0);
+        this.scheduleWsReconnect();
+      }
+    } finally {
+      if (readyTimeout) {
+        clearTimeout(readyTimeout);
+      }
     }
   }
 
-  private handleWsDisconnect(): void {
+  private handleWsDisconnect(provider: WebSocketProvider): void {
+    if (
+      provider !== this.wsProvider ||
+      this.wsDisconnectHandledProvider === provider
+    ) {
+      return;
+    }
+
+    this.wsDisconnectHandledProvider = provider;
     this._wsConnected = false;
+    this.wsProvider = null;
+    void this.disposeWebSocketProvider(provider);
 
     if (!this.running) return;
+    this.schedulePollTick(0);
+    if (this.wsChainRejected) {
+      return;
+    }
+
+    this.scheduleWsReconnect();
+  }
+
+  private scheduleWsReconnect(): void {
+    if (
+      !this.running ||
+      this._wsConnected ||
+      this.wsChainRejected ||
+      this.wsReconnectTimer
+    ) {
+      return;
+    }
 
     this.wsReconnectAttempts++;
 
     if (this.wsReconnectAttempts > WS_MAX_RECONNECT_ATTEMPTS) {
       logger.warn(
         `WebSocket reconnect attempts exhausted (${WS_MAX_RECONNECT_ATTEMPTS}), ` +
-        'falling back to polling mode',
+          "falling back to polling mode",
       );
-      this.schedulePollTick(0);
       return;
     }
 
@@ -481,19 +778,29 @@ export class IndexerService {
 
     logger.info(
       `WebSocket reconnect attempt ${this.wsReconnectAttempts}/${WS_MAX_RECONNECT_ATTEMPTS} ` +
-      `in ${Math.round(delay)}ms`,
+        `in ${Math.round(delay)}ms`,
     );
 
-    setTimeout(() => {
-      if (this.running) {
-        this.connectWebSocket().catch(() => {
-          // If reconnect fails, start polling
-          if (!this._wsConnected && this.running) {
-            this.schedulePollTick(0);
-          }
-        });
+    this.wsReconnectTimer = setTimeout(() => {
+      this.wsReconnectTimer = null;
+      if (this.running && !this._wsConnected && !this.wsChainRejected) {
+        void this.connectWebSocket();
       }
     }, delay);
+  }
+
+  private async disposeWebSocketProvider(
+    provider: WebSocketProvider,
+  ): Promise<void> {
+    if (this.wsProvider === provider) {
+      this.wsProvider = null;
+    }
+    try {
+      provider.removeAllListeners();
+      await provider.destroy();
+    } catch {
+      // Cleanup is idempotent and must never make a rejected provider usable.
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -529,9 +836,10 @@ export class IndexerService {
   // -----------------------------------------------------------------------
 
   private schedulePollTick(delayMs: number): void {
-    if (!this.running || this._wsConnected) return;
+    if (!this.running || this._wsConnected || this.pollTimer) return;
 
     this.pollTimer = setTimeout(async () => {
+      this.pollTimer = null;
       await this.pollTick();
     }, delayMs);
   }
@@ -559,9 +867,10 @@ export class IndexerService {
       this._consecutiveErrors = 0;
 
       // Schedule next tick — faster if behind, slower if caught up
-      const delay = this.lag > CONFIRMATION_DEPTH + 1
-        ? POLL_INTERVAL_MS
-        : IDLE_POLL_INTERVAL_MS;
+      const delay =
+        this.lag > CONFIRMATION_DEPTH + 1
+          ? POLL_INTERVAL_MS
+          : IDLE_POLL_INTERVAL_MS;
       this.schedulePollTick(delay);
     } catch (error) {
       this._consecutiveErrors++;
@@ -571,7 +880,7 @@ export class IndexerService {
       );
       logger.error(
         `Indexer poll tick failed (attempt ${this._consecutiveErrors}), ` +
-        `retrying in ${backoff}ms:`,
+          `retrying in ${backoff}ms:`,
         error,
       );
       this.schedulePollTick(backoff);
@@ -590,6 +899,13 @@ export class IndexerService {
     this.processingLock = true;
 
     try {
+      if (
+        this.materializedStateRebuildRequired &&
+        !this.materializedStateRebuildCompleted
+      ) {
+        await this.rebuildMaterializedState();
+      }
+
       for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
         if (!this.running) break;
 
@@ -641,15 +957,19 @@ export class IndexerService {
 
     if (!incomingBlock) return null;
 
-    if (incomingBlock.parentHash.toLowerCase() !== previousBlock.hash.toLowerCase()) {
+    if (
+      incomingBlock.parentHash.toLowerCase() !==
+      previousBlock.hash.toLowerCase()
+    ) {
       // Reorg detected! Walk back to find the divergence point
       logger.warn(
         `Reorg detected at block ${blockNumber}: ` +
-        `expected parent ${previousBlock.hash}, ` +
-        `got ${incomingBlock.parentHash}`,
+          `expected parent ${previousBlock.hash}, ` +
+          `got ${incomingBlock.parentHash}`,
       );
 
       let divergenceBlock = blockNumber - 1;
+      let foundCommonAncestor = false;
       for (let depth = 1; depth <= MAX_REORG_DEPTH; depth++) {
         const checkBlockNum = blockNumber - 1 - depth;
         if (checkBlockNum < 0) break;
@@ -670,10 +990,17 @@ export class IndexerService {
         if (storedBlock.hash.toLowerCase() === chainBlock.hash!.toLowerCase()) {
           // Found the common ancestor
           divergenceBlock = checkBlockNum + 1;
+          foundCommonAncestor = true;
           break;
         }
 
         divergenceBlock = checkBlockNum;
+      }
+
+      if (!foundCommonAncestor) {
+        throw new Error(
+          `Reorg at block ${blockNumber} has no proven common ancestor within ${MAX_REORG_DEPTH} blocks`,
+        );
       }
 
       return divergenceBlock;
@@ -704,46 +1031,74 @@ export class IndexerService {
     });
 
     const provider = this.getProvider();
-    const chainBlock = await this.withRetry(() =>
-      provider.getBlock(fromBlock),
-    );
+    const chainBlock = await this.withRetry(() => provider.getBlock(fromBlock));
 
     await this.prisma.reorgEvent.create({
       data: {
         fromBlock: BigInt(fromBlock),
         toBlock: BigInt(currentTarget),
-        expectedHash: storedBlock?.hash ?? '0x0',
-        actualHash: chainBlock?.hash ?? '0x0',
+        expectedHash: storedBlock?.hash ?? "0x0",
+        actualHash: chainBlock?.hash ?? "0x0",
         depth,
       },
     });
 
     // Delete all indexed data from the reorg point onwards
-    await this.rollbackFromBlock(fromBlock);
+    await this.rollbackFromBlock(fromBlock, currentTarget);
 
-    // Update cursor to point before the reorg
     const newHead = fromBlock - 1;
-    this._indexedHead = newHead;
-    await this.updateCursor(newHead);
-
     logger.info(`Reorg rollback complete. Resuming from block ${newHead + 1}`);
 
-    // Re-index from the divergence point
-    await this.processBlockRange(fromBlock, currentTarget);
+    // Re-index directly while the outer range owns processingLock. Calling
+    // processBlockRange() here would return immediately because of that lock.
+    for (
+      let blockNumber = fromBlock;
+      blockNumber <= currentTarget;
+      blockNumber++
+    ) {
+      if (!this.running) break;
+      await this.indexBlockWithRetry(blockNumber);
+    }
   }
 
   /**
    * Delete all indexed data at or after the given block number.
    */
-  private async rollbackFromBlock(fromBlock: number): Promise<void> {
+  private async rollbackFromBlock(
+    fromBlock: number,
+    currentTarget: number,
+  ): Promise<void> {
     const fromHeight = BigInt(fromBlock);
+    const newHead = fromBlock - 1;
+    const rollbackTime = new Date();
+    const syncStateKey = this.getSyncStateKey();
 
-    // Use a transaction for atomicity — delete reorged rows.
+    // Set this before starting the transaction so any local retry is also
+    // fail-closed. The durable flag is written in the same transaction as the
+    // deletes and cursor rollback below.
+    this.materializedStateRebuildRequired = true;
+    this.materializedStateRebuildCompleted = false;
+    this.materializedStateRecoveryTarget = currentTarget;
+
+    // Delete reorged rows and rewind the cursor atomically. A cursor must never
+    // continue to point beyond rows that have already been removed.
     await this.prisma.$transaction([
       // Delete StAETHEL transfers
       this.prisma.stAethelTransfer.deleteMany({
         where: { blockNumber: { gte: fromHeight } },
       }),
+      // Delete stablecoin bridge events from the orphaned branch
+      this.prisma.stablecoinBridgeEvent.deleteMany({
+        where: { blockNumber: { gte: fromHeight } },
+      }),
+      // A configuration row is a latest-value projection. Rows whose latest
+      // configuring event was orphaned must be reconstructed from surviving
+      // generic events below.
+      this.prisma.stablecoinConfig.deleteMany({
+        where: { blockNumber: { gte: fromHeight } },
+      }),
+      // VaultState is also a latest-value projection, not event history.
+      this.prisma.vaultState.deleteMany({}),
       // Delete vault withdrawals
       this.prisma.vaultWithdrawal.deleteMany({
         where: { blockNumber: { gte: fromHeight } },
@@ -778,77 +1133,354 @@ export class IndexerService {
       this.prisma.block.deleteMany({
         where: { height: { gte: fromHeight } },
       }),
+      this.prisma.indexerCursor.update({
+        where: { cursorKey: this.getCursorKey() },
+        data: {
+          blockNumber: BigInt(newHead),
+          blockHash: "0x0",
+          timestamp: rollbackTime,
+          requiresRebuild: true,
+          recoveryTargetBlock: BigInt(currentTarget),
+          pendingBlockNumber: null,
+        },
+      }),
+      this.prisma.syncState.upsert({
+        where: { chainId: syncStateKey },
+        update: {
+          lastBlockHeight: BigInt(newHead),
+          lastBlockTime: rollbackTime,
+          isSyncing: true,
+        },
+        create: {
+          chainId: syncStateKey,
+          lastBlockHeight: BigInt(newHead),
+          lastBlockTime: rollbackTime,
+          isSyncing: true,
+        },
+      }),
     ]);
 
-    // StAethelBalance is a derived aggregate maintained incrementally by
-    // handleTransferEvent → updateStAethelBalance.  After deleting reorged
-    // StAethelTransfer rows the balances are stale and must be rebuilt from
-    // the surviving transfer set.  A full rebuild is correct regardless of
-    // reorg depth and avoids subtle off-by-one drift.
-    await this.rebuildStAethelBalances();
+    this._indexedHead = newHead;
+    this._lastIndexedAt = rollbackTime;
+    this.pendingBlockNumber = null;
+
+    await this.rebuildMaterializedState();
   }
 
   /**
-   * Rebuild the entire StAethelBalance table from the surviving
-   * StAethelTransfer rows.  Called after reorg rollback to avoid leaving
-   * derived balances in a corrupted state.
+   * Rebuild all latest-value and aggregate projections after a reorg.
+   * A completed rebuild is necessary but not sufficient to clear the durable
+   * recovery marker. During a reorg, the marker remains set until the cursor
+   * also reaches the persisted canonical replay target. That prevents a crash
+   * between projection repair and replay from making the API ready early.
+   */
+  private async rebuildMaterializedState(): Promise<void> {
+    // The stAETHEL share ledger and its holder aggregate are rebuilt from the
+    // surviving raw TransferShares events. This also upgrades old databases
+    // that incorrectly materialized rebasing ERC-20 Transfer values.
+    await this.rebuildStAethelBalances();
+    await this.rebuildVaultUnstakeStatuses();
+    await this.rebuildStablecoinConfigs();
+    await this.refreshVaultState(this._indexedHead);
+
+    this.materializedStateRebuildCompleted = true;
+    await this.completeMaterializedStateRecoveryIfReady(this._indexedHead);
+  }
+
+  /**
+   * Clear the fail-closed marker only after both phases of recovery complete:
+   * (1) derived projections were rebuilt from surviving events, and
+   * (2) the durable cursor reached the canonical replay target.
+   *
+   * A null target is used by one-time projection migrations. Those require a
+   * rebuild at the current cursor but do not have a missing canonical range.
+   */
+  private async completeMaterializedStateRecoveryIfReady(
+    indexedBlock: number,
+  ): Promise<void> {
+    if (
+      !this.materializedStateRebuildRequired ||
+      !this.materializedStateRebuildCompleted
+    ) {
+      return;
+    }
+
+    if (
+      this.materializedStateRecoveryTarget !== null &&
+      indexedBlock < this.materializedStateRecoveryTarget
+    ) {
+      return;
+    }
+
+    await this.prisma.indexerCursor.update({
+      where: { cursorKey: this.getCursorKey() },
+      data: {
+        requiresRebuild: false,
+        recoveryTargetBlock: null,
+      },
+    });
+    this.materializedStateRebuildRequired = false;
+    this.materializedStateRebuildCompleted = false;
+    this.materializedStateRecoveryTarget = null;
+  }
+
+  /**
+   * Rebuild the canonical stAETHEL share transfer ledger and holder aggregate
+   * from surviving generic TransferShares events. Shares do not change during
+   * a reward rebase, unlike the AETHEL-denominated ERC-20 balance.
    */
   private async rebuildStAethelBalances(): Promise<void> {
-    logger.info('Rebuilding StAethelBalance from surviving transfers…');
+    logger.info(
+      "Rebuilding stAETHEL share ledger from surviving TransferShares events…",
+    );
 
-    // Wipe the derived table
-    await this.prisma.stAethelBalance.deleteMany({});
-
-    // Re-aggregate in the application layer.  For very large transfer tables
-    // this could be replaced with a raw SQL aggregation, but correctness is
-    // more important than speed during a reorg (which should be rare).
-    const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-
-    const transfers = await this.prisma.stAethelTransfer.findMany({
-      select: { from: true, to: true, amount: true, txHash: true, blockNumber: true, logIndex: true },
-      orderBy: [{ blockNumber: 'asc' }, { logIndex: 'asc' }],
+    const shareEvents = await this.prisma.event.findMany({
+      where: {
+        type: "TransferShares",
+        blockHeight: { not: null },
+        transactionHash: { not: null },
+        logIndex: { not: null },
+      },
+      select: {
+        blockHeight: true,
+        transactionHash: true,
+        logIndex: true,
+        attributes: true,
+        timestamp: true,
+      },
+      orderBy: [
+        { blockHeight: "asc" },
+        { logIndex: "asc" },
+        { timestamp: "asc" },
+      ],
     });
 
+    await this.prisma.$transaction([
+      this.prisma.stAethelTransfer.deleteMany({}),
+      this.prisma.stAethelBalance.deleteMany({}),
+    ]);
+
+    const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
     const balances = new Map<string, bigint>();
     const lastTx = new Map<string, { txHash: string; blockNumber: bigint }>();
+    const transferCreates: ReturnType<
+      PrismaClient["stAethelTransfer"]["create"]
+    >[] = [];
 
-    for (const tx of transfers) {
-      const amt = BigInt(tx.amount);
-
-      if (tx.from !== ZERO_ADDRESS) {
-        const prev = balances.get(tx.from) ?? 0n;
-        const next = prev - amt;
-        balances.set(tx.from, next < 0n ? 0n : next);
-        lastTx.set(tx.from, { txHash: tx.txHash, blockNumber: tx.blockNumber });
+    for (const event of shareEvents) {
+      const attributes = event.attributes as {
+        address?: unknown;
+        topics?: unknown;
+        data?: unknown;
+      };
+      if (
+        event.blockHeight === null ||
+        event.transactionHash === null ||
+        event.logIndex === null ||
+        typeof attributes.address !== "string" ||
+        (this.cfg.staethelAddress !== "" &&
+          attributes.address.toLowerCase() !==
+            this.cfg.staethelAddress.toLowerCase()) ||
+        !Array.isArray(attributes.topics) ||
+        !attributes.topics.every((topic) => typeof topic === "string") ||
+        typeof attributes.data !== "string"
+      ) {
+        throw new Error("Invalid surviving TransferShares event payload");
       }
 
-      if (tx.to !== ZERO_ADDRESS) {
-        balances.set(tx.to, (balances.get(tx.to) ?? 0n) + amt);
-        lastTx.set(tx.to, { txHash: tx.txHash, blockNumber: tx.blockNumber });
+      const parsed = staethelIface.parseLog({
+        topics: attributes.topics as string[],
+        data: attributes.data,
+      });
+      if (!parsed || parsed.name !== "TransferShares") {
+        throw new Error("Unable to decode surviving TransferShares event");
+      }
+
+      const from = (parsed.args[0] as string).toLowerCase();
+      const to = (parsed.args[1] as string).toLowerCase();
+      const shares = parsed.args[2] as bigint;
+      transferCreates.push(
+        this.prisma.stAethelTransfer.create({
+          data: {
+            from,
+            to,
+            shares: shares.toString(),
+            txHash: event.transactionHash,
+            blockNumber: event.blockHeight,
+            logIndex: event.logIndex,
+            timestamp: event.timestamp,
+          },
+        }),
+      );
+
+      if (from !== ZERO_ADDRESS) {
+        const next = (balances.get(from) ?? 0n) - shares;
+        if (next < 0n) {
+          throw new Error(
+            `Surviving TransferShares history underflows ${from} at ${event.transactionHash}:${event.logIndex}`,
+          );
+        }
+        balances.set(from, next);
+        lastTx.set(from, {
+          txHash: event.transactionHash,
+          blockNumber: event.blockHeight,
+        });
+      }
+
+      if (to !== ZERO_ADDRESS) {
+        balances.set(to, (balances.get(to) ?? 0n) + shares);
+        lastTx.set(to, {
+          txHash: event.transactionHash,
+          blockNumber: event.blockHeight,
+        });
       }
     }
 
-    // Write back non-zero balances
-    const upserts = [...balances.entries()]
-      .filter(([, bal]) => bal > 0n)
-      .map(([holder, bal]) => {
+    for (let i = 0; i < transferCreates.length; i += 100) {
+      await this.prisma.$transaction(transferCreates.slice(i, i + 100));
+    }
+
+    const balanceCreates = [...balances.entries()]
+      .filter(([, shares]) => shares > 0n)
+      .map(([holder, shares]) => {
         const meta = lastTx.get(holder)!;
         return this.prisma.stAethelBalance.create({
           data: {
             holder,
-            balance: bal.toString(),
+            shares: shares.toString(),
             lastTxHash: meta.txHash,
             lastBlockNumber: meta.blockNumber,
           },
         });
       });
 
-    // Batch in groups of 100 to avoid overwhelming the connection pool
-    for (let i = 0; i < upserts.length; i += 100) {
-      await this.prisma.$transaction(upserts.slice(i, i + 100));
+    for (let i = 0; i < balanceCreates.length; i += 100) {
+      await this.prisma.$transaction(balanceCreates.slice(i, i + 100));
     }
 
-    logger.info(`StAethelBalance rebuilt: ${upserts.length} holders with non-zero balance`);
+    logger.info(
+      `stAETHEL share ledger rebuilt: ${shareEvents.length} transfers, ` +
+        `${balanceCreates.length} holders with non-zero shares`,
+    );
+  }
+
+  /** Rebuild claim state from surviving withdrawal events after a reorg. */
+  private async rebuildVaultUnstakeStatuses(): Promise<void> {
+    const withdrawals = await this.prisma.vaultWithdrawal.findMany({
+      select: {
+        withdrawalId: true,
+        txHash: true,
+        timestamp: true,
+      },
+      orderBy: [{ blockNumber: "asc" }, { logIndex: "asc" }],
+    });
+
+    await this.prisma.vaultUnstake.updateMany({
+      data: {
+        status: "PENDING",
+        claimTxHash: null,
+        claimedAt: null,
+      },
+    });
+
+    for (const withdrawal of withdrawals) {
+      await this.prisma.vaultUnstake.updateMany({
+        where: { withdrawalId: withdrawal.withdrawalId },
+        data: {
+          status: "CLAIMED",
+          claimTxHash: withdrawal.txHash,
+          claimedAt: withdrawal.timestamp,
+        },
+      });
+    }
+  }
+
+  /**
+   * Rebuild StablecoinConfig from surviving StablecoinConfigured events, then
+   * refresh every asset from the authoritative contract views. Existing rows
+   * whose configuring event predates retained generic history are preserved
+   * and refreshed as well.
+   */
+  private async rebuildStablecoinConfigs(): Promise<void> {
+    if (!this.cfg.stablecoinBridgeAddress) return;
+
+    const configurationEvents = await this.prisma.event.findMany({
+      where: {
+        type: "StablecoinConfigured",
+        blockHeight: { not: null },
+      },
+      select: {
+        blockHeight: true,
+        attributes: true,
+      },
+      orderBy: [{ blockHeight: "asc" }, { timestamp: "asc" }],
+    });
+
+    for (const event of configurationEvents) {
+      const attributes = event.attributes as {
+        address?: unknown;
+        topics?: unknown;
+        data?: unknown;
+      };
+      if (
+        typeof attributes.address !== "string" ||
+        attributes.address.toLowerCase() !==
+          this.cfg.stablecoinBridgeAddress.toLowerCase() ||
+        !Array.isArray(attributes.topics) ||
+        !attributes.topics.every((topic) => typeof topic === "string") ||
+        typeof attributes.data !== "string" ||
+        event.blockHeight === null
+      ) {
+        throw new Error("Invalid surviving StablecoinConfigured event payload");
+      }
+
+      const parsed = bridgeIface.parseLog({
+        topics: attributes.topics as string[],
+        data: attributes.data,
+      });
+      if (!parsed || parsed.name !== "StablecoinConfigured") {
+        throw new Error(
+          "Unable to decode surviving StablecoinConfigured event",
+        );
+      }
+
+      const assetId = parsed.args[0] as string;
+      const tokenAddress = (parsed.args[1] as string).toLowerCase();
+      const routingType = Number(parsed.args[2]);
+      const enabled = parsed.args[3] as boolean;
+
+      await this.prisma.stablecoinConfig.upsert({
+        where: { assetId },
+        update: {
+          tokenAddress,
+          routingType,
+          active: enabled,
+          blockNumber: event.blockHeight,
+        },
+        create: {
+          assetId,
+          symbol: "",
+          tokenAddress,
+          routingType,
+          maxBridgeAmount: "0",
+          dailyLimit: "0",
+          dailyUsed: "0",
+          active: enabled,
+          blockNumber: event.blockHeight,
+        },
+      });
+    }
+
+    const configs = await this.prisma.stablecoinConfig.findMany({
+      select: { assetId: true },
+    });
+    for (const stablecoin of configs) {
+      await this.refreshStablecoinConfig(stablecoin.assetId, this._indexedHead);
+    }
+
+    logger.info(
+      `StablecoinConfig rebuilt: ${configs.length} assets refreshed from contract state`,
+    );
   }
 
   // -----------------------------------------------------------------------
@@ -856,34 +1488,186 @@ export class IndexerService {
   // -----------------------------------------------------------------------
 
   private async ensureCursor(): Promise<void> {
-    const cursor = await this.prisma.indexerCursor.findUnique({
-      where: { cursorKey: CURSOR_KEY },
+    const networkBinding = this.getVerifiedNetworkBinding();
+    const cursorKey = this.getCursorKey();
+    let cursor = await this.prisma.indexerCursor.findUnique({
+      where: { cursorKey },
     });
 
+    // One-time adoption path for the pre-namespace cursor. Migration 02000
+    // may have rewound this row before the runtime knows the configured
+    // network anchor. Copy its recovery state into the verified namespace;
+    // never consult the legacy key again after the namespaced row exists.
+    if (!cursor && cursorKey !== CURSOR_KEY) {
+      cursor = await this.prisma.$transaction(
+        async (tx) => {
+          const legacyCursor = await tx.indexerCursor.findUnique({
+            where: { cursorKey: CURSOR_KEY },
+          });
+          if (!legacyCursor) return null;
+
+          if (
+            (legacyCursor.networkChainId &&
+              legacyCursor.networkChainId !== networkBinding.chainId) ||
+            (legacyCursor.networkAnchorHash &&
+              legacyCursor.networkAnchorHash.toLowerCase() !==
+                networkBinding.anchorHash) ||
+            (legacyCursor.networkVaultAddress &&
+              legacyCursor.networkVaultAddress.toLowerCase() !==
+                networkBinding.vaultAddress) ||
+            (legacyCursor.networkStaethelAddress &&
+              legacyCursor.networkStaethelAddress.toLowerCase() !==
+                networkBinding.staethelAddress) ||
+            (legacyCursor.networkStablecoinBridgeAddress &&
+              legacyCursor.networkStablecoinBridgeAddress.toLowerCase() !==
+                networkBinding.stablecoinBridgeAddress)
+          ) {
+            throw new Error(
+              "Refusing to adopt a legacy cursor bound to another indexed source identity",
+            );
+          }
+
+          // A cursor without vault provenance may only be adopted once. If a
+          // namespace already exists for this chain/anchor, guessing that the
+          // legacy projections belong to another vault could skip that
+          // vault's complete history.
+          if (
+            !legacyCursor.networkVaultAddress ||
+            !legacyCursor.networkStaethelAddress ||
+            !legacyCursor.networkStablecoinBridgeAddress
+          ) {
+            const existingNamespace = await tx.indexerCursor.findFirst({
+              where: {
+                cursorKey: { startsWith: `${CURSOR_KEY}:` },
+                networkChainId: networkBinding.chainId,
+                networkAnchorHash: networkBinding.anchorHash,
+              },
+              select: { cursorKey: true },
+            });
+            if (existingNamespace) {
+              throw new Error(
+                "Refusing ambiguous legacy cursor adoption after this network already has a namespaced vault cursor; replay from a clean cursor",
+              );
+            }
+          }
+
+          await tx.indexerCursor.update({
+            where: { cursorKey: CURSOR_KEY },
+            data: {
+              networkChainId: networkBinding.chainId,
+              networkAnchorHash: networkBinding.anchorHash,
+              networkVaultAddress: networkBinding.vaultAddress,
+              networkStaethelAddress: networkBinding.staethelAddress,
+              networkStablecoinBridgeAddress:
+                networkBinding.stablecoinBridgeAddress,
+            },
+          });
+
+          return tx.indexerCursor.create({
+            data: {
+              cursorKey,
+              blockNumber: legacyCursor.blockNumber,
+              blockHash: legacyCursor.blockHash,
+              timestamp: legacyCursor.timestamp,
+              requiresRebuild: legacyCursor.requiresRebuild,
+              recoveryTargetBlock: legacyCursor.recoveryTargetBlock,
+              pendingBlockNumber: legacyCursor.pendingBlockNumber,
+              networkChainId: networkBinding.chainId,
+              networkAnchorHash: networkBinding.anchorHash,
+              networkVaultAddress: networkBinding.vaultAddress,
+              networkStaethelAddress: networkBinding.staethelAddress,
+              networkStablecoinBridgeAddress:
+                networkBinding.stablecoinBridgeAddress,
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    }
+
     if (cursor) {
+      if (
+        (cursor.networkChainId &&
+          cursor.networkChainId !== networkBinding.chainId) ||
+        (cursor.networkAnchorHash &&
+          cursor.networkAnchorHash.toLowerCase() !==
+            networkBinding.anchorHash) ||
+        (cursor.networkVaultAddress &&
+          cursor.networkVaultAddress.toLowerCase() !==
+            networkBinding.vaultAddress) ||
+        (cursor.networkStaethelAddress &&
+          cursor.networkStaethelAddress.toLowerCase() !==
+            networkBinding.staethelAddress) ||
+        (cursor.networkStablecoinBridgeAddress &&
+          cursor.networkStablecoinBridgeAddress.toLowerCase() !==
+            networkBinding.stablecoinBridgeAddress)
+      ) {
+        throw new Error(
+          `Refusing to reuse cursor bound to ${cursor.networkChainId ?? "unknown"}/${cursor.networkAnchorHash ?? "unknown"}/${cursor.networkVaultAddress ?? "unknown"}/${cursor.networkStaethelAddress ?? "unknown"}/${cursor.networkStablecoinBridgeAddress ?? "unknown"}; verified source identity is ${networkBinding.chainId}/${networkBinding.anchorHash}/${networkBinding.vaultAddress}/${networkBinding.staethelAddress}/${networkBinding.stablecoinBridgeAddress}`,
+        );
+      }
+      if (
+        !cursor.networkChainId ||
+        !cursor.networkAnchorHash ||
+        !cursor.networkVaultAddress ||
+        !cursor.networkStaethelAddress ||
+        !cursor.networkStablecoinBridgeAddress
+      ) {
+        await this.prisma.indexerCursor.update({
+          where: { cursorKey },
+          data: {
+            networkChainId: networkBinding.chainId,
+            networkAnchorHash: networkBinding.anchorHash,
+            networkVaultAddress: networkBinding.vaultAddress,
+            networkStaethelAddress: networkBinding.staethelAddress,
+            networkStablecoinBridgeAddress:
+              networkBinding.stablecoinBridgeAddress,
+          },
+        });
+      }
       this._indexedHead = Number(cursor.blockNumber);
+      this.materializedStateRebuildRequired = cursor.requiresRebuild;
+      this.materializedStateRebuildCompleted = false;
+      this.materializedStateRecoveryTarget =
+        cursor.recoveryTargetBlock === null ||
+        cursor.recoveryTargetBlock === undefined
+          ? null
+          : Number(cursor.recoveryTargetBlock);
+      this.pendingBlockNumber =
+        cursor.pendingBlockNumber === null ||
+        cursor.pendingBlockNumber === undefined
+          ? null
+          : Number(cursor.pendingBlockNumber);
       logger.info(`Resuming from cursor: block ${this._indexedHead}`);
     } else {
       // First run — use configured start block or 0
       const startBlock = Math.max(0, this.cfg.startBlock - 1);
       await this.prisma.indexerCursor.create({
         data: {
-          cursorKey: CURSOR_KEY,
+          cursorKey,
           blockNumber: BigInt(startBlock),
-          blockHash: '0x0',
+          blockHash: "0x0",
           timestamp: new Date(0),
+          networkChainId: networkBinding.chainId,
+          networkAnchorHash: networkBinding.anchorHash,
+          networkVaultAddress: networkBinding.vaultAddress,
+          networkStaethelAddress: networkBinding.staethelAddress,
+          networkStablecoinBridgeAddress:
+            networkBinding.stablecoinBridgeAddress,
         },
       });
       this._indexedHead = startBlock;
       logger.info(`Created initial cursor at block ${startBlock}`);
     }
 
-    // Also update the legacy SyncState for backward compatibility
+    // SyncState is namespaced by the verified chain and immutable anchor so a
+    // database copied between same-chain-id networks cannot resume silently.
+    const syncStateKey = this.getSyncStateKey();
     await this.prisma.syncState.upsert({
-      where: { chainId: 'aethelred-evm' },
+      where: { chainId: syncStateKey },
       update: {},
       create: {
-        chainId: 'aethelred-evm',
+        chainId: syncStateKey,
         lastBlockHeight: BigInt(this._indexedHead),
         lastBlockTime: new Date(),
         isSyncing: false,
@@ -896,33 +1680,40 @@ export class IndexerService {
     blockHash?: string,
     blockTimestamp?: Date,
   ): Promise<void> {
-    await this.prisma.indexerCursor.update({
-      where: { cursorKey: CURSOR_KEY },
-      data: {
-        blockNumber: BigInt(blockNumber),
-        blockHash: blockHash ?? '0x0',
-        timestamp: blockTimestamp ?? new Date(),
-      },
-    });
-
-    // Update legacy SyncState
-    await this.prisma.syncState.upsert({
-      where: { chainId: 'aethelred-evm' },
-      update: {
-        lastBlockHeight: BigInt(blockNumber),
-        lastBlockTime: blockTimestamp ?? new Date(),
-        isSyncing: this.lag > 10,
-      },
-      create: {
-        chainId: 'aethelred-evm',
-        lastBlockHeight: BigInt(blockNumber),
-        lastBlockTime: blockTimestamp ?? new Date(),
-        isSyncing: this.lag > 10,
-      },
-    });
+    const committedAt = blockTimestamp ?? new Date();
+    const syncStateKey = this.getSyncStateKey();
+    await this.prisma.$transaction([
+      this.prisma.indexerCursor.update({
+        where: { cursorKey: this.getCursorKey() },
+        data: {
+          blockNumber: BigInt(blockNumber),
+          blockHash: blockHash ?? "0x0",
+          timestamp: committedAt,
+          pendingBlockNumber: null,
+        },
+      }),
+      // Update legacy SyncState in the same commit boundary.
+      this.prisma.syncState.upsert({
+        where: { chainId: syncStateKey },
+        update: {
+          lastBlockHeight: BigInt(blockNumber),
+          lastBlockTime: committedAt,
+          isSyncing: this.lag > 10,
+        },
+        create: {
+          chainId: syncStateKey,
+          lastBlockHeight: BigInt(blockNumber),
+          lastBlockTime: committedAt,
+          isSyncing: this.lag > 10,
+        },
+      }),
+    ]);
 
     this._indexedHead = blockNumber;
     this._lastIndexedAt = new Date();
+    this.pendingBlockNumber = null;
+
+    await this.completeMaterializedStateRecoveryIfReady(blockNumber);
   }
 
   // -----------------------------------------------------------------------
@@ -931,6 +1722,20 @@ export class IndexerService {
 
   private async indexBlockWithRetry(blockNumber: number): Promise<void> {
     await this.withRetry(() => this.indexBlock(blockNumber));
+  }
+
+  /**
+   * Publish a durable visibility barrier before any projection for a block is
+   * written. Reconciliation reads this marker and every stake projection from
+   * one repeatable-read snapshot, so a process crash can never make a partial
+   * block generation look like a committed supply mismatch.
+   */
+  private async markBlockInProgress(blockNumber: number): Promise<void> {
+    await this.prisma.indexerCursor.update({
+      where: { cursorKey: this.getCursorKey() },
+      data: { pendingBlockNumber: BigInt(blockNumber) },
+    });
+    this.pendingBlockNumber = blockNumber;
   }
 
   private async indexBlock(blockNumber: number): Promise<void> {
@@ -946,6 +1751,8 @@ export class IndexerService {
     const blockHash = block.hash!;
     const parentHash = block.parentHash;
 
+    await this.markBlockInProgress(blockNumber);
+
     // Upsert block (idempotent)
     await this.prisma.block.upsert({
       where: { height: BigInt(blockNumber) },
@@ -953,12 +1760,12 @@ export class IndexerService {
         hash: blockHash,
         parentHash,
         timestamp: blockTime,
-        proposer: block.miner ?? '',
+        proposer: block.miner ?? "",
         txCount: block.transactions.length,
         gasUsed: BigInt(block.gasUsed),
         gasLimit: BigInt(block.gasLimit),
         size: 0, // EVM blocks don't expose size directly via ethers
-        appHash: block.stateRoot ?? '',
+        appHash: block.stateRoot ?? "",
         stateRoot: block.stateRoot,
       },
       create: {
@@ -966,19 +1773,22 @@ export class IndexerService {
         hash: blockHash,
         parentHash,
         timestamp: blockTime,
-        proposer: block.miner ?? '',
+        proposer: block.miner ?? "",
         txCount: block.transactions.length,
         gasUsed: BigInt(block.gasUsed),
         gasLimit: BigInt(block.gasLimit),
         size: 0,
-        appHash: block.stateRoot ?? '',
+        appHash: block.stateRoot ?? "",
         stateRoot: block.stateRoot,
       },
     });
     this._blocksIndexedTotal++;
 
     // Index transactions
-    if (block.prefetchedTransactions && block.prefetchedTransactions.length > 0) {
+    if (
+      block.prefetchedTransactions &&
+      block.prefetchedTransactions.length > 0
+    ) {
       // Fetch all receipts in parallel for this block
       const receiptPromises = block.prefetchedTransactions.map((tx) =>
         this.withRetry(() => provider.getTransactionReceipt(tx.hash)),
@@ -1001,8 +1811,8 @@ export class IndexerService {
     if (blockNumber % 50 === 0 || this.lag <= CONFIRMATION_DEPTH + 1) {
       logger.info(
         `Indexed block ${blockNumber}, ` +
-        `txs=${block.transactions.length}, ` +
-        `chain=${this._chainHead}, lag=${this.lag}`,
+          `txs=${block.transactions.length}, ` +
+          `chain=${this._chainHead}, lag=${this.lag}`,
       );
     }
   }
@@ -1017,7 +1827,11 @@ export class IndexerService {
     blockNumber: number,
   ): Promise<void> {
     const txHash = tx.hash;
-    const status = receipt ? (receipt.status === 1 ? 'SUCCESS' : 'FAILED') : 'PENDING';
+    const status = receipt
+      ? receipt.status === 1
+        ? "SUCCESS"
+        : "FAILED"
+      : "PENDING";
     const gasUsed = receipt ? BigInt(receipt.gasUsed) : BigInt(0);
 
     await this.prisma.transaction.upsert({
@@ -1028,7 +1842,9 @@ export class IndexerService {
         gasWanted: BigInt(tx.gasLimit),
         gasPrice: tx.gasPrice?.toString() ?? null,
         fee: receipt
-          ? (BigInt(receipt.gasUsed) * (receipt.gasPrice ?? BigInt(0))).toString()
+          ? (
+              BigInt(receipt.gasUsed) * (receipt.gasPrice ?? BigInt(0))
+            ).toString()
           : null,
         fromAddress: tx.from?.toLowerCase() ?? null,
         toAddress: tx.to?.toLowerCase() ?? null,
@@ -1045,7 +1861,9 @@ export class IndexerService {
         gasWanted: BigInt(tx.gasLimit),
         gasPrice: tx.gasPrice?.toString() ?? null,
         fee: receipt
-          ? (BigInt(receipt.gasUsed) * (receipt.gasPrice ?? BigInt(0))).toString()
+          ? (
+              BigInt(receipt.gasUsed) * (receipt.gasPrice ?? BigInt(0))
+            ).toString()
           : null,
         fromAddress: tx.from?.toLowerCase() ?? null,
         toAddress: tx.to?.toLowerCase() ?? null,
@@ -1094,7 +1912,7 @@ export class IndexerService {
     for (const log of logs) {
       // Track whether any event that affects VaultState was processed in
       // this block.  Vault contract events change totals/exchange rate;
-      // stAETHEL Transfer events change the derived totalStakers count.
+      // stAETHEL TransferShares events change the derived totalStakers count.
       // Either should trigger a VaultState refresh.
       const addr = log.address.toLowerCase();
       if (
@@ -1109,14 +1927,14 @@ export class IndexerService {
     }
 
     // Refresh the materialized VaultState snapshot after blocks that
-    // contained vault events OR stAETHEL transfers.  Vault events
+    // contained vault events OR stAETHEL share transfers. Vault events
     // change totals/exchange rate; transfers change the derived
-    // totalStakers count and stAethelBalance table.  View-function
+    // totalStakers count and the stAETHEL share-balance table. View-function
     // reads are cheap and authoritative, so calling on transfer-only
     // blocks is harmless — the vault totals will be unchanged and the
     // upsert simply updates totalStakers + updatedAt.
     if (sawRelevantEvent) {
-      await this.refreshVaultState();
+      await this.refreshVaultState(blockNumber);
     }
   }
 
@@ -1132,22 +1950,24 @@ export class IndexerService {
       ) {
         if (topic0 === TOPIC_STAKED) {
           await this.handleStakedEvent(log, blockTime);
-        } else if (topic0 === TOPIC_UNSTAKE_REQUESTED) {
-          await this.handleUnstakeRequestedEvent(log, blockTime);
+        } else if (topic0 === TOPIC_UNSTAKED) {
+          await this.handleUnstakedEvent(log, blockTime);
         } else if (topic0 === TOPIC_WITHDRAWN) {
           await this.handleWithdrawnEvent(log, blockTime);
-        } else if (topic0 === TOPIC_REWARDS_DISTRIBUTED) {
-          await this.handleRewardsDistributedEvent(log);
+        } else if (topic0 === TOPIC_REWARDS_ADDED) {
+          await this.handleRewardsAddedEvent(log);
+        } else if (topic0 === TOPIC_REWARDS_CLAIMED) {
+          await this.handleRewardsClaimedEvent(log, blockTime);
         }
       }
 
-      // ---- StAETHEL Transfer Events ----
+      // ---- stAETHEL invariant share transfers ----
       if (
         this.cfg.staethelAddress &&
         contractAddress === this.cfg.staethelAddress.toLowerCase()
       ) {
-        if (topic0 === TOPIC_TRANSFER) {
-          await this.handleTransferEvent(log, blockTime);
+        if (topic0 === TOPIC_TRANSFER_SHARES) {
+          await this.handleTransferSharesEvent(log, blockTime);
         }
       }
 
@@ -1174,9 +1994,13 @@ export class IndexerService {
     } catch (error) {
       logger.error(
         `Error processing log in tx ${log.transactionHash} ` +
-        `(block ${log.blockNumber}, logIndex ${log.index}):`,
+          `(block ${log.blockNumber}, logIndex ${log.index}):`,
         error,
       );
+      // A block is not complete unless every log is durably materialized.
+      // Propagate the failure so indexBlock() never advances the cursor and
+      // indexBlockWithRetry() can replay the block safely.
+      throw error;
     }
   }
 
@@ -1185,7 +2009,7 @@ export class IndexerService {
   // -----------------------------------------------------------------------
 
   /**
-   * Handle: Staked(address indexed user, uint256 aethelAmount, uint256 sharesIssued, uint256 referralCode)
+   * Handle: Staked(address indexed user, uint256 amount, uint256 shares)
    */
   private async handleStakedEvent(log: Log, blockTime: Date): Promise<void> {
     const parsed = cruzibleIface.parseLog({
@@ -1194,13 +2018,17 @@ export class IndexerService {
     });
     if (!parsed) return;
 
-    const staker = parsed.args[0].toLowerCase();        // user (indexed)
-    const amount = parsed.args[1].toString();            // aethelAmount
-    const shares = parsed.args[2].toString();            // sharesIssued
-    // parsed.args[3] = referralCode (not persisted)
+    const staker = parsed.args[0].toLowerCase(); // user (indexed)
+    const amount = parsed.args[1].toString(); // amount (native AETHEL)
+    const shares = parsed.args[2].toString(); // shares
 
     await this.prisma.vaultStake.upsert({
-      where: { txHash: log.transactionHash },
+      where: {
+        txHash_logIndex: {
+          txHash: log.transactionHash,
+          logIndex: log.index,
+        },
+      },
       update: {
         delegator: staker,
         amount,
@@ -1226,25 +2054,29 @@ export class IndexerService {
   }
 
   /**
-   * Handle: UnstakeRequested(address indexed user, uint256 shares, uint256 aethelAmount, uint256 indexed withdrawalId, uint256 completionTime)
+   * Handle: Unstaked(address indexed user, uint256 shares, uint256 amount, uint256 withdrawalId, uint256 completionTime)
    *
    * The on-chain `withdrawalId` is the unique identity of each withdrawal
-   * request.  A single transaction can emit multiple UnstakeRequested events
-   * (e.g. via `batchUnstake()`), so we key by `withdrawalId`, not `txHash`.
+   * request, so we key by `withdrawalId`, not `txHash`. Completion time is
+   * emitted from the withdrawal row at request time, making historical replay
+   * independent of later governance changes to unbondingPeriod.
    */
-  private async handleUnstakeRequestedEvent(log: Log, blockTime: Date): Promise<void> {
+  private async handleUnstakedEvent(log: Log, blockTime: Date): Promise<void> {
     const parsed = cruzibleIface.parseLog({
       topics: [...log.topics],
       data: log.data,
     });
     if (!parsed) return;
 
-    const staker = parsed.args[0].toLowerCase();         // user (indexed)
-    const shares = parsed.args[1].toString();             // shares
-    const amount = parsed.args[2].toString();             // aethelAmount
-    const withdrawalId = BigInt(parsed.args[3].toString()); // withdrawalId (indexed)
-    const completionTimestamp = parsed.args[4];            // completionTime (uint256 unix seconds)
-    const completionTime = new Date(Number(completionTimestamp) * 1000);
+    const staker = parsed.args[0].toLowerCase(); // user (indexed)
+    const shares = parsed.args[1].toString(); // shares
+    const amount = parsed.args[2].toString(); // amount (native AETHEL)
+    const withdrawalId = BigInt(parsed.args[3].toString()); // withdrawalId
+    const completionTimeSeconds = BigInt(parsed.args[4].toString());
+    if (completionTimeSeconds > MAX_DATE_UNIX_SECONDS) {
+      throw new Error("Unstaked completionTime exceeds Date range");
+    }
+    const completionTime = new Date(Number(completionTimeSeconds) * 1000);
 
     await this.prisma.vaultUnstake.upsert({
       where: { withdrawalId },
@@ -1254,7 +2086,8 @@ export class IndexerService {
         amount,
         startTime: blockTime,
         completionTime,
-        status: 'PENDING',
+        sourceProvenance: "CANONICAL_EVENT",
+        status: "PENDING",
         blockNumber: BigInt(log.blockNumber),
         logIndex: log.index,
       },
@@ -1266,19 +2099,20 @@ export class IndexerService {
         txHash: log.transactionHash,
         startTime: blockTime,
         completionTime,
-        status: 'PENDING',
+        sourceProvenance: "CANONICAL_EVENT",
+        status: "PENDING",
         blockNumber: BigInt(log.blockNumber),
         logIndex: log.index,
       },
     });
 
     logger.info(
-      `UnstakeRequested: ${staker} withdrawalId=${withdrawalId} shares=${shares} amount=${amount} tx=${log.transactionHash}`,
+      `Unstaked: ${staker} withdrawalId=${withdrawalId} shares=${shares} amount=${amount} tx=${log.transactionHash}`,
     );
   }
 
   /**
-   * Handle: Withdrawn(address indexed user, uint256 indexed withdrawalId, uint256 aethelAmount)
+   * Handle: Withdrawn(address indexed user, uint256 withdrawalId, uint256 amount)
    *
    * Each Withdrawn event carries the specific `withdrawalId` that is being
    * claimed.  A single transaction can emit multiple Withdrawn events (via
@@ -1292,9 +2126,9 @@ export class IndexerService {
     });
     if (!parsed) return;
 
-    const staker = parsed.args[0].toLowerCase();         // user (indexed)
+    const staker = parsed.args[0].toLowerCase(); // user (indexed)
     const withdrawalId = BigInt(parsed.args[1].toString()); // withdrawalId (indexed)
-    const amount = parsed.args[2].toString();             // aethelAmount
+    const amount = parsed.args[2].toString(); // aethelAmount
 
     await this.prisma.vaultWithdrawal.upsert({
       where: { withdrawalId },
@@ -1304,6 +2138,7 @@ export class IndexerService {
         timestamp: blockTime,
         blockNumber: BigInt(log.blockNumber),
         logIndex: log.index,
+        sourceProvenance: "CANONICAL_EVENT",
       },
       create: {
         withdrawalId,
@@ -1313,6 +2148,7 @@ export class IndexerService {
         timestamp: blockTime,
         blockNumber: BigInt(log.blockNumber),
         logIndex: log.index,
+        sourceProvenance: "CANONICAL_EVENT",
       },
     });
 
@@ -1322,7 +2158,7 @@ export class IndexerService {
     await this.prisma.vaultUnstake.updateMany({
       where: { withdrawalId },
       data: {
-        status: 'CLAIMED',
+        status: "CLAIMED",
         claimTxHash: log.transactionHash,
         claimedAt: blockTime,
       },
@@ -1334,36 +2170,87 @@ export class IndexerService {
   }
 
   /**
-   * Handle: RewardsDistributed(uint256 indexed epoch, uint256 totalRewards, uint256 protocolFee, bytes32 rewardsMerkleRoot, bytes32 teeAttestationHash)
+   * Handle: RewardsAdded(uint256 amount, uint256 newTotalPooled)
    *
-   * This is a vault-level event (not per-staker).  The contract's
-   * `claimRewards()` does NOT emit an event, so individual claims are not
-   * observable from events alone.  We log the epoch-level reward distribution;
-   * the generic event persistence in `persistEventLog` stores the full log
-   * for downstream consumers.
+   * Vault-level rebase event (not per-staker): rewards raise totalPooledAethel
+   * and every stAETHEL balance rebases up.  Refresh the materialized
+   * VaultState so exchange rate/TVL reflect the rebase immediately.
    */
-  private async handleRewardsDistributedEvent(log: Log): Promise<void> {
+  private async handleRewardsAddedEvent(log: Log): Promise<void> {
     const parsed = cruzibleIface.parseLog({
       topics: [...log.topics],
       data: log.data,
     });
     if (!parsed) return;
 
-    const epoch = parsed.args[0];                         // epoch (indexed)
-    const totalRewards = parsed.args[1].toString();       // totalRewards
-    const protocolFee = parsed.args[2].toString();        // protocolFee
+    const amount = parsed.args[0].toString();
+    const newTotalPooled = parsed.args[1].toString();
 
     logger.info(
-      `RewardsDistributed: epoch=${epoch} totalRewards=${totalRewards} ` +
-      `protocolFee=${protocolFee} tx=${log.transactionHash}`,
+      `RewardsAdded: amount=${amount} newTotalPooled=${newTotalPooled} tx=${log.transactionHash}`,
+    );
+
+    await this.refreshVaultState(log.blockNumber);
+  }
+
+  /**
+   * Handle: RewardsClaimed(address indexed user, uint256 indexed epoch, uint256 amount)
+   *
+   * Per-staker Merkle reward claim.  Keyed by (delegator, epoch) — the
+   * contract enforces one claim per user per epoch.
+   */
+  private async handleRewardsClaimedEvent(
+    log: Log,
+    blockTime: Date,
+  ): Promise<void> {
+    const parsed = cruzibleIface.parseLog({
+      topics: [...log.topics],
+      data: log.data,
+    });
+    if (!parsed) return;
+
+    const staker = parsed.args[0].toLowerCase(); // user (indexed)
+    const epoch = BigInt(parsed.args[1].toString()); // epoch (indexed)
+    const amount = parsed.args[2].toString();
+
+    await this.prisma.vaultReward.upsert({
+      where: { delegator_epoch: { delegator: staker, epoch } },
+      update: {
+        amount,
+        claimed: true,
+        claimedAt: blockTime,
+        txHash: log.transactionHash,
+        blockNumber: BigInt(log.blockNumber),
+        logIndex: log.index,
+        sourceProvenance: "CANONICAL_EVENT",
+      },
+      create: {
+        delegator: staker,
+        epoch,
+        amount,
+        claimed: true,
+        claimedAt: blockTime,
+        timestamp: blockTime,
+        txHash: log.transactionHash,
+        blockNumber: BigInt(log.blockNumber),
+        logIndex: log.index,
+        sourceProvenance: "CANONICAL_EVENT",
+      },
+    });
+
+    logger.info(
+      `RewardsClaimed: ${staker} epoch=${epoch} amount=${amount} tx=${log.transactionHash}`,
     );
   }
 
   // -----------------------------------------------------------------------
-  // StAETHEL Transfer Handling
+  // stAETHEL Share Transfer Handling
   // -----------------------------------------------------------------------
 
-  private async handleTransferEvent(log: Log, blockTime: Date): Promise<void> {
+  private async handleTransferSharesEvent(
+    log: Log,
+    blockTime: Date,
+  ): Promise<void> {
     const parsed = staethelIface.parseLog({
       topics: [...log.topics],
       data: log.data,
@@ -1372,72 +2259,80 @@ export class IndexerService {
 
     const from = parsed.args[0].toLowerCase();
     const to = parsed.args[1].toLowerCase();
-    const value = parsed.args[2].toString();
+    const shares = parsed.args[2].toString();
 
-    // Store the transfer
-    await this.prisma.stAethelTransfer.upsert({
-      where: {
-        txHash_logIndex: {
+    // The transfer identity and both balance deltas must commit atomically.
+    // On replay, the existing transfer is authoritative and no deltas are
+    // applied again. This also guarantees that a mid-handler failure cannot
+    // leave only one side of a transfer updated.
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.stAethelTransfer.findUnique({
+        where: {
+          txHash_logIndex: {
+            txHash: log.transactionHash,
+            logIndex: log.index,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (existing) {
+        return;
+      }
+
+      await tx.stAethelTransfer.create({
+        data: {
+          from,
+          to,
+          shares,
           txHash: log.transactionHash,
           logIndex: log.index,
+          blockNumber: BigInt(log.blockNumber),
+          timestamp: blockTime,
         },
-      },
-      update: {
-        from,
-        to,
-        amount: value,
-        blockNumber: BigInt(log.blockNumber),
-        timestamp: blockTime,
-      },
-      create: {
-        from,
-        to,
-        amount: value,
-        txHash: log.transactionHash,
-        logIndex: log.index,
-        blockNumber: BigInt(log.blockNumber),
-        timestamp: blockTime,
-      },
+      });
+
+      const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+      if (from !== ZERO_ADDRESS) {
+        await this.updateStAethelShareBalance(tx, from, `-${shares}`, log);
+      }
+
+      if (to !== ZERO_ADDRESS) {
+        await this.updateStAethelShareBalance(tx, to, shares, log);
+      }
     });
-
-    // Update sender balance (subtract)
-    const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-    if (from !== ZERO_ADDRESS) {
-      await this.updateStAethelBalance(from, `-${value}`, log);
-    }
-
-    // Update receiver balance (add)
-    if (to !== ZERO_ADDRESS) {
-      await this.updateStAethelBalance(to, value, log);
-    }
   }
 
-  private async updateStAethelBalance(
+  private async updateStAethelShareBalance(
+    tx: Prisma.TransactionClient,
     holder: string,
     delta: string,
     log: Log,
   ): Promise<void> {
-    const existing = await this.prisma.stAethelBalance.findUnique({
+    const existing = await tx.stAethelBalance.findUnique({
       where: { holder },
     });
 
-    const currentBalance = existing ? BigInt(existing.balance) : BigInt(0);
+    const currentShares = existing ? BigInt(existing.shares) : 0n;
     const deltaValue = BigInt(delta);
-    const newBalance = currentBalance + deltaValue;
+    const newShares = currentShares + deltaValue;
 
-    // Clamp to zero (safety)
-    const finalBalance = newBalance < BigInt(0) ? BigInt(0) : newBalance;
+    if (newShares < 0n) {
+      throw new Error(
+        `stAETHEL share ledger underflow for ${holder} at ${log.transactionHash}:${log.index}`,
+      );
+    }
 
-    await this.prisma.stAethelBalance.upsert({
+    await tx.stAethelBalance.upsert({
       where: { holder },
       update: {
-        balance: finalBalance.toString(),
+        shares: newShares.toString(),
         lastTxHash: log.transactionHash,
         lastBlockNumber: BigInt(log.blockNumber),
       },
       create: {
         holder,
-        balance: finalBalance.toString(),
+        shares: newShares.toString(),
         lastTxHash: log.transactionHash,
         lastBlockNumber: BigInt(log.blockNumber),
       },
@@ -1461,10 +2356,10 @@ export class IndexerService {
     });
     if (!parsed) return;
 
-    const assetId = parsed.args[0];                       // bytes32 (indexed)
-    const tokenAddress = parsed.args[1].toLowerCase();    // address (indexed)
-    const routingType = Number(parsed.args[2]);           // uint8
-    const enabled = parsed.args[3] as boolean;            // bool
+    const assetId = parsed.args[0]; // bytes32 (indexed)
+    const tokenAddress = parsed.args[1].toLowerCase(); // address (indexed)
+    const routingType = Number(parsed.args[2]); // uint8
+    const enabled = parsed.args[3] as boolean; // bool
 
     // First: persist the event-derived fields immediately (fast path)
     await this.prisma.stablecoinConfig.upsert({
@@ -1477,12 +2372,12 @@ export class IndexerService {
       },
       create: {
         assetId,
-        symbol: '', // Placeholder — refreshStablecoinConfig() backfills from on-chain state
+        symbol: "", // Placeholder — refreshStablecoinConfig() backfills from on-chain state
         tokenAddress,
         routingType,
-        maxBridgeAmount: '0',
-        dailyLimit: '0',
-        dailyUsed: '0',
+        maxBridgeAmount: "0",
+        dailyLimit: "0",
+        dailyUsed: "0",
         active: enabled,
         blockNumber: BigInt(log.blockNumber),
       },
@@ -1490,13 +2385,14 @@ export class IndexerService {
 
     logger.info(
       `StablecoinConfigured: assetId=${assetId} token=${tokenAddress} ` +
-      `routingType=${routingType} enabled=${enabled} tx=${log.transactionHash}`,
+        `routingType=${routingType} enabled=${enabled} tx=${log.transactionHash}`,
     );
 
     // Second: read the full on-chain struct to materialize all config fields
     // (symbol, name, limits, cctpDomain, etc.) that the event doesn't carry.
-    // This mirrors the refreshVaultState() pattern — non-fatal on failure.
-    await this.refreshStablecoinConfig(assetId);
+    // A failed authoritative read is retried at the block boundary; the cursor
+    // must not advance while this projection is incomplete.
+    await this.refreshStablecoinConfig(assetId, log.blockNumber);
   }
 
   /**
@@ -1515,11 +2411,11 @@ export class IndexerService {
     });
     if (!parsed) return;
 
-    const assetId = parsed.args[0];                       // bytes32 (indexed)
-    const sender = parsed.args[1].toLowerCase();          // address (indexed)
-    const destinationDomain = Number(parsed.args[2]);     // uint32 (indexed)
-    const amount = parsed.args[3].toString();             // uint256
-    const cctpNonce = parsed.args[4].toString();          // uint64
+    const assetId = parsed.args[0]; // bytes32 (indexed)
+    const sender = parsed.args[1].toLowerCase(); // address (indexed)
+    const destinationDomain = Number(parsed.args[2]); // uint32 (indexed)
+    const amount = parsed.args[3].toString(); // uint256
+    const cctpNonce = parsed.args[4].toString(); // uint64
 
     await this.prisma.stablecoinBridgeEvent.upsert({
       where: {
@@ -1530,7 +2426,7 @@ export class IndexerService {
       },
       update: {
         assetId,
-        eventType: 'CCTPBurnInitiated',
+        eventType: "CCTPBurnInitiated",
         sender,
         amount,
         destDomain: destinationDomain,
@@ -1540,7 +2436,7 @@ export class IndexerService {
       },
       create: {
         assetId,
-        eventType: 'CCTPBurnInitiated',
+        eventType: "CCTPBurnInitiated",
         sender,
         amount,
         destDomain: destinationDomain,
@@ -1552,12 +2448,14 @@ export class IndexerService {
       },
     });
 
-    // Track daily usage for the asset
-    await this.incrementDailyUsage(assetId, amount);
+    // Materialize usage from the authoritative contract view. This is an
+    // absolute assignment (not an increment), so replaying this log cannot
+    // double-count bridge volume.
+    await this.refreshStablecoinConfig(assetId, log.blockNumber);
 
     logger.info(
       `CCTPBurnInitiated: assetId=${assetId} sender=${sender} amount=${amount} ` +
-      `destDomain=${destinationDomain} nonce=${cctpNonce} tx=${log.transactionHash}`,
+        `destDomain=${destinationDomain} nonce=${cctpNonce} tx=${log.transactionHash}`,
     );
   }
 
@@ -1576,10 +2474,10 @@ export class IndexerService {
     });
     if (!parsed) return;
 
-    const assetId = parsed.args[0];                       // bytes32 (indexed)
-    const mintOperationId = parsed.args[1];               // bytes32 (indexed)
-    const recipient = parsed.args[2].toLowerCase();       // address (indexed)
-    const amount = parsed.args[3].toString();             // uint256
+    const assetId = parsed.args[0]; // bytes32 (indexed)
+    const mintOperationId = parsed.args[1]; // bytes32 (indexed)
+    const recipient = parsed.args[2].toLowerCase(); // address (indexed)
+    const amount = parsed.args[3].toString(); // uint256
 
     await this.prisma.stablecoinBridgeEvent.upsert({
       where: {
@@ -1590,7 +2488,7 @@ export class IndexerService {
       },
       update: {
         assetId,
-        eventType: 'MintExecuted',
+        eventType: "MintExecuted",
         sender: recipient, // recipient is the beneficiary
         amount,
         blockNumber: BigInt(log.blockNumber),
@@ -1599,7 +2497,7 @@ export class IndexerService {
       },
       create: {
         assetId,
-        eventType: 'MintExecuted',
+        eventType: "MintExecuted",
         sender: recipient,
         amount,
         txHash: log.transactionHash,
@@ -1610,9 +2508,13 @@ export class IndexerService {
       },
     });
 
+    // Minting updates epoch usage as well. Refreshing an absolute on-chain
+    // value keeps the projection replay-safe.
+    await this.refreshStablecoinConfig(assetId, log.blockNumber);
+
     logger.info(
       `MintExecuted: assetId=${assetId} recipient=${recipient} amount=${amount} ` +
-      `mintOpId=${mintOperationId} tx=${log.transactionHash}`,
+        `mintOpId=${mintOperationId} tx=${log.transactionHash}`,
     );
   }
 
@@ -1632,10 +2534,10 @@ export class IndexerService {
     });
     if (!parsed) return;
 
-    const assetId = parsed.args[0];                       // bytes32 (indexed)
-    const reasonCode = parsed.args[1];                    // bytes32 (indexed)
-    const observed = parsed.args[2].toString();           // uint256
-    const threshold = parsed.args[3].toString();          // uint256
+    const assetId = parsed.args[0]; // bytes32 (indexed)
+    const reasonCode = parsed.args[1]; // bytes32 (indexed)
+    const observed = parsed.args[2].toString(); // uint256
+    const threshold = parsed.args[3].toString(); // uint256
 
     // Record the event
     await this.prisma.stablecoinBridgeEvent.upsert({
@@ -1647,7 +2549,7 @@ export class IndexerService {
       },
       update: {
         assetId,
-        eventType: 'CircuitBreakerTriggered',
+        eventType: "CircuitBreakerTriggered",
         sender: log.address.toLowerCase(), // bridge contract itself
         amount: observed,
         blockNumber: BigInt(log.blockNumber),
@@ -1656,7 +2558,7 @@ export class IndexerService {
       },
       create: {
         assetId,
-        eventType: 'CircuitBreakerTriggered',
+        eventType: "CircuitBreakerTriggered",
         sender: log.address.toLowerCase(),
         amount: observed,
         txHash: log.transactionHash,
@@ -1673,41 +2575,14 @@ export class IndexerService {
       data: { circuitBreakerTripped: true },
     });
 
+    // Re-read mintPaused and usage so a replay or later breaker reset cannot
+    // leave the materialized status stuck on a historical value.
+    await this.refreshStablecoinConfig(assetId, log.blockNumber);
+
     logger.warn(
       `CircuitBreakerTriggered: assetId=${assetId} reason=${reasonCode} ` +
-      `observed=${observed} threshold=${threshold} tx=${log.transactionHash}`,
+        `observed=${observed} threshold=${threshold} tx=${log.transactionHash}`,
     );
-  }
-
-  /**
-   * Increment the daily usage counter for a stablecoin asset.
-   * Resets the counter if the last reset was on a previous UTC day.
-   */
-  private async incrementDailyUsage(
-    assetId: string,
-    amount: string,
-  ): Promise<void> {
-    const config = await this.prisma.stablecoinConfig.findUnique({
-      where: { assetId },
-    });
-    if (!config) return;
-
-    const now = new Date();
-    const lastReset = config.lastResetTimestamp;
-    const isNewDay =
-      !lastReset ||
-      lastReset.toISOString().slice(0, 10) !== now.toISOString().slice(0, 10);
-
-    const currentUsed = isNewDay ? BigInt(0) : BigInt(config.dailyUsed);
-    const newUsed = currentUsed + BigInt(amount);
-
-    await this.prisma.stablecoinConfig.update({
-      where: { assetId },
-      data: {
-        dailyUsed: newUsed.toString(),
-        lastResetTimestamp: isNewDay ? now : undefined,
-      },
-    });
   }
 
   // -----------------------------------------------------------------------
@@ -1718,16 +2593,21 @@ export class IndexerService {
     const topic0 = log.topics[0];
 
     // Determine a readable event type
-    let eventType = 'Unknown';
-    if (topic0 === TOPIC_STAKED) eventType = 'Staked';
-    else if (topic0 === TOPIC_UNSTAKE_REQUESTED) eventType = 'UnstakeRequested';
-    else if (topic0 === TOPIC_WITHDRAWN) eventType = 'Withdrawn';
-    else if (topic0 === TOPIC_REWARDS_DISTRIBUTED) eventType = 'RewardsDistributed';
-    else if (topic0 === TOPIC_TRANSFER) eventType = 'Transfer';
-    else if (topic0 === TOPIC_STABLECOIN_CONFIGURED) eventType = 'StablecoinConfigured';
-    else if (topic0 === TOPIC_CCTP_BURN_INITIATED) eventType = 'CCTPBurnInitiated';
-    else if (topic0 === TOPIC_MINT_EXECUTED) eventType = 'MintExecuted';
-    else if (topic0 === TOPIC_CIRCUIT_BREAKER_TRIGGERED) eventType = 'CircuitBreakerTriggered';
+    let eventType = "Unknown";
+    if (topic0 === TOPIC_STAKED) eventType = "Staked";
+    else if (topic0 === TOPIC_UNSTAKED) eventType = "Unstaked";
+    else if (topic0 === TOPIC_WITHDRAWN) eventType = "Withdrawn";
+    else if (topic0 === TOPIC_REWARDS_ADDED) eventType = "RewardsAdded";
+    else if (topic0 === TOPIC_REWARDS_CLAIMED) eventType = "RewardsClaimed";
+    else if (topic0 === TOPIC_TRANSFER) eventType = "Transfer";
+    else if (topic0 === TOPIC_TRANSFER_SHARES) eventType = "TransferShares";
+    else if (topic0 === TOPIC_STABLECOIN_CONFIGURED)
+      eventType = "StablecoinConfigured";
+    else if (topic0 === TOPIC_CCTP_BURN_INITIATED)
+      eventType = "CCTPBurnInitiated";
+    else if (topic0 === TOPIC_MINT_EXECUTED) eventType = "MintExecuted";
+    else if (topic0 === TOPIC_CIRCUIT_BREAKER_TRIGGERED)
+      eventType = "CircuitBreakerTriggered";
 
     // Find the transaction record to link the event
     const tx = await this.prisma.transaction.findUnique({
@@ -1735,8 +2615,14 @@ export class IndexerService {
       select: { id: true },
     });
 
-    await this.prisma.event.create({
-      data: {
+    await this.prisma.event.upsert({
+      where: {
+        transactionHash_logIndex: {
+          transactionHash: log.transactionHash,
+          logIndex: log.index,
+        },
+      },
+      update: {
         type: eventType,
         blockHeight: BigInt(log.blockNumber),
         transactionId: tx?.id ?? null,
@@ -1748,10 +2634,31 @@ export class IndexerService {
           transactionHash: log.transactionHash,
         },
         sender: log.topics[1]
-          ? '0x' + log.topics[1].slice(26).toLowerCase()
+          ? "0x" + log.topics[1].slice(26).toLowerCase()
           : null,
         recipient: log.topics[2]
-          ? '0x' + log.topics[2].slice(26).toLowerCase()
+          ? "0x" + log.topics[2].slice(26).toLowerCase()
+          : null,
+        timestamp: blockTime,
+      },
+      create: {
+        type: eventType,
+        blockHeight: BigInt(log.blockNumber),
+        transactionId: tx?.id ?? null,
+        transactionHash: log.transactionHash,
+        logIndex: log.index,
+        attributes: {
+          address: log.address,
+          topics: log.topics,
+          data: log.data,
+          logIndex: log.index,
+          transactionHash: log.transactionHash,
+        },
+        sender: log.topics[1]
+          ? "0x" + log.topics[1].slice(26).toLowerCase()
+          : null,
+        recipient: log.topics[2]
+          ? "0x" + log.topics[2].slice(26).toLowerCase()
           : null,
         timestamp: blockTime,
       },
@@ -1777,11 +2684,13 @@ export class IndexerService {
    * backend's KNOWN_STABLECOIN_SYMBOLS registry (keccak256 reverse lookup)
    * on its next tick if the DB row has an empty string.
    *
-   * Non-fatal: if the view call fails (e.g. contract not yet deployed in
-   * test environments), the row retains the event-derived fields and the
-   * ReconciliationScheduler will detect the drift on its next tick.
+   * A failed view call is fatal to the current block attempt so the indexer
+   * retries without advancing its cursor.
    */
-  private async refreshStablecoinConfig(assetId: string): Promise<void> {
+  private async refreshStablecoinConfig(
+    assetId: string,
+    blockTag: number,
+  ): Promise<void> {
     if (!this.cfg.stablecoinBridgeAddress) return;
 
     try {
@@ -1797,35 +2706,47 @@ export class IndexerService {
       // StablecoinConfig struct fields; `epochUsage(bytes32)` returns
       // the current epoch's minted amount and tx volume.
       const [configResult, usageResult] = await Promise.all([
-        bridge.stablecoins(assetId) as Promise<readonly [
-          boolean,   // enabled
-          boolean,   // mintPaused
-          number,    // routingType (uint8 enum)
-          string,    // token
-          string,    // tokenMessengerV2
-          string,    // messageTransmitterV2
-          string,    // proofOfReserveFeed
-          bigint,    // mintCeilingPerEpoch
-          bigint,    // dailyTxLimit
-          number,    // hourlyOutflowBps (uint16)
-          number,    // dailyOutflowBps (uint16)
-          number,    // porDeviationBps (uint16)
-          number,    // porHeartbeatSeconds (uint48)
-        ]>,
-        bridge.epochUsage(assetId) as Promise<readonly [
-          bigint,    // epochId (uint64)
-          bigint,    // mintedAmount
-          bigint,    // txVolume
-        ]>,
+        bridge.stablecoins(assetId, { blockTag }) as Promise<
+          readonly [
+            boolean, // enabled
+            boolean, // mintPaused
+            number, // routingType (uint8 enum)
+            string, // token
+            string, // tokenMessengerV2
+            string, // messageTransmitterV2
+            string, // proofOfReserveFeed
+            bigint, // mintCeilingPerEpoch
+            bigint, // dailyTxLimit
+            number, // hourlyOutflowBps (uint16)
+            number, // dailyOutflowBps (uint16)
+            number, // porDeviationBps (uint16)
+            number, // porHeartbeatSeconds (uint48)
+          ]
+        >,
+        bridge.epochUsage(assetId, { blockTag }) as Promise<
+          readonly [
+            bigint, // epochId (uint64)
+            bigint, // mintedAmount
+            bigint, // txVolume
+          ]
+        >,
       ]);
 
       // Destructure the tuple — Solidity struct getters return positional tuples.
       const [
-        enabled, _mintPaused, routingType, token,
-        _tokenMessengerV2, _messageTransmitterV2, _proofOfReserveFeed,
-        mintCeilingPerEpoch, dailyTxLimit,
-        _hourlyOutflowBps, _dailyOutflowBps,
-        _porDeviationBps, _porHeartbeatSeconds,
+        enabled,
+        mintPaused,
+        routingType,
+        token,
+        _tokenMessengerV2,
+        _messageTransmitterV2,
+        _proofOfReserveFeed,
+        mintCeilingPerEpoch,
+        dailyTxLimit,
+        _hourlyOutflowBps,
+        _dailyOutflowBps,
+        _porDeviationBps,
+        _porHeartbeatSeconds,
       ] = configResult;
 
       const [_epochId, _mintedAmount, txVolume] = usageResult;
@@ -1839,6 +2760,8 @@ export class IndexerService {
           maxBridgeAmount: mintCeilingPerEpoch.toString(),
           dailyLimit: dailyTxLimit.toString(),
           dailyUsed: txVolume.toString(),
+          circuitBreakerTripped: Boolean(mintPaused),
+          blockNumber: BigInt(blockTag),
           // Note: symbol is NOT on-chain — the ReconciliationScheduler's
           // backfillStablecoinSymbols() resolves it from KNOWN_STABLECOIN_SYMBOLS.
           // cctpDomain is also off-chain; left at its DB default.
@@ -1846,18 +2769,16 @@ export class IndexerService {
       });
 
       logger.info(
-        `StablecoinConfig materialized from on-chain: assetId=${assetId} ` +
-        `enabled=${enabled} routingType=${routingType} ` +
-        `mintCeiling=${mintCeilingPerEpoch} dailyTxLimit=${dailyTxLimit} txVolume=${txVolume}`,
+        `StablecoinConfig materialized from on-chain at block ${blockTag}: assetId=${assetId} ` +
+          `enabled=${enabled} mintPaused=${mintPaused} routingType=${routingType} ` +
+          `mintCeiling=${mintCeilingPerEpoch} dailyTxLimit=${dailyTxLimit} txVolume=${txVolume}`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       logger.error(
         `Failed to materialize StablecoinConfig for assetId=${assetId}`,
-        { error: message },
+        errorContext(err),
       );
-      // Non-fatal — config retains event-derived fields. ReconciliationScheduler
-      // will detect the incomplete state on its next tick.
+      throw err;
     }
   }
 
@@ -1876,7 +2797,7 @@ export class IndexerService {
    * whenever the contract performs operations that aren't event-observable
    * (e.g. rebasing, admin fee collection).
    */
-  private async refreshVaultState(): Promise<void> {
+  private async refreshVaultState(blockTag: number): Promise<void> {
     if (!this.cfg.cruzibleVaultAddress) return;
 
     try {
@@ -1886,19 +2807,35 @@ export class IndexerService {
         VAULT_VIEW_ABI,
         provider,
       );
+      const viewOverrides = { blockTag };
 
-      const [totalPooled, totalShares, exchangeRate, activeValidators] =
-        await Promise.all([
-          vault.getTotalPooledAethel() as Promise<bigint>,
-          vault.getTotalShares() as Promise<bigint>,
-          vault.getExchangeRate() as Promise<bigint>,
-          vault.getActiveValidatorCount() as Promise<bigint>,
-        ]);
+      const [
+        totalPooled,
+        totalShares,
+        exchangeRate,
+        currentEpoch,
+        unbonding,
+        effectiveApyBps,
+      ] = await Promise.all([
+        vault.totalPooledAethel(viewOverrides) as Promise<bigint>,
+        vault.totalShares(viewOverrides) as Promise<bigint>,
+        vault.getExchangeRate(viewOverrides) as Promise<bigint>,
+        vault.currentEpoch(viewOverrides) as Promise<bigint>,
+        vault.unbondingPeriod(viewOverrides) as Promise<bigint>,
+        vault.effectiveAPY(viewOverrides) as Promise<bigint>,
+      ]);
+
+      if (effectiveApyBps > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error(
+          "Vault effectiveAPY exceeds safe materialization range",
+        );
+      }
+      const currentApyPercent = Number(effectiveApyBps) / 100;
 
       // Count current stakers from the derived balance table
       const totalStakers = await this.prisma.stAethelBalance.count({
         where: {
-          NOT: { balance: '0' },
+          NOT: { shares: "0" },
         },
       });
 
@@ -1910,41 +2847,91 @@ export class IndexerService {
       await this.prisma.vaultState.upsert({
         where: { id: VAULT_STATE_ID },
         update: {
+          blockNumber: BigInt(blockTag),
           totalStaked: totalPooled.toString(),
           totalShares: totalShares.toString(),
           exchangeRate: exchangeRateDecimal,
-          currentApy: 0, // APY requires multi-epoch tracking — left for a future enhancement
+          currentEpoch,
+          currentApy: currentApyPercent,
           totalStakers: BigInt(totalStakers),
-          validatorsBacking: Number(activeValidators),
-          unbondingPeriod: DEFAULT_UNBONDING_PERIOD_DAYS,
+          // The vault has no validator-count getter on this contract line;
+          // validator selection is not vault-resident. Reported as 0.
+          validatorsBacking: 0,
+          unbondingPeriod: Math.ceil(Number(unbonding) / 86_400),
         },
         create: {
           id: VAULT_STATE_ID,
+          blockNumber: BigInt(blockTag),
           totalStaked: totalPooled.toString(),
           totalShares: totalShares.toString(),
           exchangeRate: exchangeRateDecimal,
-          currentApy: 0,
+          currentEpoch,
+          currentApy: currentApyPercent,
           totalStakers: BigInt(totalStakers),
-          validatorsBacking: Number(activeValidators),
-          unbondingPeriod: DEFAULT_UNBONDING_PERIOD_DAYS,
+          // The vault has no validator-count getter on this contract line;
+          // validator selection is not vault-resident. Reported as 0.
+          validatorsBacking: 0,
+          unbondingPeriod: Math.ceil(Number(unbonding) / 86_400),
         },
       });
 
       logger.info(
         `VaultState refreshed: totalStaked=${totalPooled} totalShares=${totalShares} ` +
-        `exchangeRate=${exchangeRateDecimal} validators=${activeValidators} stakers=${totalStakers}`,
+          `exchangeRate=${exchangeRateDecimal} apyPercent=${currentApyPercent} ` +
+          `epoch=${currentEpoch} unbondingSecs=${unbonding} stakers=${totalStakers}`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error('Failed to refresh VaultState from contract', { error: message });
-      // Non-fatal — vault state will be stale until the next successful refresh.
-      // The ReconciliationScheduler gracefully handles null/stale vault state.
+      logger.error(
+        "Failed to refresh VaultState from contract",
+        errorContext(err),
+      );
+      throw err;
     }
   }
 
   // -----------------------------------------------------------------------
   // Provider Helper
   // -----------------------------------------------------------------------
+
+  private getVerifiedNetworkBinding(): {
+    chainId: string;
+    anchorHash: string;
+    vaultAddress: string;
+    staethelAddress: string;
+    stablecoinBridgeAddress: string;
+  } {
+    if (!this.verifiedHttpChainId || !this.verifiedHttpAnchorHash) {
+      throw new Error(
+        "Indexer network identity must be verified before cursor access",
+      );
+    }
+    return {
+      chainId: this.verifiedHttpChainId,
+      anchorHash: this.verifiedHttpAnchorHash,
+      vaultAddress:
+        this.networkKeys?.identity.vaultAddress ??
+        (this.cfg.cruzibleVaultAddress.trim().toLowerCase() || "no-vault"),
+      staethelAddress:
+        this.networkKeys?.identity.staethelAddress ??
+        (this.cfg.staethelAddress.trim().toLowerCase() || "no-staethel"),
+      stablecoinBridgeAddress:
+        this.networkKeys?.identity.stablecoinBridgeAddress ??
+        (this.cfg.stablecoinBridgeAddress.trim().toLowerCase() || "no-bridge"),
+    };
+  }
+
+  private getSyncStateKey(): string {
+    if (!this.networkKeys) {
+      // Only reachable in isolated unit calls that bypass initialize(); the
+      // production lifecycle verifies HTTP identity before any DB access.
+      return "aethelred-evm";
+    }
+    return this.networkKeys.syncStateKey;
+  }
+
+  private getCursorKey(): string {
+    return this.networkKeys?.cursorKey ?? CURSOR_KEY;
+  }
 
   private getProvider(): JsonRpcProvider | WebSocketProvider {
     if (this.wsProvider && this._wsConnected) {
@@ -1953,17 +2940,14 @@ export class IndexerService {
     if (this.httpProvider) {
       return this.httpProvider;
     }
-    throw new Error('No EVM provider available');
+    throw new Error("No EVM provider available");
   }
 
   // -----------------------------------------------------------------------
   // Retry Helper
   // -----------------------------------------------------------------------
 
-  /**
-   * Execute `fn` with exponential backoff on failure.
-   * Prisma unique constraint violations (P2002) are swallowed for idempotency.
-   */
+  /** Execute `fn` with exponential backoff on failure. */
   private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
     let attempt = 0;
 
@@ -1971,15 +2955,12 @@ export class IndexerService {
       try {
         return await fn();
       } catch (error: any) {
-        // Prisma unique constraint violation — treat as success (idempotent)
-        if (error?.code === 'P2002') {
-          logger.warn('Duplicate key encountered (idempotent skip):', error.meta);
-          return undefined as unknown as T;
-        }
-
         attempt++;
         if (attempt >= MAX_RETRIES) {
-          logger.error(`Max retries (${MAX_RETRIES}) exceeded`, error);
+          logger.error(
+            `Max retries (${MAX_RETRIES}) exceeded`,
+            errorContext(error),
+          );
           throw error;
         }
 
@@ -1987,10 +2968,10 @@ export class IndexerService {
           BASE_RETRY_DELAY_MS * 2 ** attempt + Math.random() * 200,
           MAX_RETRY_DELAY_MS,
         );
-        logger.warn(
-          `Retry ${attempt}/${MAX_RETRIES} after ${Math.round(delay)}ms: ` +
-          `${error?.message ?? error}`,
-        );
+        logger.warn(`Retry ${attempt}/${MAX_RETRIES} scheduled`, {
+          delayMs: Math.round(delay),
+          ...errorContext(error),
+        });
 
         await this.sleep(delay);
       }

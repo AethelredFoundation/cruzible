@@ -1,0 +1,376 @@
+{
+  "schema": "cruzible.dependency_advisory_register.v1",
+  "source": {
+    "provider": "github_dependabot",
+    "repository": "aethelred-foundation/cruzible",
+    "state": "open_on_default_branch",
+    "captured_at": "2026-06-27",
+    "alert_count": 100,
+    "severity_counts": {
+      "critical": 1,
+      "high": 39,
+      "medium": 53,
+      "low": 7
+    },
+    "note": "Grouped remediation register for the 100 Dependabot alerts in the retained Cruzible release scope before this hardening pass. Five alerts belonged to the deleted, noncanonical backend/node scaffold; the current branch is validated offline against the remaining vulnerable ranges."
+  },
+  "groups": [
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "axios",
+      "alert_count": 23,
+      "max_severity": "high",
+      "vulnerable_ranges": [
+        ">= 1.0.0, < 1.15.0",
+        ">= 1.0.0, < 1.15.1",
+        ">= 1.0.0, < 1.15.2",
+        ">= 1.0.0, < 1.16.0",
+        ">= 1.7.0, < 1.16.0"
+      ],
+      "first_patched_versions": ["1.15.0", "1.15.1", "1.15.2", "1.16.0"],
+      "advisory_ids": [
+        "GHSA-35jp-ww65-95wh",
+        "GHSA-3g43-6gmg-66jw",
+        "GHSA-3p68-rc4w-qgx5",
+        "GHSA-3w6x-2g7m-8v23",
+        "GHSA-445q-vr5w-6q77",
+        "GHSA-5c9x-8gcm-mpgx",
+        "GHSA-62hf-57xw-28j9",
+        "GHSA-6chq-wfr3-2hj9",
+        "GHSA-777c-7fjr-54vf",
+        "GHSA-898c-q2cr-xwhg",
+        "GHSA-fvcv-3m26-pcqx",
+        "GHSA-hfxv-24rg-xrqf",
+        "GHSA-j5f8-grm9-p9fc",
+        "GHSA-m7pr-hjqh-92cm",
+        "GHSA-p92q-9vqr-4j8v",
+        "GHSA-pf86-5x62-jrwf",
+        "GHSA-pjwm-pj3p-43mv",
+        "GHSA-pmwg-cvhr-8vh7",
+        "GHSA-q8qp-cvcw-x6jj",
+        "GHSA-vf2m-468p-8v99",
+        "GHSA-w9j2-pvgh-6h63",
+        "GHSA-xhjh-pmcv-23jw",
+        "GHSA-xx6v-rp6x-q39c"
+      ]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "hono",
+      "alert_count": 20,
+      "max_severity": "high",
+      "vulnerable_ranges": [
+        "< 4.12.12",
+        "< 4.12.14",
+        "< 4.12.16",
+        "< 4.12.18",
+        "< 4.12.21",
+        "< 4.12.25",
+        ">= 4.0.0, <= 4.12.11"
+      ],
+      "first_patched_versions": [
+        "4.12.12",
+        "4.12.14",
+        "4.12.16",
+        "4.12.18",
+        "4.12.21",
+        "4.12.25"
+      ],
+      "advisory_ids": [
+        "GHSA-26pp-8wgv-hjvm",
+        "GHSA-2gcr-mfcq-wcc3",
+        "GHSA-3hrh-pfw6-9m5x",
+        "GHSA-458j-xx4x-4375",
+        "GHSA-69xw-7hcm-h432",
+        "GHSA-88fw-hqm2-52qc",
+        "GHSA-9vqf-7f2p-gf9v",
+        "GHSA-f577-qrjj-4474",
+        "GHSA-hm8q-7f3q-5f36",
+        "GHSA-j6c9-x7qj-28xf",
+        "GHSA-p77w-8qqv-26rm",
+        "GHSA-qp7p-654g-cw7p",
+        "GHSA-r5rp-j6wh-rvv4",
+        "GHSA-rv63-4mwf-qqc2",
+        "GHSA-wgpf-jwqj-8h8p",
+        "GHSA-wmmm-f939-6g9c",
+        "GHSA-wwfh-h76j-fc44",
+        "GHSA-xf4j-xp2r-rqqx",
+        "GHSA-xpcf-pg52-r92g",
+        "GHSA-xrhx-7g5j-rcj5"
+      ]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "next",
+      "alert_count": 14,
+      "max_severity": "high",
+      "vulnerable_ranges": [
+        ">= 10.0.0, < 15.5.16",
+        ">= 12.2.0, < 15.5.16",
+        ">= 13.0.0, < 15.5.15",
+        ">= 13.0.0, < 15.5.16",
+        ">= 13.4.0, < 15.5.16",
+        ">= 13.4.6, < 15.5.16",
+        ">= 13.4.13, < 15.5.16",
+        ">= 14.2.0, < 15.5.16",
+        ">= 15.0.0, < 15.5.16",
+        ">= 15.2.0, < 15.5.16",
+        ">= 15.2.0, < 15.5.18",
+        ">= 15.4.0, < 15.5.16"
+      ],
+      "first_patched_versions": ["15.5.15", "15.5.16", "15.5.18"],
+      "advisory_ids": [
+        "GHSA-267c-6grr-h53f",
+        "GHSA-26hh-7cqf-hhc6",
+        "GHSA-36qx-fr4f-26g5",
+        "GHSA-3g8h-86w9-wvmq",
+        "GHSA-492v-c6pp-mqqv",
+        "GHSA-8h8q-6873-q5fj",
+        "GHSA-c4j6-fc7j-m34r",
+        "GHSA-ffhc-5mcf-pf4q",
+        "GHSA-gx5p-jg67-6x7h",
+        "GHSA-h64f-5h5j-jqjh",
+        "GHSA-mg66-mrh9-m8jx",
+        "GHSA-q4gf-8mx6-v5v3",
+        "GHSA-vfv6-92ff-j949",
+        "GHSA-wfc6-r584-vfw7"
+      ]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "protobufjs",
+      "alert_count": 11,
+      "max_severity": "critical",
+      "vulnerable_ranges": [
+        "< 7.5.5",
+        "<= 7.5.5",
+        "<= 7.5.7",
+        "<= 7.6.0",
+        "<= 7.6.2"
+      ],
+      "first_patched_versions": ["7.5.5", "7.5.6", "7.5.8", "7.6.1", "7.6.3"],
+      "advisory_ids": [
+        "GHSA-2pr8-phx7-x9h3",
+        "GHSA-66ff-xgx4-vchm",
+        "GHSA-685m-2w69-288q",
+        "GHSA-75px-5xx7-5xc7",
+        "GHSA-f38q-mgvj-vph7",
+        "GHSA-fx83-v9x8-x52w",
+        "GHSA-jggg-4jg4-v7c6",
+        "GHSA-jvwf-75h9-cwgg",
+        "GHSA-q6x5-8v7m-xcrf",
+        "GHSA-wcpc-wj8m-hjx6",
+        "GHSA-xq3m-2v4x-88gg"
+      ]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "undici",
+      "alert_count": 6,
+      "max_severity": "high",
+      "vulnerable_ranges": [">= 7.0.0, < 7.28.0", ">= 7.23.0, < 7.28.0"],
+      "first_patched_versions": ["7.28.0"],
+      "advisory_ids": [
+        "GHSA-35p6-xmwp-9g52",
+        "GHSA-g8m3-5g58-fq7m",
+        "GHSA-hm92-r4w5-c3mj",
+        "GHSA-p88m-4jfj-68fv",
+        "GHSA-pr7r-676h-xcf6",
+        "GHSA-vmh5-mc38-953g"
+      ]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "ws",
+      "alert_count": 3,
+      "max_severity": "high",
+      "vulnerable_ranges": [
+        ">= 7.0.0, < 7.5.11",
+        ">= 8.0.0, < 8.20.1",
+        ">= 8.0.0, < 8.21.0"
+      ],
+      "first_patched_versions": ["7.5.11", "8.20.1", "8.21.0"],
+      "advisory_ids": ["GHSA-58qx-3vcg-4xpx", "GHSA-96hv-2xvq-fx4p"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "ws",
+      "alert_count": 3,
+      "max_severity": "high",
+      "vulnerable_ranges": [
+        ">= 7.0.0, < 7.5.11",
+        ">= 8.0.0, < 8.20.1",
+        ">= 8.0.0, < 8.21.0"
+      ],
+      "first_patched_versions": ["7.5.11", "8.20.1", "8.21.0"],
+      "advisory_ids": ["GHSA-58qx-3vcg-4xpx", "GHSA-96hv-2xvq-fx4p"]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "@grpc/grpc-js",
+      "alert_count": 2,
+      "max_severity": "high",
+      "vulnerable_ranges": [">= 1.14.0, < 1.14.4"],
+      "first_patched_versions": ["1.14.4"],
+      "advisory_ids": ["GHSA-5375-pq7m-f5r2", "GHSA-99f4-grh7-6pcq"]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "vite",
+      "alert_count": 2,
+      "max_severity": "high",
+      "vulnerable_ranges": [">= 8.0.0, <= 8.0.15"],
+      "first_patched_versions": ["8.0.16"],
+      "advisory_ids": ["GHSA-fx2h-pf6j-xcff", "GHSA-v6wh-96g9-6wx3"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "fast-uri",
+      "alert_count": 2,
+      "max_severity": "high",
+      "vulnerable_ranges": ["<= 3.1.0", "<= 3.1.1"],
+      "first_patched_versions": ["3.1.1", "3.1.2"],
+      "advisory_ids": ["GHSA-q3j6-qgpj-74h6", "GHSA-v39h-62p7-jpjc"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "vite",
+      "alert_count": 2,
+      "max_severity": "high",
+      "vulnerable_ranges": [">= 8.0.0, <= 8.0.15"],
+      "first_patched_versions": ["8.0.16"],
+      "advisory_ids": ["GHSA-fx2h-pf6j-xcff", "GHSA-v6wh-96g9-6wx3"]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "@protobufjs/utf8",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": ["<= 1.1.0"],
+      "first_patched_versions": ["1.1.1"],
+      "advisory_ids": ["GHSA-q6x5-8v7m-xcrf"]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "esbuild",
+      "alert_count": 1,
+      "max_severity": "low",
+      "vulnerable_ranges": [">= 0.27.3, < 0.28.1"],
+      "first_patched_versions": ["0.28.1"],
+      "advisory_ids": ["GHSA-g7r4-m6w7-qqqr"]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "form-data",
+      "alert_count": 1,
+      "max_severity": "high",
+      "vulnerable_ranges": [">= 4.0.0, < 4.0.6"],
+      "first_patched_versions": ["4.0.6"],
+      "advisory_ids": ["GHSA-hmw2-7cc7-3qxx"]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "qs",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": [">= 6.11.1, <= 6.15.1"],
+      "first_patched_versions": ["6.15.2"],
+      "advisory_ids": ["GHSA-q8mj-m7cp-5q26"]
+    },
+    {
+      "manifest_path": "backend/api/package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "uuid",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": ["< 11.1.1"],
+      "first_patched_versions": ["11.1.1"],
+      "advisory_ids": ["GHSA-w5hq-g745-h8pq"]
+    },
+    {
+      "manifest_path": "backend/api/package.json",
+      "ecosystem": "npm",
+      "package_name": "uuid",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": ["< 11.1.1"],
+      "first_patched_versions": ["11.1.1"],
+      "advisory_ids": ["GHSA-w5hq-g745-h8pq"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "@opentelemetry/core",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": ["< 2.8.0"],
+      "first_patched_versions": ["2.8.0"],
+      "advisory_ids": ["GHSA-8988-4f7v-96qf"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "brace-expansion",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": [">= 5.0.0, < 5.0.6"],
+      "first_patched_versions": ["5.0.6"],
+      "advisory_ids": ["GHSA-jxxr-4gwj-5jf2"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "follow-redirects",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": ["<= 1.15.11"],
+      "first_patched_versions": ["1.16.0"],
+      "advisory_ids": ["GHSA-r4q5-vmmm-2653"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "form-data",
+      "alert_count": 1,
+      "max_severity": "high",
+      "vulnerable_ranges": [">= 4.0.0, < 4.0.6"],
+      "first_patched_versions": ["4.0.6"],
+      "advisory_ids": ["GHSA-hmw2-7cc7-3qxx"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "postcss",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": ["< 8.5.10"],
+      "first_patched_versions": ["8.5.10"],
+      "advisory_ids": ["GHSA-qx2v-qp2m-jg93"]
+    },
+    {
+      "manifest_path": "package-lock.json",
+      "ecosystem": "npm",
+      "package_name": "uuid",
+      "alert_count": 1,
+      "max_severity": "medium",
+      "vulnerable_ranges": ["< 11.1.1"],
+      "first_patched_versions": ["11.1.1"],
+      "advisory_ids": ["GHSA-w5hq-g745-h8pq"]
+    }
+  ]
+}

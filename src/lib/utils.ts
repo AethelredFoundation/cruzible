@@ -4,53 +4,6 @@
 // ============================================================
 
 /**
- * Deterministic pseudo-random number generator using sine function.
- * Used for generating consistent mock data across SSR and client.
- */
-export function seededRandom(seed: number): number {
-  const x = Math.sin(seed) * 10000;
-  return x - Math.floor(x);
-}
-
-/**
- * Generate a random float in [min, max) range from a seed.
- */
-export function seededRange(seed: number, min: number, max: number): number {
-  return min + seededRandom(seed) * (max - min);
-}
-
-/**
- * Generate a random integer in [min, max] range from a seed.
- */
-export function seededInt(seed: number, min: number, max: number): number {
-  return Math.floor(seededRange(seed, min, max + 1));
-}
-
-/**
- * Generate a hexadecimal string of given length from a seed.
- */
-export function seededHex(seed: number, length: number): string {
-  const chars = "0123456789abcdef";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars[Math.floor(seededRandom(seed + i * 7 + 3) * chars.length)];
-  }
-  return result;
-}
-
-/**
- * Generate an Aethelred-style address from a seed.
- */
-export function seededAddress(seed: number): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let addr = "aeth1";
-  for (let i = 0; i < 38; i++) {
-    addr += chars[Math.floor(seededRandom(seed + i + 1) * chars.length)];
-  }
-  return addr;
-}
-
-/**
  * Format a number with compact notation (K, M, B suffixes).
  * @param n - The number to format
  * @param decimals - Number of decimal places (defaults: B=2, M=1, K=1, else=0)
@@ -90,4 +43,140 @@ export function truncateAddress(
  */
 export function copyToClipboard(text: string): Promise<void> {
   return navigator.clipboard.writeText(text).catch(() => {});
+}
+
+export function isHttpUrl(value?: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/u, "")
+    .replace(/^\[(.*)\]$/u, "$1");
+}
+
+function isReservedHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "example" ||
+    hostname.endsWith(".example") ||
+    hostname === "invalid" ||
+    hostname.endsWith(".invalid") ||
+    hostname === "test" ||
+    hostname.endsWith(".test")
+  );
+}
+
+function parseIpv4(hostname: string): number[] | null {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(hostname)) {
+    return null;
+  }
+
+  const octets = hostname.split(".").map((octet) => Number(octet));
+  return octets.every((octet) => Number.isInteger(octet) && octet <= 255)
+    ? octets
+    : null;
+}
+
+function isIpLiteral(hostname: string): boolean {
+  if (parseIpv4(hostname)) {
+    return true;
+  }
+
+  return hostname.includes(":") && /^[0-9a-f:.%]+$/iu.test(hostname);
+}
+
+function isPrivateOrLocalHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+
+  if (isReservedHostname(normalized) || isIpLiteral(normalized)) {
+    return true;
+  }
+
+  const labels = normalized.split(".");
+  return labels.some((label) => label.length === 0);
+}
+
+export function getSafeExternalUrl(value?: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      isPrivateOrLocalHostname(url.hostname)
+    ) {
+      return null;
+    }
+
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+const TRUSTED_IPFS_GATEWAY_HOSTS = new Set([
+  "cloudflare-ipfs.com",
+  "gateway.pinata.cloud",
+  "ipfs.io",
+]);
+
+export function getTrustedModelStorageUrl(
+  value?: string | null,
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+
+    if (url.username || url.password) {
+      return null;
+    }
+
+    if (url.protocol === "https:" && TRUSTED_IPFS_GATEWAY_HOSTS.has(host)) {
+      const cidPath = url.pathname.replace(/^\/+/, "");
+      return cidPath.startsWith("ipfs/") && cidPath.length > "ipfs/".length
+        ? url.toString()
+        : null;
+    }
+
+    if (url.protocol === "https:" && host === "arweave.net") {
+      const txPath = url.pathname.replace(/^\/+/, "");
+      return txPath ? url.toString() : null;
+    }
+
+    if (url.protocol === "ipfs:") {
+      const cidPath = `${url.hostname}${url.pathname}`.replace(/^\/+/, "");
+      return cidPath ? `https://ipfs.io/ipfs/${cidPath}` : null;
+    }
+
+    if (url.protocol === "ar:") {
+      const txPath = `${url.hostname}${url.pathname}`.replace(/^\/+/, "");
+      return txPath ? `https://arweave.net/${txPath}` : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }

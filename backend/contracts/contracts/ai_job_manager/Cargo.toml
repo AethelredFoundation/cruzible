@@ -24,3 +24,4 @@ hex = { workspace = true }
 
 [dev-dependencies]
 cosmwasm-schema = { workspace = true }
+model-registry = { path = "../model_registry", features = ["library"] }

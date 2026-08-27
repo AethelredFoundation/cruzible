@@ -5,8 +5,8 @@
  * Models are registered with their hash, architecture, and metadata.
  */
 use cosmwasm_std::{
-    entry_point, to_json_binary, Addr, Binary, Deps, DepsMut, Env, Event, MessageInfo, Response,
-    StdResult, Timestamp, Uint128,
+    entry_point, to_json_binary, Addr, Binary, Coin, Deps, DepsMut, Env, Event, MessageInfo,
+    Response, StdResult, Timestamp, Uint128,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
@@ -29,10 +29,14 @@ pub enum ContractError {
     ModelExists {},
     #[error("Invalid category")]
     InvalidCategory {},
+    #[error("Verifier set must contain at least one valid address when verification is required")]
+    InvalidVerifierSet {},
     #[error("Not verified")]
     NotVerified {},
     #[error("Rate limited: try again later")]
     RateLimited {},
+    #[error("Unexpected funds")]
+    UnexpectedFunds {},
 }
 
 // ============ SECURITY CONSTANTS ============
@@ -41,6 +45,88 @@ pub enum ContractError {
 const MAX_MODELS_PER_OWNER: u64 = 500;
 /// Rate limit: minimum blocks between registrations per address
 const REGISTRATION_COOLDOWN_BLOCKS: u64 = 5;
+const MAX_MODEL_NAME_LENGTH: usize = 256;
+const MAX_MODEL_HASH_LENGTH: usize = 128;
+const MAX_ARCHITECTURE_LENGTH: usize = 256;
+const MAX_VERSION_LENGTH: usize = 64;
+const MAX_STORAGE_URI_LENGTH: usize = 2048;
+const MAX_SCHEMA_LENGTH: usize = 10240;
+const MAX_QUERY_LIMIT: usize = 100;
+const MAX_REGISTRATION_FEE_DENOM_LENGTH: usize = 128;
+const MAX_VERIFIERS: usize = 64;
+const TRUSTED_STORAGE_URI_PREFIXES: [&str; 6] = [
+    "ipfs://",
+    "ar://",
+    "https://arweave.net/",
+    "https://ipfs.io/ipfs/",
+    "https://cloudflare-ipfs.com/ipfs/",
+    "https://gateway.pinata.cloud/ipfs/",
+];
+
+fn validated_registration_payment(
+    funds: &[Coin],
+    registration_fee: Uint128,
+    registration_fee_denom: &str,
+) -> Result<(), ContractError> {
+    let mut paid = Uint128::zero();
+
+    for coin in funds {
+        if coin.denom != registration_fee_denom {
+            return Err(ContractError::UnexpectedFunds {});
+        }
+
+        paid = paid
+            .checked_add(coin.amount)
+            .map_err(|_| cosmwasm_std::StdError::generic_err("registration fee overflow"))?;
+    }
+
+    if paid != registration_fee {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!(
+                "Invalid registration fee: required exactly {} {}, got {}",
+                registration_fee, registration_fee_denom, paid
+            ),
+        )));
+    }
+
+    Ok(())
+}
+
+fn ensure_non_empty_bounded(value: &str, field: &str, max_len: usize) -> Result<(), ContractError> {
+    if value.is_empty() || value.len() > max_len {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            format!("{field} must be 1-{max_len} characters"),
+        )));
+    }
+    Ok(())
+}
+
+fn validate_storage_uri(storage_uri: &str) -> Result<(), ContractError> {
+    ensure_non_empty_bounded(storage_uri, "Storage URI", MAX_STORAGE_URI_LENGTH)?;
+
+    if storage_uri.trim() != storage_uri
+        || storage_uri
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace())
+    {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            "Storage URI must not contain whitespace or control characters",
+        )));
+    }
+
+    let lower_uri = storage_uri.to_ascii_lowercase();
+    let trusted = TRUSTED_STORAGE_URI_PREFIXES
+        .iter()
+        .any(|prefix| lower_uri.starts_with(prefix) && storage_uri.len() > prefix.len());
+
+    if !trusted {
+        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
+            "Storage URI must use ipfs://, ar://, or a trusted content gateway",
+        )));
+    }
+
+    Ok(())
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
@@ -48,6 +134,7 @@ pub struct Config {
     /// SECURITY: Only this contract address (AI Job Manager) can call IncrementJobCount
     pub ai_job_manager: Option<Addr>,
     pub registration_fee: Uint128,
+    pub registration_fee_denom: String,
     pub verification_required: bool,
     pub verifiers: Vec<Addr>,
 }
@@ -133,6 +220,7 @@ fn models<'a>() -> IndexedMap<'a, String, Model, ModelIndexes<'a>> {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub registration_fee: Uint128,
+    pub registration_fee_denom: String,
     pub verification_required: bool,
     pub verifiers: Vec<String>,
 }
@@ -167,6 +255,7 @@ pub enum ExecuteMsg {
     },
     UpdateConfig {
         registration_fee: Option<Uint128>,
+        registration_fee_denom: Option<String>,
         ai_job_manager: Option<String>,
     },
 }
@@ -198,19 +287,17 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    validate_registration_fee_denom(&msg.registration_fee_denom)?;
 
-    let verifiers: Result<Vec<Addr>, _> = msg
-        .verifiers
-        .iter()
-        .map(|v| deps.api.addr_validate(v))
-        .collect();
+    let verifiers = validate_verifier_set(deps.api, msg.verification_required, msg.verifiers)?;
 
     let config = Config {
         admin: info.sender,
         ai_job_manager: None, // Set via UpdateConfig after AI Job Manager is deployed
         registration_fee: msg.registration_fee,
+        registration_fee_denom: msg.registration_fee_denom,
         verification_required: msg.verification_required,
-        verifiers: verifiers?,
+        verifiers,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -265,11 +352,19 @@ pub fn execute(
         }
         ExecuteMsg::UpdateConfig {
             registration_fee,
+            registration_fee_denom,
             ai_job_manager,
-        } => execute_update_config(deps, info, registration_fee, ai_job_manager),
+        } => execute_update_config(
+            deps,
+            info,
+            registration_fee,
+            registration_fee_denom,
+            ai_job_manager,
+        ),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_register_model(
     deps: DepsMut,
     env: Env,
@@ -308,54 +403,24 @@ fn execute_register_model(
     }
 
     // MED-6: Input validation — prevent empty/oversized strings
-    if name.is_empty() || name.len() > 256 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Name must be 1-256 characters",
-        )));
-    }
-    if model_hash.is_empty() || model_hash.len() > 128 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Model hash must be 1-128 characters",
-        )));
-    }
-    if architecture.is_empty() || architecture.len() > 256 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Architecture must be 1-256 characters",
-        )));
-    }
-    if version.is_empty() || version.len() > 64 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Version must be 1-64 characters",
-        )));
-    }
-    if storage_uri.is_empty() || storage_uri.len() > 2048 {
-        return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-            "Storage URI must be 1-2048 characters",
-        )));
-    }
-    if input_schema.len() > 10240 || output_schema.len() > 10240 {
+    ensure_non_empty_bounded(&name, "Name", MAX_MODEL_NAME_LENGTH)?;
+    ensure_non_empty_bounded(&model_hash, "Model hash", MAX_MODEL_HASH_LENGTH)?;
+    ensure_non_empty_bounded(&architecture, "Architecture", MAX_ARCHITECTURE_LENGTH)?;
+    ensure_non_empty_bounded(&version, "Version", MAX_VERSION_LENGTH)?;
+    validate_storage_uri(&storage_uri)?;
+    if input_schema.len() > MAX_SCHEMA_LENGTH || output_schema.len() > MAX_SCHEMA_LENGTH {
         return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
             "Schema must be at most 10240 characters",
         )));
     }
 
-    // MED-3: Enforce registration fee payment
-    if !config.registration_fee.is_zero() {
-        let paid = info
-            .funds
-            .iter()
-            .find(|c| c.denom == "uaeth")
-            .map(|c| c.amount)
-            .unwrap_or_default();
-        if paid < config.registration_fee {
-            return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                format!(
-                    "Insufficient registration fee: required {}, got {}",
-                    config.registration_fee, paid
-                ),
-            )));
-        }
-    }
+    // MED-3: Enforce exact registration fee payment. Overpayments and
+    // unrelated denoms would otherwise be trapped in contract balance.
+    validated_registration_payment(
+        &info.funds,
+        config.registration_fee,
+        &config.registration_fee_denom,
+    )?;
 
     // Check if model already exists
     if models()
@@ -426,9 +491,11 @@ fn execute_update_model(
     }
 
     if let Some(n) = name {
+        ensure_non_empty_bounded(&n, "Name", MAX_MODEL_NAME_LENGTH)?;
         model.name = n;
     }
     if let Some(uri) = storage_uri {
+        validate_storage_uri(&uri)?;
         model.storage_uri = uri;
     }
 
@@ -530,10 +597,52 @@ fn execute_increment_job_count(
 /// MED-3 fix: enforce a maximum registration fee to prevent admin abuse.
 const MAX_REGISTRATION_FEE: u128 = 1_000_000_000_000; // 1M tokens with 6 decimals
 
+fn validate_registration_fee_denom(denom: &str) -> StdResult<()> {
+    if denom.trim().is_empty()
+        || denom.len() > MAX_REGISTRATION_FEE_DENOM_LENGTH
+        || denom
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
+    {
+        return Err(cosmwasm_std::StdError::generic_err(format!(
+            "registration_fee_denom must be 1-{MAX_REGISTRATION_FEE_DENOM_LENGTH} characters without whitespace or control characters"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_verifier_set(
+    api: &dyn cosmwasm_std::Api,
+    verification_required: bool,
+    verifiers: Vec<String>,
+) -> Result<Vec<Addr>, ContractError> {
+    if verification_required && verifiers.is_empty() {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+    if verifiers.len() > MAX_VERIFIERS {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+
+    let mut validated_verifiers = Vec::new();
+    for verifier in verifiers {
+        let verifier_addr = api.addr_validate(&verifier)?;
+        if !validated_verifiers.contains(&verifier_addr) {
+            validated_verifiers.push(verifier_addr);
+        }
+    }
+
+    if verification_required && validated_verifiers.is_empty() {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+
+    Ok(validated_verifiers)
+}
+
 fn execute_update_config(
     deps: DepsMut,
     info: MessageInfo,
     registration_fee: Option<Uint128>,
+    registration_fee_denom: Option<String>,
     ai_job_manager: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
@@ -551,6 +660,10 @@ fn execute_update_config(
         }
         config.registration_fee = fee;
     }
+    if let Some(denom) = registration_fee_denom {
+        validate_registration_fee_denom(&denom)?;
+        config.registration_fee_denom = denom;
+    }
 
     if let Some(jm) = ai_job_manager {
         config.ai_job_manager = Some(deps.api.addr_validate(&jm)?);
@@ -562,6 +675,10 @@ fn execute_update_config(
     let config_event = Event::new("config_updated")
         .add_attribute("updated_by", info.sender.as_str())
         .add_attribute("registration_fee", config.registration_fee.to_string())
+        .add_attribute(
+            "registration_fee_denom",
+            config.registration_fee_denom.clone(),
+        )
         .add_attribute(
             "ai_job_manager",
             config
@@ -597,6 +714,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 .owner
                 .prefix(addr)
                 .range(deps.storage, None, None, cosmwasm_std::Order::Descending)
+                .take(MAX_QUERY_LIMIT)
                 .filter_map(|r| r.ok().map(|(_, m)| m))
                 .collect();
             to_json_binary(&models_list)
@@ -612,12 +730,17 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn query_list_models(
     deps: Deps,
-    _category: Option<String>,
-    _owner: Option<String>,
+    category: Option<String>,
+    owner: Option<String>,
     verified: Option<bool>,
     limit: Option<u32>,
 ) -> StdResult<Vec<Model>> {
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = limit.unwrap_or(50).min(MAX_QUERY_LIMIT as u32) as usize;
+    let category_filter = normalize_category_filter(category)?;
+    let owner_filter = owner
+        .as_deref()
+        .map(|owner| deps.api.addr_validate(owner))
+        .transpose()?;
 
     let models_list: Vec<Model> = if let Some(v) = verified {
         let v_str = if v {
@@ -630,18 +753,75 @@ fn query_list_models(
             .verified
             .prefix(v_str)
             .range(deps.storage, None, None, cosmwasm_std::Order::Descending)
-            .take(limit)
             .filter_map(|r| r.ok().map(|(_, m)| m))
+            .filter(|model| model_matches_filters(model, &category_filter, owner_filter.as_ref()))
+            .take(limit)
             .collect()
     } else {
         models()
             .range(deps.storage, None, None, cosmwasm_std::Order::Descending)
-            .take(limit)
             .filter_map(|r| r.ok().map(|(_, m)| m))
+            .filter(|model| model_matches_filters(model, &category_filter, owner_filter.as_ref()))
+            .take(limit)
             .collect()
     };
 
     Ok(models_list)
+}
+
+fn normalize_category_filter(category: Option<String>) -> StdResult<Option<String>> {
+    let Some(category) = category else {
+        return Ok(None);
+    };
+
+    let normalized = match category.trim().to_ascii_lowercase().as_str() {
+        "general" => "General",
+        "medical" => "Medical",
+        "scientific" => "Scientific",
+        "financial" => "Financial",
+        "legal" => "Legal",
+        "educational" => "Educational",
+        "environmental" => "Environmental",
+        _ => {
+            return Err(cosmwasm_std::StdError::generic_err(
+                "invalid model category filter",
+            ))
+        }
+    };
+
+    Ok(Some(normalized.to_string()))
+}
+
+fn model_category_key(category: &ModelCategory) -> &'static str {
+    match category {
+        ModelCategory::General => "General",
+        ModelCategory::Medical => "Medical",
+        ModelCategory::Scientific => "Scientific",
+        ModelCategory::Financial => "Financial",
+        ModelCategory::Legal => "Legal",
+        ModelCategory::Educational => "Educational",
+        ModelCategory::Environmental => "Environmental",
+    }
+}
+
+fn model_matches_filters(
+    model: &Model,
+    category_filter: &Option<String>,
+    owner_filter: Option<&Addr>,
+) -> bool {
+    if let Some(category) = category_filter {
+        if model_category_key(&model.category) != category {
+            return false;
+        }
+    }
+
+    if let Some(owner) = owner_filter {
+        if model.owner.as_str() != owner.as_str() {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// L-09 FIX: Typed response struct replacing serde_json::json! macro
@@ -653,19 +833,51 @@ pub struct ModelStats {
 // L-04 FIX: Migration entry point for on-chain contract upgrades.
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MigrateMsg {}
+struct LegacyConfig {
+    pub admin: Addr,
+    pub ai_job_manager: Option<Addr>,
+    pub registration_fee: Uint128,
+    pub verification_required: bool,
+    pub verifiers: Vec<Addr>,
+}
+
+const LEGACY_CONFIG: Item<LegacyConfig> = Item::new("config");
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct MigrateMsg {
+    pub registration_fee_denom: String,
+}
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     let version = cw2::get_contract_version(deps.storage)?;
     if version.contract != CONTRACT_NAME {
         return Err(cosmwasm_std::StdError::generic_err(
             "Cannot migrate from a different contract",
-        ));
+        )
+        .into());
     }
+    validate_registration_fee_denom(&msg.registration_fee_denom)?;
+    let legacy = LEGACY_CONFIG.load(deps.storage)?;
+    if legacy.verification_required && legacy.verifiers.is_empty() {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+    if legacy.verifiers.len() > MAX_VERIFIERS {
+        return Err(ContractError::InvalidVerifierSet {});
+    }
+    let config = Config {
+        admin: legacy.admin,
+        ai_job_manager: legacy.ai_job_manager,
+        registration_fee: legacy.registration_fee,
+        registration_fee_denom: msg.registration_fee_denom.clone(),
+        verification_required: legacy.verification_required,
+        verifiers: legacy.verifiers,
+    };
+    CONFIG.save(deps.storage, &config)?;
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     Ok(Response::new()
         .add_attribute("action", "migrate")
+        .add_attribute("registration_fee_denom", msg.registration_fee_denom)
         .add_attribute("from_version", version.version)
         .add_attribute("to_version", CONTRACT_VERSION))
 }

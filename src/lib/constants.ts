@@ -117,7 +117,8 @@ export const STATUS_STYLES = {
 // ============================================================
 // Stablecoin Asset Registry
 // Phase-gated metadata for supported stablecoins.
-// Phase 1: USDC (ACTIVE), USDT (READ_ONLY)
+// Assets remain READ_ONLY until source burn, attestation/relaying, destination
+// mint, recovery, and end-to-end operational evidence are release-approved.
 // ============================================================
 
 /** Controls which operations are available for a stablecoin */
@@ -181,7 +182,7 @@ export const STABLECOIN_ASSETS: Record<string, StablecoinAsset> = {
     decimals: 6,
     assetId: getAssetId("USDC"),
     routingType: StablecoinRoutingType.CCTP_V2,
-    phase: StablecoinPhase.ACTIVE,
+    phase: StablecoinPhase.READ_ONLY,
     logoPath: "/tokens/usdc.svg",
   },
   USDT: {

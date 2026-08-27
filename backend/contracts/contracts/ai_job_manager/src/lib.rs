@@ -7,7 +7,8 @@
  */
 use cosmwasm_std::{
     entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, Event,
-    MessageInfo, Response, StdResult, Timestamp, Uint128,
+    MessageInfo, Reply, ReplyOn, Response, StdError, StdResult, SubMsg, SubMsgResult, Timestamp,
+    Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
@@ -18,6 +19,19 @@ use thiserror::Error;
 
 const CONTRACT_NAME: &str = "crates.io:ai-job-manager";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MODEL_REGISTRY_INCREMENT_REPLY_ID: u64 = 1;
+const BASIS_POINTS_DENOMINATOR: u64 = 10_000;
+const MAX_PLATFORM_FEE_BPS: u64 = 2_000;
+const MAX_REQUIRED_TEE_TYPE: u8 = 3;
+const MAX_PAYMENT_DENOM_LENGTH: usize = 128;
+const MAX_AUTHORIZED_VALIDATORS: usize = 64;
+const MAX_AUTHORIZED_MEASUREMENTS: usize = 64;
+const MAX_QUERY_LIMIT: usize = 100;
+const MAX_CLEANUP_LIMIT: usize = 100;
+const MIN_TEE_QUOTE_BYTES: usize = 256;
+const MIN_REPORT_DATA_BYTES: usize = 32;
+const REPORT_DATA_DIGEST_BYTES: usize = 32;
+const MIN_ENCLAVE_KEY_BYTES: usize = 32;
 
 // ============ ERRORS ============
 
@@ -50,14 +64,26 @@ pub enum ContractError {
     #[error("Insufficient payment")]
     InsufficientPayment {},
 
+    #[error("Unexpected funds")]
+    UnexpectedFunds {},
+
     #[error("Invalid model")]
     InvalidModel {},
+
+    #[error("Invalid config: {reason}")]
+    InvalidConfig { reason: String },
 
     #[error("Timeout too short")]
     TimeoutTooShort {},
 
     #[error("Already claimed")]
     AlreadyClaimed {},
+
+    #[error("Validator set must contain at least one valid address")]
+    InvalidValidatorSet {},
+
+    #[error("Measurement set must contain at least one 64-character hex measurement")]
+    InvalidMeasurementSet {},
 }
 
 // ============ STATE ============
@@ -81,6 +107,10 @@ pub struct Config {
     pub required_tee_type: u8,
     /// Model registry contract address
     pub model_registry: Addr,
+    /// Validators authorized to claim pending inference jobs.
+    pub authorized_validators: Vec<Addr>,
+    /// Canonical enclave measurements approved for production inference.
+    pub authorized_measurements: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -245,6 +275,8 @@ pub struct InstantiateMsg {
     pub fee_collector: String,
     pub required_tee_type: u8,
     pub model_registry: String,
+    pub validators: Vec<String>,
+    pub authorized_measurements: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -290,10 +322,29 @@ pub enum ExecuteMsg {
         min_payment: Option<Uint128>,
         platform_fee_bps: Option<u64>,
         required_tee_type: Option<u8>,
+        validators: Option<Vec<String>>,
+        authorized_measurements: Option<Vec<String>>,
     },
 
     /// Cleanup expired jobs (anyone)
     CleanupExpired { limit: Option<u32> },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum ModelRegistryExecuteMsg {
+    IncrementJobCount { model_hash: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum ModelRegistryQueryMsg {
+    Model { model_hash: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+struct ModelRegistryModelResponse {
+    verified: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -342,6 +393,10 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    validate_instantiate_config(&msg)?;
+    let authorized_validators = validate_validator_set(deps.api, msg.validators)?;
+    let authorized_measurements = validate_measurement_set(msg.authorized_measurements)?;
+
     let config = Config {
         admin: info.sender,
         payment_denom: msg.payment_denom,
@@ -352,6 +407,8 @@ pub fn instantiate(
         fee_collector: deps.api.addr_validate(&msg.fee_collector)?,
         required_tee_type: msg.required_tee_type,
         model_registry: deps.api.addr_validate(&msg.model_registry)?,
+        authorized_validators,
+        authorized_measurements,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -366,6 +423,147 @@ pub fn instantiate(
         .add_attribute("action", "instantiate")
         .add_attribute("contract_name", CONTRACT_NAME)
         .add_attribute("contract_version", CONTRACT_VERSION))
+}
+
+fn validate_instantiate_config(msg: &InstantiateMsg) -> Result<(), ContractError> {
+    validate_payment_denom(&msg.payment_denom)?;
+    validate_timeout_bounds(msg.min_timeout, msg.max_timeout)?;
+    validate_min_payment(msg.min_payment)?;
+    validate_platform_fee_bps(msg.platform_fee_bps)?;
+    validate_required_tee_type(msg.required_tee_type)
+}
+
+fn validate_payment_denom(denom: &str) -> Result<(), ContractError> {
+    if denom.trim().is_empty()
+        || denom.len() > MAX_PAYMENT_DENOM_LENGTH
+        || denom.chars().any(char::is_whitespace)
+    {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "payment_denom must not be empty, exceed {} bytes, or contain whitespace",
+                MAX_PAYMENT_DENOM_LENGTH
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn validate_timeout_bounds(min_timeout: u64, max_timeout: u64) -> Result<(), ContractError> {
+    if min_timeout > max_timeout {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_timeout cannot exceed max_timeout".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_job_not_expired(env: &Env, job: &Job) -> Result<(), ContractError> {
+    if env.block.height > job.created_at + job.timeout {
+        return Err(ContractError::JobExpired {});
+    }
+    Ok(())
+}
+
+fn validated_job_payment(funds: &[Coin], payment_denom: &str) -> Result<Uint128, ContractError> {
+    let mut payment = Uint128::zero();
+
+    for coin in funds {
+        if coin.denom != payment_denom {
+            return Err(ContractError::UnexpectedFunds {});
+        }
+
+        payment = payment
+            .checked_add(coin.amount)
+            .map_err(|_| StdError::generic_err("payment overflow"))?;
+    }
+
+    Ok(payment)
+}
+
+fn validate_min_payment(min_payment: Uint128) -> Result<(), ContractError> {
+    if min_payment.is_zero() {
+        return Err(ContractError::InvalidConfig {
+            reason: "min_payment must be greater than zero".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_platform_fee_bps(platform_fee_bps: u64) -> Result<(), ContractError> {
+    if platform_fee_bps > MAX_PLATFORM_FEE_BPS {
+        return Err(ContractError::InvalidConfig {
+            reason: format!(
+                "Platform fee cannot exceed {} basis points (20%)",
+                MAX_PLATFORM_FEE_BPS
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn validate_required_tee_type(required_tee_type: u8) -> Result<(), ContractError> {
+    if required_tee_type > MAX_REQUIRED_TEE_TYPE {
+        return Err(ContractError::InvalidConfig {
+            reason: format!("required_tee_type cannot exceed {}", MAX_REQUIRED_TEE_TYPE),
+        });
+    }
+    Ok(())
+}
+
+fn validate_validator_set(
+    api: &dyn cosmwasm_std::Api,
+    validators: Vec<String>,
+) -> Result<Vec<Addr>, ContractError> {
+    if validators.is_empty() || validators.len() > MAX_AUTHORIZED_VALIDATORS {
+        return Err(ContractError::InvalidValidatorSet {});
+    }
+
+    let mut authorized_validators = Vec::new();
+    for validator in validators {
+        let validator_addr = api.addr_validate(&validator)?;
+        if !authorized_validators.contains(&validator_addr) {
+            authorized_validators.push(validator_addr);
+        }
+    }
+
+    if authorized_validators.is_empty() {
+        return Err(ContractError::InvalidValidatorSet {});
+    }
+
+    Ok(authorized_validators)
+}
+
+fn validate_measurement_set(measurements: Vec<String>) -> Result<Vec<String>, ContractError> {
+    if measurements.is_empty() || measurements.len() > MAX_AUTHORIZED_MEASUREMENTS {
+        return Err(ContractError::InvalidMeasurementSet {});
+    }
+
+    let mut authorized_measurements = Vec::new();
+    for measurement in measurements {
+        if measurement.len() != 64 || !measurement.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(ContractError::InvalidMeasurementSet {});
+        }
+
+        let canonical = measurement.to_ascii_lowercase();
+        if !authorized_measurements.contains(&canonical) {
+            authorized_measurements.push(canonical);
+        }
+    }
+
+    if authorized_measurements.is_empty() {
+        return Err(ContractError::InvalidMeasurementSet {});
+    }
+
+    Ok(authorized_measurements)
+}
+
+fn tee_type_code(tee_type: &TeeType) -> u8 {
+    match tee_type {
+        TeeType::IntelSgx => 1,
+        TeeType::IntelTdx => 2,
+        TeeType::AmdSevSnp => 3,
+        TeeType::AwsNitro => 4,
+    }
 }
 
 // ============ EXECUTE ============
@@ -411,11 +609,48 @@ pub fn execute(
             min_payment,
             platform_fee_bps,
             required_tee_type,
-        } => execute_update_config(deps, info, min_payment, platform_fee_bps, required_tee_type),
+            validators,
+            authorized_measurements,
+        } => execute_update_config(
+            deps,
+            info,
+            min_payment,
+            platform_fee_bps,
+            required_tee_type,
+            validators,
+            authorized_measurements,
+        ),
         ExecuteMsg::CleanupExpired { limit } => execute_cleanup_expired(deps, env, limit),
     }
 }
 
+fn ensure_model_accepts_jobs(
+    deps: Deps,
+    model_registry: &Addr,
+    model_hash: &str,
+) -> Result<(), ContractError> {
+    if model_hash.is_empty() || model_hash.len() > 128 {
+        return Err(ContractError::InvalidModel {});
+    }
+
+    let model: ModelRegistryModelResponse = deps
+        .querier
+        .query_wasm_smart(
+            model_registry,
+            &ModelRegistryQueryMsg::Model {
+                model_hash: model_hash.to_string(),
+            },
+        )
+        .map_err(|_| ContractError::InvalidModel {})?;
+
+    if !model.verified {
+        return Err(ContractError::InvalidModel {});
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn execute_submit_job(
     deps: DepsMut,
     env: Env,
@@ -436,17 +671,14 @@ fn execute_submit_job(
         return Err(ContractError::TimeoutTooShort {});
     }
 
-    // Validate payment
-    let payment = info
-        .funds
-        .iter()
-        .find(|c| c.denom == config.payment_denom)
-        .map(|c| c.amount)
-        .unwrap_or_default();
-
+    // Validate payment. Rejecting unexpected denoms prevents accidental or
+    // malicious extra funds from being stranded in the contract escrow.
+    let payment = validated_job_payment(&info.funds, &config.payment_denom)?;
     if payment < config.min_payment {
         return Err(ContractError::InsufficientPayment {});
     }
+
+    ensure_model_accepts_jobs(deps.as_ref(), &config.model_registry, &model_hash)?;
 
     // Generate job ID
     let count = JOB_COUNT.load(deps.storage)?;
@@ -496,6 +728,11 @@ fn execute_assign_job(
     info: MessageInfo,
     job_id: String,
 ) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    if !config.authorized_validators.contains(&info.sender) {
+        return Err(ContractError::Unauthorized {});
+    }
+
     let mut job = jobs().load(deps.storage, job_id.clone())?;
 
     // Check job is pending
@@ -505,10 +742,7 @@ fn execute_assign_job(
         });
     }
 
-    // Check not expired
-    if env.block.height > job.created_at + job.timeout {
-        return Err(ContractError::JobExpired {});
-    }
+    ensure_job_not_expired(&env, &job)?;
 
     // Assign validator
     job.validator = Some(info.sender.clone());
@@ -534,7 +768,7 @@ fn execute_assign_job(
 
 fn execute_start_computing(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     job_id: String,
 ) -> Result<Response, ContractError> {
@@ -551,6 +785,8 @@ fn execute_start_computing(
             current: job.status.as_str().to_string(),
         });
     }
+
+    ensure_job_not_expired(&env, &job)?;
 
     job.status = JobStatus::Computing;
     jobs().save(deps.storage, job_id.clone(), &job)?;
@@ -584,39 +820,38 @@ fn execute_complete_job(
         });
     }
 
+    ensure_job_not_expired(&env, &job)?;
+
     // Verify TEE attestation
     if config.required_tee_type != 0 {
-        let tee_type = match tee_attestation.tee_type {
-            TeeType::IntelSgx => 1u8,
-            TeeType::IntelTdx => 2u8,
-            TeeType::AmdSevSnp => 3u8,
-            TeeType::AwsNitro => 4u8,
-        };
+        let tee_type = tee_type_code(&tee_attestation.tee_type);
         if tee_type != config.required_tee_type {
             return Err(ContractError::InvalidAttestation {});
         }
     }
 
-    // MED-7: Validate TEE attestation content — not just the type enum.
-    // Check that required fields are non-empty and the quote is well-formed.
-    if tee_attestation.quote.is_empty() {
+    // Validate TEE attestation content against production-sized evidence.
+    if tee_attestation.quote.len() < MIN_TEE_QUOTE_BYTES {
         return Err(ContractError::InvalidAttestation {});
     }
-    if tee_attestation.report_data.is_empty() {
+    if tee_attestation.report_data.len() < MIN_REPORT_DATA_BYTES {
         return Err(ContractError::InvalidAttestation {});
     }
-    if tee_attestation.measurement.is_empty() {
+    if tee_attestation.enclave_key.len() < MIN_ENCLAVE_KEY_BYTES {
         return Err(ContractError::InvalidAttestation {});
     }
-    if tee_attestation.enclave_key.is_empty() {
-        return Err(ContractError::InvalidAttestation {});
-    }
-    // Validate measurement looks like a hex hash (at least 32 hex chars)
-    if tee_attestation.measurement.len() < 32
+    // Validate measurement is a canonical 32-byte hex digest and is allowlisted.
+    if tee_attestation.measurement.len() != 64
         || !tee_attestation
             .measurement
             .chars()
             .all(|c| c.is_ascii_hexdigit())
+    {
+        return Err(ContractError::InvalidAttestation {});
+    }
+    if !config
+        .authorized_measurements
+        .contains(&tee_attestation.measurement.to_ascii_lowercase())
     {
         return Err(ContractError::InvalidAttestation {});
     }
@@ -632,6 +867,9 @@ fn execute_complete_job(
         .saturating_sub(tee_attestation.timestamp.seconds())
         > max_attestation_age
     {
+        return Err(ContractError::InvalidAttestation {});
+    }
+    if !tee_report_data_matches_job(&job, &info.sender, &output_hash, &tee_attestation) {
         return Err(ContractError::InvalidAttestation {});
     }
 
@@ -710,10 +948,43 @@ fn execute_verify_job(
             job.actual_payment.unwrap_or_default().to_string(),
         );
 
+    let registry_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.model_registry.to_string(),
+        msg: to_json_binary(&ModelRegistryExecuteMsg::IncrementJobCount {
+            model_hash: job.model_hash.clone(),
+        })?,
+        funds: vec![],
+    });
+
+    let registry_submsg = SubMsg {
+        id: MODEL_REGISTRY_INCREMENT_REPLY_ID,
+        msg: registry_msg,
+        gas_limit: None,
+        reply_on: ReplyOn::Error,
+    };
+
     Ok(Response::new()
+        .add_submessage(registry_submsg)
         .add_event(verify_event)
         .add_attribute("action", "verify_job")
         .add_attribute("job_id", job_id))
+}
+
+#[entry_point]
+pub fn reply(_deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
+    match msg.id {
+        MODEL_REGISTRY_INCREMENT_REPLY_ID => match msg.result {
+            SubMsgResult::Ok(_) => Ok(Response::new()),
+            SubMsgResult::Err(error) => Ok(Response::new().add_event(
+                Event::new("model_registry_job_count_increment_failed")
+                    .add_attribute("error", error),
+            )),
+        },
+        _ => Err(ContractError::Std(StdError::generic_err(format!(
+            "unknown reply id: {}",
+            msg.id
+        )))),
+    }
 }
 
 fn execute_fail_job(
@@ -740,6 +1011,9 @@ fn execute_fail_job(
         });
     }
 
+    let refund_amount = job.max_payment;
+    let refund_to = job.creator.clone();
+
     job.status = JobStatus::Failed;
     jobs().save(deps.storage, job_id.clone(), &job)?;
 
@@ -760,16 +1034,30 @@ fn execute_fail_job(
     let fail_event = Event::new("job_failed")
         .add_attribute("job_id", &job_id)
         .add_attribute("reason", &reason)
+        .add_attribute("refund", refund_amount.to_string())
         .add_attribute(
             "validator",
             job.validator.as_ref().map(|v| v.as_str()).unwrap_or("none"),
         );
 
-    Ok(Response::new()
+    let mut response = Response::new()
         .add_event(fail_event)
         .add_attribute("action", "fail_job")
         .add_attribute("job_id", job_id)
-        .add_attribute("reason", reason))
+        .add_attribute("reason", reason)
+        .add_attribute("refund", refund_amount);
+
+    if !refund_amount.is_zero() {
+        response = response.add_message(CosmosMsg::Bank(BankMsg::Send {
+            to_address: refund_to.to_string(),
+            amount: vec![Coin {
+                denom: config.payment_denom,
+                amount: refund_amount,
+            }],
+        }));
+    }
+
+    Ok(response)
 }
 
 fn execute_cancel_job(
@@ -841,7 +1129,14 @@ fn execute_claim_payment(
     }
 
     let payment = job.actual_payment.unwrap_or_default();
-    let platform_fee = payment * Uint128::from(config.platform_fee_bps) / Uint128::from(10000u128);
+    if payment > job.max_payment {
+        return Err(ContractError::Std(StdError::generic_err(
+            "actual payment exceeds escrowed payment",
+        )));
+    }
+    let creator_refund = job.max_payment - payment;
+    let platform_fee =
+        payment * Uint128::from(config.platform_fee_bps) / Uint128::from(BASIS_POINTS_DENOMINATOR);
     let validator_payment = payment - platform_fee;
 
     // SECURITY: Transition to Paid BEFORE external calls (checks-effects-interactions)
@@ -867,7 +1162,7 @@ fn execute_claim_payment(
     let fee_msg = CosmosMsg::Bank(BankMsg::Send {
         to_address: config.fee_collector.to_string(),
         amount: vec![Coin {
-            denom: config.payment_denom,
+            denom: config.payment_denom.clone(),
             amount: platform_fee,
         }],
     });
@@ -878,16 +1173,30 @@ fn execute_claim_payment(
         .add_attribute("validator", info.sender.as_str())
         .add_attribute("validator_payment", validator_payment.to_string())
         .add_attribute("platform_fee", platform_fee.to_string())
+        .add_attribute("creator_refund", creator_refund.to_string())
         .add_attribute("total_payment", payment.to_string());
 
-    Ok(Response::new()
+    let mut response = Response::new()
         .add_message(validator_msg)
         .add_message(fee_msg)
         .add_event(payment_event)
         .add_attribute("action", "claim_payment")
         .add_attribute("job_id", job_id)
         .add_attribute("payment", validator_payment)
-        .add_attribute("fee", platform_fee))
+        .add_attribute("fee", platform_fee)
+        .add_attribute("refund", creator_refund);
+
+    if !creator_refund.is_zero() {
+        response = response.add_message(CosmosMsg::Bank(BankMsg::Send {
+            to_address: job.creator.to_string(),
+            amount: vec![Coin {
+                denom: config.payment_denom,
+                amount: creator_refund,
+            }],
+        }));
+    }
+
+    Ok(response)
 }
 
 fn execute_update_config(
@@ -896,6 +1205,8 @@ fn execute_update_config(
     min_payment: Option<Uint128>,
     platform_fee_bps: Option<u64>,
     required_tee_type: Option<u8>,
+    validators: Option<Vec<String>>,
+    authorized_measurements: Option<Vec<String>>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -904,19 +1215,22 @@ fn execute_update_config(
     }
 
     if let Some(mp) = min_payment {
+        validate_min_payment(mp)?;
         config.min_payment = mp;
     }
     if let Some(fee) = platform_fee_bps {
-        // LOW: Cap platform fee at 20% to prevent admin abuse
-        if fee > 2000 {
-            return Err(ContractError::Std(cosmwasm_std::StdError::generic_err(
-                "Platform fee cannot exceed 2000 basis points (20%)",
-            )));
-        }
+        validate_platform_fee_bps(fee)?;
         config.platform_fee_bps = fee;
     }
     if let Some(tee) = required_tee_type {
+        validate_required_tee_type(tee)?;
         config.required_tee_type = tee;
+    }
+    if let Some(validators) = validators {
+        config.authorized_validators = validate_validator_set(deps.api, validators)?;
+    }
+    if let Some(measurements) = authorized_measurements {
+        config.authorized_measurements = validate_measurement_set(measurements)?;
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -933,23 +1247,15 @@ fn execute_cleanup_expired(
     limit: Option<u32>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = bounded_limit(limit, MAX_CLEANUP_LIMIT);
     let mut cleaned = 0u64;
     let mut refund_msgs: Vec<CosmosMsg> = Vec::new();
 
-    // Iterate through pending and assigned jobs
-    let pending: Vec<_> = PENDING_JOBS
-        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-        .take(limit)
-        .filter_map(|r| r.ok())
-        .collect();
+    let expirable_job_ids = collect_expirable_job_ids(deps.storage, limit)?;
 
-    for (_, job_id) in pending {
+    for job_id in expirable_job_ids {
         if let Ok(job) = jobs().load(deps.storage, job_id.clone()) {
-            if env.block.height > job.created_at + job.timeout {
-                // HIGH-7: Check status BEFORE overwriting — refund for Pending/Assigned jobs
-                let should_refund =
-                    job.status == JobStatus::Pending || job.status == JobStatus::Assigned;
+            if is_expirable_status(&job.status) && env.block.height > job.created_at + job.timeout {
                 let refund_amount = job.max_payment;
                 let refund_to = job.creator.clone();
 
@@ -959,7 +1265,7 @@ fn execute_cleanup_expired(
                 remove_from_pending(deps.storage, &job_id)?;
 
                 // Refund the locked payment to the job creator
-                if should_refund && !refund_amount.is_zero() {
+                if !refund_amount.is_zero() {
                     refund_msgs.push(CosmosMsg::Bank(BankMsg::Send {
                         to_address: refund_to.to_string(),
                         amount: vec![Coin {
@@ -984,6 +1290,44 @@ fn execute_cleanup_expired(
     }
 
     Ok(response)
+}
+
+fn collect_expirable_job_ids(
+    storage: &dyn cosmwasm_std::Storage,
+    limit: usize,
+) -> StdResult<Vec<String>> {
+    let mut job_ids = Vec::new();
+    for status in [
+        JobStatus::Pending,
+        JobStatus::Assigned,
+        JobStatus::Computing,
+    ] {
+        let remaining = limit.saturating_sub(job_ids.len());
+        if remaining == 0 {
+            break;
+        }
+
+        let status_key = status.as_str().to_string();
+        for item in jobs()
+            .idx
+            .status
+            .prefix(status_key)
+            .range(storage, None, None, cosmwasm_std::Order::Ascending)
+            .take(remaining)
+        {
+            let (_, job) = item?;
+            job_ids.push(job.id);
+        }
+    }
+
+    Ok(job_ids)
+}
+
+fn is_expirable_status(status: &JobStatus) -> bool {
+    matches!(
+        status,
+        JobStatus::Pending | JobStatus::Assigned | JobStatus::Computing
+    )
 }
 
 // ============ QUERY ============
@@ -1038,7 +1382,7 @@ fn query_list_jobs(
     _start_after: Option<String>,
     limit: Option<u32>,
 ) -> StdResult<Vec<Job>> {
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = bounded_limit(limit, MAX_QUERY_LIMIT);
 
     let jobs: Vec<Job> = if let Some(s) = status {
         jobs()
@@ -1081,7 +1425,7 @@ fn query_list_jobs(
 }
 
 fn query_pending_queue(deps: Deps, limit: Option<u32>) -> StdResult<Vec<Job>> {
-    let limit = limit.unwrap_or(50) as usize;
+    let limit = bounded_limit(limit, MAX_QUERY_LIMIT);
     let count = PENDING_COUNT.load(deps.storage).unwrap_or(0);
 
     let mut pending_jobs = Vec::new();
@@ -1094,6 +1438,10 @@ fn query_pending_queue(deps: Deps, limit: Option<u32>) -> StdResult<Vec<Job>> {
     }
 
     Ok(pending_jobs)
+}
+
+fn bounded_limit(limit: Option<u32>, max_limit: usize) -> usize {
+    limit.unwrap_or(50).min(max_limit as u32) as usize
 }
 
 /// L-03 FIX: Return real platform stats from persistent counters.
@@ -1149,6 +1497,48 @@ fn generate_job_id(model_hash: &str, input_hash: &str, creator: &Addr, nonce: u6
     let data = format!("{}:{}:{}:{}", model_hash, input_hash, creator, nonce);
     let hash = Sha256::digest(data.as_bytes());
     format!("job_{}", hex::encode(&hash[..16]))
+}
+
+fn update_attestation_digest_field(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value.as_bytes());
+}
+
+fn tee_report_data_digest(
+    job: &Job,
+    validator: &Addr,
+    output_hash: &str,
+    quote_version: u16,
+) -> [u8; REPORT_DATA_DIGEST_BYTES] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"cruzible:ai_job_manager:tee_report_data:v1");
+    update_attestation_digest_field(&mut hasher, &job.id);
+    update_attestation_digest_field(&mut hasher, &job.model_hash);
+    update_attestation_digest_field(&mut hasher, &job.input_hash);
+    update_attestation_digest_field(&mut hasher, output_hash);
+    update_attestation_digest_field(&mut hasher, job.creator.as_str());
+    update_attestation_digest_field(&mut hasher, validator.as_str());
+    hasher.update(quote_version.to_be_bytes());
+
+    let digest = hasher.finalize();
+    let mut report_data = [0u8; REPORT_DATA_DIGEST_BYTES];
+    report_data.copy_from_slice(&digest[..REPORT_DATA_DIGEST_BYTES]);
+    report_data
+}
+
+fn tee_report_data_matches_job(
+    job: &Job,
+    validator: &Addr,
+    output_hash: &str,
+    attestation: &TEEAttestation,
+) -> bool {
+    let expected = tee_report_data_digest(job, validator, output_hash, attestation.quote_version);
+
+    attestation
+        .report_data
+        .as_slice()
+        .get(..REPORT_DATA_DIGEST_BYTES)
+        == Some(expected.as_slice())
 }
 
 /// SECURITY: Actually remove the job from the pending queue.

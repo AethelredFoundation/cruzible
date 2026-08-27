@@ -6,6 +6,8 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { SEOHead } from "@/components/SEOHead";
 import {
   AreaChart,
@@ -38,6 +40,7 @@ import {
   Activity,
   Layers,
   Award,
+  ShieldAlert,
   ShieldCheck,
   RefreshCw,
   Wallet,
@@ -75,7 +78,6 @@ import {
   ConfirmDialog,
   ProgressRing,
 } from "@/components/SharedComponents";
-import { seededRandom, seededRange as sr } from "@/lib/utils";
 import { BRAND } from "@/lib/constants";
 import { GlassCard } from "@/components/PagePrimitives";
 import {
@@ -83,55 +85,65 @@ import {
   useStake,
   useUnstake,
   useWithdraw,
-  useClaimRewards,
   useUserWithdrawals,
+  useUnbondingPeriod,
+  useComplianceGate,
+  normalizeComplianceJobId,
+  useIdentityGate,
 } from "@/hooks/useVault";
-import { formatEther } from "viem";
+import { formatEther, parseEther } from "viem";
+import {
+  fetchReconciliationControlPlane,
+  type ReconciliationControlPlaneSummary,
+} from "@/lib/reconciliation";
+import { buildVaultQuoteSafety, formatVaultQuoteAge } from "@/lib/vaultQuotes";
+import { getTransactionFailureMessage } from "@/lib/transactionPreflight";
+import {
+  calculateUnbondingCompletionTimeMs,
+  formatUnbondingPeriod,
+  toDisplayWithdrawalRequests,
+  type DisplayWithdrawalRequest,
+} from "@/lib/withdrawalRequests";
+import {
+  buildVaultRiskSignals,
+  buildWithdrawalLiquiditySummary,
+  VAULT_RISK_DISCLOSURES,
+  WITHDRAWAL_LIQUIDITY_CHECKPOINTS,
+  type VaultRiskSignal,
+} from "@/lib/vaultRisk";
+import {
+  canSubmitStakeForm,
+  canSubmitUnstakeForm,
+} from "@/lib/vaultFormGuards";
+import {
+  buildLiveVaultSnapshot,
+  type LiveVaultSnapshot,
+} from "@/lib/vaultSnapshot";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 type VaultTab = "overview" | "stake" | "unstake" | "rewards" | "analytics";
-type ChartToggle = "value" | "apy" | "rate";
-type RewardView = "daily" | "weekly" | "monthly";
-type CompoundFreq = "epoch" | "daily" | "weekly";
 
-interface UnstakeRequest {
-  id: string;
-  amount: number;
-  stAethelAmount: number;
-  startDate: string;
-  completionDate: string;
-  status: "pending" | "ready" | "claimed";
-  daysRemaining: number;
-  totalDays: number;
+const MIN_STAKE_AMOUNT_WEI = parseEther("1");
+
+function parsePositiveEtherInput(value: string): bigint | null {
+  try {
+    const parsed = parseEther(value);
+    return parsed > 0n ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
-interface RewardEntry {
-  date: string;
-  epoch: number;
-  amount: number;
-  type: "staking" | "mev" | "protocol";
-  cumulative: number;
+function formatEtherInputAmount(value: bigint): string {
+  const formatted = formatEther(value);
+  return formatted.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "");
 }
 
-interface ActivityEvent {
-  id: string;
-  type: "stake" | "unstake" | "claim" | "epoch" | "validator";
-  address: string;
-  amount: number;
-  timestamp: string;
-  txHash: string;
-  detail: string;
-}
-
-interface TopStaker {
-  rank: number;
-  address: string;
-  staked: number;
-  pctOfPool: number;
-  firstStake: string;
+function percentOfBaseUnits(value: bigint, pct: number): bigint {
+  return (value * BigInt(pct)) / 100n;
 }
 
 // ============================================================================
@@ -150,272 +162,183 @@ function fmtAddr(a: string): string {
   return `${a.slice(0, 8)}...${a.slice(-4)}`;
 }
 
-function generateDayLabel(daysAgo: number): string {
-  const d = new Date(2026, 2, 7);
-  d.setDate(d.getDate() - daysAgo);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function formatDateTime(value?: string | null): string {
+  if (!value) return "Unavailable";
+  return new Date(value).toLocaleString();
 }
 
-// 90 days of TVL data
-const TVL_DATA = Array.from({ length: 90 }, (_, i) => {
-  const day = 89 - i;
-  const seed = 1000 + i;
-  const base = 105e6 + i * 420000;
-  const noise = sr(seed, -2e6, 2e6);
-  return {
-    date: generateDayLabel(day),
-    tvl: Math.round(base + noise),
-    stakers: Math.round(30000 + i * 95 + sr(seed + 1, -200, 200)),
-  };
-});
+function VaultTruthNotice({
+  title,
+  body,
+  tone = "neutral",
+}: {
+  title: string;
+  body: string;
+  tone?: "neutral" | "warning";
+}) {
+  const styles =
+    tone === "warning"
+      ? "border-amber-500/20 bg-amber-500/10 text-amber-50"
+      : "border-slate-800 bg-slate-900/70 text-slate-300";
 
-// 90 days of APY data
-const APY_DATA = Array.from({ length: 90 }, (_, i) => {
-  const day = 89 - i;
-  const seed = 2000 + i;
-  return {
-    date: generateDayLabel(day),
-    apy: parseFloat((7.8 + sr(seed, -0.6, 1.2)).toFixed(2)),
-    baseApy: parseFloat((6.2 + sr(seed + 1, -0.3, 0.8)).toFixed(2)),
-    mevBoost: parseFloat((1.4 + sr(seed + 2, -0.3, 0.6)).toFixed(2)),
-  };
-});
+  return (
+    <div className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${styles}`}>
+      <p className="font-medium text-white">{title}</p>
+      <p className="mt-1">{body}</p>
+    </div>
+  );
+}
 
-// 90 days of exchange rate
-const RATE_DATA = Array.from({ length: 90 }, (_, i) => {
-  const seed = 3000 + i;
-  return {
-    date: generateDayLabel(89 - i),
-    rate: parseFloat((1.0 + i * 0.00094 + sr(seed, -0.001, 0.001)).toFixed(6)),
-  };
-});
+function riskToneClasses(tone: VaultRiskSignal["tone"]): string {
+  if (tone === "healthy") {
+    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-50";
+  }
 
-// 30 days portfolio value
-const PORTFOLIO_DATA = Array.from({ length: 30 }, (_, i) => {
-  const seed = 4000 + i;
-  const base = 115200 + i * 120;
-  return {
-    date: generateDayLabel(29 - i),
-    value: parseFloat((base + sr(seed, -500, 500)).toFixed(2)),
-    apy: parseFloat((8.0 + sr(seed + 1, -0.5, 0.8)).toFixed(2)),
-    rate: parseFloat(
-      (1.06 + i * 0.0008 + sr(seed + 2, -0.001, 0.001)).toFixed(6),
-    ),
-  };
-});
+  if (tone === "blocked") {
+    return "border-red-500/20 bg-red-500/10 text-red-50";
+  }
 
-// 30 days reward history
-const REWARD_HISTORY: RewardEntry[] = Array.from({ length: 30 }, (_, i) => {
-  const seed = 5000 + i;
-  const types: ("staking" | "mev" | "protocol")[] = [
-    "staking",
-    "mev",
-    "protocol",
-  ];
-  const amt = parseFloat((280 + sr(seed, -60, 120)).toFixed(2));
-  let cum = 0;
-  for (let j = 0; j <= i; j++) cum += 280 + sr(5000 + j, -60, 120);
-  return {
-    date: generateDayLabel(29 - i),
-    epoch: 218 + i,
-    amount: amt,
-    type: types[Math.floor(sr(seed + 3, 0, 3))],
-    cumulative: parseFloat(cum.toFixed(2)),
-  };
-});
+  return "border-amber-500/20 bg-amber-500/10 text-amber-50";
+}
 
-// 10 recent activity events
-const RECENT_ACTIVITY: ActivityEvent[] = [
-  {
-    id: "a1",
-    type: "stake",
-    address: "aeth1qz7xk4...m4k9",
-    amount: 100000,
-    timestamp: "2 min ago",
-    txHash: "0xabc1...def2",
-    detail: "Staked 100,000 AETHEL",
-  },
-  {
-    id: "a2",
-    type: "epoch",
-    address: "system",
-    amount: 52340,
-    timestamp: "12 min ago",
-    txHash: "0xbcd2...efg3",
-    detail: "Epoch 247 completed",
-  },
-  {
-    id: "a3",
-    type: "claim",
-    address: "aeth1rv3k8...p2j7",
-    amount: 1240,
-    timestamp: "18 min ago",
-    txHash: "0xcde3...fgh4",
-    detail: "Claimed 1,240 AETHEL rewards",
-  },
-  {
-    id: "a4",
-    type: "stake",
-    address: "aeth1mn7cx...f4v1",
-    amount: 125000,
-    timestamp: "24 min ago",
-    txHash: "0xdef4...ghi5",
-    detail: "Staked 125,000 AETHEL",
-  },
-  {
-    id: "a5",
-    type: "unstake",
-    address: "aeth1hd8m9...x9n2",
-    amount: 32000,
-    timestamp: "31 min ago",
-    txHash: "0xefg5...hij6",
-    detail: "Unstaked 32,000 stAETHEL",
-  },
-  {
-    id: "a6",
-    type: "validator",
-    address: "aeth1j5nt2...k3w8",
-    amount: 0,
-    timestamp: "45 min ago",
-    txHash: "0xfgh6...ijk7",
-    detail: "New validator joined set",
-  },
-  {
-    id: "a7",
-    type: "stake",
-    address: "aeth1bx2rp...g8h5",
-    amount: 84000,
-    timestamp: "1 hr ago",
-    txHash: "0xghi7...jkl8",
-    detail: "Staked 84,000 AETHEL",
-  },
-  {
-    id: "a8",
-    type: "claim",
-    address: "aeth1yt4pq...d6s3",
-    amount: 3200,
-    timestamp: "1.5 hr ago",
-    txHash: "0xhij8...klm9",
-    detail: "Claimed 3,200 AETHEL rewards",
-  },
-  {
-    id: "a9",
-    type: "unstake",
-    address: "aeth1kw9em...a1z6",
-    amount: 15000,
-    timestamp: "2 hr ago",
-    txHash: "0xijk9...lmn0",
-    detail: "Unstaked 15,000 stAETHEL",
-  },
-  {
-    id: "a10",
-    type: "stake",
-    address: "aeth1fg3v7...b7m4",
-    amount: 200000,
-    timestamp: "3 hr ago",
-    txHash: "0xjkl0...mno1",
-    detail: "Staked 200,000 AETHEL",
-  },
-];
+function riskToneDotClass(tone: VaultRiskSignal["tone"]): string {
+  if (tone === "healthy") return "bg-emerald-400";
+  if (tone === "blocked") return "bg-red-400";
+  return "bg-amber-400";
+}
 
-// 3 pending unstake requests
-const PENDING_UNSTAKES: UnstakeRequest[] = [
-  {
-    id: "u1",
-    amount: 12847.32,
-    stAethelAmount: 11842.5,
-    startDate: "Feb 22, 2026",
-    completionDate: "Mar 15, 2026",
-    status: "pending",
-    daysRemaining: 8,
-    totalDays: 21,
-  },
-  {
-    id: "u2",
-    amount: 5420.0,
-    stAethelAmount: 4998.15,
-    startDate: "Feb 28, 2026",
-    completionDate: "Mar 21, 2026",
-    status: "pending",
-    daysRemaining: 14,
-    totalDays: 21,
-  },
-  {
-    id: "u3",
-    amount: 3200.0,
-    stAethelAmount: 2950.8,
-    startDate: "Feb 10, 2026",
-    completionDate: "Mar 3, 2026",
-    status: "ready",
-    daysRemaining: 0,
-    totalDays: 21,
-  },
-];
+function RiskSignalCard({ signal }: { signal: VaultRiskSignal }) {
+  return (
+    <div
+      className={`rounded-2xl border p-4 text-sm leading-6 ${riskToneClasses(signal.tone)}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold text-white">{signal.title}</p>
+        <span className="inline-flex items-center gap-2 rounded-full bg-slate-950/40 px-2.5 py-1 text-xs font-medium text-white">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${riskToneDotClass(signal.tone)}`}
+          />
+          {signal.status}
+        </span>
+      </div>
+      <p className="mt-2 text-slate-200/85">{signal.detail}</p>
+    </div>
+  );
+}
 
-// Top 10 stakers
-const TOP_STAKERS: TopStaker[] = Array.from({ length: 10 }, (_, i) => {
-  const seed = 6000 + i;
-  const stakes = [
-    18400000, 14200000, 12800000, 11500000, 10200000, 9100000, 8400000, 7800000,
-    6500000, 5900000,
-  ];
-  const addrs = [
-    "aeth1qz7xk4m9rv3p2j7hd8m",
-    "aeth1rv3k8p2j7mn7cx4f4v1",
-    "aeth1hd8m9x9n2j5nt2k3w8",
-    "aeth1j5nt2k3w8bx2rpg8h5",
-    "aeth1mn7cxf4v1yt4pqd6s3",
-    "aeth1bx2rpg8h5kw9ema1z6",
-    "aeth1yt4pqd6s3fg3v7b7m4",
-    "aeth1kw9ema1z6zq8dc2n9",
-    "aeth1fg3v7b7m4qz7xk4m9",
-    "aeth1zq8dc2n9rv3k8p2j7",
-  ];
-  const dates = [
-    "Jun 2025",
-    "Jul 2025",
-    "Aug 2025",
-    "Jul 2025",
-    "Sep 2025",
-    "Aug 2025",
-    "Oct 2025",
-    "Sep 2025",
-    "Nov 2025",
-    "Oct 2025",
-  ];
-  return {
-    rank: i + 1,
-    address: addrs[i],
-    staked: stakes[i],
-    pctOfPool: parseFloat(((stakes[i] / 142570000) * 100).toFixed(2)),
-    firstStake: dates[i],
-  };
-});
+function VaultRiskIntelligencePanel({
+  snapshot,
+  controlPlane,
+}: {
+  snapshot: LiveVaultSnapshot;
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const signals = buildVaultRiskSignals({
+    hasAuthoritativeState: snapshot.hasAuthoritativeState,
+    controlPlaneAvailable: Boolean(controlPlane),
+    controlPlaneWarningCount: controlPlane?.warning_count ?? null,
+    epochSource: controlPlane?.epoch_source ?? null,
+    stakeSnapshotComplete: controlPlane?.stake_snapshot_complete ?? null,
+  });
 
-// Protocol revenue by epoch
-const REVENUE_DATA = Array.from({ length: 30 }, (_, i) => ({
-  date: generateDayLabel(29 - i),
-  epoch: 218 + i,
-  revenue: Math.round(25000 + sr(7000 + i, -5000, 10000)),
-}));
+  return (
+    <GlassCard className="p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-white">
+            Vault risk intelligence
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-300">
+            A production liquid-staking app should help users decide, not just
+            transact. This panel summarizes live evidence, withheld data,
+            slashing exposure, liquidity timing, and proof availability before
+            users stake or exit.
+          </p>
+        </div>
+        <Link
+          href="/validators"
+          className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:border-red-400/40 hover:bg-red-500/15"
+        >
+          Validator intelligence
+          <ExternalLink className="h-4 w-4" />
+        </Link>
+      </div>
 
-// Stake/Unstake volume
-const VOLUME_DATA = Array.from({ length: 30 }, (_, i) => ({
-  date: generateDayLabel(29 - i),
-  stakeVol: Math.round(sr(8000 + i, 800000, 3500000)),
-  unstakeVol: Math.round(sr(8500 + i, 200000, 1200000)),
-}));
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {signals.map((signal) => (
+          <RiskSignalCard key={signal.id} signal={signal} />
+        ))}
+      </div>
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
+      <div className="mt-6 grid gap-4 lg:grid-cols-4">
+        {VAULT_RISK_DISCLOSURES.map((item) => (
+          <div
+            key={item.title}
+            className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4"
+          >
+            <p className="text-sm font-semibold text-white">{item.title}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{item.body}</p>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
+  );
+}
 
-const EXCHANGE_RATE = 1.0847;
-const CURRENT_APY = 8.42;
-const TVL_TOTAL = 142_570_000;
-const TOTAL_STAKERS = 38_421;
-const VALIDATORS_BACKING = 47;
-const TOTAL_VALIDATORS = 156;
+function StakeRiskChecklist() {
+  return (
+    <GlassCard className="p-6">
+      <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+        <Shield className="h-4 w-4 text-amber-400" />
+        Before You Stake
+      </h3>
+      <div className="space-y-3">
+        {VAULT_RISK_DISCLOSURES.slice(0, 3).map((item) => (
+          <div
+            key={item.title}
+            className="rounded-xl border border-slate-800 bg-slate-900/70 p-4"
+          >
+            <p className="text-sm font-medium text-white">{item.title}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">{item.body}</p>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
+  );
+}
+
+function WithdrawalLiquidityPanel({ signals }: { signals: VaultRiskSignal[] }) {
+  return (
+    <GlassCard className="p-6">
+      <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+        <Coins className="h-4 w-4 text-cyan-400" />
+        Liquidity Reality Check
+      </h3>
+      <div className="space-y-3">
+        {signals.map((signal) => (
+          <RiskSignalCard key={signal.id} signal={signal} />
+        ))}
+      </div>
+      <div className="mt-5 space-y-3">
+        {WITHDRAWAL_LIQUIDITY_CHECKPOINTS.map((checkpoint, index) => (
+          <div key={checkpoint.title} className="flex gap-3">
+            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-xs font-semibold text-slate-300">
+              {index + 1}
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">
+                {checkpoint.title}
+              </p>
+              <p className="text-xs leading-5 text-slate-400">
+                {checkpoint.body}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
+  );
+}
 
 // ============================================================================
 // UTILITY COMPONENTS
@@ -431,6 +354,7 @@ function CopyBtn({ text, onCopy }: { text: string; onCopy?: () => void }) {
         onCopy?.();
         setTimeout(() => setCopied(false), 2000);
       }}
+      aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
       className="p-1 rounded hover:bg-slate-700 transition-colors"
       title="Copy"
     >
@@ -509,72 +433,28 @@ const chartTooltipStyle = {
   color: "#e2e8f0",
 };
 
-function ExpandedActivity({
-  item,
-  onClose,
-}: {
-  item: ActivityEvent;
-  onClose: () => void;
-}) {
-  return (
-    <div className="bg-slate-700/50 rounded-xl p-4 mt-2 space-y-2 border border-slate-600/50">
-      <div className="flex justify-between">
-        <span className="text-xs text-slate-400">Transaction Hash</span>
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-slate-300 font-mono">
-            {item.txHash}
-          </span>
-          <CopyBtn text={item.txHash} />
-        </div>
-      </div>
-      <div className="flex justify-between">
-        <span className="text-xs text-slate-400">Address</span>
-        <span className="text-xs text-slate-300 font-mono">{item.address}</span>
-      </div>
-      <div className="flex justify-between">
-        <span className="text-xs text-slate-400">Detail</span>
-        <span className="text-xs text-slate-300">{item.detail}</span>
-      </div>
-      <button
-        onClick={onClose}
-        className="text-xs text-red-400 hover:text-red-300 mt-1"
-      >
-        Close
-      </button>
-    </div>
-  );
-}
-
 // ============================================================================
 // HERO SECTION
 // ============================================================================
 
-function HeroSection() {
-  const { wallet, realTime } = useApp();
+function HeroSection({
+  controlPlane,
+}: {
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const { wallet } = useApp();
   const vaultState = useVaultState();
+  const snapshot = buildLiveVaultSnapshot(vaultState);
+  const epoch = snapshot.epoch ?? controlPlane?.epoch ?? null;
 
-  // Derive human-readable values from on-chain data, with mock fallbacks
-  const tvlRaw =
-    vaultState.totalPooledAethel > 0n
-      ? parseFloat(formatEther(vaultState.totalPooledAethel))
-      : TVL_TOTAL;
   const tvlDisplay =
-    tvlRaw >= 1e6
-      ? { value: tvlRaw / 1e6, suffix: "M" }
-      : tvlRaw >= 1e3
-        ? { value: tvlRaw / 1e3, suffix: "K" }
-        : { value: tvlRaw, suffix: "" };
-
-  const exchangeRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-
-  // effectiveAPY is stored as basis points (e.g., 842 = 8.42%)
-  const apy =
-    vaultState.effectiveAPY > 0n
-      ? Number(vaultState.effectiveAPY) / 100
-      : CURRENT_APY;
+    snapshot.tvl == null
+      ? null
+      : snapshot.tvl >= 1e6
+        ? { value: snapshot.tvl / 1e6, suffix: "M" }
+        : snapshot.tvl >= 1e3
+          ? { value: snapshot.tvl / 1e3, suffix: "K" }
+          : { value: snapshot.tvl, suffix: "" };
 
   return (
     <div className="relative overflow-hidden">
@@ -593,19 +473,16 @@ function HeroSection() {
           <div>
             <div className="flex items-center gap-2 mb-4">
               <Badge variant="brand">
-                <ShieldCheck className="w-3 h-3 mr-1" />
-                TEE-Verified
+                <ShieldAlert className="w-3 h-3 mr-1" />
+                Public testnet
               </Badge>
               <Badge variant="success">
                 <LiveDot />
-                Live
+                {snapshot.hasAuthoritativeState
+                  ? "Live vault state"
+                  : "Awaiting live state"}
               </Badge>
-              <Badge variant="neutral">
-                Epoch #
-                {vaultState.currentEpoch > 0n
-                  ? Number(vaultState.currentEpoch)
-                  : realTime.epoch}
-              </Badge>
+              <Badge variant="neutral">Epoch #{epoch ?? "n/a"}</Badge>
             </div>
             <h1 className="text-4xl lg:text-5xl font-bold text-white tracking-tight mb-2">
               AethelVault
@@ -622,6 +499,8 @@ function HeroSection() {
               <p className="text-2xl font-bold text-white tabular-nums">
                 {vaultState.isLoading ? (
                   "..."
+                ) : !tvlDisplay ? (
+                  "Unavailable"
                 ) : (
                   <>
                     <AnimatedNumber value={tvlDisplay.value} decimals={2} />
@@ -639,16 +518,19 @@ function HeroSection() {
               <p className="text-2xl font-bold text-emerald-400 tabular-nums">
                 {vaultState.isLoading ? (
                   "..."
+                ) : snapshot.apy == null ? (
+                  "Unavailable"
                 ) : (
                   <>
-                    <AnimatedNumber value={apy} decimals={2} />%
+                    <AnimatedNumber value={snapshot.apy} decimals={2} />%
                   </>
                 )}
               </p>
-              <div className="flex items-center gap-1 text-xs text-emerald-400">
-                <ArrowUpRight className="w-3 h-3" />
-                +0.3% vs last epoch
-              </div>
+              <p className="text-xs text-slate-500">
+                {controlPlane
+                  ? `Captured ${formatDateTime(controlPlane.captured_at)}`
+                  : "Control plane not yet available"}
+              </p>
             </div>
             <div className="w-px bg-slate-700/50" />
             <div>
@@ -658,13 +540,26 @@ function HeroSection() {
               <p className="text-2xl font-bold text-white tabular-nums">
                 {vaultState.isLoading ? (
                   "..."
+                ) : snapshot.exchangeRate == null ? (
+                  "Unavailable"
                 ) : (
-                  <AnimatedNumber value={exchangeRate} decimals={4} />
+                  <AnimatedNumber value={snapshot.exchangeRate} decimals={4} />
                 )}
               </p>
-              <p className="text-xs text-slate-500">AETHEL per stAETHEL</p>
+              <p className="text-xs text-slate-500">AETHEL per raw share</p>
             </div>
           </div>
+        </div>
+        <div className="mt-6 max-w-3xl">
+          <VaultTruthNotice
+            title="Truth-first vault surface"
+            body={
+              snapshot.hasAuthoritativeState
+                ? "The vault hero only shows live contract-backed TVL, exchange rate, APY, and epoch. Historical or synthetic overlays stay hidden until indexed proofs are live."
+                : "Live vault telemetry is incomplete, so Cruzible is failing closed instead of rendering invented TVL, APY, or exchange-rate numbers."
+            }
+            tone={snapshot.hasAuthoritativeState ? "neutral" : "warning"}
+          />
         </div>
       </div>
     </div>
@@ -675,97 +570,43 @@ function HeroSection() {
 // TAB 1: OVERVIEW
 // ============================================================================
 
-function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
-  const { wallet, connectWallet, addNotification, realTime } = useApp();
+function OverviewTab({
+  switchTab,
+  controlPlane,
+}: {
+  switchTab: (t: VaultTab) => void;
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const { wallet, connectWallet } = useApp();
   const vaultState = useVaultState();
-  const { claimRewards } = useClaimRewards();
-  const [chartToggle, setChartToggle] = useState<ChartToggle>("value");
-  const [expandedActivity, setExpandedActivity] = useState<string | null>(null);
+  const unbondingPeriod = useUnbondingPeriod();
   const [showCalcModal, setShowCalcModal] = useState(false);
-  const [showClaimModal, setShowClaimModal] = useState(false);
-  const [claimConfirm, setClaimConfirm] = useState(false);
-  const [claiming, setClaiming] = useState(false);
-
-  // Use live exchange rate / APY from contract when available
-  const liveRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-  const liveApy =
-    vaultState.effectiveAPY > 0n
-      ? Number(vaultState.effectiveAPY) / 100
-      : CURRENT_APY;
-
-  const handleClaim = useCallback(async () => {
-    if (!wallet.connected || !wallet.address) {
-      addNotification(
-        "warning",
-        "Wallet Required",
-        "Please connect your wallet to claim rewards.",
-      );
-      return;
-    }
-
-    setClaiming(true);
-    addNotification(
-      "info",
-      "Claiming Rewards",
-      "Fetching reward proof from API...",
-    );
-
-    try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
-      const res = await fetch(
-        `${API_BASE}/vault/reward-proof?address=${wallet.address}`,
-      );
-      if (!res.ok) {
-        const body = await res
-          .json()
-          .catch(() => ({ message: "Reward proof endpoint not available" }));
-        throw new Error(body.message || `API returned ${res.status}`);
-      }
-
-      const { epoch, amount, proof } = (await res.json()) as {
-        epoch: string;
-        amount: string;
-        proof: `0x${string}`[];
-      };
-
-      await claimRewards({
-        epoch: BigInt(epoch),
-        amount: BigInt(amount),
-        proof,
-      });
-
-      setClaimConfirm(false);
-      setShowClaimModal(false);
-    } catch (err: any) {
-      addNotification(
-        "error",
-        "Claim Failed",
-        err?.message ||
-          "Could not fetch reward proof. The reward proof endpoint may not be deployed yet.",
-      );
-    } finally {
-      setClaiming(false);
-    }
-  }, [wallet.connected, wallet.address, addNotification, claimRewards]);
-
-  const portfolioChartData = useMemo(() => {
-    if (chartToggle === "value")
-      return PORTFOLIO_DATA.map((d) => ({ date: d.date, value: d.value }));
-    if (chartToggle === "apy")
-      return PORTFOLIO_DATA.map((d) => ({ date: d.date, value: d.apy }));
-    return PORTFOLIO_DATA.map((d) => ({ date: d.date, value: d.rate }));
-  }, [chartToggle]);
-
-  const chartLabel =
-    chartToggle === "value"
-      ? "Value (AETHEL)"
-      : chartToggle === "apy"
-        ? "APY (%)"
-        : "Exchange Rate";
+  const snapshot = buildLiveVaultSnapshot(vaultState);
+  const liveRate = snapshot.exchangeRate;
+  const liveApy = snapshot.apy;
+  const protocolEpoch = snapshot.epoch ?? controlPlane?.epoch ?? null;
+  // balanceOf is already the rebasing AETHEL-denominated token amount; the
+  // exchange rate applies only when converting invariant raw shares.
+  const aethelBalanceAvailable =
+    wallet.balanceSnapshots?.aethel.status === "available";
+  const stBalanceAvailable =
+    wallet.balanceSnapshots?.stAethel.status === "available";
+  const positionValue =
+    wallet.connected && stBalanceAvailable ? wallet.stBalance : null;
+  const annualizedRewards =
+    positionValue != null && liveApy != null
+      ? (positionValue * liveApy) / 100
+      : null;
+  const unbondingLabel = unbondingPeriod.isLoading
+    ? "Loading live cooldown"
+    : formatUnbondingPeriod(unbondingPeriod.seconds);
+  const unbondingActionLabel = unbondingPeriod.isLoading
+    ? "Loading live cooldown"
+    : unbondingPeriod.seconds == null
+      ? "Live cooldown unavailable"
+      : unbondingPeriod.seconds === 0n
+        ? "No cooldown"
+        : `${unbondingLabel} cooldown`;
 
   return (
     <div className="space-y-8">
@@ -780,7 +621,7 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 rounded-full border border-emerald-500/20">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-xs text-emerald-400 font-medium">
-                Healthy
+                Connected
               </span>
             </div>
           )}
@@ -788,41 +629,55 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
         {wallet.connected ? (
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
             <div>
-              <p className="text-xs text-slate-500 mb-1">Staked Balance</p>
-              <p className="text-xl font-bold text-white tabular-nums">
-                {fmtNum(wallet.balance, 2)}
+              <p className="text-xs text-slate-500 mb-1">
+                AETHEL Token Balance
               </p>
-              <p className="text-xs text-slate-500">AETHEL</p>
+              <p className="text-xl font-bold text-white tabular-nums">
+                {aethelBalanceAvailable
+                  ? fmtNum(wallet.aethelBalance, 2)
+                  : "Unavailable"}
+              </p>
+              <p className="text-xs text-slate-500">Available to stake</p>
             </div>
             <div>
               <p className="text-xs text-slate-500 mb-1">stAETHEL Balance</p>
               <p className="text-xl font-bold text-white tabular-nums">
-                {fmtNum(wallet.stBalance, 2)}
+                {stBalanceAvailable
+                  ? fmtNum(wallet.stBalance, 2)
+                  : "Unavailable"}
               </p>
               <p className="text-xs text-slate-500">stAETHEL</p>
             </div>
             <div>
               <p className="text-xs text-slate-500 mb-1">Current Value</p>
               <p className="text-xl font-bold text-emerald-400 tabular-nums">
-                {fmtNum(wallet.stBalance * liveRate, 2)}
+                {positionValue == null
+                  ? "Unavailable"
+                  : fmtNum(positionValue, 2)}
               </p>
               <p className="text-xs text-slate-500">AETHEL</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-1">USD Value</p>
+              <p className="text-xs text-slate-500 mb-1">Annualized Yield</p>
               <p className="text-xl font-bold text-white tabular-nums">
-                ${fmtNum(wallet.stBalance * liveRate * realTime.aethelPrice, 2)}
+                {annualizedRewards == null
+                  ? "Unavailable"
+                  : `+${fmtNum(annualizedRewards, 2)}`}
+              </p>
+              <p className="text-xs text-slate-500">
+                Derived from the live effective APY
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-1">Daily Earnings Est.</p>
+              <p className="text-xs text-slate-500 mb-1">Proof Status</p>
               <p className="text-xl font-bold text-emerald-400 tabular-nums">
-                +
-                {((wallet.stBalance * liveRate * liveApy) / 100 / 365).toFixed(
-                  2,
-                )}
+                {controlPlane ? "Live" : "Pending"}
               </p>
-              <p className="text-xs text-slate-500">AETHEL/day</p>
+              <p className="text-xs text-slate-500">
+                {controlPlane
+                  ? `Captured ${formatDateTime(controlPlane.captured_at)}`
+                  : "Waiting for the public control plane"}
+              </p>
             </div>
           </div>
         ) : (
@@ -832,86 +687,13 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
               Connect Wallet to view your position
             </p>
             <button
-              onClick={connectWallet}
+              onClick={() => connectWallet()}
               className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition-colors"
             >
               Connect Wallet
             </button>
           </div>
         )}
-      </GlassCard>
-
-      {/* Portfolio Performance Chart */}
-      <GlassCard className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">
-            Portfolio Performance
-          </h3>
-          <div className="flex bg-slate-700/50 rounded-lg p-0.5">
-            {(["value", "apy", "rate"] as ChartToggle[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setChartToggle(t)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${chartToggle === t ? "bg-red-600 text-white" : "text-slate-400 hover:text-white"}`}
-              >
-                {t === "value" ? "Value" : t === "apy" ? "APY" : "Rate"}
-              </button>
-            ))}
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={240}>
-          <AreaChart data={portfolioChartData}>
-            <defs>
-              <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={BRAND.red} stopOpacity={0.2} />
-                <stop offset="100%" stopColor={BRAND.red} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="rgba(100,116,139,0.15)"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              tickLine={false}
-              axisLine={false}
-              interval={4}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              tickLine={false}
-              axisLine={false}
-              width={60}
-              tickFormatter={(v: number) =>
-                chartToggle === "apy"
-                  ? `${v}%`
-                  : chartToggle === "rate"
-                    ? v.toFixed(4)
-                    : fmtNum(v)
-              }
-            />
-            <RTooltip
-              contentStyle={chartTooltipStyle}
-              formatter={(value: number) => [
-                chartToggle === "apy"
-                  ? `${value}%`
-                  : chartToggle === "rate"
-                    ? value.toFixed(6)
-                    : `${fmtNum(value, 2)} AETHEL`,
-                chartLabel,
-              ]}
-            />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke={BRAND.red}
-              strokeWidth={2}
-              fill="url(#portfolioGrad)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
       </GlassCard>
 
       {/* Quick Actions */}
@@ -925,7 +707,11 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
           </div>
           <div className="text-left">
             <p className="text-sm font-semibold text-white">Stake AETHEL</p>
-            <p className="text-xs text-slate-400">Earn {CURRENT_APY}% APY</p>
+            <p className="text-xs text-slate-400">
+              {liveApy == null
+                ? "Live APY unavailable"
+                : `Earn ${liveApy.toFixed(2)}% APY`}
+            </p>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-500 ml-auto group-hover:text-red-400 transition-colors" />
         </button>
@@ -938,22 +724,29 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
           </div>
           <div className="text-left">
             <p className="text-sm font-semibold text-white">Unstake</p>
-            <p className="text-xs text-slate-400">21-day cooldown</p>
+            <p className="text-xs text-slate-400">{unbondingActionLabel}</p>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-500 ml-auto group-hover:text-white transition-colors" />
         </button>
         <button
-          onClick={() => setShowClaimModal(true)}
-          className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl hover:bg-emerald-500/20 transition-colors group"
+          type="button"
+          disabled
+          aria-describedby="reward-claim-unavailable-overview"
+          className="flex cursor-not-allowed items-center gap-3 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-4 opacity-75"
         >
-          <div className="p-2 bg-emerald-500/20 rounded-xl">
-            <Gift className="w-5 h-5 text-emerald-400" />
+          <div className="rounded-xl bg-slate-700/40 p-2">
+            <Gift className="h-5 w-5 text-slate-400" />
           </div>
           <div className="text-left">
             <p className="text-sm font-semibold text-white">Claim Rewards</p>
-            <p className="text-xs text-slate-400">234.56 AETHEL</p>
+            <p
+              id="reward-claim-unavailable-overview"
+              className="text-xs text-amber-300"
+            >
+              Proof pipeline not deployed
+            </p>
           </div>
-          <ArrowRight className="w-4 h-4 text-slate-500 ml-auto group-hover:text-emerald-400 transition-colors" />
+          <Lock className="ml-auto h-4 w-4 text-slate-500" />
         </button>
         <button
           onClick={() => setShowCalcModal(true)}
@@ -973,29 +766,31 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
       {/* Protocol Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
-          label="Total Stakers"
-          value={fmtNum(TOTAL_STAKERS)}
-          change="+2.3%"
-          up
-          icon={<Users className="w-5 h-5" />}
-          sub="Unique addresses"
-        />
-        <StatCard
-          label="Total Staked"
-          value={`${fmtNum(TVL_TOTAL)}`}
-          sub="AETHEL"
+          label="Live TVL"
+          value={snapshot.tvl == null ? "Unavailable" : fmtNum(snapshot.tvl)}
           icon={<Lock className="w-5 h-5" />}
+          sub="Contract-backed AETHEL"
         />
         <StatCard
-          label="Average Stake"
-          value="3,712"
-          sub="AETHEL per staker"
-          icon={<Target className="w-5 h-5" />}
+          label="Effective APY"
+          value={liveApy == null ? "Unavailable" : `${liveApy.toFixed(2)}%`}
+          sub="Vault effective APY"
+          icon={<TrendingUp className="w-5 h-5" />}
         />
         <StatCard
-          label="Validators Backing"
-          value={`${VALIDATORS_BACKING}/${TOTAL_VALIDATORS}`}
-          sub="Active / Total"
+          label="Exchange Rate"
+          value={liveRate == null ? "Unavailable" : liveRate.toFixed(6)}
+          sub="AETHEL per raw share"
+          icon={<Activity className="w-5 h-5" />}
+        />
+        <StatCard
+          label="Protocol Epoch"
+          value={protocolEpoch == null ? "Unavailable" : String(protocolEpoch)}
+          sub={
+            controlPlane?.epoch_source?.includes("fallback")
+              ? "Fallback source"
+              : "Authoritative source"
+          }
           icon={<Server className="w-5 h-5" />}
         />
         <GlassCard className="p-5">
@@ -1004,226 +799,204 @@ function OverviewTab({ switchTab }: { switchTab: (t: VaultTab) => void }) {
               <Timer className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-xs text-slate-400 mb-1">Next Epoch</p>
-          <CountdownTimer epoch={realTime.epoch} />
+          <p className="text-xs text-slate-400 mb-1">Stake Snapshot</p>
+          <p className="text-xl font-bold text-white">
+            {controlPlane?.stake_snapshot_complete == null
+              ? "Unavailable"
+              : controlPlane.stake_snapshot_complete
+                ? "Complete"
+                : "Partial"}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            Indexed solvency evidence for the public control plane
+          </p>
         </GlassCard>
         <StatCard
-          label="Protocol Revenue (30d)"
-          value={fmtNum(847293)}
-          sub="AETHEL"
-          icon={<Coins className="w-5 h-5" />}
-          change="+5.1%"
-          up
+          label="Control-Plane Warnings"
+          value={
+            controlPlane ? String(controlPlane.warning_count) : "Unavailable"
+          }
+          sub="Warnings in the latest capture"
+          icon={<AlertCircle className="w-5 h-5" />}
         />
       </div>
 
-      {/* Recent Activity + Exchange Rate */}
-      <div className="grid lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3">
-          <GlassCard className="overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
-              <h3 className="font-semibold text-white">Recent Activity</h3>
-              <span className="text-xs text-slate-500">Last 10 events</span>
+      <VaultRiskIntelligencePanel
+        snapshot={snapshot}
+        controlPlane={controlPlane}
+      />
+
+      <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+        <GlassCard className="p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-white">
+                Live Proof Surface
+              </h3>
+              <p className="text-sm text-slate-400 mt-1">
+                Public trust anchors sourced from the reconciliation control
+                plane and live vault contract reads.
+              </p>
             </div>
-            <div className="divide-y divide-slate-700/30 max-h-[480px] overflow-y-auto">
-              {RECENT_ACTIVITY.map((item) => (
-                <div key={item.id}>
-                  <button
-                    onClick={() =>
-                      setExpandedActivity(
-                        expandedActivity === item.id ? null : item.id,
-                      )
-                    }
-                    className="w-full px-6 py-3.5 flex items-center justify-between hover:bg-slate-700/20 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                          item.type === "stake"
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : item.type === "unstake"
-                              ? "bg-amber-500/10 text-amber-400"
-                              : item.type === "claim"
-                                ? "bg-blue-500/10 text-blue-400"
-                                : item.type === "epoch"
-                                  ? "bg-purple-500/10 text-purple-400"
-                                  : "bg-red-500/10 text-red-400"
-                        }`}
-                      >
-                        {item.type === "stake" ? (
-                          <ArrowDown className="w-4 h-4" />
-                        ) : item.type === "unstake" ? (
-                          <ArrowUp className="w-4 h-4" />
-                        ) : item.type === "claim" ? (
-                          <Gift className="w-4 h-4" />
-                        ) : item.type === "epoch" ? (
-                          <Clock className="w-4 h-4" />
-                        ) : (
-                          <Server className="w-4 h-4" />
-                        )}
-                      </div>
-                      <div className="text-left">
-                        <p className="text-sm font-medium text-white capitalize">
-                          {item.type === "epoch" ? "Epoch End" : item.type}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {item.address === "system"
-                            ? "Protocol"
-                            : fmtAddr(item.address)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {item.amount > 0 && (
-                        <p
-                          className={`text-sm font-medium tabular-nums ${
-                            item.type === "stake"
-                              ? "text-emerald-400"
-                              : item.type === "unstake"
-                                ? "text-amber-400"
-                                : "text-white"
-                          }`}
-                        >
-                          {item.type === "stake"
-                            ? "+"
-                            : item.type === "unstake"
-                              ? "-"
-                              : ""}
-                          {fmtNum(item.amount)} AETHEL
-                        </p>
-                      )}
-                      <p className="text-xs text-slate-500">{item.timestamp}</p>
-                    </div>
-                  </button>
-                  {expandedActivity === item.id && (
-                    <div className="px-6 pb-3">
-                      <ExpandedActivity
-                        item={item}
-                        onClose={() => setExpandedActivity(null)}
-                      />
-                    </div>
-                  )}
+            <button
+              onClick={() => switchTab("analytics")}
+              className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-100 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/15"
+            >
+              Analytics
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <VaultTruthNotice
+              title="Control-plane capture"
+              body={
+                controlPlane
+                  ? `Captured ${formatDateTime(controlPlane.captured_at)} from ${controlPlane.epoch_source}.`
+                  : "Public reconciliation capture is not yet available."
+              }
+              tone={
+                controlPlane?.epoch_source?.includes("fallback")
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+            <VaultTruthNotice
+              title="Validator universe"
+              body={
+                controlPlane
+                  ? `${controlPlane.validator_count}/${controlPlane.total_eligible_validators} eligible validators are represented in the public snapshot.`
+                  : "Validator-universe coverage will appear here once the control plane is reachable."
+              }
+            />
+            <VaultTruthNotice
+              title="Stake snapshot status"
+              body={
+                controlPlane?.stake_snapshot_complete == null
+                  ? "Stake solvency coverage has not been published yet."
+                  : controlPlane.stake_snapshot_complete
+                    ? "Stake snapshot is complete for the current public capture."
+                    : "Stake snapshot is partial, so solvency evidence should be treated as incomplete."
+              }
+              tone={
+                controlPlane?.stake_snapshot_complete === false
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+            <VaultTruthNotice
+              title="Warnings"
+              body={
+                controlPlane
+                  ? controlPlane.warning_count === 0
+                    ? "No public control-plane warnings are active in the latest snapshot."
+                    : `${controlPlane.warning_count} warning(s) were emitted in the latest public snapshot.`
+                  : "Warning posture will appear once the control plane is reachable."
+              }
+              tone={
+                controlPlane && controlPlane.warning_count > 0
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+          </div>
+
+          <div className="mt-6 space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Validator Universe Hash
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-100">
+                  {controlPlane?.validator_universe_hash ?? "Unavailable"}
+                </p>
+              </div>
+              {controlPlane?.validator_universe_hash ? (
+                <CopyBtn text={controlPlane.validator_universe_hash} />
+              ) : null}
+            </div>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Stake Snapshot Hash
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-100">
+                  {controlPlane?.stake_snapshot_hash ?? "Unavailable"}
+                </p>
+              </div>
+              {controlPlane?.stake_snapshot_hash ? (
+                <CopyBtn text={controlPlane.stake_snapshot_hash} />
+              ) : null}
+            </div>
+            {controlPlane?.warnings?.length ? (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-amber-200">
+                  Latest Warnings
+                </p>
+                <div className="mt-3 space-y-2 text-sm text-amber-50">
+                  {controlPlane.warnings.map((warning, index) => (
+                    <p key={`${warning}-${index}`}>{warning}</p>
+                  ))}
                 </div>
-              ))}
+              </div>
+            ) : null}
+          </div>
+        </GlassCard>
+
+        <div className="space-y-6">
+          <GlassCard className="p-6">
+            <h3 className="text-lg font-semibold text-white">
+              Historical surfaces are gated
+            </h3>
+            <p className="mt-2 text-sm leading-7 text-slate-300">
+              Cruzible no longer renders seeded activity feeds, fake
+              exchange-rate charts, or fabricated reward balances inside the
+              vault. Those surfaces will return only after the indexed history
+              pipeline is live and publicly defensible.
+            </p>
+            <div className="mt-5 space-y-3">
+              <VaultTruthNotice
+                title="What is live right now"
+                body="TVL, effective APY, exchange rate, epoch, staking, unstaking, and withdrawal claims."
+              />
+              <VaultTruthNotice
+                title="What remains gated"
+                body="Reward-proof claims, historical portfolio curves, recent protocol activity, reward-history ledgers, and leaderboard-style analytics."
+                tone="warning"
+              />
             </div>
           </GlassCard>
-        </div>
 
-        <div className="lg:col-span-2">
           <GlassCard className="p-6">
-            <h3 className="font-semibold text-white mb-1">
-              Exchange Rate History
+            <h3 className="text-lg font-semibold text-white">
+              Next best actions
             </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              90-day trend: 1.0000 to {EXCHANGE_RATE.toFixed(4)}
-            </p>
-            <ResponsiveContainer width="100%" height={340}>
-              <AreaChart data={RATE_DATA}>
-                <defs>
-                  <linearGradient id="rateGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity={0.2} />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(100,116,139,0.15)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={14}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "#64748b" }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={55}
-                  domain={["dataMin - 0.005", "dataMax + 0.005"]}
-                  tickFormatter={(v: number) => v.toFixed(4)}
-                />
-                <RTooltip
-                  contentStyle={chartTooltipStyle}
-                  formatter={(v: number) => [v.toFixed(6), "Rate"]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="rate"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  fill="url(#rateGrad)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <div className="mt-4 space-y-3">
+              <button
+                onClick={() => switchTab("stake")}
+                className="flex w-full items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-left text-sm text-white transition-colors hover:border-slate-700"
+              >
+                Fund a live staking position
+                <ArrowRight className="h-4 w-4 text-slate-500" />
+              </button>
+              <button
+                onClick={() => switchTab("rewards")}
+                className="flex w-full items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-left text-sm text-white transition-colors hover:border-slate-700"
+              >
+                Review live reward projections
+                <ArrowRight className="h-4 w-4 text-slate-500" />
+              </button>
+              <Link
+                href="/reconciliation"
+                className="flex w-full items-center justify-between rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-left text-sm text-cyan-100 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/15"
+              >
+                Open the full reconciliation console
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           </GlassCard>
         </div>
       </div>
-
-      {/* Claim Modal */}
-      {showClaimModal && (
-        <Modal
-          isOpen={showClaimModal}
-          title="Claim Rewards"
-          onClose={() => {
-            setShowClaimModal(false);
-            setClaimConfirm(false);
-          }}
-        >
-          <div className="p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">
-              Claim Rewards
-            </h3>
-            <div className="bg-slate-700/50 rounded-xl p-4 mb-4 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">Pending Rewards</span>
-                <span className="text-white font-semibold">234.56 AETHEL</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">USD Value</span>
-                <span className="text-white font-semibold">
-                  ${(234.56 * 2.47).toFixed(2)}
-                </span>
-              </div>
-            </div>
-            {!claimConfirm ? (
-              <button
-                onClick={() => setClaimConfirm(true)}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors"
-              >
-                Claim All Rewards
-              </button>
-            ) : claiming ? (
-              <div className="flex items-center justify-center py-3 gap-2 text-white">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Processing...
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-slate-300">
-                  Confirm claiming 234.56 AETHEL in rewards?
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setClaimConfirm(false)}
-                    className="flex-1 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleClaim}
-                    className="flex-1 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
-                  >
-                    Confirm Claim
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </Modal>
-      )}
 
       {/* Calculator Modal */}
       {showCalcModal && (
@@ -1244,6 +1017,9 @@ function CalculatorModal({
   onClose: () => void;
   isOpen?: boolean;
 }) {
+  const vaultState = useVaultState();
+  const snapshot = buildLiveVaultSnapshot(vaultState);
+  const effectiveApy = snapshot.apy ?? 0;
   const [calcAmount, setCalcAmount] = useState(10000);
   const [calcMonths, setCalcMonths] = useState(12);
   const [autoCompound, setAutoCompound] = useState(true);
@@ -1252,9 +1028,9 @@ function CalculatorModal({
     const periods = [1, 3, 6, 12, calcMonths];
     const unique = Array.from(new Set(periods)).sort((a, b) => a - b);
     return unique.map((m) => {
-      const simple = calcAmount * (CURRENT_APY / 100) * (m / 12);
+      const simple = calcAmount * (effectiveApy / 100) * (m / 12);
       const compound =
-        calcAmount * Math.pow(1 + CURRENT_APY / 100 / 12, m) - calcAmount;
+        calcAmount * Math.pow(1 + effectiveApy / 100 / 12, m) - calcAmount;
       return {
         label:
           m === 1
@@ -1270,19 +1046,19 @@ function CalculatorModal({
         earned: parseFloat((autoCompound ? compound : simple).toFixed(2)),
       };
     });
-  }, [calcAmount, calcMonths, autoCompound]);
+  }, [autoCompound, calcAmount, calcMonths, effectiveApy]);
 
   const chartData = useMemo(() => {
     return Array.from({ length: Math.min(calcMonths, 60) + 1 }, (_, i) => {
-      const simple = calcAmount + calcAmount * (CURRENT_APY / 100) * (i / 12);
-      const compound = calcAmount * Math.pow(1 + CURRENT_APY / 100 / 12, i);
+      const simple = calcAmount + calcAmount * (effectiveApy / 100) * (i / 12);
+      const compound = calcAmount * Math.pow(1 + effectiveApy / 100 / 12, i);
       return {
         month: i,
         simple: parseFloat(simple.toFixed(2)),
         compound: parseFloat(compound.toFixed(2)),
       };
     });
-  }, [calcAmount, calcMonths]);
+  }, [calcAmount, calcMonths, effectiveApy]);
 
   return (
     <Modal isOpen={isOpen} title="Staking Calculator" onClose={onClose}>
@@ -1291,12 +1067,22 @@ function CalculatorModal({
           <Calculator className="w-5 h-5 text-red-400" />
           Staking Calculator
         </h3>
+        <p className="mb-5 text-sm leading-6 text-slate-400">
+          Projections use the current live effective APY when available.
+          {snapshot.apy == null
+            ? " Live APY is unavailable right now, so projections are currently conservative."
+            : ` Current live APY: ${snapshot.apy.toFixed(2)}%.`}
+        </p>
         <div className="space-y-5">
           <div>
-            <label className="text-sm text-slate-400 mb-2 block">
+            <label
+              htmlFor="staking-calculator-amount"
+              className="text-sm text-slate-400 mb-2 block"
+            >
               Amount to Stake (AETHEL)
             </label>
             <input
+              id="staking-calculator-amount"
               type="number"
               value={calcAmount}
               onChange={(e) => setCalcAmount(Number(e.target.value) || 0)}
@@ -1304,13 +1090,17 @@ function CalculatorModal({
             />
           </div>
           <div>
-            <label className="text-sm text-slate-400 mb-2 block">
+            <label
+              htmlFor="staking-calculator-duration"
+              className="text-sm text-slate-400 mb-2 block"
+            >
               Duration:{" "}
               {calcMonths < 12
                 ? `${calcMonths} months`
                 : `${(calcMonths / 12).toFixed(1)} years`}
             </label>
             <input
+              id="staking-calculator-duration"
               type="range"
               min={1}
               max={60}
@@ -1421,50 +1211,148 @@ function CalculatorModal({
 
 function StakeTab() {
   const { wallet, connectWallet, addNotification } = useApp();
-  const { stake, isPending: stakeIsPending } = useStake();
+  const { stake, getMaxStakeAmount, isPending: stakeIsPending } = useStake();
   const vaultState = useVaultState();
+  const identityGate = useIdentityGate();
+  const complianceGate = useComplianceGate();
+  const unbondingPeriod = useUnbondingPeriod();
   const [amount, setAmount] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [success, setSuccess] = useState(false);
   const [showCalc, setShowCalc] = useState(false);
+  const [isCalculatingMax, setIsCalculatingMax] = useState(false);
+  const [complianceJobId, setComplianceJobId] = useState("");
+  const snapshot = buildLiveVaultSnapshot(vaultState);
 
-  const numAmt = parseFloat(amount) || 0;
-  const maxBalance = wallet.connected ? wallet.balance : 0;
+  const parsedAmount = useMemo(() => parsePositiveEtherInput(amount), [amount]);
+  const numAmt = parsedAmount ? parseFloat(formatEther(parsedAmount)) : 0;
+  const balanceAvailable =
+    wallet.connected && wallet.balanceSnapshots?.aethel.status === "available";
+  const maxBalance = balanceAvailable ? wallet.aethelBalance : 0;
+  const maxBalanceWei = balanceAvailable ? wallet.aethelBalanceWei : 0n;
 
-  // Use real exchange rate from contract when available
-  const liveRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-  const liveApy =
-    vaultState.effectiveAPY > 0n
-      ? Number(vaultState.effectiveAPY) / 100
-      : CURRENT_APY;
-
-  const receiveSt = numAmt / liveRate;
-  const fee = numAmt * 0.001;
-  const projected30d = (numAmt * liveApy) / 100 / 12;
-  const isValid = wallet.connected && numAmt >= 1 && numAmt <= maxBalance;
+  const liveRate = snapshot.exchangeRate;
+  const liveApy = snapshot.apy;
+  const stakeQuote = buildVaultQuoteSafety({
+    kind: "stake",
+    amount: numAmt,
+    exchangeRate: liveRate,
+    quoteUpdatedAt: vaultState.quoteUpdatedAt,
+  });
+  const receiveSt = stakeQuote.expectedOutput;
+  const projected30d = liveApy != null ? (numAmt * liveApy) / 100 / 12 : null;
+  const unbondingLabel = unbondingPeriod.isLoading
+    ? "Loading..."
+    : formatUnbondingPeriod(unbondingPeriod.seconds);
+  const normalizedComplianceJobId = normalizeComplianceJobId(complianceJobId);
+  const isValid =
+    canSubmitStakeForm({
+      walletConnected: wallet.connected,
+      isWrongNetwork: wallet.isWrongNetwork,
+      amountWei: parsedAmount,
+      balanceWei: maxBalanceWei,
+      quoteCanSubmit: stakeQuote.canSubmit,
+      minStakeWei: MIN_STAKE_AMOUNT_WEI,
+    }) &&
+    balanceAvailable &&
+    unbondingPeriod.seconds != null &&
+    identityGate.isAvailable &&
+    complianceGate.isAvailable &&
+    (!complianceGate.requiresSeal || normalizedComplianceJobId != null) &&
+    !identityGate.blocksStaking;
   const processing = stakeIsPending;
 
-  const handleQuick = (pct: number) => {
-    setAmount(((maxBalance * pct) / 100).toFixed(2));
-  };
+  const handleQuick = useCallback(
+    async (pct: number) => {
+      if (!balanceAvailable) return;
+      if (pct !== 100) {
+        setAmount(
+          formatEtherInputAmount(percentOfBaseUnits(maxBalanceWei, pct)),
+        );
+        return;
+      }
+
+      if (!wallet.connected) {
+        setAmount("");
+        return;
+      }
+
+      setIsCalculatingMax(true);
+      try {
+        const safeMaximum = await getMaxStakeAmount({
+          requiresSeal: complianceGate.requiresSeal,
+          complianceJobId: normalizedComplianceJobId ?? undefined,
+        });
+        setAmount(formatEtherInputAmount(safeMaximum));
+      } catch (error) {
+        addNotification(
+          "error",
+          "MAX Calculation Failed",
+          getTransactionFailureMessage(
+            error,
+            "Could not read the live balance and gas price. Try again before staking.",
+          ),
+        );
+      } finally {
+        setIsCalculatingMax(false);
+      }
+    },
+    [
+      addNotification,
+      complianceGate.requiresSeal,
+      getMaxStakeAmount,
+      maxBalanceWei,
+      normalizedComplianceJobId,
+      balanceAvailable,
+      wallet.connected,
+    ],
+  );
 
   const handleStake = useCallback(async () => {
-    const hash = await stake(amount);
+    if (processing) return;
+
+    if (!stakeQuote.canSubmit) {
+      addNotification(
+        "error",
+        "Quote Not Ready",
+        stakeQuote.blockReason ??
+          "Wait for a fresh vault quote before signing.",
+      );
+      setShowConfirm(false);
+      return;
+    }
+
+    const hash = await stake(amount, {
+      expectedExchangeRate: vaultState.exchangeRate,
+      expectedUnbondingPeriod: unbondingPeriod.seconds ?? undefined,
+      expectedComplianceRequired: complianceGate.complianceRequired,
+      expectedComplianceAdmitted: complianceGate.isAdmitted,
+      complianceJobId,
+    });
     if (hash) {
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
         setShowConfirm(false);
         setAmount("");
+        setComplianceJobId("");
       }, 2500);
     } else {
       // Error or rejection — stake() already fires notification via useStake
       setShowConfirm(false);
     }
-  }, [amount, stake]);
+  }, [
+    addNotification,
+    amount,
+    complianceGate.complianceRequired,
+    complianceGate.isAdmitted,
+    complianceJobId,
+    processing,
+    stake,
+    stakeQuote,
+    unbondingPeriod.seconds,
+    vaultState.exchangeRate,
+  ]);
 
   return (
     <div className="grid lg:grid-cols-5 gap-8">
@@ -1479,21 +1367,147 @@ function StakeTab() {
             </h3>
           </div>
           <div className="p-8">
+            {/* ZeroID identity gate (three-way integration). Rendered ONLY
+                when the vault actually enforces it — no compliance theater
+                on ungated deployments. */}
+            {identityGate.identityRequired &&
+              wallet.connected &&
+              (identityGate.isVerified ? (
+                <div className="mb-6 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <p className="text-sm text-emerald-200">
+                    ZeroID verified — this wallet holds an active identity, so
+                    the vault&apos;s identity gate is satisfied.
+                  </p>
+                </div>
+              ) : (
+                <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                    <p className="text-sm font-medium text-amber-200">
+                      This vault requires a ZeroID identity
+                    </p>
+                  </div>
+                  <p className="mt-1 text-xs text-amber-200/80">
+                    Staking is identity-gated on this deployment: register a
+                    ZeroID identity with this wallet, then return here — the
+                    check is live on-chain, no re-connect needed.
+                  </p>
+                  {process.env.NEXT_PUBLIC_ZEROID_APP_URL && (
+                    <a
+                      href={process.env.NEXT_PUBLIC_ZEROID_APP_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-300 hover:text-amber-200"
+                    >
+                      Open ZeroID to register
+                      <ArrowRight className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              ))}
+            {wallet.connected &&
+              !identityGate.isLoading &&
+              !identityGate.isAvailable && (
+                <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <p className="text-sm text-amber-200">
+                    The live ZeroID admission state is unavailable. Staking is
+                    blocked until both on-chain identity checks succeed.
+                  </p>
+                </div>
+              )}
+            {wallet.connected &&
+              !complianceGate.isLoading &&
+              !complianceGate.isAvailable && (
+                <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <p className="text-sm text-amber-200">
+                    The live Digital Seal admission state is unavailable.
+                    Staking is blocked until both compliance reads succeed.
+                  </p>
+                </div>
+              )}
+            {wallet.connected && complianceGate.requiresSeal && (
+              <div className="mb-6 rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-4">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+                  <div>
+                    <p className="text-sm font-medium text-cyan-100">
+                      Digital Seal admission required
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-cyan-100/75">
+                      Enter the completed PoUW compliance job whose active seal
+                      was issued for this wallet. Cruzible verifies and consumes
+                      that seal atomically with the first stake.
+                    </p>
+                  </div>
+                </div>
+                <label
+                  htmlFor="stake-compliance-job-id"
+                  className="mt-3 block text-xs font-medium text-cyan-100"
+                >
+                  Compliance job ID
+                </label>
+                <input
+                  id="stake-compliance-job-id"
+                  type="text"
+                  value={complianceJobId}
+                  maxLength={64}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => setComplianceJobId(event.target.value)}
+                  placeholder="Example: job-1234"
+                  className="mt-2 w-full rounded-lg border border-cyan-400/25 bg-slate-950/50 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/60"
+                />
+                {complianceJobId && !normalizedComplianceJobId && (
+                  <p className="mt-2 text-xs text-amber-200">
+                    Use 1-64 letters, numbers, underscores, or hyphens.
+                  </p>
+                )}
+                <div className="mt-3 flex gap-4 text-xs font-medium text-cyan-200">
+                  <Link href="/jobs" className="hover:text-white">
+                    Find compliance job
+                  </Link>
+                  <Link href="/seals" className="hover:text-white">
+                    Inspect Digital Seals
+                  </Link>
+                </div>
+              </div>
+            )}
+            {wallet.connected && !balanceAvailable && (
+              <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                <p className="text-sm text-amber-200">
+                  The live AETHEL balance is unavailable or stale. Amount
+                  shortcuts and staking stay blocked until a fresh wallet RPC
+                  read succeeds.
+                </p>
+              </div>
+            )}
             <div className="mb-6">
               <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium text-slate-300">
+                <label
+                  htmlFor="stake-aethel-amount"
+                  className="text-sm font-medium text-slate-300"
+                >
                   AETHEL Amount
                 </label>
                 <span className="text-xs text-slate-500">
                   Available:{" "}
                   <span className="font-medium text-slate-300 tabular-nums">
-                    {wallet.connected ? fmtNum(maxBalance, 2) : "---"}
+                    {wallet.connected
+                      ? balanceAvailable
+                        ? fmtNum(maxBalance, 2)
+                        : "Unavailable"
+                      : "---"}
                   </span>{" "}
                   AETHEL
                 </span>
               </div>
               <div className="relative">
                 <input
+                  id="stake-aethel-amount"
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -1502,10 +1516,17 @@ function StakeTab() {
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                   <button
-                    onClick={() => handleQuick(100)}
+                    type="button"
+                    onClick={() => void handleQuick(100)}
+                    disabled={
+                      isCalculatingMax ||
+                      !balanceAvailable ||
+                      (complianceGate.requiresSeal &&
+                        !normalizedComplianceJobId)
+                    }
                     className="px-3 py-1.5 text-xs font-semibold text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors"
                   >
-                    MAX
+                    {isCalculatingMax ? "..." : "MAX"}
                   </button>
                   <span className="text-sm font-medium text-slate-500">
                     AETHEL
@@ -1516,19 +1537,31 @@ function StakeTab() {
                 {[25, 50, 75].map((pct) => (
                   <button
                     key={pct}
-                    onClick={() => handleQuick(pct)}
+                    type="button"
+                    onClick={() => void handleQuick(pct)}
+                    disabled={!balanceAvailable}
                     className="flex-1 py-2 text-xs font-medium text-slate-400 bg-slate-700/30 hover:bg-slate-700/50 rounded-lg border border-slate-600/30 transition-colors"
                   >
                     {pct}%
                   </button>
                 ))}
                 <button
-                  onClick={() => handleQuick(100)}
+                  type="button"
+                  onClick={() => void handleQuick(100)}
+                  disabled={
+                    isCalculatingMax ||
+                    !balanceAvailable ||
+                    (complianceGate.requiresSeal && !normalizedComplianceJobId)
+                  }
                   className="flex-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-lg border border-red-500/20 transition-colors"
                 >
-                  MAX
+                  {isCalculatingMax ? "Calculating..." : "MAX"}
                 </button>
               </div>
+              <p className="mt-2 text-xs text-slate-500">
+                MAX reads the live balance and reserves a buffered amount for
+                network gas.
+              </p>
             </div>
 
             {/* Preview Panel */}
@@ -1536,32 +1569,52 @@ function StakeTab() {
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">You will receive</span>
                 <span className="font-semibold text-white tabular-nums">
-                  ~{numAmt > 0 ? receiveSt.toFixed(4) : "0.0000"} stAETHEL
+                  {receiveSt == null
+                    ? "Unavailable until live exchange rate loads"
+                    : `~${numAmt > 0 ? receiveSt.toFixed(4) : "0.0000"} stAETHEL`}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">Exchange rate</span>
+                <span className="text-slate-400">Raw-share rate</span>
                 <span className="text-slate-300 tabular-nums">
-                  1 AETHEL = {(1 / liveRate).toFixed(4)} stAETHEL
+                  {liveRate == null
+                    ? "Unavailable"
+                    : `${(1 / liveRate).toFixed(4)} raw shares per AETHEL`}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">Transaction fee</span>
+                <span className="text-slate-400">Quote freshness</span>
+                <span
+                  className={`font-medium tabular-nums ${
+                    stakeQuote.canSubmit ? "text-emerald-400" : "text-amber-400"
+                  }`}
+                >
+                  {stakeQuote.hasLiveRate
+                    ? stakeQuote.isFresh
+                      ? `Fresh (${formatVaultQuoteAge(stakeQuote.quoteAgeMs)})`
+                      : "Expired"
+                    : "Waiting for contract quote"}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-400">Estimated network cost</span>
                 <span className="text-slate-300 tabular-nums">
-                  {numAmt > 0 ? fee.toFixed(4) : "0.001"} AETHEL
+                  Shown in wallet before signing
                 </span>
               </div>
               <div className="h-px bg-slate-600/30" />
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Estimated APY</span>
                 <span className="font-medium text-emerald-400">
-                  {liveApy.toFixed(2)}%
+                  {liveApy == null ? "Unavailable" : `${liveApy.toFixed(2)}%`}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Projected earnings (30d)</span>
                 <span className="font-medium text-emerald-400 tabular-nums">
-                  +{numAmt > 0 ? projected30d.toFixed(2) : "0.00"} AETHEL
+                  {projected30d == null
+                    ? "Unavailable"
+                    : `+${numAmt > 0 ? projected30d.toFixed(2) : "0.00"} AETHEL`}
                 </span>
               </div>
             </div>
@@ -1578,11 +1631,32 @@ function StakeTab() {
               >
                 {!wallet.connected
                   ? "Connect Wallet to Stake"
-                  : numAmt < 1
-                    ? "Minimum 1 AETHEL"
-                    : numAmt > maxBalance
-                      ? "Insufficient Balance"
-                      : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
+                  : wallet.isWrongNetwork
+                    ? "Switch Network to Stake"
+                    : numAmt < 1
+                      ? "Minimum 1 AETHEL"
+                      : numAmt > maxBalance
+                        ? "Insufficient Balance"
+                        : !stakeQuote.hasLiveRate
+                          ? "Waiting for Live Exchange Rate"
+                          : unbondingPeriod.seconds == null
+                            ? "Waiting for Live Exit Terms"
+                            : complianceGate.isLoading
+                              ? "Checking Digital Seal Gate"
+                              : !complianceGate.isAvailable
+                                ? "Compliance Gate Unavailable"
+                                : complianceGate.requiresSeal &&
+                                    !normalizedComplianceJobId
+                                  ? "Enter Digital Seal Job ID"
+                                  : !stakeQuote.isFresh
+                                    ? "Waiting for Fresh Quote"
+                                    : identityGate.isLoading
+                                      ? "Checking ZeroID Gate"
+                                      : !identityGate.isAvailable
+                                        ? "ZeroID Gate Unavailable"
+                                        : identityGate.blocksStaking
+                                          ? "ZeroID Identity Required"
+                                          : `Stake ${fmtNum(numAmt, 2)} AETHEL`}
               </button>
             ) : success ? (
               <div className="text-center py-4">
@@ -1593,7 +1667,9 @@ function StakeTab() {
                   Successfully staked {fmtNum(numAmt, 2)} AETHEL!
                 </p>
                 <p className="text-sm text-slate-400 mt-1">
-                  You received {receiveSt.toFixed(4)} stAETHEL
+                  {receiveSt == null
+                    ? "The receive preview was unavailable at submission time."
+                    : `You received ${receiveSt.toFixed(4)} stAETHEL`}
                 </p>
               </div>
             ) : processing ? (
@@ -1614,19 +1690,45 @@ function StakeTab() {
                     ?
                   </p>
                   <p className="text-xs text-amber-300/70 mt-1">
-                    You will receive {receiveSt.toFixed(4)} stAETHEL
+                    {receiveSt == null
+                      ? "Live exchange rate is unavailable, so the receive preview is withheld."
+                      : `You will receive ${receiveSt.toFixed(4)} stAETHEL`}
+                  </p>
+                  <p className="text-xs text-amber-300/70 mt-1">
+                    Vault exit timing: {unbondingLabel}. This value and your
+                    live ZeroID admission state will be checked again before the
+                    wallet transaction is requested.
+                  </p>
+                  <p className="text-xs text-amber-300/70 mt-1">
+                    Entry method:{" "}
+                    {complianceGate.requiresSeal
+                      ? `Digital Seal job ${normalizedComplianceJobId ?? "required"}`
+                      : complianceGate.complianceRequired
+                        ? "existing Digital Seal admission"
+                        : "standard vault stake"}
+                    .
+                  </p>
+                  <p className="text-xs text-amber-300/70 mt-1">
+                    Quote freshness:{" "}
+                    {stakeQuote.isFresh
+                      ? formatVaultQuoteAge(stakeQuote.quoteAgeMs)
+                      : "expired; wait for the next contract read"}
+                    . The wallet will show the final network cost before
+                    signing.
                   </p>
                 </div>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowConfirm(false)}
+                    disabled={processing}
                     className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-medium transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleStake}
-                    className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+                    disabled={processing}
+                    className="flex-1 py-3 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-colors"
                   >
                     Confirm Stake
                   </button>
@@ -1636,7 +1738,7 @@ function StakeTab() {
 
             {!wallet.connected && (
               <button
-                onClick={connectWallet}
+                onClick={() => connectWallet()}
                 className="w-full mt-3 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
               >
                 Connect Wallet
@@ -1646,8 +1748,9 @@ function StakeTab() {
             <div className="mt-4 flex items-start gap-2 p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/10">
               <ShieldCheck className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
               <p className="text-xs text-emerald-300/70 leading-relaxed">
-                Protected by TEE-verified validator selection. Rewards are
-                cryptographically proven via Merkle trees.
+                Validator and reward evidence is shown only when public
+                reconciliation or claim-proof data is available. This public
+                testnet UI does not assert live TEE hardware verification.
               </p>
             </div>
           </div>
@@ -1663,28 +1766,18 @@ function StakeTab() {
             Current APY
           </h3>
           <p className="text-3xl font-bold text-emerald-400 mb-3">
-            {liveApy.toFixed(2)}%
+            {liveApy == null ? "Unavailable" : `${liveApy.toFixed(2)}%`}
           </p>
-          <ResponsiveContainer width="100%" height={80}>
-            <AreaChart data={APY_DATA.slice(-30)}>
-              <defs>
-                <linearGradient id="apyMini" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Area
-                type="monotone"
-                dataKey="apy"
-                stroke="#10b981"
-                strokeWidth={1.5}
-                fill="url(#apyMini)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <p className="text-sm leading-6 text-slate-400">
+            This staking preview only uses the live effective APY exposed by the
+            vault contract. Historical APY charts remain hidden until indexed
+            time-series data is live.
+          </p>
         </GlassCard>
 
         {/* Staking Info */}
+        <StakeRiskChecklist />
+
         <GlassCard className="p-6">
           <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
             <Info className="w-4 h-4 text-red-400" />
@@ -1693,10 +1786,13 @@ function StakeTab() {
           <div className="space-y-3">
             {[
               { l: "Minimum stake", v: "1 AETHEL" },
-              { l: "Unbonding period", v: "21 days" },
-              { l: "Validators", v: "47 validators" },
-              { l: "TEE Protection", v: "Hardware-verified" },
-              { l: "Commission", v: "5% on rewards" },
+              { l: "Unbonding period", v: unbondingLabel },
+              {
+                l: "Validator source",
+                v: "Published in reconciliation and validator intelligence",
+              },
+              { l: "TEE assurance", v: "Not asserted on public testnet" },
+              { l: "Reward deductions", v: "Reflected in live effective APY" },
             ].map((r, i) => (
               <div key={i} className="flex justify-between items-center">
                 <span className="text-sm text-slate-400">{r.l}</span>
@@ -1723,7 +1819,7 @@ function StakeTab() {
                 step: 2,
                 icon: <Server className="w-4 h-4" />,
                 title: "Delegate",
-                desc: "TEE-verified validator selection",
+                desc: "Use the published validator and reconciliation data",
               },
               {
                 step: 3,
@@ -1770,81 +1866,127 @@ function UnstakeTab() {
   const { unstake, isPending: unstakeIsPending } = useUnstake();
   const { withdraw: claimWithdrawal, isPending: claimIsPending } =
     useWithdraw();
-  const { withdrawals: onChainWithdrawals, refetch: refetchWithdrawals } =
-    useUserWithdrawals();
+  const {
+    withdrawals: onChainWithdrawals,
+    isLoading: withdrawalsLoading,
+    isError: withdrawalsError,
+    isFetched: withdrawalsFetched,
+    refetch: refetchWithdrawals,
+  } = useUserWithdrawals();
+  const unbondingPeriod = useUnbondingPeriod();
   const vaultState = useVaultState();
   const [amount, setAmount] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [success, setSuccess] = useState(false);
+  const snapshot = buildLiveVaultSnapshot(vaultState);
+  const [withdrawalClock, setWithdrawalClock] = useState(
+    () => Date.now() / 1000,
+  );
 
-  const numAmt = parseFloat(amount) || 0;
-  const maxBal = wallet.connected ? wallet.stBalance : 0;
+  const parsedAmount = useMemo(() => parsePositiveEtherInput(amount), [amount]);
+  const numAmt = parsedAmount ? parseFloat(formatEther(parsedAmount)) : 0;
+  const balanceAvailable =
+    wallet.connected &&
+    wallet.balanceSnapshots?.stAethel.status === "available";
+  const maxBal = balanceAvailable ? wallet.stBalance : 0;
+  const maxBalWei = balanceAvailable ? wallet.stBalanceWei : 0n;
+  const liveRate = snapshot.exchangeRate;
 
-  const liveRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-
-  const receiveAethel = numAmt * liveRate;
-  const earlyFee = receiveAethel * 0.005;
-  const isValid = wallet.connected && numAmt > 0 && numAmt <= maxBal;
+  const unstakeQuote = buildVaultQuoteSafety({
+    kind: "unstake",
+    amount: numAmt,
+    exchangeRate: liveRate,
+    quoteUpdatedAt: vaultState.quoteUpdatedAt,
+  });
+  const receiveAethel = unstakeQuote.expectedOutput;
+  const isValid =
+    canSubmitUnstakeForm({
+      walletConnected: wallet.connected,
+      isWrongNetwork: wallet.isWrongNetwork,
+      amountWei: parsedAmount,
+      balanceWei: maxBalWei,
+      quoteCanSubmit: unstakeQuote.canSubmit,
+    }) &&
+    balanceAvailable &&
+    unbondingPeriod.seconds != null;
   const processing = unstakeIsPending;
+  const unbondingLabel = unbondingPeriod.isLoading
+    ? "Loading..."
+    : formatUnbondingPeriod(unbondingPeriod.seconds);
+  const unbondingTimingText =
+    unbondingPeriod.seconds === 0n
+      ? "without a configured cooldown"
+      : `after the live ${unbondingLabel} cooldown`;
 
   const completionDate = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 21);
+    const completionTime = calculateUnbondingCompletionTimeMs(
+      unbondingPeriod.seconds,
+      withdrawalClock * 1000,
+    );
+    if (completionTime == null) return "Unavailable";
+
+    const d = new Date(completionTime);
     return d.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     });
-  }, []);
+  }, [unbondingPeriod.seconds, withdrawalClock]);
 
-  // Merge on-chain withdrawals with mock fallback for display
-  const requests: UnstakeRequest[] = useMemo(() => {
-    if (onChainWithdrawals.length > 0) {
-      return onChainWithdrawals.map((w, i) => {
-        const now = Date.now() / 1000;
-        const completion = Number(w.completionTime);
-        const start = Number(w.requestTime);
-        const totalSecs = completion - start;
-        const elapsedSecs = now - start;
-        const daysRemaining = Math.max(
-          0,
-          Math.ceil((completion - now) / 86400),
-        );
-        const totalDays = Math.ceil(totalSecs / 86400);
-        return {
-          id: `w${w.id.toString()}`,
-          amount: parseFloat(formatEther(w.aethelAmount)),
-          stAethelAmount: parseFloat(formatEther(w.shares)),
-          startDate: new Date(start * 1000).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          }),
-          completionDate: new Date(completion * 1000).toLocaleDateString(
-            "en-US",
-            { month: "short", day: "numeric", year: "numeric" },
-          ),
-          status: w.claimed
-            ? ("claimed" as const)
-            : daysRemaining === 0
-              ? ("ready" as const)
-              : ("pending" as const),
-          daysRemaining,
-          totalDays: Math.max(totalDays, 1),
-        };
-      });
-    }
-    return PENDING_UNSTAKES;
+  useEffect(() => {
+    setWithdrawalClock(Date.now() / 1000);
   }, [onChainWithdrawals]);
 
-  const handleQuick = (pct: number) =>
-    setAmount(((maxBal * pct) / 100).toFixed(2));
+  useEffect(() => {
+    if (!onChainWithdrawals.some((withdrawal) => !withdrawal.claimed)) return;
+
+    const timer = window.setInterval(
+      () => setWithdrawalClock(Date.now() / 1000),
+      30_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [onChainWithdrawals]);
+
+  // Render only live withdrawal requests returned by the contract hook.
+  const requests: DisplayWithdrawalRequest[] = useMemo(() => {
+    return toDisplayWithdrawalRequests(onChainWithdrawals, withdrawalClock);
+  }, [onChainWithdrawals, withdrawalClock]);
+  const liquiditySignals = useMemo(() => {
+    return buildWithdrawalLiquiditySummary({
+      requestCount: requests.length,
+      pendingCount: requests.filter((request) => request.status === "pending")
+        .length,
+      readyCount: requests.filter((request) => request.status === "ready")
+        .length,
+      claimedCount: requests.filter((request) => request.status === "claimed")
+        .length,
+      hasLiveExchangeRate: liveRate != null,
+    });
+  }, [liveRate, requests]);
+
+  const handleQuick = (pct: number) => {
+    if (!balanceAvailable) return;
+    setAmount(formatEtherInputAmount(percentOfBaseUnits(maxBalWei, pct)));
+  };
 
   const handleUnstake = useCallback(async () => {
-    const hash = await unstake(amount);
+    if (processing) return;
+
+    if (!unstakeQuote.canSubmit) {
+      addNotification(
+        "error",
+        "Quote Not Ready",
+        unstakeQuote.blockReason ??
+          "Wait for a fresh vault quote before signing.",
+      );
+      setShowConfirm(false);
+      return;
+    }
+
+    const hash = await unstake(amount, {
+      expectedExchangeRate: vaultState.exchangeRate,
+      expectedUnbondingPeriod: unbondingPeriod.seconds ?? undefined,
+    });
     if (hash) {
       setSuccess(true);
       refetchWithdrawals();
@@ -1856,20 +1998,27 @@ function UnstakeTab() {
     } else {
       setShowConfirm(false);
     }
-  }, [amount, unstake, refetchWithdrawals]);
+  }, [
+    addNotification,
+    amount,
+    processing,
+    refetchWithdrawals,
+    unstake,
+    unstakeQuote,
+    unbondingPeriod.seconds,
+    vaultState.exchangeRate,
+  ]);
 
   const handleClaim = useCallback(
     async (id: string) => {
       const req = requests.find((r) => r.id === id);
-      if (!req || req.status !== "ready") return;
-      // Extract the on-chain withdrawal ID (bigint)
-      const withdrawalId = BigInt(id.replace("w", ""));
-      const hash = await claimWithdrawal(withdrawalId);
+      if (!req || req.status !== "ready" || claimIsPending) return;
+      const hash = await claimWithdrawal(req.withdrawalId);
       if (hash) {
         refetchWithdrawals();
       }
     },
-    [requests, claimWithdrawal, refetchWithdrawals],
+    [requests, claimIsPending, claimWithdrawal, refetchWithdrawals],
   );
 
   return (
@@ -1888,19 +2037,27 @@ function UnstakeTab() {
             <div className="p-8">
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm font-medium text-slate-300">
+                  <label
+                    htmlFor="unstake-staethel-amount"
+                    className="text-sm font-medium text-slate-300"
+                  >
                     stAETHEL Amount
                   </label>
                   <span className="text-xs text-slate-500">
                     Balance:{" "}
                     <span className="font-medium text-slate-300 tabular-nums">
-                      {wallet.connected ? fmtNum(maxBal, 2) : "---"}
+                      {wallet.connected
+                        ? balanceAvailable
+                          ? fmtNum(maxBal, 2)
+                          : "Unavailable"
+                        : "---"}
                     </span>{" "}
                     stAETHEL
                   </span>
                 </div>
                 <div className="relative">
                   <input
+                    id="unstake-staethel-amount"
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
@@ -1910,6 +2067,7 @@ function UnstakeTab() {
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                     <button
                       onClick={() => handleQuick(100)}
+                      disabled={!balanceAvailable}
                       className="px-3 py-1.5 text-xs font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors"
                     >
                       MAX
@@ -1924,6 +2082,7 @@ function UnstakeTab() {
                     <button
                       key={pct}
                       onClick={() => handleQuick(pct)}
+                      disabled={!balanceAvailable}
                       className="flex-1 py-2 text-xs font-medium text-slate-400 bg-slate-700/30 hover:bg-slate-700/50 rounded-lg border border-slate-600/30 transition-colors"
                     >
                       {pct === 100 ? "MAX" : `${pct}%`}
@@ -1938,18 +2097,24 @@ function UnstakeTab() {
                     You will receive (after cooldown)
                   </span>
                   <span className="font-semibold text-white tabular-nums">
-                    ~{numAmt > 0 ? receiveAethel.toFixed(4) : "0.0000"} AETHEL
+                    {receiveAethel == null
+                      ? "Unavailable until live exchange rate loads"
+                      : `~${numAmt > 0 ? receiveAethel.toFixed(4) : "0.0000"} AETHEL`}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">Exchange rate</span>
+                  <span className="text-slate-400">Raw-share rate</span>
                   <span className="text-slate-300 tabular-nums">
-                    1 stAETHEL = {liveRate.toFixed(4)} AETHEL
+                    {liveRate == null
+                      ? "Unavailable"
+                      : `1 raw share = ${liveRate.toFixed(4)} AETHEL`}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Cooldown period</span>
-                  <span className="text-amber-400 font-medium">21 days</span>
+                  <span className="text-amber-400 font-medium">
+                    {unbondingLabel}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Expected completion</span>
@@ -1957,11 +2122,25 @@ function UnstakeTab() {
                 </div>
                 <div className="h-px bg-slate-600/30" />
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">
-                    Early exit fee (if applicable)
+                  <span className="text-slate-400">Quote freshness</span>
+                  <span
+                    className={`font-medium tabular-nums ${
+                      unstakeQuote.canSubmit
+                        ? "text-emerald-400"
+                        : "text-amber-400"
+                    }`}
+                  >
+                    {unstakeQuote.hasLiveRate
+                      ? unstakeQuote.isFresh
+                        ? `Fresh (${formatVaultQuoteAge(unstakeQuote.quoteAgeMs)})`
+                        : "Expired"
+                      : "Waiting for contract quote"}
                   </span>
-                  <span className="text-amber-400 tabular-nums">
-                    0.5% ({numAmt > 0 ? earlyFee.toFixed(2) : "0.00"} AETHEL)
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Estimated network cost</span>
+                  <span className="text-slate-300 tabular-nums">
+                    Shown in wallet before signing
                   </span>
                 </div>
               </div>
@@ -1974,11 +2153,21 @@ function UnstakeTab() {
                 >
                   {!wallet.connected
                     ? "Connect Wallet"
-                    : numAmt <= 0
-                      ? "Enter amount"
-                      : numAmt > maxBal
-                        ? "Insufficient Balance"
-                        : `Unstake ${fmtNum(numAmt, 2)} stAETHEL`}
+                    : wallet.isWrongNetwork
+                      ? "Switch Network to Unstake"
+                      : !balanceAvailable
+                        ? "Waiting for Live stAETHEL Balance"
+                        : numAmt <= 0
+                          ? "Enter amount"
+                          : numAmt > maxBal
+                            ? "Insufficient Balance"
+                            : !unstakeQuote.hasLiveRate
+                              ? "Waiting for Live Exchange Rate"
+                              : unbondingPeriod.seconds == null
+                                ? "Waiting for Live Unbonding Period"
+                                : !unstakeQuote.isFresh
+                                  ? "Waiting for Fresh Quote"
+                                  : `Unstake ${fmtNum(numAmt, 2)} stAETHEL`}
                 </button>
               ) : success ? (
                 <div className="text-center py-4">
@@ -1987,7 +2176,9 @@ function UnstakeTab() {
                     Unstake initiated!
                   </p>
                   <p className="text-sm text-slate-400 mt-1">
-                    Your AETHEL will be available in 21 days
+                    {unbondingPeriod.seconds === 0n
+                      ? "No cooldown is configured; the request can become claimable immediately."
+                      : `Your AETHEL will be available after ${unbondingLabel}.`}
                   </p>
                 </div>
               ) : processing ? (
@@ -2006,20 +2197,31 @@ function UnstakeTab() {
                       ?
                     </p>
                     <p className="text-xs text-amber-300/70 mt-1">
-                      You will receive {receiveAethel.toFixed(2)} AETHEL after
-                      21-day cooldown
+                      {receiveAethel == null
+                        ? "Live exchange rate is unavailable, so the receive preview is withheld."
+                        : `You will receive ${receiveAethel.toFixed(2)} AETHEL ${unbondingTimingText}`}
+                    </p>
+                    <p className="text-xs text-amber-300/70 mt-1">
+                      Quote freshness:{" "}
+                      {unstakeQuote.isFresh
+                        ? formatVaultQuoteAge(unstakeQuote.quoteAgeMs)
+                        : "expired; wait for the next contract read"}
+                      . The wallet will show the final network cost before
+                      signing.
                     </p>
                   </div>
                   <div className="flex gap-3">
                     <button
                       onClick={() => setShowConfirm(false)}
+                      disabled={processing}
                       className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-medium transition-colors"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleUnstake}
-                      className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-medium transition-colors"
+                      disabled={processing}
+                      className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-colors"
                     >
                       Confirm Unstake
                     </button>
@@ -2040,7 +2242,11 @@ function UnstakeTab() {
             <div className="space-y-4">
               <div className="bg-amber-500/5 border border-amber-500/10 rounded-xl p-4">
                 <p className="text-sm text-amber-300 font-medium mb-1">
-                  21-Day Cooldown
+                  {unbondingPeriod.seconds == null
+                    ? "Live Cooldown Unavailable"
+                    : unbondingPeriod.seconds === 0n
+                      ? "No Cooldown Configured"
+                      : `${unbondingLabel} Cooldown`}
                 </p>
                 <p className="text-xs text-slate-400 leading-relaxed">
                   The cooldown ensures network security by allowing validators
@@ -2060,15 +2266,34 @@ function UnstakeTab() {
               </div>
               <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4">
                 <p className="text-sm text-red-300 font-medium mb-1">
-                  Emergency Unstake
+                  Instant exits are not guaranteed
                 </p>
                 <p className="text-xs text-slate-400">
-                  Skip cooldown with a 0.5% fee. Contact support for large
-                  amounts.
+                  This vault flow does not promise a shortcut around the
+                  cooldown. Secondary liquidity venues, if used, are external
+                  and may include price impact or unavailable depth.
                 </p>
               </div>
             </div>
           </GlassCard>
+
+          {wallet.connected &&
+          withdrawalsFetched &&
+          !withdrawalsLoading &&
+          !withdrawalsError ? (
+            <WithdrawalLiquidityPanel signals={liquiditySignals} />
+          ) : (
+            <GlassCard className="p-6">
+              <h3 className="font-semibold text-white mb-2 flex items-center gap-2">
+                <Coins className="h-4 w-4 text-cyan-400" />
+                Liquidity Reality Check
+              </h3>
+              <p className="text-sm leading-6 text-slate-400">
+                Live queue liquidity signals remain unavailable until the
+                connected wallet&apos;s withdrawal request read succeeds.
+              </p>
+            </GlassCard>
+          )}
         </div>
       </div>
 
@@ -2078,114 +2303,154 @@ function UnstakeTab() {
           <h3 className="font-semibold text-white">Active Unstaking Queue</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-700/30">
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Request ID
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Amount
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Start Date
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Completion
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Progress
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Status
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/20">
-              {requests.map((req) => (
-                <tr
-                  key={req.id}
-                  className="hover:bg-slate-700/20 transition-colors"
-                >
-                  <td className="px-6 py-4 text-slate-300 font-mono text-xs">
-                    {req.id.toUpperCase()}
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-white font-medium tabular-nums">
-                      {fmtNum(req.amount, 2)} AETHEL
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {fmtNum(req.stAethelAmount, 2)} stAETHEL
-                    </p>
-                  </td>
-                  <td className="px-6 py-4 text-slate-300">{req.startDate}</td>
-                  <td className="px-6 py-4 text-slate-300">
-                    {req.completionDate}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="w-32">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-slate-400">
-                          {req.daysRemaining > 0
-                            ? `${req.daysRemaining}d left`
-                            : "Complete"}
-                        </span>
-                        <span className="text-slate-400">
-                          {Math.round(
-                            ((req.totalDays - req.daysRemaining) /
-                              req.totalDays) *
-                              100,
-                          )}
-                          %
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${req.status === "ready" ? "bg-emerald-500" : "bg-amber-500"}`}
-                          style={{
-                            width: `${((req.totalDays - req.daysRemaining) / req.totalDays) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        req.status === "ready"
-                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                          : req.status === "claimed"
-                            ? "bg-slate-600/30 text-slate-400"
-                            : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                      }`}
-                    >
-                      {req.status === "ready" && (
-                        <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                      )}
-                      {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {req.status === "ready" ? (
-                      <button
-                        onClick={() => handleClaim(req.id)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
-                      >
-                        Claim
-                      </button>
-                    ) : req.status === "claimed" ? (
-                      <span className="text-xs text-slate-500">Claimed</span>
-                    ) : (
-                      <span className="text-xs text-slate-500">Waiting</span>
-                    )}
-                  </td>
+          {!wallet.connected ? (
+            <div className="px-6 py-8 text-sm text-slate-400">
+              Connect a wallet to load its live withdrawal requests.
+            </div>
+          ) : withdrawalsLoading ? (
+            <div className="flex items-center gap-2 px-6 py-8 text-sm text-slate-400">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Loading live withdrawal requests...
+            </div>
+          ) : withdrawalsError ? (
+            <div className="px-6 py-8 text-sm text-amber-200">
+              <p>
+                Withdrawal requests are unavailable because the contract read
+                failed. No empty queue is being inferred.
+              </p>
+              <button
+                type="button"
+                onClick={() => void refetchWithdrawals()}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 font-medium text-amber-100 hover:bg-amber-500/20"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Retry live read
+              </button>
+            </div>
+          ) : !withdrawalsFetched ? (
+            <div className="px-6 py-8 text-sm text-amber-200">
+              The live withdrawal queue has not been fetched yet. Verify the
+              connected network and contract configuration.
+            </div>
+          ) : requests.length === 0 ? (
+            <div className="px-6 py-8 text-sm text-slate-400">
+              No live withdrawal requests were found for the connected wallet.
+              Cruzible no longer seeds placeholder unstake rows.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700/30">
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Request ID
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Amount
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Start Date
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Completion
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Progress
+                  </th>
+                  <th className="text-left text-slate-400 px-6 py-3 font-medium">
+                    Status
+                  </th>
+                  <th className="text-right text-slate-400 px-6 py-3 font-medium">
+                    Action
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-700/20">
+                {requests.map((req) => (
+                  <tr
+                    key={req.id}
+                    className="hover:bg-slate-700/20 transition-colors"
+                  >
+                    <td className="px-6 py-4 text-slate-300 font-mono text-xs">
+                      {req.id.toUpperCase()}
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-white font-medium tabular-nums">
+                        {fmtNum(req.amount, 2)} AETHEL
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {fmtNum(req.stAethelAmount, 2)} stAETHEL
+                      </p>
+                    </td>
+                    <td className="px-6 py-4 text-slate-300">
+                      {req.startDate}
+                    </td>
+                    <td className="px-6 py-4 text-slate-300">
+                      {req.completionDate}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="w-32">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-400">
+                            {req.daysRemaining > 0
+                              ? `${req.daysRemaining}d left`
+                              : "Complete"}
+                          </span>
+                          <span className="text-slate-400">
+                            {Math.round(
+                              ((req.totalDays - req.daysRemaining) /
+                                req.totalDays) *
+                                100,
+                            )}
+                            %
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${req.status === "ready" ? "bg-emerald-500" : "bg-amber-500"}`}
+                            style={{
+                              width: `${((req.totalDays - req.daysRemaining) / req.totalDays) * 100}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                          req.status === "ready"
+                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                            : req.status === "claimed"
+                              ? "bg-slate-600/30 text-slate-400"
+                              : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                        }`}
+                      >
+                        {req.status === "ready" && (
+                          <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                        )}
+                        {req.status.charAt(0).toUpperCase() +
+                          req.status.slice(1)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {req.status === "ready" ? (
+                        <button
+                          onClick={() => handleClaim(req.id)}
+                          disabled={claimIsPending}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
+                        >
+                          {claimIsPending ? "Claiming..." : "Claim"}
+                        </button>
+                      ) : req.status === "claimed" ? (
+                        <span className="text-xs text-slate-500">Claimed</span>
+                      ) : (
+                        <span className="text-xs text-slate-500">Waiting</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </GlassCard>
     </div>
@@ -2196,427 +2461,246 @@ function UnstakeTab() {
 // TAB 4: REWARDS
 // ============================================================================
 
-function RewardsTab() {
-  const { wallet, connectWallet, addNotification } = useApp();
+function RewardsTab({
+  controlPlane,
+}: {
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const { wallet, connectWallet } = useApp();
   const vaultState = useVaultState();
-  const { claimRewards } = useClaimRewards();
-  const [rewardView, setRewardView] = useState<RewardView>("daily");
   const [autoCompound, setAutoCompound] = useState(true);
-  const [compoundFreq, setCompoundFreq] = useState<CompoundFreq>("epoch");
-  const [claimProcessing, setClaimProcessing] = useState(false);
-  const [page, setPage] = useState(0);
+  const snapshot = buildLiveVaultSnapshot(vaultState);
+  const liveRate = snapshot.exchangeRate;
+  const liveApy = snapshot.apy;
+  const stakeValue =
+    wallet.connected && wallet.balanceSnapshots?.stAethel.status === "available"
+      ? wallet.stBalance
+      : null;
 
-  const pageSize = 10;
-  const totalPages = Math.ceil(REWARD_HISTORY.length / pageSize);
-  const pagedRewards = REWARD_HISTORY.slice(
-    page * pageSize,
-    (page + 1) * pageSize,
-  );
-
-  const chartData = useMemo(() => {
-    if (rewardView === "daily") return REWARD_HISTORY;
-    if (rewardView === "weekly") {
-      const weeks: { date: string; amount: number }[] = [];
-      for (let i = 0; i < REWARD_HISTORY.length; i += 7) {
-        const slice = REWARD_HISTORY.slice(i, i + 7);
-        weeks.push({
-          date: slice[0].date,
-          amount: parseFloat(
-            slice.reduce((s, r) => s + r.amount, 0).toFixed(2),
-          ),
-        });
-      }
-      return weeks;
-    }
-    return [
-      {
-        date: REWARD_HISTORY[0].date,
-        amount: parseFloat(
-          REWARD_HISTORY.reduce((s, r) => s + r.amount, 0).toFixed(2),
-        ),
-      },
-    ];
-  }, [rewardView]);
-
-  const handleClaimAll = useCallback(async () => {
-    if (!wallet.connected || !wallet.address) {
-      addNotification(
-        "warning",
-        "Wallet Required",
-        "Please connect your wallet to claim rewards.",
-      );
-      return;
-    }
-
-    setClaimProcessing(true);
-    addNotification(
-      "info",
-      "Claiming Rewards",
-      "Fetching reward proof from API...",
-    );
-
-    try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/v1";
-      const res = await fetch(
-        `${API_BASE}/vault/reward-proof?address=${wallet.address}`,
-      );
-      if (!res.ok) {
-        const body = await res
-          .json()
-          .catch(() => ({ message: "Reward proof endpoint not available" }));
-        throw new Error(body.message || `API returned ${res.status}`);
-      }
-
-      const { epoch, amount, proof } = (await res.json()) as {
-        epoch: string;
-        amount: string;
-        proof: `0x${string}`[];
+  const projectionRows = useMemo(() => {
+    const principal = stakeValue ?? 0;
+    const apy = liveApy ?? 0;
+    return [7, 30, 90, 365].map((days) => {
+      const years = days / 365;
+      const simple = principal * (apy / 100) * years;
+      const compound =
+        principal * (Math.pow(1 + apy / 100 / 12, years * 12) - 1);
+      return {
+        period:
+          days === 365 ? "1 year" : days === 30 ? "30 days" : `${days} days`,
+        projected: parseFloat((autoCompound ? compound : simple).toFixed(2)),
       };
+    });
+  }, [autoCompound, liveApy, stakeValue]);
 
-      await claimRewards({
-        epoch: BigInt(epoch),
-        amount: BigInt(amount),
-        proof,
-      });
-    } catch (err: any) {
-      addNotification(
-        "error",
-        "Claim Failed",
-        err?.message ||
-          "Could not fetch reward proof. The reward proof endpoint may not be deployed yet.",
-      );
-    } finally {
-      setClaimProcessing(false);
-    }
-  }, [wallet.connected, wallet.address, addNotification, claimRewards]);
-
-  const liveRate =
-    vaultState.exchangeRate > 0n
-      ? parseFloat(formatEther(vaultState.exchangeRate))
-      : EXCHANGE_RATE;
-  const liveApy =
-    vaultState.effectiveAPY > 0n
-      ? Number(vaultState.effectiveAPY) / 100
-      : CURRENT_APY;
-
-  const totalAllTime = 12847.32;
-  const pending = 234.56;
-  const stakeAmt = wallet.connected ? wallet.stBalance * liveRate : 100000;
+  const growthChartData = useMemo(() => {
+    const principal = stakeValue ?? 0;
+    const apy = liveApy ?? 0;
+    return Array.from({ length: 13 }, (_, month) => {
+      const simple = principal + principal * (apy / 100) * (month / 12);
+      const compound = principal * Math.pow(1 + apy / 100 / 12, month);
+      return {
+        month: month === 0 ? "Now" : `M${month}`,
+        simple: parseFloat(simple.toFixed(2)),
+        compound: parseFloat(compound.toFixed(2)),
+      };
+    });
+  }, [liveApy, stakeValue]);
 
   return (
     <div className="space-y-8">
-      {/* Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <GlassCard className="p-6">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-            Total Rewards Earned
+            Effective APY
           </p>
           <p className="text-2xl font-bold text-white tabular-nums">
-            <AnimatedNumber value={totalAllTime} decimals={2} />
+            {liveApy == null ? "Unavailable" : `${liveApy.toFixed(2)}%`}
           </p>
-          <p className="text-xs text-slate-400">AETHEL (all-time)</p>
+          <p className="text-xs text-slate-400">
+            Live effective APY from the vault contract
+          </p>
         </GlassCard>
         <GlassCard className="p-6">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-            Pending Rewards
+            Staked Value
           </p>
           <p className="text-2xl font-bold text-emerald-400 tabular-nums">
-            <AnimatedNumber value={pending} decimals={2} />
+            {stakeValue == null ? "Unavailable" : fmtNum(stakeValue, 2)}
           </p>
-          <p className="text-xs text-emerald-400/70">Claimable now</p>
+          <p className="text-xs text-emerald-400/70">AETHEL equivalent</p>
         </GlassCard>
         <GlassCard className="p-6">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-            Last Claim
+            Reward Projection
           </p>
-          <p className="text-2xl font-bold text-white">3 days ago</p>
-          <p className="text-xs text-slate-400">Mar 4, 2026</p>
+          <p className="text-2xl font-bold text-white">
+            {stakeValue == null || liveApy == null
+              ? "Unavailable"
+              : `+${fmtNum((stakeValue * liveApy) / 100, 2)}`}
+          </p>
+          <p className="text-xs text-slate-400">Annualized AETHEL rewards</p>
         </GlassCard>
         <GlassCard className="p-6 flex flex-col justify-between">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">
-            Quick Action
+            Live Claim
           </p>
           <button
-            onClick={handleClaimAll}
-            disabled={claimProcessing}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+            type="button"
+            disabled
+            aria-describedby="reward-claim-unavailable-rewards"
+            className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-700 py-3 font-medium text-slate-400"
           >
-            {claimProcessing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Claiming...
-              </>
-            ) : (
-              <>
-                <Gift className="w-4 h-4" />
-                Claim All Rewards
-              </>
-            )}
+            <Lock className="h-4 w-4" />
+            Claims unavailable
           </button>
+          <p
+            id="reward-claim-unavailable-rewards"
+            className="mt-2 text-xs leading-5 text-amber-300"
+          >
+            The authoritative reward-allocation and Merkle-proof service is not
+            deployed.
+          </p>
         </GlassCard>
       </div>
 
-      {/* Chart */}
-      <GlassCard className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Rewards History</h3>
-          <div className="flex bg-slate-700/50 rounded-lg p-0.5">
-            {(["daily", "weekly", "monthly"] as RewardView[]).map((v) => (
-              <button
-                key={v}
-                onClick={() => setRewardView(v)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors capitalize ${rewardView === v ? "bg-red-600 text-white" : "text-slate-400 hover:text-white"}`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={chartData}>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="rgba(100,116,139,0.15)"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              tickLine={false}
-              axisLine={false}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              tickLine={false}
-              axisLine={false}
-              width={50}
-            />
-            <RTooltip
-              contentStyle={chartTooltipStyle}
-              formatter={(v: number) => [`${v.toFixed(2)} AETHEL`, "Reward"]}
-            />
-            <Bar dataKey="amount" fill={BRAND.red} radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-        <p className="text-xs text-slate-500 mt-2 text-center">
-          Total ({rewardView}):{" "}
-          {fmtNum(
-            chartData.reduce((s: number, d: any) => s + d.amount, 0),
-            2,
-          )}{" "}
-          AETHEL
-        </p>
-      </GlassCard>
-
-      {/* Breakdown Table */}
-      <GlassCard className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
-          <h3 className="font-semibold text-white">Rewards Breakdown</h3>
-          <button className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition-colors">
-            <Download className="w-3 h-3" />
-            Export
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-700/30">
-                <th className="text-left text-slate-400 px-6 py-3 font-medium cursor-pointer hover:text-white">
-                  Date
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium cursor-pointer hover:text-white">
-                  Epoch
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium cursor-pointer hover:text-white">
-                  Amount
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Type
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  Cumulative
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/20">
-              {pagedRewards.map((r, i) => (
-                <tr key={i} className="hover:bg-slate-700/20 transition-colors">
-                  <td className="px-6 py-3 text-slate-300">{r.date}</td>
-                  <td className="px-6 py-3 text-slate-300">#{r.epoch}</td>
-                  <td className="px-6 py-3 text-right text-emerald-400 font-medium tabular-nums">
-                    +{r.amount.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-3">
-                    <span
-                      className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                        r.type === "staking"
-                          ? "bg-blue-500/10 text-blue-400"
-                          : r.type === "mev"
-                            ? "bg-red-500/10 text-red-400"
-                            : "bg-purple-500/10 text-purple-400"
-                      }`}
-                    >
-                      {r.type === "mev"
-                        ? "MEV"
-                        : r.type.charAt(0).toUpperCase() + r.type.slice(1)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3 text-right text-slate-300 tabular-nums">
-                    {fmtNum(r.cumulative, 2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-6 py-3 border-t border-slate-700/30 flex items-center justify-between">
-          <span className="text-xs text-slate-500">
-            Page {page + 1} of {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <button
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-              className="px-3 py-1 text-xs bg-slate-700/50 text-slate-300 rounded-lg disabled:opacity-30 hover:bg-slate-700 transition-colors"
-            >
-              Prev
-            </button>
-            <button
-              disabled={page >= totalPages - 1}
-              onClick={() => setPage((p) => p + 1)}
-              className="px-3 py-1 text-xs bg-slate-700/50 text-slate-300 rounded-lg disabled:opacity-30 hover:bg-slate-700 transition-colors"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </GlassCard>
-
-      {/* Auto-Compound + Projections */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-[1.35fr_1fr] gap-6">
         <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
-            <Settings className="w-4 h-4 text-red-400" />
-            Auto-Compound Settings
-          </h3>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm text-white font-medium">Auto-compound</p>
-              <p className="text-xs text-slate-400">
-                {autoCompound
-                  ? "Rewards automatically restaked every epoch"
-                  : "Manual claiming required"}
+              <h3 className="text-lg font-semibold text-white">
+                Live reward projections
+              </h3>
+              <p className="text-sm text-slate-400 mt-1">
+                Forward-looking curves derived from the live effective APY, not
+                a seeded reward ledger.
               </p>
             </div>
             <button
-              onClick={() => setAutoCompound(!autoCompound)}
-              className={`relative w-11 h-6 rounded-full transition-colors ${autoCompound ? "bg-emerald-600" : "bg-slate-600"}`}
+              onClick={() => setAutoCompound((value) => !value)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors ${
+                autoCompound
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                  : "border-slate-700 bg-slate-900/80 text-slate-300"
+              }`}
             >
-              <div
-                className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${autoCompound ? "left-[22px]" : "left-0.5"}`}
-              />
+              {autoCompound ? "Auto-compound on" : "Auto-compound off"}
             </button>
           </div>
-          {autoCompound && (
-            <div>
-              <p className="text-xs text-slate-400 mb-2">Compound Frequency</p>
-              <div className="flex gap-2">
-                {(["epoch", "daily", "weekly"] as CompoundFreq[]).map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setCompoundFreq(f)}
-                    className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors capitalize ${compoundFreq === f ? "bg-red-600 text-white" : "bg-slate-700/50 text-slate-400 hover:text-white"}`}
-                  >
-                    {f === "epoch" ? "Every Epoch" : f}
-                  </button>
-                ))}
+
+          {stakeValue == null || liveApy == null ? (
+            <div className="mt-6">
+              <VaultTruthNotice
+                title="Reward projections are gated"
+                body="Projected rewards appear only when the wallet balance, live exchange rate, and live effective APY are all available."
+                tone="warning"
+              />
+            </div>
+          ) : (
+            <div className="mt-6 space-y-6">
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={growthChartData}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(100,116,139,0.15)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={55}
+                    tickFormatter={(value: number) => fmtNum(value)}
+                  />
+                  <RTooltip contentStyle={chartTooltipStyle} />
+                  <Line
+                    type="monotone"
+                    dataKey="simple"
+                    stroke="#64748b"
+                    strokeWidth={1.5}
+                    dot={false}
+                    name="Simple"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="compound"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Compound"
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
+                </LineChart>
+              </ResponsiveContainer>
+
+              <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-950/80">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                        Horizon
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                        Projected Rewards
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {projectionRows.map((row) => (
+                      <tr key={row.period}>
+                        <td className="px-4 py-3 text-slate-300">
+                          {row.period}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium text-emerald-400">
+                          +{fmtNum(row.projected, 2)} AETHEL
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <p className="text-xs text-emerald-400 mt-3">
-                Projected additional earnings from compounding: +
-                {(
-                  stakeAmt * (Math.pow(1 + CURRENT_APY / 100 / 365, 365) - 1) -
-                  (stakeAmt * CURRENT_APY) / 100
-                ).toFixed(2)}{" "}
-                AETHEL/year
-              </p>
             </div>
           )}
         </GlassCard>
 
         <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            Rewards Projection
+          <h3 className="text-lg font-semibold text-white mb-4">
+            Proof and history posture
           </h3>
-          <div className="space-y-3 mb-4">
-            {[
-              {
-                period: "7 days",
-                val: ((stakeAmt * CURRENT_APY) / 100 / 365) * 7,
-              },
-              { period: "30 days", val: (stakeAmt * CURRENT_APY) / 100 / 12 },
-              { period: "90 days", val: (stakeAmt * CURRENT_APY) / 100 / 4 },
-              {
-                period: "1 year",
-                val: autoCompound
-                  ? stakeAmt * (Math.pow(1 + CURRENT_APY / 100 / 12, 12) - 1)
-                  : (stakeAmt * CURRENT_APY) / 100,
-              },
-            ].map((p, i) => (
-              <div key={i} className="flex justify-between items-center">
-                <span className="text-sm text-slate-400">{p.period}</span>
-                <span className="text-sm font-semibold text-emerald-400 tabular-nums">
-                  +{fmtNum(p.val, 2)} AETHEL
-                </span>
-              </div>
-            ))}
+          <div className="space-y-3">
+            <VaultTruthNotice
+              title="Claim pipeline"
+              body="Reward claims are disabled until an authoritative allocation source, Merkle-tree publisher, and proof API are deployed and monitored."
+              tone="warning"
+            />
+            <VaultTruthNotice
+              title="Historical reward ledger"
+              body="Reward history is withheld until the protocol publishes an indexed, user-addressable reward ledger with defensible provenance."
+              tone="warning"
+            />
+            <VaultTruthNotice
+              title="Control-plane capture"
+              body={
+                controlPlane
+                  ? `Latest public capture: ${formatDateTime(controlPlane.captured_at)}. Warning count: ${controlPlane.warning_count}.`
+                  : "Public control-plane capture is not available yet."
+              }
+            />
+            {!wallet.connected ? (
+              <button
+                onClick={() => connectWallet()}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+              >
+                Connect Wallet
+              </button>
+            ) : null}
           </div>
-          <ResponsiveContainer width="100%" height={120}>
-            <AreaChart
-              data={Array.from({ length: 13 }, (_, i) => ({
-                month: i,
-                projected: autoCompound
-                  ? stakeAmt * (Math.pow(1 + CURRENT_APY / 100 / 12, i) - 1)
-                  : ((stakeAmt * CURRENT_APY) / 100 / 12) * i,
-              }))}
-            >
-              <defs>
-                <linearGradient id="projGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis
-                dataKey="month"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v: number) => `${v}m`}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => fmtNum(v)}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [
-                  `${fmtNum(v, 2)} AETHEL`,
-                  "Projected",
-                ]}
-              />
-              <Area
-                type="monotone"
-                dataKey="projected"
-                stroke="#10b981"
-                strokeWidth={2}
-                fill="url(#projGrad)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
         </GlassCard>
       </div>
     </div>
@@ -2627,479 +2711,208 @@ function RewardsTab() {
 // TAB 5: ANALYTICS
 // ============================================================================
 
-function AnalyticsTab() {
+function AnalyticsTab({
+  controlPlane,
+}: {
+  controlPlane: ReconciliationControlPlaneSummary | null;
+}) {
+  const vaultState = useVaultState();
+  const snapshot = buildLiveVaultSnapshot(vaultState);
+  const statusLabel = !controlPlane
+    ? "Unavailable"
+    : !snapshot.hasAuthoritativeState ||
+        controlPlane.warning_count > 0 ||
+        controlPlane.epoch_source.includes("fallback")
+      ? "Attention"
+      : "Healthy";
+
   return (
     <div className="space-y-8">
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Total Value Locked"
-          value={`${fmtNum(TVL_TOTAL)}`}
+          label="Live TVL"
+          value={snapshot.tvl == null ? "Unavailable" : fmtNum(snapshot.tvl)}
           sub="AETHEL"
-          change="+18.2%"
-          up
           icon={<Lock className="w-5 h-5" />}
         />
         <StatCard
-          label="Total Rewards Distributed"
-          value={fmtNum(14_260_000)}
-          sub="AETHEL"
-          icon={<Gift className="w-5 h-5" />}
-        />
-        <StatCard
-          label="Average APY (30d)"
-          value={`${CURRENT_APY}%`}
-          change="+0.3%"
-          up
+          label="Effective APY"
+          value={
+            snapshot.apy == null ? "Unavailable" : `${snapshot.apy.toFixed(2)}%`
+          }
+          sub="Vault contract"
           icon={<TrendingUp className="w-5 h-5" />}
         />
         <StatCard
-          label="Protocol Revenue"
-          value={fmtNum(847000)}
-          sub="AETHEL (30d)"
-          change="+5.1%"
-          up
-          icon={<Coins className="w-5 h-5" />}
+          label="Exchange Rate"
+          value={
+            snapshot.exchangeRate == null
+              ? "Unavailable"
+              : snapshot.exchangeRate.toFixed(6)
+          }
+          sub="AETHEL / raw share"
+          icon={<Activity className="w-5 h-5" />}
+        />
+        <StatCard
+          label="Control-Plane Status"
+          value={statusLabel}
+          sub={
+            controlPlane
+              ? `${controlPlane.warning_count} warning(s)`
+              : "Awaiting public capture"
+          }
+          icon={<ShieldCheck className="w-5 h-5" />}
         />
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
         <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">TVL History</h3>
-          <p className="text-xs text-slate-500 mb-4">90-day trend</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={TVL_DATA}>
-              <defs>
-                <linearGradient id="tvlGradA" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={BRAND.red} stopOpacity={0.2} />
-                  <stop offset="100%" stopColor={BRAND.red} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => `${(v / 1e6).toFixed(0)}M`}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [`${fmtNum(v)} AETHEL`, "TVL"]}
-              />
-              <Area
-                type="monotone"
-                dataKey="tvl"
-                stroke={BRAND.red}
-                strokeWidth={2}
-                fill="url(#tvlGradA)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </GlassCard>
-
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">Staker Growth</h3>
-          <p className="text-xs text-slate-500 mb-4">
-            Cumulative unique stakers
+          <h3 className="text-lg font-semibold text-white">
+            Reconciliation scorecard
+          </h3>
+          <p className="mt-2 text-sm leading-7 text-slate-300">
+            This analytics surface now prioritizes public trust evidence: latest
+            epoch capture, warning posture, stake snapshot completeness, and
+            hash lineage. Decorative charts stay hidden until indexed history
+            becomes auditable.
           </p>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={TVL_DATA}>
-              <defs>
-                <linearGradient id="stakersGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => fmtNum(v)}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [fmtNum(v), "Stakers"]}
-              />
-              <Area
-                type="monotone"
-                dataKey="stakers"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                fill="url(#stakersGrad)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </GlassCard>
-      </div>
 
-      {/* Charts Row 2 */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">APY Trend</h3>
-          <p className="text-xs text-slate-500 mb-4">
-            90-day history with base + MEV breakdown
-          </p>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={APY_DATA}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={40}
-                domain={["dataMin - 0.5", "dataMax + 0.5"]}
-                tickFormatter={(v: number) => `${v}%`}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number, name: string) => [
-                  `${v}%`,
-                  name === "apy"
-                    ? "Total APY"
-                    : name === "baseApy"
-                      ? "Base"
-                      : "MEV",
-                ]}
-              />
-              <Line
-                type="monotone"
-                dataKey="apy"
-                stroke="#10b981"
-                strokeWidth={2}
-                dot={false}
-                name="apy"
-              />
-              <Line
-                type="monotone"
-                dataKey="baseApy"
-                stroke="#3b82f6"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                dot={false}
-                name="baseApy"
-              />
-              <Line
-                type="monotone"
-                dataKey="mevBoost"
-                stroke={BRAND.red}
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                dot={false}
-                name="mevBoost"
-              />
-              <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </GlassCard>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <VaultTruthNotice
+              title="Epoch source"
+              body={
+                controlPlane
+                  ? `Epoch ${controlPlane.epoch} sourced from ${controlPlane.epoch_source}.`
+                  : "The public control plane has not published an epoch yet."
+              }
+              tone={
+                controlPlane?.epoch_source?.includes("fallback")
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+            <VaultTruthNotice
+              title="Capture time"
+              body={
+                controlPlane
+                  ? formatDateTime(controlPlane.captured_at)
+                  : "Unavailable"
+              }
+            />
+            <VaultTruthNotice
+              title="Stake snapshot"
+              body={
+                controlPlane?.stake_snapshot_complete == null
+                  ? "Unavailable"
+                  : controlPlane.stake_snapshot_complete
+                    ? "Complete"
+                    : "Partial"
+              }
+              tone={
+                controlPlane?.stake_snapshot_complete === false
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+            <VaultTruthNotice
+              title="Validator set coverage"
+              body={
+                controlPlane
+                  ? `${controlPlane.validator_count}/${controlPlane.total_eligible_validators} validators in public snapshot.`
+                  : "Unavailable"
+              }
+            />
+          </div>
 
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">
-            Exchange Rate History
-          </h3>
-          <p className="text-xs text-slate-500 mb-4">Detailed 90-day view</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={RATE_DATA}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={14}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={55}
-                domain={["dataMin - 0.005", "dataMax + 0.005"]}
-                tickFormatter={(v: number) => v.toFixed(4)}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [v.toFixed(6), "Rate"]}
-              />
-              <Line
-                type="monotone"
-                dataKey="rate"
-                stroke="#f59e0b"
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </GlassCard>
-      </div>
-
-      {/* Charts Row 3 */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">
-            Protocol Revenue by Epoch
-          </h3>
-          <p className="text-xs text-slate-500 mb-4">
-            30-day revenue distribution
-          </p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={REVENUE_DATA}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={5}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => fmtNum(v)}
-              />
-              <RTooltip
-                contentStyle={chartTooltipStyle}
-                formatter={(v: number) => [`${fmtNum(v)} AETHEL`, "Revenue"]}
-              />
-              <Bar dataKey="revenue" fill={BRAND.red} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </GlassCard>
-
-        <GlassCard className="p-6">
-          <h3 className="font-semibold text-white mb-1">
-            Stake/Unstake Volume
-          </h3>
-          <p className="text-xs text-slate-500 mb-4">Daily in/out flows</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={VOLUME_DATA}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(100,116,139,0.15)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                interval={5}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-                width={45}
-                tickFormatter={(v: number) => fmtNum(v)}
-              />
-              <RTooltip contentStyle={chartTooltipStyle} />
-              <Bar
-                dataKey="stakeVol"
-                fill="#10b981"
-                radius={[3, 3, 0, 0]}
-                name="Stake"
-                stackId="vol"
-              />
-              <Bar
-                dataKey="unstakeVol"
-                fill="#f59e0b"
-                radius={[3, 3, 0, 0]}
-                name="Unstake"
-                stackId="vol"
-              />
-              <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
-            </BarChart>
-          </ResponsiveContainer>
-        </GlassCard>
-      </div>
-
-      {/* Top Stakers Leaderboard */}
-      <GlassCard className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-700/50">
-          <h3 className="font-semibold text-white flex items-center gap-2">
-            <Award className="w-4 h-4 text-amber-400" />
-            Top Stakers Leaderboard
-          </h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-700/30">
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Rank
-                </th>
-                <th className="text-left text-slate-400 px-6 py-3 font-medium">
-                  Address
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  Staked Amount
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  % of Pool
-                </th>
-                <th className="text-right text-slate-400 px-6 py-3 font-medium">
-                  First Stake
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/20">
-              {TOP_STAKERS.map((s) => (
-                <tr
-                  key={s.rank}
-                  className="hover:bg-slate-700/20 transition-colors"
-                >
-                  <td className="px-6 py-3">
-                    <span
-                      className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold ${
-                        s.rank === 1
-                          ? "bg-amber-500/20 text-amber-400"
-                          : s.rank === 2
-                            ? "bg-slate-400/20 text-slate-300"
-                            : s.rank === 3
-                              ? "bg-orange-500/20 text-orange-400"
-                              : "bg-slate-700/50 text-slate-400"
-                      }`}
-                    >
-                      #{s.rank}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-300 font-mono text-xs">
-                        {fmtAddr(s.address)}
-                      </span>
-                      <CopyBtn text={s.address} />
-                    </div>
-                  </td>
-                  <td className="px-6 py-3 text-right text-white font-medium tabular-nums">
-                    {fmtNum(s.staked)}
-                  </td>
-                  <td className="px-6 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-red-500 rounded-full"
-                          style={{
-                            width: `${Math.min(s.pctOfPool * 8, 100)}%`,
-                          }}
-                        />
-                      </div>
-                      <span className="text-slate-300 tabular-nums text-xs">
-                        {s.pctOfPool}%
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-3 text-right text-slate-400">
-                    {s.firstStake}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </GlassCard>
-
-      {/* How AethelVault Works */}
-      <GlassCard className="p-8">
-        <h3 className="text-lg font-semibold text-white text-center mb-8">
-          How AethelVault Works
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {[
-            {
-              step: 1,
-              icon: <Coins className="w-6 h-6" />,
-              title: "Deposit AETHEL",
-              desc: "Send your AETHEL tokens to the AethelVault smart contract",
-            },
-            {
-              step: 2,
-              icon: <ShieldCheck className="w-6 h-6" />,
-              title: "TEE-Verified Selection",
-              desc: "Hardware enclaves select optimal validators for your stake",
-            },
-            {
-              step: 3,
-              icon: <Sparkles className="w-6 h-6" />,
-              title: "Earn Staking Rewards",
-              desc: "Receive rewards every epoch with MEV redistribution",
-            },
-            {
-              step: 4,
-              icon: <Zap className="w-6 h-6" />,
-              title: "Receive stAETHEL",
-              desc: "Hold liquid stAETHEL tokens usable across DeFi",
-            },
-          ].map((s, i) => (
-            <div key={i} className="relative">
-              <div className="text-center">
-                <div className="w-14 h-14 bg-red-500/10 rounded-2xl flex items-center justify-center text-red-400 mx-auto mb-3 border border-red-500/20">
-                  {s.icon}
-                </div>
-                <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                  {s.step}
-                </div>
-                <h4 className="text-sm font-semibold text-white mb-1">
-                  {s.title}
-                </h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {s.desc}
+          <div className="mt-6 space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Universe Hash
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-100">
+                  {controlPlane?.validator_universe_hash ?? "Unavailable"}
                 </p>
               </div>
-              {i < 3 && (
-                <div className="hidden md:block absolute top-7 -right-3 z-10">
-                  <ArrowRight className="w-5 h-5 text-slate-600" />
-                </div>
-              )}
+              {controlPlane?.validator_universe_hash ? (
+                <CopyBtn text={controlPlane.validator_universe_hash} />
+              ) : null}
             </div>
-          ))}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Stake Snapshot Hash
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-100">
+                  {controlPlane?.stake_snapshot_hash ?? "Unavailable"}
+                </p>
+              </div>
+              {controlPlane?.stake_snapshot_hash ? (
+                <CopyBtn text={controlPlane.stake_snapshot_hash} />
+              ) : null}
+            </div>
+            {controlPlane?.warnings?.length ? (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-amber-200">
+                  Active warnings
+                </p>
+                <div className="mt-3 space-y-2 text-sm text-amber-50">
+                  {controlPlane.warnings.map((warning, index) => (
+                    <p key={`${warning}-${index}`}>{warning}</p>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <VaultTruthNotice
+                title="Warning posture"
+                body="No public control-plane warnings are active in the latest snapshot."
+              />
+            )}
+          </div>
+        </GlassCard>
+
+        <div className="space-y-6">
+          <GlassCard className="p-6">
+            <h3 className="text-lg font-semibold text-white">
+              Historical analytics are gated
+            </h3>
+            <p className="mt-2 text-sm leading-7 text-slate-300">
+              TVL history, reward ledgers, revenue charts, flow charts, and
+              staker leaderboards are withheld until Cruzible has a verifiable,
+              indexed history pipeline for each of those claims.
+            </p>
+            <div className="mt-5 space-y-3">
+              <VaultTruthNotice
+                title="What we will not do"
+                body="Render seeded charts or guessed rankings to make the page feel complete."
+                tone="warning"
+              />
+              <VaultTruthNotice
+                title="What comes next"
+                body="Public reconciliation scorecards, proof coverage, and addressable historical analytics once the indexer can defend them."
+              />
+            </div>
+          </GlassCard>
+
+          <GlassCard className="p-6">
+            <h3 className="text-lg font-semibold text-white">
+              World-class moat direction
+            </h3>
+            <div className="mt-4 space-y-3 text-sm leading-6 text-slate-300">
+              <p>
+                Cruzible’s moat should be provable trust: public freshness,
+                solvency evidence, validator-universe lineage, and downloadable
+                audit trails.
+              </p>
+              <p>
+                Once historical pipelines are live, they should inherit the same
+                rule: every user-visible metric must map back to a testable,
+                explainable backend source.
+              </p>
+            </div>
+          </GlassCard>
         </div>
-      </GlassCard>
+      </div>
     </div>
   );
 }
@@ -3110,7 +2923,12 @@ function AnalyticsTab() {
 
 export default function VaultPage() {
   const [activeTab, setActiveTab] = useState<VaultTab>("overview");
-  const { realTime } = useApp();
+  const controlPlaneQuery = useQuery({
+    queryKey: ["vault-control-plane"],
+    queryFn: fetchReconciliationControlPlane,
+    refetchInterval: 30000,
+  });
+  const controlPlane = controlPlaneQuery.data ?? null;
 
   const tabs = [
     { id: "overview" as VaultTab, label: "Overview" },
@@ -3131,15 +2949,20 @@ export default function VaultPage() {
       <div className="min-h-screen bg-slate-950 text-white font-[Inter,system-ui,sans-serif]">
         <TopNav activePage="vault" />
 
-        <HeroSection />
+        <HeroSection controlPlane={controlPlane} />
 
         {/* Tab Navigation */}
         <div className="sticky top-16 z-40 bg-slate-900/80 backdrop-blur-xl border-b border-slate-700/50">
           <div className="max-w-[1400px] mx-auto px-6">
-            <nav className="flex gap-1 -mb-px overflow-x-auto">
+            <nav
+              aria-label="Vault sections"
+              className="flex gap-1 -mb-px overflow-x-auto"
+            >
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
+                  type="button"
+                  aria-pressed={activeTab === tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`px-5 py-3.5 text-sm font-medium border-b-2 whitespace-nowrap transition-all ${
                     activeTab === tab.id
@@ -3155,12 +2978,18 @@ export default function VaultPage() {
         </div>
 
         {/* Tab Content */}
-        <main className="max-w-[1400px] mx-auto px-6 py-8">
-          {activeTab === "overview" && <OverviewTab switchTab={setActiveTab} />}
+        <main id="main-content" className="max-w-[1400px] mx-auto px-6 py-8">
+          {activeTab === "overview" && (
+            <OverviewTab switchTab={setActiveTab} controlPlane={controlPlane} />
+          )}
           {activeTab === "stake" && <StakeTab />}
           {activeTab === "unstake" && <UnstakeTab />}
-          {activeTab === "rewards" && <RewardsTab />}
-          {activeTab === "analytics" && <AnalyticsTab />}
+          {activeTab === "rewards" && (
+            <RewardsTab controlPlane={controlPlane} />
+          )}
+          {activeTab === "analytics" && (
+            <AnalyticsTab controlPlane={controlPlane} />
+          )}
         </main>
 
         <Footer />

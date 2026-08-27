@@ -1,3 +1,39 @@
+const path = require("path");
+
+const wagmiConnectorsRoot = path.dirname(
+  require.resolve("@wagmi/connectors/package.json"),
+);
+const isProduction = process.env.NODE_ENV === "production";
+const imageRemotePatterns = [
+  ...(isProduction ? [] : [{ protocol: "http", hostname: "localhost" }]),
+  { protocol: "https", hostname: "api.aethelred.io" },
+];
+const disabledBrowserFeatures = [
+  "accelerometer",
+  "autoplay",
+  "browsing-topics",
+  "camera",
+  "display-capture",
+  "encrypted-media",
+  "gamepad",
+  "geolocation",
+  "gyroscope",
+  "interest-cohort",
+  "magnetometer",
+  "microphone",
+  "midi",
+  "payment",
+  "publickey-credentials-get",
+  "screen-wake-lock",
+  "serial",
+  "speaker-selection",
+  "usb",
+  "xr-spatial-tracking",
+];
+const permissionsPolicy = disabledBrowserFeatures
+  .map((feature) => `${feature}=()`)
+  .join(", ");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -5,10 +41,7 @@ const nextConfig = {
 
   // Image optimization
   images: {
-    remotePatterns: [
-      { protocol: "http", hostname: "localhost" },
-      { protocol: "https", hostname: "api.aethelred.io" },
-    ],
+    remotePatterns: imageRemotePatterns,
     formats: ["image/webp", "image/avif"],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
@@ -16,6 +49,7 @@ const nextConfig = {
 
   // Compression
   compress: true,
+  productionBrowserSourceMaps: false,
 
   // Experimental features
   experimental: {
@@ -29,24 +63,39 @@ const nextConfig = {
     ignoreBuildErrors: false,
   },
 
-  // Linting runs as a dedicated CI step, so builds don't need to invoke it again.
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-
   // Headers for security and caching
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
-          { key: "X-DNS-Prefetch-Control", value: "on" },
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
+          { key: "X-DNS-Prefetch-Control", value: "off" },
+          // HSTS pins browsers to https for two years — poison for a
+          // pre-DNS/pre-TLS testnet host serving plain HTTP on a public IP.
+          // CRUZIBLE_ALLOW_PLAINTEXT_HTTP=true (same opt-out the CSP
+          // middleware honors) omits it; defaults stay secure.
+          ...(process.env.CRUZIBLE_ALLOW_PLAINTEXT_HTTP === "true"
+            ? []
+            : [
+                {
+                  key: "Strict-Transport-Security",
+                  value: "max-age=63072000; includeSubDomains; preload",
+                },
+              ]),
           { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "origin-when-cross-origin" },
+          { key: "X-Frame-Options", value: "DENY" },
+          {
+            key: "Permissions-Policy",
+            value: permissionsPolicy,
+          },
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin-allow-popups",
+          },
+          { key: "Cross-Origin-Resource-Policy", value: "same-site" },
+          { key: "Origin-Agent-Cluster", value: "?1" },
+          { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+          { key: "Referrer-Policy", value: "no-referrer" },
         ],
       },
       {
@@ -72,6 +121,18 @@ const nextConfig = {
 
   // Webpack optimization
   webpack: (config, { isServer, dev }) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@cruzible/wagmi-connector-coinbase": path.join(
+        wagmiConnectorsRoot,
+        "dist/esm/coinbaseWallet.js",
+      ),
+      "@cruzible/wagmi-connector-walletconnect": path.join(
+        wagmiConnectorsRoot,
+        "dist/esm/walletConnect.js",
+      ),
+    };
+
     if (!isServer) {
       config.resolve.alias = {
         ...config.resolve.alias,
@@ -96,34 +157,7 @@ const nextConfig = {
       );
     }
 
-    config.optimization.splitChunks = {
-      chunks: "all",
-      cacheGroups: {
-        default: false,
-        vendors: false,
-        vendor: {
-          name: "vendor",
-          chunks: "all",
-          test: /node_modules/,
-          priority: 20,
-        },
-        common: {
-          name: "common",
-          minChunks: 2,
-          chunks: "all",
-          priority: 10,
-          reuseExistingChunk: true,
-          enforce: true,
-        },
-        recharts: {
-          name: "recharts",
-          test: /[\\/]node_modules[\\/]recharts/,
-          priority: 30,
-        },
-      },
-    };
-
-    if (!dev && !isServer) {
+    if (!isServer && !dev) {
       config.optimization.minimize = true;
     }
 
@@ -131,8 +165,18 @@ const nextConfig = {
   },
 
   env: {
-    NEXT_PUBLIC_APP_VERSION: process.env.npm_package_version,
+    NEXT_PUBLIC_APP_VERSION:
+      process.env.NEXT_PUBLIC_APP_VERSION ||
+      process.env.npm_package_version ||
+      "local-dev",
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    // These are non-secret build policies. Expose the already-validated
+    // values to browser code so client-side origin checks match the build and
+    // runtime CSP contract for self-hosted/pre-TLS testnet deployments.
+    NEXT_PUBLIC_CRUZIBLE_EXTRA_API_ORIGINS:
+      process.env.CRUZIBLE_EXTRA_API_ORIGINS,
+    NEXT_PUBLIC_CRUZIBLE_ALLOW_PLAINTEXT_HTTP:
+      process.env.CRUZIBLE_ALLOW_PLAINTEXT_HTTP,
   },
 
   trailingSlash: false,

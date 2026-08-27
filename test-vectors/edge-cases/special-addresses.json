@@ -46,10 +46,9 @@
     ]
   },
   "expected": {
-    "_note": "Run 'node generate-expected.js' from test-vectors/ to populate expected hashes",
-    "validator_set_hash": null,
-    "stake_snapshot_hash": null,
-    "staker_registry_root": null,
-    "delegation_registry_root": null
+    "validator_set_hash": "0xea866019dceed3804b0fb26dcb2647e879a885bbb8fec3781523bfaa78c60dd7",
+    "stake_snapshot_hash": "0x68eccd5fbbd5501cd6b1ad8cb0e77c46987c53c1f7c914574ca37a0c32c9ace6",
+    "staker_registry_root": "0xd274cdc446d71b07c0daea3269f44dec58940aeefda5eba7c43f78d3bc9445a0",
+    "delegation_registry_root": "0x70a6fc9865365992af6882d2540000ce0c6744587a76806b192e05699146d313"
   }
 }

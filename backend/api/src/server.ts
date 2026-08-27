@@ -11,37 +11,54 @@
  *   - Compose the server inside Docker health-check harnesses
  */
 
-import 'reflect-metadata';
-import express, { Application, Request, Response, NextFunction } from 'express';
-import { createServer } from 'http';
-import { Server as SocketIOServer } from 'socket.io';
-import cors from 'cors';
-import helmet from 'helmet';
-import compression from 'compression';
-import hpp from 'hpp';
-import swaggerUi from 'swagger-ui-express';
-import { container } from 'tsyringe';
-import { logger } from './utils/logger';
-import { config } from './config';
-import { swaggerSpec } from './config/swagger';
-import { errorHandler } from './middleware/errorHandler';
-import { rateLimiter } from './middleware/rateLimiter';
-import { metricsMiddleware } from './middleware/metrics';
-import { requestId } from './middleware/requestId';
-import { requestLogger } from './middleware/requestLogger';
+import "reflect-metadata";
+import "./di";
+import express, { Application, Request, Response, NextFunction } from "express";
+import { createServer } from "http";
+import { Server as SocketIOServer } from "socket.io";
+import cors from "cors";
+import helmet from "helmet";
+import compression from "compression";
+import hpp from "hpp";
+import swaggerUi from "swagger-ui-express";
+import { container } from "tsyringe";
+import { logger } from "./utils/logger";
+import { config } from "./config";
+import { swaggerSpec } from "./config/swagger";
+import { errorHandler } from "./middleware/errorHandler";
+import { rateLimiter, shutdownRateLimitStores } from "./middleware/rateLimiter";
+import { metricsHandler, metricsMiddleware } from "./middleware/metrics";
+import { noStore } from "./middleware/noStore";
+import { requireOperationalAccess } from "./middleware/operationalAccess";
+import { shutdownPrivilegedAudit } from "./middleware/privilegedAudit";
+import { requestId } from "./middleware/requestId";
+import { requestLogger } from "./middleware/requestLogger";
+import { errorContext } from "./utils/errorContext";
+import { redactUrlForLogs } from "./utils/urlRedaction";
+import { shutdownAuthState } from "./auth/service";
 
 // Routes
-import { router as v1Router } from './routes/v1';
-import { router as healthRouter } from './routes/health';
+import { router as v1Router } from "./routes/v1";
+import {
+  router as healthRouter,
+  shutdownHealthCheckResources,
+} from "./routes/health";
 
 // WebSocket handlers
-import { WebSocketManager } from './websocket/WebSocketManager';
+import { WebSocketManager } from "./websocket/WebSocketManager";
 
 // Services
-import { BlockchainService } from './services/BlockchainService';
-import { CacheService } from './services/CacheService';
-import { IndexerService } from './services/IndexerService';
-import { ReconciliationScheduler } from './services/ReconciliationScheduler';
+import { BlockchainService } from "./services/BlockchainService";
+import { CacheService } from "./services/CacheService";
+import { IndexerService } from "./services/IndexerService";
+import { ReconciliationScheduler } from "./services/ReconciliationScheduler";
+import { AlertService } from "./services/AlertService";
+import { JobsService } from "./services/JobsService";
+import { ModelsService } from "./services/ModelsService";
+import { ReconciliationService } from "./services/ReconciliationService";
+import { SealsService } from "./services/SealsService";
+import { StablecoinBridgeService } from "./services/StablecoinBridgeService";
+import { shutdownPrivilegedAuditQueryService } from "./services/PrivilegedAuditService";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -49,6 +66,63 @@ import { ReconciliationScheduler } from './services/ReconciliationScheduler';
 
 /** Timeout (ms) for forced shutdown after graceful attempt. */
 const FORCED_SHUTDOWN_TIMEOUT_MS = 30_000;
+const HTTP_CORS_METHODS = ["GET", "POST", "OPTIONS"];
+const WS_CORS_METHODS = ["GET", "POST"];
+const CORS_ALLOWED_HEADERS = [
+  "Content-Type",
+  "Authorization",
+  "X-Request-ID",
+  "X-Client-Name",
+  "X-Client-Version",
+];
+const DISABLED_BROWSER_FEATURES = [
+  "accelerometer",
+  "autoplay",
+  "browsing-topics",
+  "camera",
+  "display-capture",
+  "encrypted-media",
+  "gamepad",
+  "geolocation",
+  "gyroscope",
+  "interest-cohort",
+  "magnetometer",
+  "microphone",
+  "midi",
+  "payment",
+  "publickey-credentials-get",
+  "screen-wake-lock",
+  "serial",
+  "speaker-selection",
+  "usb",
+  "xr-spatial-tracking",
+] as const;
+const PERMISSIONS_POLICY = DISABLED_BROWSER_FEATURES.map(
+  (feature) => `${feature}=()`,
+).join(", ");
+
+function isSecretBearingPath(req: Request): boolean {
+  const path = (req.originalUrl || req.path || "").split(/[?#]/u)[0];
+  return path === "/v1/auth" || path.startsWith("/v1/auth/");
+}
+
+function isNoStoreResponse(res: Response): boolean {
+  const cacheControl = res.getHeader("Cache-Control");
+  const values = Array.isArray(cacheControl) ? cacheControl : [cacheControl];
+
+  return values.some(
+    (value) =>
+      typeof value === "string" && /\bno-store\b/iu.test(value.toLowerCase()),
+  );
+}
+
+export function shouldCompressResponse(req: Request, res: Response): boolean {
+  if (isSecretBearingPath(req) || isNoStoreResponse(res)) {
+    return false;
+  }
+
+  return compression.filter(req, res);
+}
 
 // ---------------------------------------------------------------------------
 // ApiGateway
@@ -69,10 +143,16 @@ export class ApiGateway {
   constructor() {
     this.app = express();
     this.httpServer = createServer(this.app);
+    this.httpServer.headersTimeout = config.httpHeadersTimeoutMs;
+    this.httpServer.requestTimeout = config.httpRequestTimeoutMs;
+    this.httpServer.timeout = config.httpRequestTimeoutMs;
+    this.httpServer.keepAliveTimeout = config.httpKeepAliveTimeoutMs;
+    this.httpServer.maxRequestsPerSocket = config.httpMaxRequestsPerSocket;
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
         origin: config.corsOrigins,
-        credentials: true,
+        credentials: false,
+        methods: WS_CORS_METHODS,
       },
       pingTimeout: 60000,
       pingInterval: 25000,
@@ -83,14 +163,26 @@ export class ApiGateway {
 
   private initialize(): void {
     this.initializeMiddleware();
+    this.validateOperationalSurfaceConfig();
     this.initializeRoutes();
     this.initializeWebSocket();
     this.initializeErrorHandling();
   }
 
+  private validateOperationalSurfaceConfig(): void {
+    if (
+      !config.operationalEndpointsToken &&
+      !config.allowUnauthenticatedOperationalEndpoints
+    ) {
+      throw new Error(
+        "Refusing to expose operational endpoints without OPERATIONAL_ENDPOINTS_TOKEN or an explicit non-production bypass",
+      );
+    }
+  }
+
   private initializeMiddleware(): void {
-    this.app.disable('x-powered-by');
-    this.app.set('trust proxy', config.trustProxy);
+    this.app.disable("x-powered-by");
+    this.app.set("trust proxy", config.trustProxy);
 
     // -----------------------------------------------------------------------
     // Security headers (helmet) — hardened CSP for production
@@ -102,7 +194,7 @@ export class ApiGateway {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"], // swagger-ui needs inline styles
-            imgSrc: ["'self'", 'data:'],
+            imgSrc: ["'self'", "data:"],
             connectSrc: ["'self'"],
             fontSrc: ["'self'"],
             objectSrc: ["'none'"],
@@ -115,17 +207,17 @@ export class ApiGateway {
           },
         },
         crossOriginEmbedderPolicy: config.isProduction,
-        crossOriginOpenerPolicy: { policy: 'same-origin' },
-        crossOriginResourcePolicy: { policy: 'same-origin' },
+        crossOriginOpenerPolicy: { policy: "same-origin" },
+        crossOriginResourcePolicy: { policy: "same-origin" },
         dnsPrefetchControl: { allow: false },
-        frameguard: { action: 'deny' },
+        frameguard: { action: "deny" },
         hidePoweredBy: true,
         hsts: config.isProduction
           ? { maxAge: 63072000, includeSubDomains: true, preload: true }
           : false,
         ieNoOpen: true,
         noSniff: true,
-        referrerPolicy: { policy: 'no-referrer' },
+        referrerPolicy: { policy: "no-referrer" },
         xssFilter: true,
       }),
     );
@@ -133,11 +225,7 @@ export class ApiGateway {
     // Permissions-Policy: disable camera, microphone, geolocation, and other
     // dangerous browser APIs.
     this.app.use((_req: Request, res: Response, next: NextFunction) => {
-      res.setHeader(
-        'Permissions-Policy',
-        'camera=(), microphone=(), geolocation=(), interest-cohort=(), ' +
-          'payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()',
-      );
+      res.setHeader("Permissions-Policy", PERMISSIONS_POLICY);
       next();
     });
 
@@ -149,13 +237,14 @@ export class ApiGateway {
       cors({
         origin: config.corsOrigins,
         credentials: true,
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+        methods: HTTP_CORS_METHODS,
+        allowedHeaders: CORS_ALLOWED_HEADERS,
       }),
     );
 
-    // Compression
-    this.app.use(compression());
+    // Avoid compressing token-bearing or no-store responses; both can carry
+    // secrets and should not be exposed to compression side channels.
+    this.app.use(compression({ filter: shouldCompressResponse }));
 
     // Request ID (must come before the logger so the ID is available)
     this.app.use(requestId);
@@ -164,11 +253,11 @@ export class ApiGateway {
     // API versioning & informational response headers
     // -----------------------------------------------------------------------
     this.app.use((req: Request, res: Response, next: NextFunction) => {
-      res.setHeader('X-API-Version', config.version);
+      res.setHeader("X-API-Version", config.version);
       // X-Request-ID is already set by the requestId middleware;
       // we just verify it exists.
-      if (!res.getHeader('x-request-id') && req.requestId) {
-        res.setHeader('X-Request-ID', req.requestId);
+      if (!res.getHeader("x-request-id") && req.requestId) {
+        res.setHeader("X-Request-ID", req.requestId);
       }
       next();
     });
@@ -178,10 +267,10 @@ export class ApiGateway {
     // -----------------------------------------------------------------------
     this.app.use((req: Request, res: Response, next: NextFunction) => {
       if (this.isShuttingDown) {
-        res.setHeader('Connection', 'close');
+        res.setHeader("Connection", "close");
         res.status(503).json({
-          error: 'ServiceUnavailable',
-          message: 'Server is shutting down',
+          error: "ServiceUnavailable",
+          message: "Server is shutting down",
           requestId: req.requestId,
         });
         return;
@@ -189,7 +278,7 @@ export class ApiGateway {
 
       // Track in-flight requests
       this.inFlightRequests++;
-      res.on('finish', () => {
+      res.on("finish", () => {
         this.inFlightRequests--;
       });
 
@@ -202,48 +291,68 @@ export class ApiGateway {
     // Metrics
     this.app.use(metricsMiddleware);
 
-    // Body parsing
-    this.app.use(express.json({ limit: '1mb' }));
-    this.app.use(express.urlencoded({ extended: false, limit: '1mb', parameterLimit: 100 }));
-
-    // Rate limiting
+    // Rate limiting happens before body parsing so abusive clients are
+    // throttled before the server spends CPU/memory parsing request payloads.
     this.app.use(rateLimiter);
+
+    // Body parsing
+    this.app.use(express.json({ limit: "1mb" }));
+    this.app.use(
+      express.urlencoded({
+        extended: false,
+        limit: "1mb",
+        parameterLimit: 100,
+      }),
+    );
   }
 
   private initializeRoutes(): void {
-    // Health check (no rate limit)
-    this.app.use('/health', healthRouter);
+    if (config.metricsEnabled) {
+      this.app.get(
+        "/metrics",
+        requireOperationalAccess,
+        noStore,
+        metricsHandler,
+      );
+    }
 
-    // API documentation
-    this.app.use(
-      '/docs',
-      swaggerUi.serve,
-      swaggerUi.setup(swaggerSpec, {
-        explorer: true,
-        customCss: '.swagger-ui .topbar { display: none }',
-        customSiteTitle: 'Aethelred API Documentation',
-      }),
-    );
+    // Health routes are mounted after the global limiter. Liveness/readiness
+    // probes are exempted for orchestrators; full /health remains protected.
+    this.app.use("/health", healthRouter);
+
+    if (config.apiDocsEnabled) {
+      this.app.use(
+        "/docs",
+        requireOperationalAccess,
+        noStore,
+        swaggerUi.serve,
+        swaggerUi.setup(swaggerSpec, {
+          explorer: true,
+          customCss: ".swagger-ui .topbar { display: none }",
+          customSiteTitle: "Aethelred API Documentation",
+        }),
+      );
+    }
 
     // API routes
-    this.app.use('/v1', v1Router);
+    this.app.use("/v1", v1Router);
 
     // Default route
-    this.app.get('/', (req: Request, res: Response) => {
+    this.app.get("/", (req: Request, res: Response) => {
       res.json({
-        name: 'Aethelred API Gateway',
+        name: "Aethelred API Gateway",
         version: config.version,
         environment: config.env,
-        documentation: '/docs',
-        health: '/health',
-        api: '/v1',
+        health: "/health",
+        api: "/v1",
+        ...(config.apiDocsEnabled ? { documentation: "/docs" } : {}),
       });
     });
 
     // 404 handler
     this.app.use((req: Request, res: Response) => {
       res.status(404).json({
-        error: 'Not Found',
+        error: "Not Found",
         message: `Cannot ${req.method} ${req.path}`,
         requestId: req.requestId,
       });
@@ -252,7 +361,7 @@ export class ApiGateway {
 
   private initializeWebSocket(): void {
     this.wsManager.initialize();
-    logger.info('WebSocket server initialized');
+    logger.info("WebSocket server initialized");
   }
 
   private initializeErrorHandling(): void {
@@ -278,29 +387,71 @@ export class ApiGateway {
     if (config.indexerEnabled) {
       const indexerService = container.resolve(IndexerService);
       await indexerService.initialize();
-      logger.info('Blockchain indexer started');
+      logger.info("Blockchain indexer started");
     } else {
-      logger.info('Blockchain indexer disabled (INDEXER_ENABLED=false)');
+      logger.info("Blockchain indexer disabled (INDEXER_ENABLED=false)");
     }
 
     // Start reconciliation scheduler
     const reconciliationScheduler = container.resolve(ReconciliationScheduler);
     reconciliationScheduler.start();
-    logger.info('Reconciliation scheduler started');
+    logger.info("Reconciliation scheduler started");
 
     // Start server
     await new Promise<void>((resolve) => {
       this.httpServer.listen(config.port, () => {
         logger.info(`API Gateway running on port ${config.port}`);
-        logger.info(`API Documentation: http://localhost:${config.port}/docs`);
+        if (config.apiDocsEnabled) {
+          logger.info(
+            `API Documentation: http://localhost:${config.port}/docs`,
+          );
+        }
         logger.info(`WebSocket: ws://localhost:${config.port}`);
-        logger.info(`Connected to: ${config.rpcUrl}`);
+        logger.info(`Connected to: ${redactUrlForLogs(config.rpcUrl)}`);
         resolve();
       });
     });
 
     // Graceful shutdown
     this.setupGracefulShutdown();
+  }
+
+  private async shutdownDataServices(logLifecycle = false): Promise<void> {
+    const disconnect = async (
+      label: string,
+      task: () => Promise<void>,
+    ): Promise<void> => {
+      try {
+        await task();
+        if (logLifecycle) {
+          logger.info(`${label} disconnected`);
+        }
+      } catch (error) {
+        logger.error(`Error disconnecting ${label}`, errorContext(error));
+      }
+    };
+
+    await disconnect("jobs service", () =>
+      container.resolve(JobsService).disconnect(),
+    );
+    await disconnect("models service", () =>
+      container.resolve(ModelsService).disconnect(),
+    );
+    await disconnect("reconciliation service", () =>
+      container.resolve(ReconciliationService).disconnect(),
+    );
+    await disconnect("seals service", () =>
+      container.resolve(SealsService).disconnect(),
+    );
+    await disconnect("stablecoin bridge service", () =>
+      container.resolve(StablecoinBridgeService).disconnect(),
+    );
+    await disconnect("alert service", () =>
+      container.resolve(AlertService).disconnect(),
+    );
+    await disconnect("privileged audit query service", () =>
+      shutdownPrivilegedAuditQueryService(),
+    );
   }
 
   /**
@@ -311,7 +462,7 @@ export class ApiGateway {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
 
-    logger.info('ApiGateway.shutdown() called — draining connections');
+    logger.info("ApiGateway.shutdown() called — draining connections");
 
     // 1. Stop accepting new connections
     await new Promise<void>((resolve) => {
@@ -320,7 +471,7 @@ export class ApiGateway {
 
     // 2. Close WebSocket
     try {
-      this.io.emit('server:shutdown', { reason: 'programmatic' });
+      this.io.emit("server:shutdown", { reason: "programmatic" });
       await new Promise<void>((resolve) => {
         this.io.close(() => resolve());
       });
@@ -333,7 +484,10 @@ export class ApiGateway {
     const drainTimeout = FORCED_SHUTDOWN_TIMEOUT_MS - 5000;
     await new Promise<void>((resolve) => {
       const checkDrained = () => {
-        if (this.inFlightRequests <= 0 || Date.now() - drainStart > drainTimeout) {
+        if (
+          this.inFlightRequests <= 0 ||
+          Date.now() - drainStart > drainTimeout
+        ) {
           resolve();
           return;
         }
@@ -342,11 +496,37 @@ export class ApiGateway {
       checkDrained();
     });
 
-    // 4. Disconnect services
+    // 4. Flush audit trails, then disconnect services
     try {
       try {
-        const reconciliationScheduler = container.resolve(ReconciliationScheduler);
-        reconciliationScheduler.stop();
+        await shutdownPrivilegedAudit();
+      } catch (error) {
+        logger.error(
+          "Error draining privileged audit tasks",
+          errorContext(error),
+        );
+      }
+
+      try {
+        await shutdownAuthState();
+      } catch (error) {
+        logger.error("Error shutting down auth state", errorContext(error));
+      }
+
+      try {
+        await shutdownHealthCheckResources();
+      } catch (error) {
+        logger.error(
+          "Error shutting down health check resources",
+          errorContext(error),
+        );
+      }
+
+      try {
+        const reconciliationScheduler = container.resolve(
+          ReconciliationScheduler,
+        );
+        await reconciliationScheduler.shutdown();
       } catch {
         // may not be registered
       }
@@ -367,6 +547,17 @@ export class ApiGateway {
         // may not be registered
       }
 
+      await this.shutdownDataServices();
+
+      try {
+        await shutdownRateLimitStores();
+      } catch (error) {
+        logger.error(
+          "Error shutting down rate-limit stores",
+          errorContext(error),
+        );
+      }
+
       try {
         const blockchainService = container.resolve(BlockchainService);
         await blockchainService.disconnect();
@@ -374,10 +565,10 @@ export class ApiGateway {
         // may not be registered
       }
     } catch (error) {
-      logger.error('Error during service disconnection:', error);
+      logger.error("Error during service disconnection", errorContext(error));
     }
 
-    logger.info('Shutdown complete');
+    logger.info("Shutdown complete");
   }
 
   // =========================================================================
@@ -390,7 +581,9 @@ export class ApiGateway {
     const shutdown = async (signal: string) => {
       // Guard against double-shutdown
       if (shutdownInProgress) {
-        logger.warn(`Duplicate ${signal} received — shutdown already in progress`);
+        logger.warn(
+          `Duplicate ${signal} received — shutdown already in progress`,
+        );
         return;
       }
       shutdownInProgress = true;
@@ -403,7 +596,7 @@ export class ApiGateway {
       // 1. Stop accepting new connections
       // -------------------------------------------------------------------
       this.httpServer.close(() => {
-        logger.info('HTTP server closed — no longer accepting connections');
+        logger.info("HTTP server closed — no longer accepting connections");
       });
 
       // -------------------------------------------------------------------
@@ -411,12 +604,12 @@ export class ApiGateway {
       // -------------------------------------------------------------------
       try {
         // Emit a shutdown event so well-behaved clients can reconnect elsewhere
-        this.io.emit('server:shutdown', { reason: signal });
+        this.io.emit("server:shutdown", { reason: signal });
         this.io.close(() => {
-          logger.info('WebSocket server closed');
+          logger.info("WebSocket server closed");
         });
       } catch (err) {
-        logger.error('Error closing WebSocket server:', err);
+        logger.error("Error closing WebSocket server", errorContext(err));
       }
 
       // -------------------------------------------------------------------
@@ -428,7 +621,7 @@ export class ApiGateway {
       await new Promise<void>((resolve) => {
         const checkDrained = () => {
           if (this.inFlightRequests <= 0) {
-            logger.info('All in-flight requests drained');
+            logger.info("All in-flight requests drained");
             resolve();
             return;
           }
@@ -445,14 +638,43 @@ export class ApiGateway {
       });
 
       // -------------------------------------------------------------------
-      // 4. Disconnect backend services
+      // 4. Flush audit trails, then disconnect backend services
       // -------------------------------------------------------------------
       try {
+        try {
+          await shutdownPrivilegedAudit();
+          logger.info("Privileged audit tasks drained");
+        } catch (error) {
+          logger.error(
+            "Error draining privileged audit tasks",
+            errorContext(error),
+          );
+        }
+
+        try {
+          await shutdownAuthState();
+          logger.info("Auth state resources shut down");
+        } catch (error) {
+          logger.error("Error shutting down auth state", errorContext(error));
+        }
+
+        try {
+          await shutdownHealthCheckResources();
+          logger.info("Health check resources shut down");
+        } catch (error) {
+          logger.error(
+            "Error shutting down health check resources",
+            errorContext(error),
+          );
+        }
+
         // Stop reconciliation scheduler first (it depends on cache + blockchain)
         try {
-          const reconciliationScheduler = container.resolve(ReconciliationScheduler);
-          reconciliationScheduler.stop();
-          logger.info('Reconciliation scheduler stopped');
+          const reconciliationScheduler = container.resolve(
+            ReconciliationScheduler,
+          );
+          await reconciliationScheduler.shutdown();
+          logger.info("Reconciliation scheduler stopped");
         } catch {
           // Scheduler may not have been registered if start() failed early
         }
@@ -460,26 +682,31 @@ export class ApiGateway {
         if (config.indexerEnabled) {
           const indexerService = container.resolve(IndexerService);
           await indexerService.shutdown();
-          logger.info('Indexer service shut down');
+          logger.info("Indexer service shut down");
         }
 
         const cacheService = container.resolve(CacheService);
         await cacheService.disconnect();
-        logger.info('Cache service disconnected');
+        logger.info("Cache service disconnected");
+
+        await this.shutdownDataServices(true);
+
+        await shutdownRateLimitStores();
+        logger.info("Rate-limit stores disconnected");
 
         const blockchainService = container.resolve(BlockchainService);
         await blockchainService.disconnect();
-        logger.info('Blockchain service disconnected');
+        logger.info("Blockchain service disconnected");
 
-        logger.info('All services disconnected');
+        logger.info("All services disconnected");
       } catch (error) {
-        logger.error('Error during service disconnection:', error);
+        logger.error("Error during service disconnection", errorContext(error));
       }
 
       // -------------------------------------------------------------------
       // 5. Exit
       // -------------------------------------------------------------------
-      logger.info('Shutdown complete');
+      logger.info("Shutdown complete");
       process.exit(0);
     };
 
@@ -498,18 +725,21 @@ export class ApiGateway {
       }, FORCED_SHUTDOWN_TIMEOUT_MS).unref();
     };
 
-    process.on('SIGTERM', () => forceShutdown('SIGTERM'));
-    process.on('SIGINT', () => forceShutdown('SIGINT'));
+    process.on("SIGTERM", () => forceShutdown("SIGTERM"));
+    process.on("SIGINT", () => forceShutdown("SIGINT"));
 
     // Handle uncaught errors
-    process.on('uncaughtException', (error) => {
-      logger.error('Uncaught Exception:', error);
-      forceShutdown('uncaughtException');
+    process.on("uncaughtException", (error) => {
+      logger.error("Uncaught Exception", errorContext(error));
+      forceShutdown("uncaughtException");
     });
 
-    process.on('unhandledRejection', (reason, promise) => {
-      logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-      forceShutdown('unhandledRejection');
+    process.on("unhandledRejection", (reason, promise) => {
+      logger.error("Unhandled Rejection", {
+        promiseType: promise?.constructor?.name ?? "Promise",
+        ...errorContext(reason),
+      });
+      forceShutdown("unhandledRejection");
     });
   }
 }
