@@ -5,7 +5,7 @@ members = [
 ]
 
 [workspace.dependencies]
-cosmwasm-std = "1.5"
+cosmwasm-std = "3.0"
 cosmwasm-storage = "1.5"
 cosmwasm-schema = "1.5"
 cw-storage-plus = "1.2"
