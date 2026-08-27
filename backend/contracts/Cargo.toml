@@ -11,7 +11,7 @@ cosmwasm-schema = "1.5"
 cw-storage-plus = "1.2"
 cw-utils = "1.0"
 cw2 = "1.1"
-cw20 = "1.1"
+cw20 = "2.0"
 cw721 = "0.18"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 thiserror = "1.0"
