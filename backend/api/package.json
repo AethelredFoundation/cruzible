@@ -75,7 +75,7 @@
     "superjson": "^2.2.0",
     "swagger-ui-express": "^5.0.0",
     "tsyringe": "^4.8.0",
-    "ws": "^8.16.0",
+    "ws": "^8.21.3",
     "zod": "^3.22.4"
   },
   "devDependencies": {
