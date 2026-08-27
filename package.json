@@ -56,7 +56,7 @@
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",
-    "@hookform/resolvers": "^3.3.4",
+    "@hookform/resolvers": "^5.9.1",
     "@tanstack/react-query": "^5.17.9",
     "@wagmi/connectors": "^8.0.4",
     "@walletconnect/ethereum-provider": "^2.23.9",
