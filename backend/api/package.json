@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "@cosmjs/amino": "^0.34.1",
-    "@cosmjs/cosmwasm-stargate": "^0.34.1",
+    "@cosmjs/cosmwasm-stargate": "^0.38.1",
     "@cosmjs/crypto": "^0.34.1",
     "@cosmjs/encoding": "^0.34.1",
     "@cosmjs/math": "^0.34.1",
