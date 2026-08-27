@@ -80,7 +80,7 @@
   },
   "devDependencies": {
     "@next/bundle-analyzer": "^15.5.15",
-    "@next/eslint-plugin-next": "^15.5.15",
+    "@next/eslint-plugin-next": "^16.3.2",
     "@playwright/test": "^1.40.1",
     "@tailwindcss/forms": "^0.5.7",
     "@testing-library/jest-dom": "^6.9.1",
