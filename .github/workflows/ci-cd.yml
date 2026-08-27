@@ -972,7 +972,7 @@ jobs:
             backend/contracts-evm/release-artifacts/SHA256SUMS
 
       - name: Attest canonical EVM release bundle
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: backend/contracts-evm/release-artifacts/*
 
@@ -1004,7 +1004,7 @@ jobs:
         run: bash scripts/verify-audit-artifact-signatures.sh
 
       - name: Attest signed legacy CosmWasm audit artifacts
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: backend/contracts/audit-artifacts/contracts/*
 
