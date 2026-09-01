@@ -127,7 +127,7 @@ jobs:
             -t cruzible-frontend:ci .
 
       - name: Scan frontend container image
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: cruzible-frontend:ci
           format: table
@@ -377,7 +377,7 @@ jobs:
             --tag cruzible-api-migration:ci .
 
       - name: Scan backend API production image
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: cruzible-api:ci
           format: table
@@ -387,7 +387,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Scan backend indexer image
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: cruzible-api-indexer:ci
           format: table
@@ -397,7 +397,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Scan backend migration image
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: cruzible-api-migration:ci
           format: table
@@ -561,7 +561,7 @@ jobs:
             CRUZIBLE_ALLOW_PLAINTEXT_HTTP=${{ vars.RELEASE_CRUZIBLE_ALLOW_PLAINTEXT_HTTP }}
 
       - name: Scan ${{ matrix.name }} release image
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: ${{ matrix.image }}@${{ steps.build.outputs.digest }}
           format: table
